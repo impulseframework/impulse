@@ -14,29 +14,33 @@
 // never read whole, and it reads look-alike characters as letters (4 for a, $ for s) while
 // the passes that reading takes, each costing the square of the length, cost no more than
 // maxL33tWork passes over MaxJudged characters. A password past that holds many different
-// look-alike characters for its length, and is estimated as typed. The library does not read
-// look-alike characters against the person's words, so a password that spells a word of
-// theirs of minLookAlike characters or more with look-alikes standing for some of its letters,
-// beside at least one of its letters typed as itself, is estimated a second time with the word
-// written as the person wrote it, and the lower estimate counts. The reading runs both ways: a
-// look-alike in the password stands for the word's letter (Z@br0w$k! for Zabrowski), and one
-// in the word for the letter typed (Zabrowski for z4br0wski). Finding the words compares each
-// one with the password at each of its first MaxJudged characters, no further than MaxJudged
-// characters each time. One judgment asks the library at most three times: about the password,
-// about it with the person's words written in their letters, and, when it falls short, about
-// the password without the person's details, to name the reason. The list is asked about the
-// whole password, which is hashed in pieces and never copied.
+// look-alike characters for its length, and is estimated as typed. The password is read as
+// typed, one character for each character typed, and in the other ways a person's word may be
+// written in it; the library is asked about each and the lowest estimate counts, so another way
+// of reading a password never makes it stronger. The library does not read look-alike
+// characters against the person's words, so a password that spells a word of theirs of
+// minLookAlike characters or more with look-alikes standing for some of its letters, beside at
+// least one of its letters typed as itself, is also read with the word written as the person
+// wrote it. That reading runs both ways: a look-alike in the password stands for the word's
+// letter (Z@br0w$k! for Zabrowski), and one in the word for the letter typed (Zabrowski for
+// z4br0wski). Finding the words compares each one with the password at each of its first
+// MaxJudged characters, no further than MaxJudged characters each time. The asks about the
+// password as typed, with the person's details and, when it falls short, without them to name
+// the reason, are each within maxL33tCost, and the others within maxL33tCostFurther, at most
+// maxFurtherAsks of them, so one judgment costs no more than three asks at the bound. The list
+// is asked about the whole password, which is hashed in pieces and never copied.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
-// ASCII alone, one character for each character typed but a letter read as two (ß, æ, œ, þ):
-// an accented letter is read as its letter, a dotless ı as i, a letter people also write in
-// plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), and any other character
-// outside ASCII as one stand-in, the same for the same letter, with or without its marks and in
-// either case, throughout one judgment. A vowel sign or tone mark that a script types as a
-// character of its own, as Thai and Hindi do, is a character: it counts toward the password's
-// strength, and a name written with it counts against a password built on it. A point a
-// person may leave off (a Hebrew, Arabic or Syriac point, an Indic nukta) is no character, so
-// a password or a name counts the same with or without its points.
+// ASCII alone: an accented letter is read as its letter, a dotless ı as i, a letter people also
+// write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), and any other
+// character outside ASCII as one stand-in, the same for the same letter, with or without its
+// marks and in either case, throughout one judgment. A letter read as two (ß, æ, œ, þ) is
+// written as its two letters to match a person's word, and counts as one character toward the
+// password's strength: the password as typed has it as its stand-in. A vowel sign or tone mark
+// that a script types as a character of its own, as Thai and Hindi do, is a character: it
+// counts toward the password's strength, and a name written with it counts against a password
+// built on it. A point a person may leave off (a Hebrew, Arabic or Syriac point, an Indic
+// nukta) is no character, so a password or a name counts the same with or without its points.
 package passwordstrength
 
 import (
@@ -74,6 +78,16 @@ const (
 	// maxL33tCost is the most the reading of look-alike characters may cost, in passes times
 	// the square of the length: maxL33tWork passes over MaxJudged characters.
 	maxL33tCost = maxL33tWork * MaxJudged * MaxJudged
+
+	// maxFurtherAsks is the most asks of one judgment past the two about the password as
+	// typed: with the person's details, about the password as spelled and its plain reading;
+	// without them, about the password as spelled.
+	maxFurtherAsks = 8
+
+	// maxL33tCostFurther is the most the reading of look-alike characters may cost in each of
+	// the further asks, so that together they cost no more than one ask about the password as
+	// typed.
+	maxL33tCostFurther = maxL33tCost / maxFurtherAsks
 
 	// maxDetail is how many characters of each of the person's details, trimmed and in NFC,
 	// count against a password.
@@ -180,32 +194,114 @@ func Judge(password string, who Details, minimum int) Judgment {
 	}
 
 	read := newReading()
-	// A letter read as two (ß, æ, œ, þ) makes the reading longer, so it is cut as well.
-	judged := firstRunes(read.of(firstRunes(password, MaxJudged)), MaxJudged)
+	typed, spelled := spellingsOf(password, read)
 	inputs := inputsOf(who, read)
-	bits := estimate(judged, inputs)
-	if plain := plainReading(judged, inputs); plain != judged {
-		bits = min(bits, estimate(plain, inputs))
-	}
+	readings := readingsOf(typed, spelled, inputs)
+	bits := bitsOf(readings, inputs)
 	strength := strengthOf(bits, minimum)
 	if bits >= float64(minimum) {
 		return Judgment{StrongEnough: true, Strength: max(strength, Mark), Reason: ""}
 	}
 
-	// Without inputs the second estimate would answer as the first.
+	// Without inputs the asks without them would answer as the asks with them did.
 	reason := ReasonGuessable
-	if inputs != nil && estimate(judged, nil) >= float64(minimum) {
+	if inputs != nil && reachesWithoutDetails(readings, minimum) {
 		reason = ReasonPersonal
 	}
 
 	return Judgment{StrongEnough: false, Strength: min(strength, Mark-1), Reason: reason}
 }
 
+// spelling says how reading.as writes a letter people also write in plain letters.
+type spelling int
+
+const (
+	// spelledPlain writes each such letter in its plain spelling (ß as ss): the reading of the
+	// person's details.
+	spelledPlain spelling = iota
+
+	// spelledOnce writes one character for each character typed: a letter whose plain spelling
+	// is two letters (ß, æ, œ, þ) is written as its stand-in.
+	spelledOnce
+)
+
+// asked is one reading of the password the library is asked about.
+type asked struct {
+	// text is the reading, in ASCII.
+	text string
+
+	// added is what is added to the library's estimate of text, in bits.
+	added float64
+
+	// bound is the most the library's reading of text's look-alike characters may cost.
+	bound int
+
+	// personal says the reading is made from the person's words, so it is not asked without them.
+	personal bool
+}
+
+// spellingsOf are the two texts password is read as, each cut to MaxJudged characters: typed,
+// one character for each of the password's first MaxJudged characters (spelledOnce), and
+// spelled, the same characters with each letter people also write in plain letters in that
+// spelling, as the person's details are read. typed is read first, so its stand-ins are given
+// in the order the password's characters are typed.
+func spellingsOf(password string, read *reading) (typed, spelled string) {
+	cut := firstRunes(password, MaxJudged)
+	typed = firstRunes(read.as(cut, spelledOnce), MaxJudged)
+	spelled = firstRunes(read.of(cut), MaxJudged)
+
+	return typed, spelled
+}
+
+// readingsOf are the readings of the password the library is asked about, in this order, a text
+// already among them left out: typed, within maxL33tCost; spelled; and spelled with the
+// person's words it spells with look-alike characters written as the words are
+// (plainReading), personal. Every reading after typed is within maxL33tCostFurther.
+func readingsOf(typed, spelled string, inputs []string) []asked {
+	readings := []asked{{text: typed, added: 0, bound: maxL33tCost, personal: false}}
+	add := func(text string, personal bool) {
+		for _, r := range readings {
+			if r.text == text {
+				return
+			}
+		}
+		readings = append(readings, asked{text: text, added: 0, bound: maxL33tCostFurther, personal: personal})
+	}
+	add(spelled, false)
+	add(plainReading(spelled, inputs), true)
+
+	return readings
+}
+
+// bitsOf is the lowest of the library's estimates of the readings with inputs, each with what
+// the reading adds: another way of reading the password never makes it stronger.
+func bitsOf(readings []asked, inputs []string) float64 {
+	bits := math.Inf(1)
+	for _, r := range readings {
+		bits = min(bits, estimate(r.text, inputs, r.bound)+r.added)
+	}
+
+	return bits
+}
+
+// reachesWithoutDetails says whether every reading not made from the person's words reaches
+// minimum when the library is asked without the person's details; it stops at the first that
+// does not.
+func reachesWithoutDetails(readings []asked, minimum int) bool {
+	for _, r := range readings {
+		if !r.personal && estimate(r.text, nil, r.bound)+r.added < float64(minimum) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // estimate is the library's estimate of how hard judged is to guess, in bits, with inputs
 // among the words an attacker tries first. When reading judged's look-alike characters as
-// letters would cost more than maxL33tCost, the library is asked without that reading.
-func estimate(judged string, inputs []string) float64 {
-	if !readsLookAlikes(judged) {
+// letters would cost more than bound, the library is asked without that reading.
+func estimate(judged string, inputs []string, bound int) float64 {
+	if !readsLookAlikes(judged, bound) {
 		return zxcvbn.PasswordStrength(judged, inputs, matching.FilterL33tMatcher).Entropy
 	}
 
@@ -214,11 +310,11 @@ func estimate(judged string, inputs []string) float64 {
 
 // readsLookAlikes says whether the estimate reads judged's look-alike characters as letters:
 // whether the passes that reading takes, times the square of judged's length, are within
-// maxL33tCost. judged is in ASCII, so its length in bytes is its length in characters.
-func readsLookAlikes(judged string) bool {
+// bound. judged is in ASCII, so its length in bytes is its length in characters.
+func readsLookAlikes(judged string, bound int) bool {
 	n := len(judged)
 
-	return l33tWork(judged)*n*n <= maxL33tCost
+	return l33tWork(judged)*n*n <= bound
 }
 
 // strengthOf places bits on the scale from 0 to Full, with minimum at Mark.
@@ -410,10 +506,9 @@ func notLetterDigitOrMark(r rune) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r)
 }
 
-// reading makes the text the library is asked about from what a person typed, in ASCII alone
-// and one character for each character typed but a letter read as two (ß, æ, œ, þ). One reading serves one
-// judgment, the password first and then the person's details, so a character outside ASCII
-// has one stand-in throughout.
+// reading makes the texts the library is asked about from what a person typed, in ASCII alone.
+// One reading serves one judgment, the password first and then the person's details, so a
+// character outside ASCII has one stand-in throughout.
 type reading struct {
 	standIn map[rune]byte
 }
@@ -423,14 +518,20 @@ func newReading() *reading {
 	return &reading{standIn: map[rune]byte{}}
 }
 
-// of is typed in NFC as the library is to read it: a character in ASCII as it is; outside
-// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a letter
-// people also write in plain letters as that spelling (spelledInASCII), a letter whose capital
-// is in ASCII (the dotless ı) as that letter in lower case, a mark NFC left on its own dropped
-// when it is one a person may leave off (leftOff), a chandrabindu as an anusvara, and any
-// other character as its stand-in, a vowel sign or tone mark that a script types as a
-// character of its own (Thai, Hindi) among them.
+// of is typed as the person's details are read: as(typed, spelledPlain).
 func (r *reading) of(typed string) string {
+	return r.as(typed, spelledPlain)
+}
+
+// as is typed in NFC as the library is to read it: a character in ASCII as it is; outside
+// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a letter
+// people also write in plain letters as that spelling (spelledInASCII) or, under spelledOnce
+// and when that spelling is two letters, as its stand-in, a letter whose capital is in ASCII
+// (the dotless ı) as that letter in lower case, a mark NFC left on its own dropped when it is
+// one a person may leave off (leftOff), a chandrabindu as an anusvara, and any other character
+// as its stand-in, a vowel sign or tone mark that a script types as a character of its own
+// (Thai, Hindi) among them.
+func (r *reading) as(typed string, how spelling) string {
 	var text strings.Builder
 	for _, c := range norm.NFC.String(typed) {
 		if c < utf8.RuneSelf {
@@ -444,7 +545,12 @@ func (r *reading) of(typed string) string {
 			continue
 		}
 		if spelled, ok := spelledInASCII[c]; ok {
-			text.WriteString(spelled)
+			if how == spelledOnce && len(spelled) > 1 {
+				// A letter read as two counts once toward the strength.
+				text.WriteByte(r.standInOf(c))
+			} else {
+				text.WriteString(spelled)
+			}
 
 			continue
 		}

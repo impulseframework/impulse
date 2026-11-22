@@ -232,7 +232,7 @@ func TestJudge_lookAlikesThatSpellNoDetailAreJudgedAsTyped(t *testing.T) {
 	if plain := plainReading(judged, inputs); plain != judged {
 		t.Errorf("plainReading(%q, %q) = %q, want it as typed: no word of the person's is in it", judged, inputs, plain)
 	}
-	want := strengthOf(estimate(judged, inputs), minimum)
+	want := strengthOf(estimate(judged, inputs, maxL33tCost), minimum)
 	if got := Judge(password, who, minimum); !got.StrongEnough || got.Strength != want {
 		t.Errorf("Judge(%q, %+v) = %+v, want strong enough at the strength %d the library gives the password as typed", password, who, got, want)
 	}
@@ -272,13 +272,16 @@ func TestJudge_onlyTheFirstCharactersAreJudged(t *testing.T) {
 	}
 }
 
-func TestJudge_theReadingIsCutToTheFirstCharacters(t *testing.T) {
+func TestJudge_aLetterReadAsTwoCountsOnce(t *testing.T) {
 	t.Parallel()
 
-	// A ß reads as two characters, so 64 of them read as 128: only the first 64 are judged.
-	long, short := strings.Repeat("ß", MaxJudged), strings.Repeat("ß", MaxJudged/2)
-	if got, want := Judge(long, Details{}, 30), Judge(short, Details{}, 30); got != want {
-		t.Errorf("Judge(%d ß) = %+v, want %+v as for %d ß: both are %d s to the library", MaxJudged, got, want, MaxJudged/2, MaxJudged)
+	other := Details{Username: "someoneelse", Name: "Other Person", Email: "other@example.com"}
+	for _, password := range []string{"æææææ", "ææææææææææ", "œœœœœœœœœœ", "þþþþþþþþþþ", "ææææ1", "ß1ß1ß1ß"} {
+		for _, who := range []Details{{}, other} {
+			if got := Judge(password, who, 30); got.StrongEnough || got.Reason != ReasonGuessable {
+				t.Errorf("Judge(%q, %+v) = %+v, want it short for %q: each letter is one key", password, who, got, ReasonGuessable)
+			}
+		}
 	}
 }
 
@@ -322,7 +325,7 @@ func TestJudge_aTextPastTheBoundIsEstimatedAsTyped(t *testing.T) {
 
 	// Many different look-alike characters for its length: 21 characters, 4,608 ways.
 	const password, minimum = "p@$$w0rd4(5{[<69!|1+7", 100
-	if readsLookAlikes(password) {
+	if readsLookAlikes(password, maxL33tCost) {
 		t.Fatalf("l33tWork(%q) = %d at %d characters is within the bound: the case proves nothing", password, l33tWork(password), len(password))
 	}
 	filtered := strengthOf(zxcvbn.PasswordStrength(password, nil, matching.FilterL33tMatcher).Entropy, minimum)
@@ -339,7 +342,7 @@ func TestJudge_calibrationIsUnderTheLookAlikeBound(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range calibration {
-		if !readsLookAlikes(tt.password) {
+		if !readsLookAlikes(tt.password, maxL33tCost) {
 			t.Errorf("l33tWork(%q) = %d at %d characters is past the bound, want it within, so the table is judged with the look-alike reading", tt.password, l33tWork(tt.password), len(tt.password))
 		}
 	}
@@ -480,6 +483,86 @@ func TestReading_of(t *testing.T) {
 	for _, tt := range tests {
 		if got := newReading().of(tt.typed); got != tt.want {
 			t.Errorf("of(%+q) = %q, want %q", tt.typed, got, tt.want)
+		}
+	}
+}
+
+func TestReading_as(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typed string
+		how   spelling
+		want  string
+	}{
+		{typed: "Strauß", how: spelledOnce, want: "Strau" + standIns[:1]},
+		{typed: "STRAUẞ", how: spelledOnce, want: "STRAU" + standIns[:1]},
+		{typed: "ßẞ", how: spelledOnce, want: standIns[:1] + standIns[:1]},
+		{typed: "æœþ", how: spelledOnce, want: standIns[:3]},
+		{typed: "Łukasz Søren", how: spelledOnce, want: "Lukasz Soren"},
+		{typed: "Strauß", how: spelledPlain, want: "Strauss"},
+	}
+	for _, tt := range tests {
+		if got := newReading().as(tt.typed, tt.how); got != tt.want {
+			t.Errorf("as(%q, %d) = %q, want %q", tt.typed, tt.how, got, tt.want)
+		}
+	}
+}
+
+func TestSpellingsOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		password string
+		typed    string
+		spelled  string
+	}{
+		{password: "vexillumtrek", typed: "vexillumtrek", spelled: "vexillumtrek"},
+		{password: "Großkreutz2077", typed: "Gro" + standIns[:1] + "kreutz2077", spelled: "Grosskreutz2077"},
+		{password: strings.Repeat("ß", MaxJudged), typed: strings.Repeat(standIns[:1], MaxJudged), spelled: strings.Repeat("s", MaxJudged)},
+		{password: strings.Repeat("a", MaxJudged) + "ß", typed: strings.Repeat("a", MaxJudged), spelled: strings.Repeat("a", MaxJudged)},
+	}
+	for _, tt := range tests {
+		typed, spelled := spellingsOf(tt.password, newReading())
+		if typed != tt.typed || spelled != tt.spelled {
+			t.Errorf("spellingsOf(%q) = %q, %q, want %q, %q", tt.password, typed, spelled, tt.typed, tt.spelled)
+		}
+	}
+}
+
+func TestReadingsOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typed   string
+		spelled string
+		inputs  []string
+		want    []asked
+	}{
+		{
+			typed: "vexillumtrek", spelled: "vexillumtrek",
+			want: []asked{{text: "vexillumtrek", bound: maxL33tCost}},
+		},
+		{
+			typed: "Gro~kreutz2077", spelled: "Grosskreutz2077",
+			want: []asked{{text: "Gro~kreutz2077", bound: maxL33tCost}, {text: "Grosskreutz2077", bound: maxL33tCostFurther}},
+		},
+		{
+			typed: "Z@br0w$k!2077", spelled: "Z@br0w$k!2077", inputs: []string{"Zabrowski"},
+			want: []asked{{text: "Z@br0w$k!2077", bound: maxL33tCost}, {text: "Zabrowski2077", bound: maxL33tCostFurther, personal: true}},
+		},
+		{
+			typed: "Gr0~kreutz2077", spelled: "Gr0sskreutz2077", inputs: []string{"Grosskreutz"},
+			want: []asked{
+				{text: "Gr0~kreutz2077", bound: maxL33tCost},
+				{text: "Gr0sskreutz2077", bound: maxL33tCostFurther},
+				{text: "Grosskreutz2077", bound: maxL33tCostFurther, personal: true},
+			},
+		},
+	}
+	for _, tt := range tests {
+		if got := readingsOf(tt.typed, tt.spelled, tt.inputs); !slices.Equal(got, tt.want) {
+			t.Errorf("readingsOf(%q, %q, %q) = %+v, want %+v", tt.typed, tt.spelled, tt.inputs, got, tt.want)
 		}
 	}
 }
