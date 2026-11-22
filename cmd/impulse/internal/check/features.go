@@ -367,15 +367,34 @@ func migrationStatement(a *app.App, rel, table string) (string, error) {
 	return "", errors.Newf("%s: no CREATE TABLE %s statement could be read, though the file names the table", rel, table)
 }
 
-// stripSQLComments drops the -- comments from a statement's text.
+// stripSQLComments drops the comments from a statement's text: a /* */ comment, on one
+// line or over several, and a -- comment to the end of its line. Each is dropped from
+// where it opens, so a -- inside a /* */ comment, and a /* inside a -- comment, open
+// nothing. A /* */ comment leaves a space and the line breaks it held; one never closed
+// runs to the end of the text.
 func stripSQLComments(stmt string) string {
 	var b strings.Builder
-	for line := range strings.SplitSeq(stmt, "\n") {
-		if i := strings.Index(line, "--"); i >= 0 {
-			line = line[:i]
+	for rest := stmt; rest != ""; {
+		block, line := strings.Index(rest, "/*"), strings.Index(rest, "--")
+		switch {
+		case block < 0 && line < 0:
+			b.WriteString(rest)
+			rest = ""
+		case block >= 0 && (line < 0 || block < line):
+			b.WriteString(rest[:block])
+			comment, after, _ := strings.Cut(rest[block+len("/*"):], "*/")
+			b.WriteString(" ")
+			b.WriteString(strings.Repeat("\n", strings.Count(comment, "\n")))
+			rest = after
+		default:
+			b.WriteString(rest[:line])
+			rest = rest[line:]
+			if end := strings.Index(rest, "\n"); end >= 0 {
+				rest = rest[end:]
+			} else {
+				rest = ""
+			}
 		}
-		b.WriteString(line)
-		b.WriteString("\n")
 	}
 
 	return b.String()

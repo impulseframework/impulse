@@ -135,7 +135,7 @@ func TestChangeHistory(t *testing.T) {
 		},
 		{
 			name: "the column named only in a comment and inside another name",
-			files: application(strings.Replace(changeHistoryMigration, changeHistoryTenantLine, "  TenantIdentity STRING(MAX),\n  -- TenantId comes later.\n", 1), map[string]string{
+			files: application(strings.Replace(changeHistoryMigration, changeHistoryTenantLine, "  TenantIdentity STRING(MAX),\n  -- TenantId comes later.\n  /* TenantId STRING(MAX) NOT NULL,\n     once the records are filled. */\n", 1), map[string]string{
 				"schema/migrations/000007_ChangeTenant.up.sql": "-- ALTER TABLE DataChangeEvents ADD COLUMN TenantId STRING(MAX) NOT NULL;\nSELECT 1;\n",
 			}),
 			answers:    library,
