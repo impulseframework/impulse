@@ -316,7 +316,10 @@ type UserManager interface {
 	// such roles with no exact match is an error, never a guess. A
 	// directory names roles without regard to case (a Google group is an
 	// email address), so the name it asserts resolves here to the spelling
-	// the role file or AddRole gave the role.
+	// the role file or AddRole gave the role. Case is the case of ASCII
+	// letters alone: a letter from outside ASCII matches only itself, so a
+	// name written with a look-alike letter (the Kelvin sign for k, the long
+	// s for s) is no role's.
 	ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error)
 
 	// Roles returns the roles that exist in scope, sorted by name, each with

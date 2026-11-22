@@ -145,6 +145,7 @@ func Test_userManager_defaults_ResolveRole(t *testing.T) {
 		{name: "a custom role held in every domain resolves from a mixed-case name in one domain", scope: tenant2Policy, role: "eVERYwhere", want: "Everywhere", wantFound: true},
 		{name: "a custom role held in the global partition resolves from its lowercase name", scope: globalPolicy, role: "gob", want: "Gob", wantFound: true},
 		{name: "a lowercase name of a role held in another domain only does not resolve", scope: tenant2Policy, role: "zed"},
+		{name: "a global default's name written with the long s finds no role", scope: globalPolicy, role: "ſteward"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

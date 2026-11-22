@@ -728,7 +728,10 @@ under a name, matched without regard to case, and returns it in the spelling the
 store holds: in one domain a domain default role, a custom role held in that
 domain, or a custom role held in every domain. The exact spelling wins when it
 exists; otherwise the one role that matches case-insensitively, and two such roles
-with no exact match is an error. It is how a name from outside the application,
+with no exact match is an error. Only the case of ASCII letters is set aside: a
+letter from outside ASCII matches only itself, so a name written with a
+look-alike letter (the Kelvin sign for `k`, the long s for `s`) finds no role.
+It is how a name from outside the application,
 a directory's group (a Google group is an email address, so its name is
 lowercase), finds the role the role file spelled. A custom role held in one
 domain alone cannot be assigned in every domain.

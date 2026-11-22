@@ -860,7 +860,10 @@ func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role access
 // every domain. The exact spelling wins when it exists; otherwise the one role
 // that matches case-insensitively; two such roles with no exact match is an
 // error, never a guess (AddRole and the role file refuse the pair, so only a
-// store written before this rule can hold one).
+// store written before this rule can hold one). Case is the case of ASCII
+// letters alone: a letter from outside ASCII matches only itself, so a name
+// written with a look-alike letter (the Kelvin sign for k, the long s for s) is
+// no role's.
 func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -874,7 +877,7 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 		if role.Name == accesstypes.Role(name) {
 			return role.Name, true, nil
 		}
-		if strings.EqualFold(string(role.Name), name) {
+		if sameRoleName(string(role.Name), name) {
 			matches = append(matches, role.Name)
 		}
 	}
