@@ -316,10 +316,10 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 
 // TestClient_CheckUser_conditionFolding pins the scope-wide folding path: a
 // row-free condition on a scope-wide grant folds against the request's
-// Environment to a definite Granted or Denied, an absent referenced
-// attribute is a check error, and a row-free condition needing data (a
-// subject attribute) is a check error too — this path has nowhere to
-// evaluate it.
+// Environment to a definite Granted or Denied, and an absent referenced
+// attribute is a check error. A condition that compares the time to a subject
+// value is left out when the policy loads, since this path has nowhere to
+// compare it, so the check denies as for a person with no grant.
 func TestClient_CheckUser_conditionFolding(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -377,10 +377,10 @@ func TestClient_CheckUser_conditionFolding(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "condition needing data no scope-wide check can reach is a check error",
-			env:     accesstypes.EnvironmentAt(window),
-			perm:    "Export",
-			wantErr: true,
+			name: "a condition that compares the time to a subject value is left out at the load, so the check denies",
+			env:  accesstypes.EnvironmentAt(window),
+			perm: "Export",
+			want: accesstypes.Denied(),
 		},
 	}
 
@@ -616,9 +616,10 @@ func TestClient_CheckRoleResources_conditionalDecision(t *testing.T) {
 
 // TestClient_CheckRole_conditionFolding pins the scope-wide folding path for
 // a role: a row-free condition folds against the request's Environment to a
-// definite Granted or Denied, an absent referenced attribute is a check
-// error, and a condition needing data — a subject attribute — is a check
-// error too. The facts of a role check carry the instant and nothing else.
+// definite Granted or Denied, and an absent referenced attribute is a check
+// error. A condition that compares the time to a subject value is left out
+// when the policy loads, so the check denies. The facts of a role check carry
+// the instant and nothing else.
 func TestClient_CheckRole_conditionFolding(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -673,10 +674,10 @@ func TestClient_CheckRole_conditionFolding(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "condition needing data no scope-wide check can reach is a check error",
-			env:     accesstypes.EnvironmentAt(window),
-			perm:    "Export",
-			wantErr: true,
+			name: "a condition that compares the time to a subject value is left out at the load, so the check denies",
+			env:  accesstypes.EnvironmentAt(window),
+			perm: "Export",
+			want: accesstypes.Denied(),
 		},
 	}
 

@@ -6,7 +6,8 @@ import (
 )
 
 // Resource represents a resource in the authorization system. A Resource is
-// always data — any string is a legal resource name. A permission held with
+// always data: a resource's name, or one of its fields' as Resource.field, so a
+// resource's own name holds no dot. A permission held with
 // no resource attachment (scope-wide) is expressed structurally by the APIs
 // that grant and check it, never by a distinguished Resource value.
 type Resource string

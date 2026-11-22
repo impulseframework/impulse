@@ -66,7 +66,9 @@ type Client struct {
 // accesstypes.PolicyScope; neither is ever a distinguished value.
 //
 // New fails when the role file does not parse or does not validate against
-// the collection: a release whose default roles are wrong does not start.
+// the collection: a release whose default roles are wrong does not start. A
+// refusal of New's own does not name New: the caller that wraps its error
+// names it.
 func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
 	if IsNilCollection(collection) {
 		return nil, errors.New("the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)")
@@ -95,18 +97,18 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
 	} else if err := validateEngineAuth(collection); err != nil {
-		return nil, errors.Wrap(err, "access.New()")
+		return nil, err
 	}
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,
 	// before the file's grants are compiled.
 	if _, err := superAdministratorRole(collection, options.superMethods); err != nil {
-		return nil, errors.Wrap(err, "access.New()")
+		return nil, err
 	}
 	defaults, err := compileDefaultRoles(collection, config, options.superMethods, options.auth)
 	if err != nil {
 		if !options.roleFileSet {
-			return nil, errors.Wrap(err, "access.New()")
+			return nil, err
 		}
 
 		return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file does not validate")
@@ -138,9 +140,11 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 // setting: this is the one place that decides what a nil collection is.
 //
 // A struct value that wraps a nil collection is not reported: nothing short of
-// asking it a question tells it from a collection. New asks its first question
-// of the collection, the actions it lists, before it reads the role file or the
-// store, so an application that hands one over stops when it starts.
+// asking it a question tells it from a collection. New asks the collection its
+// first question once the role file is parsed, before it compiles the file's
+// grants or opens the store, and that call panics on such a value: an
+// application that hands one over stops when it starts, with a panic and not
+// with New's refusal.
 func IsNilCollection(collection PermissionCollection) bool {
 	if collection == nil {
 		return true
@@ -214,12 +218,12 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 // request). The engine folds condition facts against it at check time; a
 // condition referencing an attribute the Environment does not carry is a
 // check error, never a silent allow or deny. The answer here is always
-// Granted or Denied: a scope-wide grant carries only row-free conditions
-// (a row-referencing one is left out at snapshot load and reported as a
-// SkippedGrant — no row exists for it to see), and row-free conditions fold
-// to a definite answer. A condition folding leaves unsettled — a
-// subject-attribute reference, which is data only the database can compare —
-// is a check error too: there is no place to evaluate it on this path.
+// Granted or Denied: a scope-wide grant carries only conditions about the time
+// of the request, which fold to a definite answer. A stored one whose
+// condition no scope-wide check could settle (it reads a row or a subject
+// value, or its time is not one the check can read) is left out at snapshot
+// load and reported as a SkippedGrant, so it gives nobody the permission and
+// fails no other grant.
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"
@@ -310,10 +314,13 @@ func environmentFacts(env accesstypes.Environment) condition.Facts {
 }
 
 // settleScopeWide translates a scope-wide engine decision into the public
-// Decision: granted and denied pass through, and conditional coverage —
-// always row-free, enforced at snapshot load — folds against the facts to a
-// definite answer. A condition folding leaves unsettled needs data no
-// scope-wide check can reach, and is an error rather than a guess.
+// Decision: granted and denied pass through, and conditional coverage folds
+// against the facts to a definite answer. The snapshot load keeps only
+// conditions a scope-wide check can settle (grantRule.unusable), so what can
+// still fail here is the request's: a fact the condition reads and the
+// environment does not carry, which is an error rather than a guess. A
+// condition left unsettled is an error the same way; no loaded grant brings
+// one.
 func settleScopeWide(decision resourceDecision, facts condition.Facts) (accesstypes.Decision, error) {
 	switch {
 	case decision.granted:
@@ -345,8 +352,8 @@ func settleScopeWide(decision resourceDecision, facts condition.Facts) (accessty
 //
 // The Environment and scope semantics are CheckUser's. A role has no identity
 // of its own, so the folding facts carry the request's instant and nothing
-// else; a scope-wide condition that needs a subject is a check error here
-// exactly as it is for a user.
+// else; a stored scope-wide grant whose condition needs a subject is left out
+// at snapshot load, for a role exactly as for a user.
 func (c *Client) CheckRole(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

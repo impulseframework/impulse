@@ -127,7 +127,10 @@ type ManualRegistration struct {
 	// for a tenant, by hand in both or by hand under the name of a generated one.
 	Scope      accesstypes.PermissionScope
 	Permission accesstypes.Permission
-	Resource   accesstypes.Resource
+	// Resource is the name the permission is registered on. It holds no dot, which
+	// separates a resource from one of its fields: the Resource Generator and the
+	// collection refuse a name with one.
+	Resource accesstypes.Resource
 	// Outlets names the router outlets the hand-written route is mounted under, as
 	// @outlet does for a generated one. Empty means the default outlet only. A
 	// TypeScript target filtered to an outlet (ForOutlet) emits the registration's
@@ -531,6 +534,9 @@ func newGeneratedCollection() *GeneratedCollection {
 // NewGeneratedCollection validates data and constructs the collection. It rejects
 // duplicate resources, duplicate or null permissions, and duplicate tags, so invalid
 // generated data fails at startup rather than surfacing as wrong permission decisions.
+// It refuses a name listed in both scopes: the collection finds a resource's scope by
+// its name alone (Scope), so such a name was answered with either scope from one call
+// to the next.
 func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	g := newGeneratedCollection()
 
@@ -553,25 +559,31 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	}
 	slices.Sort(g.auths)
 
-	type resourceKey struct {
-		scope accesstypes.PermissionScope
-		name  accesstypes.Resource
-	}
-	seen := make(map[resourceKey]struct{}, len(data.Resources))
+	scopes := make(map[accesstypes.Resource]accesstypes.PermissionScope, len(data.Resources))
 
 	for i := range data.Resources {
 		res := &data.Resources[i]
 		if res.Name == "" {
 			return nil, errors.New("resource with empty name")
 		}
+		if err := refuseDottedResourceName(res.Name); err != nil {
+			return nil, err
+		}
 		if res.Scope == "" {
 			return nil, errors.Newf("resource %q has an empty permission scope", res.Name)
 		}
-		key := resourceKey{scope: res.Scope, name: res.Name}
-		if _, ok := seen[key]; ok {
-			return nil, errors.Newf("duplicate resource %q in scope %q", res.Name, res.Scope)
+		if earlier, ok := scopes[res.Name]; ok {
+			if earlier == res.Scope {
+				return nil, errors.Newf("duplicate resource %q in scope %q", res.Name, res.Scope)
+			}
+
+			return nil, errors.Newf(
+				"resource %q is listed in the scope %q and in the scope %q: a name is of one scope, which a role's grant and a check find by the name alone. "+
+					"List it in one scope, or give one of the two a name of its own",
+				res.Name, earlier, res.Scope,
+			)
 		}
-		seen[key] = struct{}{}
+		scopes[res.Name] = res.Scope
 
 		for _, perm := range res.Permissions {
 			if perm == accesstypes.NullPermission {
@@ -605,11 +617,6 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 		})
 
 		if err := g.addResourceDeclarations(res); err != nil {
-			return nil, err
-		}
-	}
-	for i := range data.Resources {
-		if err := g.refuseClassFromOtherScope(&data.Resources[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -757,33 +764,6 @@ func (g *GeneratedCollection) addWriteClasses(res *CollectionResource) error {
 			}
 		}
 		g.setWriteClasses(res.Scope, res.Name, write.Permission, write.Classes)
-	}
-
-	return nil
-}
-
-// refuseClassFromOtherScope refuses a name that registers a permission other than
-// Execute in one scope and carries a class in the other. One CollectionResource that
-// does both is refused where it is read (addActionDeclarations); here the two are two
-// entries of one name. The masked check reads an action's classes by its name whichever
-// scope registers it, so the class would ride the record's permission with the
-// action's.
-func (g *GeneratedCollection) refuseClassFromOtherScope(res *CollectionResource) error {
-	if !slices.ContainsFunc(res.Permissions, func(permission accesstypes.Permission) bool {
-		return permission != accesstypes.Execute
-	}) {
-		return nil
-	}
-	for _, scope := range scopeVocabulary {
-		if classes := g.classes[scope][res.Name]; len(classes) > 0 {
-			return errors.Newf(
-				"resource %q registers %v in the scope %q and carries the classes %v in the scope %q: a class is carried by an action alone, "+
-					"a name that registers Execute and nothing else in either scope. "+
-					"A record's writes are given a class by the generator alone, where the record decides what a person may do; "+
-					"any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
-				res.Name, res.Permissions, res.Scope, classes, scope,
-			)
-		}
 	}
 
 	return nil
@@ -1526,7 +1506,27 @@ func (g *GeneratedCollection) Data() CollectionData {
 	return collectionDataFrom(g)
 }
 
+// refuseDottedResourceName refuses a resource's name that holds a dot: a dot separates
+// a resource from one of its fields (accesstypes.Resource.ResourceAndTag), so the name
+// would be read as a field of another resource and would answer for it. Collection data
+// and each of the builder's registrations are held to it.
+func refuseDottedResourceName(res accesstypes.Resource) error {
+	if !strings.ContainsRune(string(res), '.') {
+		return nil
+	}
+
+	return errors.Newf(
+		"resource %q: a resource's name holds no dot. "+
+			"A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. "+
+			"Give the resource a name without a dot; a field is listed with its resource",
+		res,
+	)
+}
+
 func (g *GeneratedCollection) addResource(allowDuplicateRegistration bool, scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) error {
+	if err := refuseDottedResourceName(res); err != nil {
+		return err
+	}
 	if !allowDuplicateRegistration {
 		if ok := slices.Contains(g.resourceStore[scope][res], permission); ok {
 			return errors.Newf("found existing entry under resource: %s and permission: %s", res, permission)
@@ -1548,6 +1548,9 @@ func (g *GeneratedCollection) addResource(allowDuplicateRegistration bool, scope
 // from already-canonicalized CollectionData directly instead: its input is already
 // deduplicated per resource, so it validates rather than merges.
 func (g *GeneratedCollection) addResourceSet(scope accesstypes.PermissionScope, res accesstypes.Resource, perms []accesstypes.Permission, tags accesstypes.TagPermissions, immutableFields map[accesstypes.Tag]struct{}) error {
+	if err := refuseDottedResourceName(res); err != nil {
+		return err
+	}
 	for _, perm := range perms {
 		if err := g.addResource(false, scope, perm, res); err != nil {
 			return err
