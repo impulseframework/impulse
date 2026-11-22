@@ -141,9 +141,12 @@ func (d *QueryDecoder[Resource, Request]) visibleFilterFields(hidden map[accesst
 	return visible
 }
 
-// visibleNames returns the name fields a request may name: those whose id field
-// the request type carries and no flag hides. A name follows its id, so a name
-// beside a hidden id is unknown as the id is.
+// visibleNames returns the name fields whose id field the request type carries,
+// less those beside an id the hidden set holds. A name follows its id, so with the
+// request's hidden set it returns the names a request may name, and a name beside
+// a hidden id is unknown as the id is. With no hidden set it returns every name the
+// query set holds, a name beside a hidden id among them, so a declared order by it
+// orders by it.
 func (d *QueryDecoder[Resource, Request]) visibleNames(hidden map[accesstypes.Field]struct{}) []requestName {
 	fields := d.requestFieldMapper.Fields()
 	visible := make([]requestName, 0, len(d.names))
@@ -396,7 +399,7 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 	qSet.requestableFields = d.visibleFields()
 	qSet.collection = d.collection
 	qSet.jsonNames = d.requestFieldMapper.JSONNames()
-	qSet.names = d.visibleNames(hidden)
+	qSet.names = d.visibleNames(nil)
 	qSet.SetFilterParser(parsedQuery.FilterParser)
 	qSet.filterFields = parsedQuery.FilterFields
 	qSet.searchBox = parsedQuery.SearchBox

@@ -22,14 +22,16 @@ import (
 
 // QuerySet represents a query for a resource, including fields, keys, filters, and permissions.
 type QuerySet[Resource Resourcer] struct {
-	// names are the name fields a request may name (the decoder's, less the
-	// hidden): beside an id field, the name of the row it points to, which the
-	// statement looks up (name_lookup.go). shownNames are those the query
-	// returns: the ones the request's columns named, or the name beside every
-	// id a request that named no columns returns. nameGrants are the decisions
-	// on the grant each name in play takes beside its id's (checkNameGrants),
-	// by name field; nil until they are asked. closedNames are the names of the
-	// declared order whose id the person may not read (closeOrderedNames).
+	// names are the decoder's name fields whose id the request type carries: beside
+	// an id field, the name of the row it points to, which the statement looks up
+	// (name_lookup.go). A name beside an id a flag hides is held too, so the
+	// declared order can order by it; no request may name it (nameFieldName) and no
+	// row carries it, since its id is never returned. shownNames are the names the
+	// query returns: the ones the request's columns named, or the name beside every
+	// id a request that named no columns returns. nameGrants are the decisions on
+	// the grant each name in play takes beside its id's (checkNameGrants), by name
+	// field; nil until they are asked. closedNames are the names of the declared
+	// order whose id the person may not read (closeOrderedNames).
 	names       []requestName
 	shownNames  []accesstypes.Field
 	nameGrants  map[accesstypes.Field]accesstypes.Decision

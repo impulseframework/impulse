@@ -25,8 +25,9 @@ type nameFielder interface {
 	NameFields() []NameField
 }
 
-// requestName is one name field a request may name: the resource's description
-// of the lookup, and the name the wire calls the field by.
+// requestName is one name field of the request type whose id field the request
+// type carries: the resource's description of the lookup, and the name the wire
+// calls the field by. A request may name it only while no flag hides its id.
 type requestName struct {
 	NameField
 
@@ -80,7 +81,9 @@ func requestNames[Resource Resourcer](reqType reflect.Type) ([]requestName, erro
 	return names, nil
 }
 
-// requestName finds a name field the request may name by its Go field name.
+// requestName finds one of the query set's name fields by its Go field name: a
+// name a request may name, or one beside an id a flag hides, which only the
+// declared order can bring in.
 func (q *QuerySet[Resource]) requestName(field accesstypes.Field) (*requestName, bool) {
 	for i := range q.names {
 		if q.names[i].Field == field {
@@ -131,7 +134,9 @@ func (q *QuerySet[Resource]) nameGrantScope(name *NameField) accesstypes.Scope {
 
 // namesInPlay returns the name fields a request brings into play, each once:
 // those its columns named, those it orders by (its sort, or the declared order),
-// and, where it named no columns, every name it may name.
+// and, where it named no columns, every name beside an id the request may be
+// given. A name beside an id a flag hides can never be shown, so it is in play
+// only where the order names it.
 func (q *QuerySet[Resource]) namesInPlay() []accesstypes.Field {
 	fields := slices.Clone(q.shownNames)
 	for _, field := range q.orderedNames() {
@@ -141,7 +146,7 @@ func (q *QuerySet[Resource]) namesInPlay() []accesstypes.Field {
 	}
 	if len(q.fields) == 0 && len(q.shownNames) == 0 && q.returnAccessibleFields {
 		for i := range q.names {
-			if !slices.Contains(fields, q.names[i].Field) {
+			if q.requestable(q.names[i].Key) && !slices.Contains(fields, q.names[i].Field) {
 				fields = append(fields, q.names[i].Field)
 			}
 		}

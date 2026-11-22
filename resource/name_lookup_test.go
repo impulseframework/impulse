@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // lookupPass is a tenant's resource whose rows point to a squadron, a tenant's
@@ -296,4 +297,133 @@ func TestNewQueryDecoder_undescribedName(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("NewQueryDecoder() error = %v, want it to contain %q", err, want)
 	}
+}
+
+// flaggedPass is a resource whose rows point to a squadron by an id a feature flag
+// hides, with the squadron's name beside it.
+type flaggedPass struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+}
+
+// Resource names the resource in grants and routes.
+func (flaggedPass) Resource() accesstypes.Resource {
+	return "FlaggedPasses"
+}
+
+// NameFields describes the name beside the flagged id as the generator writes it.
+func (flaggedPass) NameFields() []NameField {
+	return []NameField{
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+	}
+}
+
+// flaggedPassRequest is flaggedPass's list request type: the id behind the flag
+// squadrons, the name beside it.
+type flaggedPassRequest struct {
+	ID           string  `json:"id"           index:"true"        perm:"-"`
+	SquadronID   *string `json:"squadronId"   feature:"squadrons" index:"true"`
+	SquadronName *string `json:"squadronName" nameof:"SquadronID"`
+}
+
+// decodeFlagged decodes a list request for sector-1's flagged passes, which the
+// declared order sorts by the squadron's name, under the grants perms answers. The
+// decoder has no flags wired, so the id is hidden.
+func decodeFlagged(t *testing.T, target string, perms *nameGrantPermissions) (*QuerySet[flaggedPass], error) {
+	t.Helper()
+
+	resSet, err := NewSet[flaggedPass, flaggedPassRequest](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[flaggedPass, flaggedPassRequest](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+	key, err := NewCursorKey("dGVzdC1jdXJzb3Ita2V5LW1hdGVyaWFsLTMyLWJ5dGVzIQ==")
+	if err != nil {
+		t.Fatalf("NewCursorKey() error = %v", err)
+	}
+	decoder = decoder.WithCursorKey(key).WithPaging(Paging{Order: []SortField{{Field: "SquadronName", Direction: SortAscending}}})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+
+	return decoder.Decode(req, perms, inSector1)
+}
+
+// TestNameLookup_hiddenID pins a declared order by a name whose id a feature flag
+// hides: the list still orders by the name's lookup, as a declared order by an
+// ordinary field behind a flag orders by its column, while no request may name the
+// name and no row carries it or its id.
+func TestNameLookup_hiddenID(t *testing.T) {
+	t.Parallel()
+
+	lookups := bothDatabases(
+		"(SELECT `ca1`.`Name` FROM `Squadrons` `ca1` WHERE `ca1`.`Id` = `FlaggedPasses`.`SquadronId` AND `ca1`.`SectorId` = @domain)",
+		`(SELECT "ca1"."Name" FROM "Squadrons" "ca1" WHERE "ca1"."Id" = "FlaggedPasses"."SquadronId" AND "ca1"."SectorId" = @domain)`,
+	)
+	tests := []struct {
+		name    string
+		target  string
+		wantErr string
+	}{
+		{name: "F1 columns named: ordered by the name", target: "/?columns=id&limit=2"},
+		{name: "F2 no columns named: ordered by the name, which no row carries", target: "/?limit=2"},
+		{name: "F3 the name as a column is an unknown column", target: "/?columns=id,squadronName&limit=2", wantErr: "unknown column: squadronName"},
+		{name: "F3 the name as a sort is an unknown sort field", target: "/?columns=id&sort=squadronName&limit=2", wantErr: "unknown sort field: squadronName"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.wantErr != "" {
+				_, err := decodeFlagged(t, tt.target, &nameGrantPermissions{})
+				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Decode(%s) error = %v, want a bad request saying %q", tt.target, err, tt.wantErr)
+				}
+
+				return
+			}
+			for dbType, lookup := range lookups {
+				qSet, err := decodeFlagged(t, tt.target, &nameGrantPermissions{})
+				if err != nil {
+					t.Fatalf("Decode(%s) error = %v", tt.target, err)
+				}
+				if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+					t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+				}
+				stmt, err := qSet.stmt(dbType)
+				if err != nil {
+					t.Fatalf("stmt(%s) error = %v", dbType, err)
+				}
+				if sql := oneLine(stmt.SQL); !strings.Contains(sql, "ORDER BY "+lookup+" ASC") {
+					t.Errorf("stmt(%s) SQL =\n%s\nwant its order to open with the name's lookup:\n%s", dbType, sql, lookup)
+				}
+				if diff := cmp.Diff([]accesstypes.Field{"ID"}, qSet.Fields()); diff != "" {
+					t.Errorf("Fields() on %s mismatch (-want +got):\n%s", dbType, diff)
+				}
+				if names := qSet.Names(); len(names) != 0 {
+					t.Errorf("Names() on %s = %v, want none: the name's id is hidden", dbType, names)
+				}
+			}
+		})
+	}
+
+	t.Run("F4 no columns named and a sort of the request's own: the name's grant is not asked", func(t *testing.T) {
+		t.Parallel()
+
+		for dbType := range lookups {
+			perms := &nameGrantPermissions{}
+			qSet, err := decodeFlagged(t, "/?sort=id&limit=2", perms)
+			if err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+				t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+			}
+			if calls := perms.askedFor("Squadrons.name"); len(calls) != 0 {
+				t.Errorf("checkPermissions(%s) asked %v, want no Check naming Squadrons.name: the name's id is hidden and the order does not name it", dbType, calls)
+			}
+		}
+	})
 }
