@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -444,7 +444,7 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 	if record == nil {
 		return nil
 	}
-	word := strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' '))
+	word := words.InWords(record.Name())
 	// The collection carries a method, in the tenant's scope, where the run generates
 	// routes and an outlet serves it to sessions.
 	served := func(method string) bool {

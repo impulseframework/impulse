@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -118,7 +119,7 @@ func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
 		args.label = label
 	}
 	if value, ok := invocations[0].Named(tenantCreationArgKey); ok {
-		word := strings.ToLower(strcase.ToCase(name, strcase.LowerCase, ' '))
+		word := words.InWords(name)
 
 		return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is no longer declared, and nobody creates %s directly. "+
 			"Staff holding the record's Create grant invite one person, with the %s's details, and that person's first sign-in makes the %s and seats them as its first administrator "+
@@ -181,7 +182,7 @@ func tenantCreationAction(record string) accesstypes.Resource {
 // person whose session's mask refuses the creation reads "this session cannot create a
 // tenant".
 func tenantCreationAct(record string) string {
-	return "create " + withArticle(strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' ')))
+	return "create " + withArticle(words.InWords(record))
 }
 
 // collectTenantCreationRegistration registers the create-your-tenant route's action
@@ -238,7 +239,7 @@ func (r *resourceGenerator) tenantAuth(record *resourceInfo) (*outletAuth, error
 			continue
 		}
 		if auth != nil && auth.importPath != outlet.auth.importPath {
-			return nil, errors.Newf("struct %s: the record is served by outlets bound to different auths (%q and %q); %s is made by an invitation of one auth, whose generated identity client seats its first administrator, so serve the record on the outlets of one auth (@outlet)", record.Name(), auth.importPath, outlet.auth.importPath, withArticle(strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' '))))
+			return nil, errors.Newf("struct %s: the record is served by outlets bound to different auths (%q and %q); %s is made by an invitation of one auth, whose generated identity client seats its first administrator, so serve the record on the outlets of one auth (@outlet)", record.Name(), auth.importPath, outlet.auth.importPath, withArticle(words.InWords(record.Name())))
 		}
 		auth = outlet.auth
 	}
@@ -288,7 +289,7 @@ func (r *resourceGenerator) requireIdentityOf(record *resourceInfo, auth *outlet
 		}
 	}
 
-	return errors.Newf("struct %s: %s is made by an invitation, and its first administrator seated, through the generated management of Auth(%q), which this program does not generate; add GenerateIdentity to the generator program", record.Name(), withArticle(strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' '))), auth.importPath)
+	return errors.Newf("struct %s: %s is made by an invitation, and its first administrator seated, through the generated management of Auth(%q), which this program does not generate; add GenerateIdentity to the generator program", record.Name(), withArticle(words.InWords(record.Name())), auth.importPath)
 }
 
 // tenantCreationOutlets are the session-serving outlets the record is served on: where
@@ -503,7 +504,7 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),
 		Record:              record.Name(),
-		RecordLower:         strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')),
+		RecordLower:         words.InWords(record.Name()),
 		HandlerFunc:         tenantCreationHandlerFunc(record.Name()),
 		OfferedHandlerFunc:  tenantCreationOfferedHandlerFunc(record.Name()),
 		RoutePath:           fmt.Sprintf("/%s/%s", outlet.prefix, tenantCreationRoute(record.Name())),
@@ -541,7 +542,7 @@ func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory 
 // is answered with, one tenant per person: "You already hold a role in a tenant, so you
 // cannot create a tenant of your own."
 func tenantCreationRefusal(record string) string {
-	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
+	lower := words.InWords(record)
 
 	return fmt.Sprintf("You already hold a role in %s, so you cannot %s.", withArticle(lower), tenantCreationOwnCreation(record))
 }
@@ -552,7 +553,7 @@ func tenantCreationRefusal(record string) string {
 // so the real person behind such a session reads "You are acting as someone else, so
 // you cannot create a tenant of your own."
 func tenantCreationOwnCreation(record string) string {
-	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
+	lower := words.InWords(record)
 
 	return fmt.Sprintf("create %s of your own", withArticle(lower))
 }
@@ -681,7 +682,7 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 	}
 	out := &tsTenantCreation{
 		Record:        record.Name(),
-		RecordLower:   strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')),
+		RecordLower:   words.InWords(record.Name()),
 		Route:         tenantCreationRoute(record.Name()),
 		RouteConstant: strcase.ToCamel(tenantCreationHandlerFunc(record.Name())) + "Route",
 		RequestType:   tenantCreationHandlerFunc(record.Name()),

@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // The tenant record's declaration of who may enter a tenant (signin.TenantDeclaration),
@@ -467,7 +467,7 @@ func (r *resourceInfo) DirectoryTenantWord() string {
 		return ""
 	}
 
-	return strings.ToLower(strcase.ToCase(r.directoryOf.Name(), strcase.LowerCase, ' '))
+	return words.InWords(r.directoryOf.Name())
 }
 
 // tenantDeclarationColumns is the declaration as the generated constructors hand it to
