@@ -8,6 +8,7 @@ package persona_test
 import (
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/gofrs/uuid/v5"
 	"github.com/impulseframework/impulse/persona"
 	"github.com/impulseframework/impulse/persona/spannerstore"
 )
@@ -409,9 +411,10 @@ func TestSignIn_tokensReadAcrossARotation(t *testing.T) {
 	}
 }
 
-// TestSignIn_rotatedKeySignsOncePublished: two instances on one store, each with its own
-// clock. A key one of them rotates in signs only once every instance publishes it, two
-// key-cache lifetimes after it was made; until then the older key signs.
+// TestSignIn_rotatedKeySignsOncePublished: two instances A and B on one store, B's clock
+// forty seconds ahead of A's throughout. A rotated key signs at an instance once that
+// instance has itself held it for longer than the key cache's lifetime; until then the older
+// key signs. An instance that has just started signs with the first key.
 func TestSignIn_rotatedKeySignsOncePublished(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -423,50 +426,185 @@ func TestSignIn_rotatedKeySignsOncePublished(t *testing.T) {
 		}
 	}
 	hostA, hostB := hosts["A"], hosts["B"]
+	hostB.clock.Advance(40 * time.Second)
 	hostA.mustRegister(ctx, t)
-
-	// After a sign-in at each, both publish the one key.
-	first := signedKeyID(ctx, t, hostA)
-	if kid := signedKeyID(ctx, t, hostB); kid != first {
-		t.Errorf("A and B sign with different keys")
-	}
-	for name, th := range hosts {
-		if ids := th.keyIDs(ctx, t); len(ids) != 1 {
-			t.Errorf("%s publishes %d keys, want 1", name, len(ids))
+	advance := func(d time.Duration) {
+		for _, th := range hosts {
+			th.clock.Advance(d)
 		}
 	}
 
-	// A second later, A rotates. A sign-in at A at once is signed with a key B publishes,
-	// B's cache not having run out. (The test clocks stand still: the second tells the two
-	// keys apart by age.)
-	for _, th := range hosts {
-		th.clock.Advance(time.Second)
+	// (a) A minute on, each signs with the one key.
+	advance(61 * time.Second)
+	first := signedKeyID(ctx, t, hostA)
+	if kid := signedKeyID(ctx, t, hostB); kid != first {
+		t.Errorf("(a) A and B sign with different keys")
+	}
+
+	// (b) A rotates. At once, A signs with a key B publishes, not the rotated one.
+	if err := hostA.svc.RotateSigningKey(ctx); err != nil {
+		t.Fatalf("Service.RotateSigningKey() error = %v", err)
+	}
+	rotated := ""
+	for _, id := range hostA.keyIDs(ctx, t) {
+		if id != first {
+			rotated = id
+		}
+	}
+	if rotated == "" {
+		t.Fatalf("(b) A does not publish the key it rotated in")
+	}
+	kidA := signedKeyID(ctx, t, hostA)
+	if kidA == rotated {
+		t.Errorf("(b) A signs with the rotated key at once after its rotation")
+	}
+	if !slices.Contains(hostB.keyIDs(ctx, t), kidA) {
+		t.Errorf("(b) A signs at once after its rotation with a key B does not publish")
+	}
+
+	// (c) A minute on, A signs with the rotated key, which B publishes. B, which has only now
+	// read it, signs with a key A publishes, not the rotated one.
+	advance(61 * time.Second)
+	if kidA = signedKeyID(ctx, t, hostA); kidA != rotated {
+		t.Errorf("(c) A does not sign with the rotated key a minute after it read it")
+	}
+	if !slices.Contains(hostB.keyIDs(ctx, t), kidA) {
+		t.Errorf("(c) A signs with a key B does not publish")
+	}
+	kidB := signedKeyID(ctx, t, hostB)
+	if kidB == rotated {
+		t.Errorf("(c) B signs with the rotated key as soon as it reads it")
+	}
+	if !slices.Contains(hostA.keyIDs(ctx, t), kidB) {
+		t.Errorf("(c) B signs with a key A does not publish")
+	}
+
+	// (d) A minute more, B signs with the rotated key too.
+	advance(61 * time.Second)
+	if kidB = signedKeyID(ctx, t, hostB); kidB != rotated || !slices.Contains(hostA.keyIDs(ctx, t), kidB) {
+		t.Errorf("(d) B does not sign with the rotated key a minute after it read it, or signs with a key A does not publish")
+	}
+
+	// (e) An instance E started now signs with the first key at once, which A and B publish,
+	// and with the rotated key a minute later on its own clock.
+	hostE := newHostOn(ctx, t, client, spannerstore.New(client))
+	if hostE == nil {
+		t.FailNow()
+	}
+	kidE := signedKeyID(ctx, t, hostE)
+	if kidE != first || !slices.Contains(hostA.keyIDs(ctx, t), kidE) || !slices.Contains(hostB.keyIDs(ctx, t), kidE) {
+		t.Errorf("(e) E, just started, does not sign with the first key, or signs with a key A or B does not publish")
+	}
+	hostE.clock.Advance(61 * time.Second)
+	if kidE = signedKeyID(ctx, t, hostE); kidE != rotated {
+		t.Errorf("(e) E does not sign with the rotated key a minute after it started")
+	}
+}
+
+// TestSignIn_firstKeyFromAFastClock: the first key is made by an instance whose clock runs
+// thirty seconds ahead, and an instance with a right clock rotates ten seconds later. The
+// instance that rotated signs with a key the others publish, and instances started on either
+// side of the rotation read each other's access tokens.
+func TestSignIn_firstKeyFromAFastClock(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client := newDatabase(ctx, t)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey() error = %v", err)
+	}
+	id, err := uuid.NewV4()
+	if err != nil {
+		t.Fatalf("uuid.NewV4() error = %v", err)
+	}
+	first := &persona.SigningKey{ID: id.String(), Key: key, CreatedAt: time.Now().Add(30 * time.Second)}
+	if err := spannerstore.New(client).AddFirstSigningKey(ctx, first); err != nil {
+		t.Fatalf("Store.AddFirstSigningKey() error = %v", err)
+	}
+
+	hostA := newHostOn(ctx, t, client, spannerstore.New(client))
+	hostC := newHostOn(ctx, t, client, spannerstore.New(client))
+	if hostA == nil || hostC == nil {
+		t.FailNow()
+	}
+	hostA.mustRegister(ctx, t)
+	bA := hostA.browser(t)
+	bA.signInToHost(ctx, hostA, "u-pat")
+	tokenA := accessTokenOf(ctx, t, hostA, getCode(ctx, t, hostA, bA))
+
+	for _, th := range []*testHost{hostA, hostC} {
+		th.clock.Advance(10 * time.Second)
 	}
 	if err := hostA.svc.RotateSigningKey(ctx); err != nil {
 		t.Fatalf("Service.RotateSigningKey() error = %v", err)
 	}
-	if kid := signedKeyID(ctx, t, hostA); !slices.Contains(hostB.keyIDs(ctx, t), kid) {
-		t.Errorf("A signs at once after its rotation with a key B does not publish")
+	if kid := signedKeyID(ctx, t, hostA); !slices.Contains(hostC.keyIDs(ctx, t), kid) {
+		t.Errorf("after its rotation, A signs with a key C does not publish")
 	}
 
-	// Two key-cache lifetimes and a second later, both sign with the new key and publish both.
-	for _, th := range hosts {
-		th.clock.Advance(2*time.Minute + time.Second)
+	hostD := newHostOn(ctx, t, client, spannerstore.New(client))
+	if hostD == nil {
+		t.FailNow()
 	}
-	signed := map[string]string{"A": signedKeyID(ctx, t, hostA), "B": signedKeyID(ctx, t, hostB)}
-	for name, th := range hosts {
-		ids := th.keyIDs(ctx, t)
-		if len(ids) != 2 {
-			t.Errorf("%s publishes %d keys after the rotation, want 2", name, len(ids))
+	if status, _ := hostD.call(ctx, t, http.MethodGet, hostD.userinfoEndpoint(ctx, t), tokenA, nil); status != http.StatusOK {
+		t.Errorf("D, started after the rotation, answered A's access token with %d, want 200", status)
+	}
+	bD := hostD.browser(t)
+	bD.signInToHost(ctx, hostD, "u-pat")
+	tokenD := accessTokenOf(ctx, t, hostD, getCode(ctx, t, hostD, bD))
+	statusA, _ := hostA.call(ctx, t, http.MethodGet, hostA.userinfoEndpoint(ctx, t), tokenD, nil)
+	statusC, _ := hostC.call(ctx, t, http.MethodGet, hostC.userinfoEndpoint(ctx, t), tokenD, nil)
+	if statusA != http.StatusOK || statusC != http.StatusOK {
+		t.Errorf("A and C answered D's access token with %d and %d, want 200 and 200", statusA, statusC)
+	}
+}
 
-			continue
+// TestSignIn_rotationFromASlowClock: an instance S whose clock runs three minutes behind
+// rotates a minute after an instance A with a right clock did. Once each has held the key S
+// added for longer than the key cache's lifetime, both sign with it.
+func TestSignIn_rotationFromASlowClock(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client := newDatabase(ctx, t)
+	hostA := newHostOn(ctx, t, client, spannerstore.New(client))
+	hostS := newHostOn(ctx, t, client, spannerstore.New(client))
+	if hostA == nil || hostS == nil {
+		t.FailNow()
+	}
+	hostS.clock.Advance(-3 * time.Minute)
+	hostA.mustRegister(ctx, t)
+	advance := func(d time.Duration) {
+		hostA.clock.Advance(d)
+		hostS.clock.Advance(d)
+	}
+
+	advance(10 * time.Minute)
+	if err := hostA.svc.RotateSigningKey(ctx); err != nil {
+		t.Fatalf("A: Service.RotateSigningKey() error = %v", err)
+	}
+	afterA := hostA.keyIDs(ctx, t)
+	advance(time.Minute)
+	if err := hostS.svc.RotateSigningKey(ctx); err != nil {
+		t.Fatalf("S: Service.RotateSigningKey() error = %v", err)
+	}
+	sKey := ""
+	for _, id := range hostS.keyIDs(ctx, t) {
+		if !slices.Contains(afterA, id) {
+			sKey = id
 		}
-		rotated := ids[0]
-		if rotated == first {
-			rotated = ids[1]
+	}
+	if sKey == "" {
+		t.Fatalf("S does not publish the key it rotated in")
+	}
+
+	advance(61 * time.Second)
+	for name, th := range map[string]*testHost{"A": hostA, "S": hostS} {
+		if !slices.Contains(th.keyIDs(ctx, t), sKey) {
+			t.Errorf("%s does not publish the key S added a minute after S added it", name)
 		}
-		if signed[name] != rotated {
-			t.Errorf("%s does not sign with the rotated key two key-cache lifetimes after it was made", name)
-		}
+	}
+	advance(61 * time.Second)
+	if kidA, kidS := signedKeyID(ctx, t, hostA), signedKeyID(ctx, t, hostS); kidA != sKey || kidS != sKey {
+		t.Errorf("A signs with the key S added %v, S signs with it %v; want both", kidA == sKey, kidS == sKey)
 	}
 }

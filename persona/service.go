@@ -26,10 +26,6 @@ const (
 	// keyCacheTTL is how long the signing keys are kept in memory before the store is
 	// asked again, so a rotation reaches every instance within it.
 	keyCacheTTL = time.Minute
-	// keyPublishWait is how old a signing key is before it signs: every instance has read
-	// it within one key-cache lifetime, and the second covers clocks that differ by less
-	// than one.
-	keyPublishWait = 2 * keyCacheTTL
 	// rsaKeyBits is the size of a signing key the service generates.
 	rsaKeyBits = 2048
 )
@@ -47,6 +43,7 @@ type Service struct {
 	keysMu      sync.Mutex
 	keys        []*SigningKey
 	keysReadAt  time.Time
+	keysHeldAt  map[string]time.Time
 	cryptoKeyID string
 }
 
@@ -81,7 +78,7 @@ func New(ctx context.Context, host Host, store Store, config *Config) (*Service,
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &Service{host: host, store: store, cfg: cfg, issuer: issuer}
+	s := &Service{host: host, store: store, cfg: cfg, issuer: issuer, keysHeldAt: map[string]time.Time{}}
 
 	keys, err := s.signingKeys(ctx)
 	if err != nil {
@@ -200,13 +197,16 @@ func (s *Service) expired(req *Request) bool {
 }
 
 // signingKeys returns the signing keys, newest first, from memory when read within the
-// cache's lifetime, making the first one when the store holds none.
+// cache's lifetime, making the first one when the store holds none. The time of a read is
+// taken before the store is asked and the time a key was first held after it answered, so a
+// list is never taken for newer, nor a key for longer held, than it is.
 func (s *Service) signingKeys(ctx context.Context) ([]*SigningKey, error) {
 	s.keysMu.Lock()
 	defer s.keysMu.Unlock()
 	if len(s.keys) > 0 && s.now().Before(s.keysReadAt.Add(keyCacheTTL)) {
 		return s.keys, nil
 	}
+	asked := s.now()
 	keys, err := s.store.SigningKeys(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "persona.Store.SigningKeys()")
@@ -225,9 +225,31 @@ func (s *Service) signingKeys(ctx context.Context) ([]*SigningKey, error) {
 			return nil, errors.Wrap(err, "persona.Store.SigningKeys()")
 		}
 	}
-	s.keys, s.keysReadAt = keys, s.now()
+	answered := s.now()
+	for _, k := range keys {
+		if _, held := s.keysHeldAt[k.ID]; !held {
+			s.keysHeldAt[k.ID] = answered
+		}
+	}
+	s.keys, s.keysReadAt = keys, asked
 
 	return keys, nil
+}
+
+// keyThatSigns is the key of the list, newest first, that this instance signs with: the
+// newest it has held for longer than the key cache's lifetime, and the first key, the last of
+// the list, while it has held none that long.
+func (s *Service) keyThatSigns(list []*SigningKey) *SigningKey {
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	now := s.now()
+	for _, k := range list {
+		if heldAt, held := s.keysHeldAt[k.ID]; held && now.Sub(heldAt) > keyCacheTTL {
+			return k
+		}
+	}
+
+	return list[len(list)-1]
 }
 
 // generateKey makes a signing key.
@@ -245,9 +267,9 @@ func (s *Service) generateKey() (*SigningKey, error) {
 }
 
 // RotateSigningKey adds a new signing key. Every instance publishes it within the key
-// cache's lifetime and signs with it once it is two of those lifetimes old, so no token is
-// signed with a key an instance does not publish yet; the key set keeps publishing the older
-// ones.
+// cache's lifetime, and each signs with it once it has itself held it for longer than that,
+// so no token is signed with a key an instance does not publish yet; the key set keeps
+// publishing the older ones.
 func (s *Service) RotateSigningKey(ctx context.Context) error {
 	key, err := s.generateKey()
 	if err != nil {
