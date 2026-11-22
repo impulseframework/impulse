@@ -56,7 +56,12 @@ export const issuingDescriptor: ApiDescriptor = {
   },
 };
 
-/** The parts of a methods answer the account page reads: the password change, the question about a new password's strength, and the removal, what the person signs in with, forgetting this browser and the person's name. */
+/**
+ * The parts of a methods answer the account page reads: the password change, the question
+ * about a new password's strength, and the removal, what the person signs in with,
+ * forgetting this browser, the person's name, their username and the question whether a
+ * name is free, where they are signed in, and forgetting every remembered browser.
+ */
 export const passwordMethods = {
   methods: [],
   changePassword: '/api/user/password/change',
@@ -65,6 +70,14 @@ export const passwordMethods = {
   signInMeans: '/api/user/sign-in-means',
   forgetBrowser: '/api/user/browser/forget',
   changeName: '/api/user/name',
+  changeUsername: '/api/user/username',
+  usernameFree: '/api/user/username/free',
+  ownSessions: {
+    list: '/api/user/sessions',
+    end: '/api/user/sessions/end',
+    endOthers: '/api/user/sessions/end-others',
+  },
+  forgetBrowsers: '/api/user/browsers/forget',
 };
 
 /** What the spec's server answers: the session, the digests by tenant ('' global), the tenant list. */

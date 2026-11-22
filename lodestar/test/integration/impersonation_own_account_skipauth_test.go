@@ -85,23 +85,49 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 		{"Device().Deny()", "/user/device/deny", `{"userCode":"` + denied + `"}`},
 		{"Invitation().Accept()", "/user/invitation/accept", ``},
 	}
+	ownAccount := "You are acting as someone else, and this session cannot change their account."
 	for _, route := range routes {
-		want := "You are acting as someone else, and this session cannot change their account."
-		if status, body := post(writing, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, want) {
-			t.Errorf("%s in a session that acts as the rigger: status %d, want 403 saying %q", route.operation, status, want)
+		if status, body := post(writing, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, ownAccount) {
+			t.Errorf("%s in a session that acts as the rigger: status %d, want 403 saying %q", route.operation, status, ownAccount)
 		}
 		if status, body := post(readOnly, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, "You are acting as someone else, and this session cannot change anything.") {
 			t.Errorf("%s in a read-only view: status %d, want 403 from the read-only mask", route.operation, status)
 		}
 	}
 
-	// Nothing was written: no mail went out, the rigger's address is the one she signed
-	// in with, and her one token stands.
+	// The person's own username, where they are signed in and their remembered browsers
+	// are refused as the person's own name is, by the handler itself, in either session:
+	// no read-only mask stands in front of them.
+	for _, route := range []struct{ operation, method, path, body string }{
+		{"ChangeUsername()", http.MethodPost, "/user/username", `{"username":"marshal-took-it"}`},
+		{"UsernameFree()", http.MethodPost, "/user/username/free", `{"username":"marshal-took-it"}`},
+		{"OwnSessions()", http.MethodGet, "/user/sessions", ``},
+		{"EndOwnSession()", http.MethodPost, "/user/sessions/end", `{"sessionId":"00000000-0000-4000-8000-000000000000"}`},
+		{"EndOtherSessions()", http.MethodPost, "/user/sessions/end-others", `{}`},
+		{"ForgetBrowsers()", http.MethodPost, "/user/browser/forget-all", ``},
+	} {
+		for _, asker := range []struct {
+			who string
+			b   *browser
+		}{{"a session that acts as the rigger", writing}, {"a read-only view", readOnly}} {
+			var body []byte
+			if route.body != "" {
+				body = []byte(route.body)
+			}
+			if status, answer := asker.b.do(ctx, route.method, consoleAPI+route.path, body); status != http.StatusForbidden || !strings.Contains(string(answer), ownAccount) {
+				t.Errorf("%s in %s: status %d, want 403 saying %q", route.operation, asker.who, status, ownAccount)
+			}
+		}
+	}
+
+	// Nothing was written: no mail went out, the rigger's address and username are the
+	// ones she signed in with, and her one token stands. Her own session stands too: she
+	// does each thing herself below.
 	if got := len(s.mail.Messages()); got != sent {
 		t.Errorf("messages mailed while the marshal asked = %d, want none", got-sent)
 	}
-	if sess := own.session(ctx); sess["email"] != factorAddress("rigger") {
-		t.Errorf("the rigger's address after the marshal's requests = %v, want the one she holds", sess["email"])
+	if sess := own.session(ctx); sess["email"] != factorAddress("rigger") || sess["username"] != "rigger" {
+		t.Errorf("the rigger's address and username after the marshal's requests = %v, %v, want the ones she holds", sess["email"], sess["username"])
 	}
 	status, list := own.do(ctx, http.MethodGet, consoleAPI+"/user/tokens", nil)
 	var listed []struct {

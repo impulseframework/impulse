@@ -130,6 +130,12 @@ interface Server {
   means: TransportResponse;
   name: TransportResponse;
   look: TransportResponse;
+  username: TransportResponse;
+  usernameFree: TransportResponse;
+  ownSessions: TransportResponse;
+  endOwnSession: TransportResponse;
+  endOtherSessions: TransportResponse;
+  forgetBrowsers: TransportResponse;
   invitationOpen: TransportResponse;
   invitationAccept: TransportResponse;
   invitationSignUp: TransportResponse;
@@ -165,6 +171,12 @@ function server(overrides: Partial<Server> = {}): Server {
     means: { status: 200, body: { password: true, directories: [{ name: 'google', label: 'Fleet Google' }] } },
     name: { status: 200, body: { name: 'Nova Example' } },
     look: { status: 200, body: { scheme: 'dark', palette: 'workspace' } },
+    username: { status: 200, body: { username: 'nova' } },
+    usernameFree: { status: 200, body: { free: true } },
+    ownSessions: { status: 200, body: { sessions: [], rememberedBrowsers: 0 } },
+    endOwnSession: { status: 200, body: undefined },
+    endOtherSessions: { status: 200, body: { ended: 2 } },
+    forgetBrowsers: { status: 200, body: undefined },
     invitationOpen: { status: 200, body: opened },
     invitationAccept: { status: 200, body: { accepted: true } },
     // The link proves nothing of who holds it: the sign-up makes nobody and waits for the code.
@@ -221,6 +233,18 @@ function transportOf(state: Server): ScriptedTransport {
         return state.name;
       case 'POST /console/api/user/look':
         return state.look;
+      case 'POST /console/api/user/username':
+        return state.username;
+      case 'POST /console/api/user/username/free':
+        return state.usernameFree;
+      case 'GET /console/api/user/sessions':
+        return state.ownSessions;
+      case 'POST /console/api/user/sessions/end':
+        return state.endOwnSession;
+      case 'POST /console/api/user/sessions/end-others':
+        return state.endOtherSessions;
+      case 'POST /console/api/user/browser/forget-all':
+        return state.forgetBrowsers;
       case 'POST /console/api/user/invitation':
         return state.invitationOpen;
       case 'POST /console/api/user/invitation/accept':
@@ -991,6 +1015,243 @@ describe("changing the person's own name", () => {
   });
 });
 
+const usernamePath = '/console/api/user/username';
+const usernameFreePath = '/console/api/user/username/free';
+const ownSessionsRoutes = {
+  list: '/console/api/user/sessions',
+  end: '/console/api/user/sessions/end',
+  endOthers: '/console/api/user/sessions/end-others',
+};
+const forgetAllPath = '/console/api/user/browser/forget-all';
+/** The list of a server that serves a person's own username, sessions and remembered browsers. */
+const ownAccountList: LoginMethods = {
+  ...consoleList,
+  changeUsername: usernamePath,
+  usernameFree: usernameFreePath,
+  ownSessions: ownSessionsRoutes,
+  forgetBrowsers: forgetAllPath,
+};
+const ownAccount = (overrides: Partial<Server> = {}): Server => server({ methods: ownAccountList, ...overrides });
+
+describe("the paths of the person's own username, sessions and remembered browsers", () => {
+  it('are kept as the list names them', async () => {
+    expect(await authOver(ownAccount()).auth.methods()).toEqual(ownAccountList);
+  });
+
+  it('are absent from a list that names none, or names them empty', async () => {
+    const empty = {
+      ...consoleList,
+      changeUsername: '',
+      usernameFree: '',
+      ownSessions: { list: '', end: '', endOthers: '' },
+      forgetBrowsers: '',
+    };
+    const list = await authOver(server({ methods: empty })).auth.methods();
+    expect(list).toEqual(consoleList);
+    expect(Object.keys(list)).not.toContain('ownSessions');
+  });
+
+  it('leave the sessions out where the list names some of their paths and not all', async () => {
+    const some = { ...consoleList, ownSessions: { list: ownSessionsRoutes.list, end: ownSessionsRoutes.end } };
+    const list = await authOver(server({ methods: some })).auth.methods();
+    expect(list).toEqual(consoleList);
+    expect(Object.keys(list)).not.toContain('ownSessions');
+  });
+});
+
+describe("changing the person's own username", () => {
+  it('reads the list again, then posts the username to the path it names, and resolves the username the server keeps', async () => {
+    const { auth, transport, errors } = authOver(ownAccount());
+    expect(await auth.changeUsername(' nova ')).toEqual({ outcome: 'changed', username: 'nova' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${usernamePath}`]);
+    expect(transport.requests[1].body).toEqual({ username: ' nova ' });
+    expect(errors).toEqual([]);
+  });
+
+  const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
+    {
+      name: "a username someone else holds resolves with the server's words",
+      answer: { status: 409, body: { message: 'Someone else has that username.' } },
+      want: { outcome: 'refused', status: 409, message: 'Someone else has that username.' },
+    },
+    {
+      name: "a username that is the address resolves with the server's words",
+      answer: {
+        status: 409,
+        body: { message: 'You sign in with your email address, so your username changes when you change the address.' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 409,
+        message: 'You sign in with your email address, so your username changes when you change the address.',
+      },
+    },
+    {
+      name: 'an empty username resolves as refused',
+      answer: { status: 400, body: { message: 'Type a username.' } },
+      want: { outcome: 'refused', status: 400, message: 'Type a username.' },
+    },
+    {
+      name: 'an impersonated session resolves as refused',
+      answer: {
+        status: 403,
+        body: { message: 'You are acting as someone else, and this session cannot change their account.' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 403,
+        message: 'You are acting as someone else, and this session cannot change their account.',
+      },
+    },
+  ];
+  for (const tt of refusals) {
+    it(tt.name, async () => {
+      const { auth, errors } = authOver(ownAccount({ username: tt.answer }));
+      expect(await auth.changeUsername('nova')).toEqual(tt.want);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('throws on a server whose list names no path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.changeUsername('nova')).rejects.toThrow(
+      'this server names no change-your-username path in its methods list: it does not serve one',
+    );
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+describe('asking whether a username is free', () => {
+  it('posts to the path of the list last read, reading the list only when none was read', async () => {
+    const { auth, transport } = authOver(ownAccount());
+    expect(await auth.usernameFree('nova')).toEqual({ outcome: 'answered', free: true });
+    expect(await auth.usernameFree('novae')).toEqual({ outcome: 'answered', free: true });
+    expect(sent(transport)).toEqual([
+      `GET /console/api/${loginMethodsRoute}`,
+      `POST ${usernameFreePath}`,
+      `POST ${usernameFreePath}`,
+    ]);
+    expect(transport.requests[1].body).toEqual({ username: 'nova' });
+  });
+
+  it('answers not free for anything but free: true', async () => {
+    for (const body of [{ free: false }, { free: 'yes' }, {}, null]) {
+      const { auth } = authOver(ownAccount({ usernameFree: { status: 200, body } }));
+      expect(await auth.usernameFree('nova')).toEqual({ outcome: 'answered', free: false });
+    }
+  });
+
+  for (const status of [400, 401, 403, 409]) {
+    it(`resolves a ${status} as refused, with the server's words, handed to no error hook`, async () => {
+      const message = 'A username is text on one line, with no tab or other control character.';
+      const { auth, errors } = authOver(ownAccount({ usernameFree: { status, body: { message } } }));
+      expect(await auth.usernameFree('nova')).toEqual({ outcome: 'refused', status, message });
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('asks quietly: any other answer that is an error is thrown and handed to no error hook', async () => {
+    const { auth, errors } = authOver(ownAccount({ usernameFree: { status: 500, body: { message: 'boom' } } }));
+    await expect(auth.usernameFree('nova')).rejects.toBeInstanceOf(ApiError);
+    expect(errors).toEqual([]);
+  });
+
+  it('throws on a server whose list names no path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.usernameFree('nova')).rejects.toThrow(
+      'this server names no is-this-name-free path in its methods list: it does not serve one',
+    );
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+describe('where the person is signed in', () => {
+  const chrome = {
+    id: '7c1e4a52-3b9f-4d2e-8a61-5f0c9b2d7e14',
+    browser: 'Chrome on Android',
+    phone: true,
+    signedInAt: '2026-11-20T09:00:00Z',
+    lastUsedAt: '2026-11-22T08:30:00Z',
+    current: true,
+  };
+  const firefox = {
+    id: '2a9d6f13-8e4b-4c7a-9d05-6b3e1f8c2a47',
+    phone: false,
+    signedInAt: '2026-11-01T09:00:00Z',
+    lastUsedAt: '2026-11-21T17:45:00Z',
+    current: false,
+  };
+
+  it('reads the list again, then the sessions from the path it names', async () => {
+    const { auth, transport, errors } = authOver(
+      ownAccount({ ownSessions: { status: 200, body: { sessions: [chrome, firefox], rememberedBrowsers: 2 } } }),
+    );
+    expect(await auth.ownSessions()).toEqual({ sessions: [chrome, firefox], rememberedBrowsers: 2 });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `GET ${ownSessionsRoutes.list}`]);
+    expect(errors).toEqual([]);
+  });
+
+  it('drops an entry without an id, reads phone and current as true only for true, and counts no remembered browser that is not a number', async () => {
+    const body = {
+      sessions: [{ ...firefox, phone: 'yes', current: 1, browser: 7 }, { ...chrome, id: 12 }, null],
+      rememberedBrowsers: '2',
+    };
+    const { auth } = authOver(ownAccount({ ownSessions: { status: 200, body } }));
+    const read = await auth.ownSessions();
+    expect(read).toEqual({ sessions: [{ ...firefox, phone: false, current: false }], rememberedBrowsers: 0 });
+    expect(Object.keys(read.sessions[0])).not.toContain('browser');
+    const empty = authOver(ownAccount({ ownSessions: { status: 200, body: null } })).auth;
+    expect(await empty.ownSessions()).toEqual({ sessions: [], rememberedBrowsers: 0 });
+  });
+
+  it('signs the person out of one browser, and resolves gone for one already signed out', async () => {
+    const { auth, transport, errors } = authOver(ownAccount());
+    expect(await auth.endOwnSession(firefox.id)).toBe('ended');
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${ownSessionsRoutes.end}`]);
+    expect(transport.requests[1].body).toEqual({ sessionId: firefox.id });
+    const gone = authOver(
+      ownAccount({ endOwnSession: { status: 404, body: { message: 'That browser is already signed out.' } } }),
+    );
+    expect(await gone.auth.endOwnSession(firefox.id)).toBe('gone');
+    expect(errors).toEqual([]);
+    expect(gone.errors).toEqual([]);
+  });
+
+  it('signs the person out of every other browser, and resolves how many', async () => {
+    const { auth, transport } = authOver(ownAccount());
+    expect(await auth.endOtherSessions()).toBe(2);
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${ownSessionsRoutes.endOthers}`]);
+    const unsaid = authOver(ownAccount({ endOtherSessions: { status: 200, body: {} } })).auth;
+    expect(await unsaid.endOtherSessions()).toBe(0);
+  });
+
+  it('throws on a server whose list names no paths, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    const thrown = 'this server names no where-you-are-signed-in paths in its methods list: it does not serve one';
+    await expect(auth.ownSessions()).rejects.toThrow(thrown);
+    await expect(auth.endOwnSession(firefox.id)).rejects.toThrow(thrown);
+    await expect(auth.endOtherSessions()).rejects.toThrow(thrown);
+    expect(sent(transport).filter((request) => !request.endsWith(loginMethodsRoute))).toEqual([]);
+  });
+});
+
+describe('forgetting every remembered browser', () => {
+  it('reads the list again, then posts to the path it names', async () => {
+    const { auth, transport, errors } = authOver(ownAccount());
+    await auth.forgetBrowsers();
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${forgetAllPath}`]);
+    expect(errors).toEqual([]);
+  });
+
+  it('throws on a server whose list names no path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.forgetBrowsers()).rejects.toThrow(
+      'this server names no forget-all-remembered-browsers path in its methods list: it does not serve one',
+    );
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
 describe('keeping the look the person chose', () => {
   const lookPath = '/console/api/user/look';
   const kept = (overrides: Partial<Server> = {}): Server =>
@@ -1206,6 +1467,14 @@ describe('the password strength question', () => {
       message: 'Too many passwords have been checked from here',
       retryAfter: 300,
     });
+    expect(errors).toEqual([]);
+  });
+
+  it('asks quietly: an answer that is an error is thrown and handed to no error hook', async () => {
+    const { auth, errors } = authOver(
+      server({ methods: strengthList, strength: { status: 500, body: { message: 'the server failed' } } }),
+    );
+    await expect(auth.passwordStrength('correct horse')).rejects.toBeInstanceOf(ApiError);
     expect(errors).toEqual([]);
   });
 
@@ -1428,6 +1697,7 @@ describe('reading what the person signs in with', () => {
     expect(await auth.signInMeans()).toEqual({
       password: true,
       directories: [{ name: 'google', label: 'Fleet Google' }],
+      directoryAddress: false,
     });
     expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `GET ${meansPath}`]);
     expect(errors).toEqual([]);
@@ -1435,7 +1705,18 @@ describe('reading what the person signs in with', () => {
 
   it('answers a person with no password and no directory as the server says it', async () => {
     const { auth } = authOver(reading({ means: { status: 200, body: { password: false, directories: [] } } }));
-    expect(await auth.signInMeans()).toEqual({ password: false, directories: [] });
+    expect(await auth.signInMeans()).toEqual({ password: false, directories: [], directoryAddress: false });
+  });
+
+  it("answers whether the person's address is an organization's directory's, true only where the server says true", async () => {
+    const directory = authOver(
+      reading({ means: { status: 200, body: { password: false, directories: [], directoryAddress: true } } }),
+    ).auth;
+    expect((await directory.signInMeans())?.directoryAddress).toBe(true);
+    const unsaid = authOver(
+      reading({ means: { status: 200, body: { password: false, directories: [], directoryAddress: 'yes' } } }),
+    ).auth;
+    expect((await unsaid.signInMeans())?.directoryAddress).toBe(false);
   });
 
   it('answers nothing on a server whose list names no path, asking for nothing more', async () => {
@@ -1461,7 +1742,11 @@ describe('reading what the person signs in with', () => {
       directories: [{ name: 'google', label: '' }, { name: 'entra', label: 'Lakeside' }, null],
     };
     const { auth } = authOver(reading({ means: { status: 200, body } }));
-    expect(await auth.signInMeans()).toEqual({ password: true, directories: [{ name: 'entra', label: 'Lakeside' }] });
+    expect(await auth.signInMeans()).toEqual({
+      password: true,
+      directories: [{ name: 'entra', label: 'Lakeside' }],
+      directoryAddress: false,
+    });
   });
 });
 

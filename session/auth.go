@@ -728,11 +728,11 @@ func (a *Auth[S, U, Tx]) Logout() http.HandlerFunc {
 
 // StartSession restores or initializes the session. It also makes the browser's
 // pending identity, if any, available to the Pending handlers and the AuthAPI pending
-// methods, and the invitation and the trusted device the browser carries to the
-// sign-in.
+// methods, the invitation and the trusted device the browser carries to the sign-in,
+// and the browser's name to the session a sign-in makes.
 func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.StartSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := a.withTrustedDeviceCookie(a.withInvitationCookie(a.withPendingCookie(r), r), r)
+		ctx := withBrowser(a.withTrustedDeviceCookie(a.withInvitationCookie(a.withPendingCookie(r), r), r), r)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})))
 }

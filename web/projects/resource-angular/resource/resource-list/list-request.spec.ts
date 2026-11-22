@@ -38,20 +38,35 @@ const boards: ResourceMeta = {
 };
 
 describe('filterEligibility', () => {
-  const cases: { name: string; meta: ResourceMeta | undefined; columns: string[]; want: Record<string, string | undefined> }[] = [
+  const cases: {
+    name: string;
+    meta: ResourceMeta | undefined;
+    columns: string[];
+    want: Record<string, string | undefined>;
+  }[] = [
     {
-      name: 'each column takes its field\'s filterable',
+      name: "each column takes its field's filterable",
       meta: boards,
       columns: ['title', 'fee', 'daysLeft'],
       want: { title: 'always', fee: 'withIndexed' },
     },
-    { name: 'an action column and a renamed duplicate are absent', meta: boards, columns: ['view', 'title_1'], want: {} },
+    {
+      name: 'an action column and a renamed duplicate are absent',
+      meta: boards,
+      columns: ['view', 'title_1'],
+      want: {},
+    },
     { name: 'no metadata, nothing filters', meta: undefined, columns: ['title'], want: {} },
   ];
 
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(filterEligibility(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+      expect(
+        filterEligibility(
+          tt.meta,
+          tt.columns.map((id) => ({ id })),
+        ),
+      ).toEqual(tt.want as never);
     });
   }
 });
@@ -59,7 +74,11 @@ describe('filterEligibility', () => {
 describe('unorderedFields', () => {
   const groups: ResourceMeta = {
     route: 'crew-groups',
-    fields: [field('name'), field('people', { displayType: 'number' }), field('roles', { displayType: 'string[]', sortable: false })],
+    fields: [
+      field('name'),
+      field('people', { displayType: 'number' }),
+      field('roles', { displayType: 'string[]', sortable: false }),
+    ],
   };
   const cases: { name: string; meta: ResourceMeta | undefined; want: string[] }[] = [
     { name: 'the fields the metadata marks sortable: false, and no other', meta: groups, want: ['roles'] },
@@ -147,13 +166,23 @@ describe('filterInputKinds', () => {
       columns: ['bondCode', 'expiresOn', 'releasedAt', 'mass'],
       want: { expiresOn: 'date', releasedAt: 'datetime' },
     },
-    { name: 'an action column and a renamed duplicate are absent', meta: dated, columns: ['view', 'expiresOn_1'], want: {} },
+    {
+      name: 'an action column and a renamed duplicate are absent',
+      meta: dated,
+      columns: ['view', 'expiresOn_1'],
+      want: {},
+    },
     { name: 'no metadata, typed text everywhere', meta: undefined, columns: ['expiresOn'], want: {} },
   ];
 
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(filterInputKinds(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+      expect(
+        filterInputKinds(
+          tt.meta,
+          tt.columns.map((id) => ({ id })),
+        ),
+      ).toEqual(tt.want as never);
     });
   }
 });
@@ -258,7 +287,12 @@ describe('filterChoiceLists', () => {
       },
     },
     { name: "a key into another resource's rows lists no values", meta: missions, columns: ['pilotId'], want: {} },
-    { name: 'an action column and a renamed duplicate are absent', meta: missions, columns: ['view', 'statusId_1'], want: {} },
+    {
+      name: 'an action column and a renamed duplicate are absent',
+      meta: missions,
+      columns: ['view', 'statusId_1'],
+      want: {},
+    },
     { name: 'no metadata, no values', meta: undefined, columns: ['statusId'], want: {} },
   ];
 
@@ -336,14 +370,29 @@ describe('rolesQuestion', () => {
 
 describe('searchEligibility', () => {
   const cases: { name: string; meta: ResourceMeta | undefined; columns: string[]; want: Record<string, string[]> }[] = [
-    { name: 'each column takes its field\'s matches', meta: boards, columns: ['title', 'note', 'fee', 'daysLeft'], want: { title: ['contains', 'startswith'], note: ['contains'] } },
-    { name: 'an action column and a renamed duplicate are absent', meta: boards, columns: ['view', 'title_1'], want: {} },
+    {
+      name: "each column takes its field's matches",
+      meta: boards,
+      columns: ['title', 'note', 'fee', 'daysLeft'],
+      want: { title: ['contains', 'startswith'], note: ['contains'] },
+    },
+    {
+      name: 'an action column and a renamed duplicate are absent',
+      meta: boards,
+      columns: ['view', 'title_1'],
+      want: {},
+    },
     { name: 'no metadata, no matches', meta: undefined, columns: ['title'], want: {} },
   ];
 
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(searchEligibility(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+      expect(
+        searchEligibility(
+          tt.meta,
+          tt.columns.map((id) => ({ id })),
+        ),
+      ).toEqual(tt.want as never);
     });
   }
 });
@@ -357,13 +406,62 @@ describe('positionAfter', () => {
     landed: { rows: number; total?: number };
     want: PagePosition;
   }[] = [
-    { name: 'a first page starts at zero with its total', position: { offset: 50, total: 99 }, turn: 'first', leftRows: 25, landed: { rows: 25, total: 130 }, want: { offset: 0, total: 130 } },
-    { name: 'next moves past the page left and keeps the total', position: { offset: 0, total: 130 }, turn: 'next', leftRows: 25, landed: { rows: 25 }, want: { offset: 25, total: 130 } },
-    { name: 'prev moves back by the page landed on', position: { offset: 50, total: 130 }, turn: 'prev', leftRows: 25, landed: { rows: 25 }, want: { offset: 25, total: 130 } },
-    { name: 'prev never goes below zero', position: { offset: 10, total: 130 }, turn: 'prev', leftRows: 10, landed: { rows: 25 }, want: { offset: 0, total: 130 } },
-    { name: 'a reload stays put and takes a fresh total', position: { offset: 0, total: 130 }, turn: 'reload', leftRows: 25, landed: { rows: 25, total: 129 }, want: { offset: 0, total: 129 } },
-    { name: 'a reload of a later page keeps the total it had', position: { offset: 25, total: 130 }, turn: 'reload', leftRows: 25, landed: { rows: 25 }, want: { offset: 25, total: 130 } },
-    { name: 'a first page with no count carries no total', position: { offset: 0, total: 130 }, turn: 'first', leftRows: 0, landed: { rows: 25 }, want: { offset: 0, total: undefined } },
+    {
+      name: 'a first page starts at zero with its total',
+      position: { offset: 50, total: 99 },
+      turn: 'first',
+      leftRows: 25,
+      landed: { rows: 25, total: 130 },
+      want: { offset: 0, total: 130 },
+    },
+    {
+      name: 'next moves past the page left and keeps the total',
+      position: { offset: 0, total: 130 },
+      turn: 'next',
+      leftRows: 25,
+      landed: { rows: 25 },
+      want: { offset: 25, total: 130 },
+    },
+    {
+      name: 'prev moves back by the page landed on',
+      position: { offset: 50, total: 130 },
+      turn: 'prev',
+      leftRows: 25,
+      landed: { rows: 25 },
+      want: { offset: 25, total: 130 },
+    },
+    {
+      name: 'prev never goes below zero',
+      position: { offset: 10, total: 130 },
+      turn: 'prev',
+      leftRows: 10,
+      landed: { rows: 25 },
+      want: { offset: 0, total: 130 },
+    },
+    {
+      name: 'a reload stays put and takes a fresh total',
+      position: { offset: 0, total: 130 },
+      turn: 'reload',
+      leftRows: 25,
+      landed: { rows: 25, total: 129 },
+      want: { offset: 0, total: 129 },
+    },
+    {
+      name: 'a reload of a later page keeps the total it had',
+      position: { offset: 25, total: 130 },
+      turn: 'reload',
+      leftRows: 25,
+      landed: { rows: 25 },
+      want: { offset: 25, total: 130 },
+    },
+    {
+      name: 'a first page with no count carries no total',
+      position: { offset: 0, total: 130 },
+      turn: 'first',
+      leftRows: 0,
+      landed: { rows: 25 },
+      want: { offset: 0, total: undefined },
+    },
   ];
 
   for (const tt of cases) {
@@ -394,8 +492,20 @@ describe('listEmptyMessage', () => {
   const own = 'This application declares no feature flags.';
   const cases: { name: string; error: unknown; noColumns: boolean; empty?: string; want: string }[] = [
     { name: 'no error, an empty list', error: undefined, noColumns: false, want: 'No records found' },
-    { name: "no error, an empty list on a page with a sentence of its own", error: undefined, noColumns: false, empty: own, want: own },
-    { name: 'an empty sentence is no sentence', error: undefined, noColumns: false, empty: '', want: 'No records found' },
+    {
+      name: 'no error, an empty list on a page with a sentence of its own',
+      error: undefined,
+      noColumns: false,
+      empty: own,
+      want: own,
+    },
+    {
+      name: 'an empty sentence is no sentence',
+      error: undefined,
+      noColumns: false,
+      empty: '',
+      want: 'No records found',
+    },
     {
       name: "the digest leaves no column, whatever the page's own sentence",
       error: undefined,
@@ -410,7 +520,12 @@ describe('listEmptyMessage', () => {
       empty: own,
       want: 'You do not have permission to see this list.',
     },
-    { name: 'the digest leaves no column', error: undefined, noColumns: true, want: 'Your permissions cover none of the columns on this page.' },
+    {
+      name: 'the digest leaves no column',
+      error: undefined,
+      noColumns: true,
+      want: 'Your permissions cover none of the columns on this page.',
+    },
     {
       name: 'a refused list reads as a refusal',
       error: new ApiError('GET', '/api/mission-boards', 403, { message: serverSays.notPermitted }),
@@ -429,7 +544,12 @@ describe('listEmptyMessage', () => {
       noColumns: false,
       want: 'This list could not be loaded.',
     },
-    { name: 'a request that never got an answer says the same', error: new Error('network down'), noColumns: false, want: 'This list could not be loaded.' },
+    {
+      name: 'a request that never got an answer says the same',
+      error: new Error('network down'),
+      noColumns: false,
+      want: 'This list could not be loaded.',
+    },
   ];
 
   for (const tt of cases) {
@@ -501,13 +621,15 @@ describe('refuseKeylessConfig', () => {
       name: 'a page size on a key-less resource is refused naming the resource: served whole',
       meta: orders,
       config: { pageSize: 10, enableRowExpansion: false },
-      wantThrows: /^StandingOrders: pageSize 10 is set, but the resource declares no primary key, so its list is served whole, no page size$/,
+      wantThrows:
+        /^StandingOrders: pageSize 10 is set, but the resource declares no primary key, so its list is served whole, no page size$/,
     },
     {
       name: 'a row expansion on a key-less resource is refused naming the resource: no key to open by',
       meta: orders,
       config: { enableRowExpansion: true },
-      wantThrows: /^StandingOrders: enableRowExpansion is set, but the resource declares no primary key, so there is no key to open a row by$/,
+      wantThrows:
+        /^StandingOrders: enableRowExpansion is set, but the resource declares no primary key, so there is no key to open a row by$/,
     },
     {
       name: 'the page size is named first when both are set',
@@ -540,7 +662,11 @@ describe('refuseKeylessConfig', () => {
 describe('refuseWriteOnlyColumns', () => {
   const calls: ResourceMeta = {
     route: 'distress-calls',
-    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('summary'), field('transcript', { writeOnly: true })],
+    fields: [
+      field('id', { primaryKey: { ordinalPosition: 0 } }),
+      field('summary'),
+      field('transcript', { writeOnly: true }),
+    ],
   };
   const column = (id: string, additionalIds?: { id: string; resource?: Resource; field?: string }[]): ColumnConfig =>
     (additionalIds ? { id, additionalIds } : { id }) as unknown as ColumnConfig;
@@ -560,11 +686,15 @@ describe('refuseWriteOnlyColumns', () => {
       wantThrows: /names transcript, which is write-only/,
     },
     {
-      name: 'a concatenated column reading another resource\'s field of the same name passes',
+      name: "a concatenated column reading another resource's field of the same name passes",
       meta: calls,
       columns: [column('summary', [{ id: 'transcript', resource: 'Logs' as Resource, field: 'text' }])],
     },
-    { name: 'a resource with no write-only field passes whatever is named', meta: boards, columns: [column('transcript')] },
+    {
+      name: 'a resource with no write-only field passes whatever is named',
+      meta: boards,
+      columns: [column('transcript')],
+    },
     { name: 'no metadata passes', meta: undefined, columns: [column('transcript')] },
   ];
 

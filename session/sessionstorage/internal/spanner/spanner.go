@@ -708,13 +708,23 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 
 		// A live role-principal impersonation by a foreign actor carrying this name belongs
 		// to that actor, not to the renamed user, and keeps the name its record names.
+		// A rename is no use of a session: UpdatedAt, which is when a session was last used,
+		// is left as it is, so a session that timed out stays timed out. A session that
+		// belongs to another account is never renamed, whatever name its row carries.
+		ownRows := ""
+		if s.users {
+			ownRows = " AND (s.UserId IS NULL OR s.UserId = @userId)"
+		}
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s s
-				SET Username = @newUsername, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
-				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
-		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
+				SET Username = @newUsername
+				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s%s
+		`, s.sessionTableName, s.foreignRolePrincipalRecord(), ownRows))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
+		if s.users {
+			sessionsStmt.Params["userId"] = userID.String()
+		}
 
 		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")

@@ -46,6 +46,16 @@ type InsertSession struct {
 	Expired  bool   `spanner:"Expired"`
 }
 
+// OwnSession is one of a person's own live sessions, as their account page lists it:
+// Browser is the name of the browser it was signed in from, nil where it was not
+// recognized, CreatedAt when it was signed in and UpdatedAt when it was last used.
+type OwnSession struct {
+	ID        impulse.UUID `spanner:"Id"        db:"Id"`
+	Browser   *string      `spanner:"Browser"   db:"Browser"`
+	CreatedAt time.Time    `spanner:"CreatedAt" db:"CreatedAt"`
+	UpdatedAt time.Time    `spanner:"UpdatedAt" db:"UpdatedAt"`
+}
+
 // SessionUser is a person authorized to access the application. PasswordChangeRequired
 // marks a user an administrator required a new password of: the user changes it before
 // anything else.

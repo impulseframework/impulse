@@ -63,8 +63,11 @@ func TestAuth_Methods(t *testing.T) {
 	tests := []struct {
 		name       string
 		noPassword bool
-		list       *MethodList
-		want       map[string]any
+		// addresses registers the password method with its usernames the addresses
+		// (UsernameIsEmail), alone on the Auth.
+		addresses bool
+		list      *MethodList
+		want      map[string]any
 	}{
 		{
 			name: "every listed method in the list's order, the password one a form, the external ones redirects, with the pending routes",
@@ -93,6 +96,48 @@ func TestAuth_Methods(t *testing.T) {
 				"forgetBrowser":    "/api/user/browser/forget",
 				"changeName":       "/api/user/name",
 				"changeLook":       "/api/user/look",
+			},
+		},
+		{
+			name: "the routes of the person's own username, sessions and remembered browsers are told as the list names them",
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				ChangeUsername:   "/api/user/username",
+				UsernameFree:     "/api/user/username/free",
+				OwnSessions:      OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"},
+				ForgetBrowsers:   "/api/user/browser/forget-all",
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"changeUsername":   "/api/user/username",
+				"usernameFree":     "/api/user/username/free",
+				"ownSessions":      map[string]any{"list": "/api/user/sessions", "end": "/api/user/sessions/end", "endOthers": "/api/user/sessions/end-others"},
+				"forgetBrowsers":   "/api/user/browser/forget-all",
+			},
+		},
+		{
+			name:      "where the usernames are the addresses the username routes are left out, whatever the list names, and the sessions' routes are told",
+			addresses: true,
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				ChangeUsername:   "/api/user/username",
+				UsernameFree:     "/api/user/username/free",
+				OwnSessions:      OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"},
+				ForgetBrowsers:   "/api/user/browser/forget-all",
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"usernameIsEmail":  true,
+				"ownSessions":      map[string]any{"list": "/api/user/sessions", "end": "/api/user/sessions/end", "endOthers": "/api/user/sessions/end-others"},
+				"forgetBrowsers":   "/api/user/browser/forget-all",
 			},
 		},
 		{
@@ -158,6 +203,10 @@ func TestAuth_Methods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := listAuth(t, tt.noPassword)
+			if tt.addresses {
+				a = newBareAuth(t, gomock.NewController(t))
+				PasswordSignIn(a, UsernameIsEmail())
+			}
 
 			rr := httptest.NewRecorder()
 			a.Methods(tt.list).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/user/methods", http.NoBody))
@@ -211,6 +260,16 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		{name: "a password strength route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, PasswordStrength: "/password/strength"}, want: "is given the password strength route \"/password/strength\" but lists no password method"},
 		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},
 		{name: "a change-your-name route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ChangeName: "https://evil.example/name"}, want: "change-your-name route"},
+		{name: "a change-your-username route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangeUsername: "https://evil.example/username", UsernameFree: "/api/user/username/free"}, want: "session: Methods is given the change-your-username route \"https://evil.example/username\", which is not a canonical path in the application: give it the path its ChangeUsername handler is mounted at, such as /api/user/username"},
+		{name: "an is-this-name-free route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangeUsername: "/api/user/username", UsernameFree: "//evil.example/free"}, want: "session: Methods is given the is-this-name-free route \"//evil.example/free\", which is not a canonical path in the application: give it the path its UsernameFree handler is mounted at, such as /api/user/username/free"},
+		{name: "the change-your-username route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangeUsername: "/api/user/username"}, want: "session: Methods is given the change-your-username route without the is-this-name-free route, or the second without the first: name both, or neither"},
+		{name: "the is-this-name-free route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, UsernameFree: "/api/user/username/free"}, want: "session: Methods is given the change-your-username route without the is-this-name-free route, or the second without the first: name both, or neither"},
+		{name: "a where-you-are-signed-in route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "https://evil.example/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given the where-you-are-signed-in route \"https://evil.example/sessions\", which is not a canonical path in the application: give it the path its OwnSessions handler is mounted at, such as /api/user/sessions"},
+		{name: "a sign-out-of-one-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/../end", EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given the sign-out-of-one-browser route \"/api/user/sessions/../end\", which is not a canonical path in the application: give it the path its EndOwnSession handler is mounted at, such as /api/user/sessions/end"},
+		{name: "a sign-out-everywhere-else route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/"}}, want: "session: Methods is given the sign-out-everywhere-else route \"/\", which is not a canonical path in the application: give it the path its EndOtherSessions handler is mounted at, such as /api/user/sessions/end-others"},
+		{name: "two of the where-you-are-signed-in routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end"}}, want: "session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none"},
+		{name: "one of the where-you-are-signed-in routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none"},
+		{name: "a forget-all-remembered-browsers route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ForgetBrowsers: "api/user/browser/forget-all"}, want: "session: Methods is given the forget-all-remembered-browsers route \"api/user/browser/forget-all\", which is not a canonical path in the application: give it the path its ForgetBrowsers handler is mounted at, such as /api/user/browser/forget-all"},
 		{name: "a keep-your-look route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ChangeLook: "https://evil.example/look"}, want: "keep-your-look route"},
 		{name: "a password change route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangePassword: "/password"}, want: "lists no password method"},
 	}

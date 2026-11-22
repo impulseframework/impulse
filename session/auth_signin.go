@@ -128,6 +128,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		ProviderSessionIssuer: at.providerSessionIssuer,
 		RoleNames:             at.roleNames,
 		CustomData:            at.customData,
+		Browser:               browserFromCtx(ctx),
 	}
 
 	// A sign-in the directory's roles admit nowhere is refused here, before the store

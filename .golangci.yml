@@ -213,6 +213,7 @@ linters:
       - sessioninfo.NewTooManyAttemptsRefusal(
       - sessioninfo.NewTooManyAttemptsRefusalSaying(
       - sessioninfo.NewTooManyEmailsRefusal(
+      - sessioninfo.UsernameRefusal(
       - signinflow.Refusal(
       - .WithDescription(
       - .WithParent(
