@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 
 	"github.com/ettle/strcase"
@@ -1625,7 +1626,7 @@ func (r *resourceInfo) CreateRefusal() string {
 	if r.CreateDisabled() {
 		return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
 	}
-	word := strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
+	word := words.InWords(r.Name())
 	if !r.TenantCreation.Invites() {
 		return fmt.Sprintf("%s is not created directly: the application makes one in its own code", withArticle(word))
 	}

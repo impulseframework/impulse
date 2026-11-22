@@ -506,7 +506,7 @@ func Test_tenantNameColumn(t *testing.T) {
 func Test_screenWords(t *testing.T) {
 	t.Parallel()
 
-	for name, want := range map[string]string{"Sector": "Sector", "ShipClass": "Ship class", "ShipClasses": "Ship classes", "": ""} {
+	for name, want := range map[string]string{"Sector": "Sector", "ShipClass": "Ship class", "ShipClasses": "Ship classes", "PilotIDs": "Pilot IDs", "FAQs": "FAQs", "": ""} {
 		if got := screenWords(name); got != want {
 			t.Errorf("screenWords(%q) = %q, want %q", name, got, want)
 		}
