@@ -2,11 +2,13 @@
 // one judgment every path that sets a password asks and the one a page asks while a person
 // types: a password is strong enough when the library's estimate of how hard it is to guess,
 // in bits, reaches the application's minimum, with the person's own username, name and email
-// address counted among the words an attacker tries first. The answer places the password on
-// one scale from 0 to Full with the minimum at Mark, so a page draws it and calculates
-// nothing, and names the reason a password falls short, which Sentence says to a person. A
-// password is judged by its first MaxJudged characters, since the estimate's cost grows with
-// the square of the length.
+// address counted among the words an attacker tries first, and it is not among the 100,000
+// passwords most often found in data breaches (cracked.bin), which an attacker online tries
+// before anything else. The answer places the password on one scale from 0 to Full with the
+// minimum at Mark, so a page draws it and calculates nothing, and names the reason a password
+// falls short, which Sentence says to a person. A password is judged by its first MaxJudged
+// characters, since the estimate's cost grows with the square of the length; the list is
+// asked about the whole password.
 package passwordstrength
 
 import (
@@ -46,6 +48,10 @@ const (
 	// ReasonPersonal is a password that would reach the minimum but for the person's own
 	// username, name or email address, which it is built on.
 	ReasonPersonal Reason = "personal"
+
+	// ReasonCracked is a password on the list of passwords found in breaches, whatever its
+	// estimate.
+	ReasonCracked Reason = "cracked"
 )
 
 // Sentence is what a person reads about the reason: one sentence saying why the password
@@ -56,6 +62,8 @@ func (r Reason) Sentence() string {
 		return "This password is too easy to guess. Make it longer, or use several words that do not go together."
 	case ReasonPersonal:
 		return "This password is built on your name, username or email address. Choose one that is not."
+	case ReasonCracked:
+		return "This password is on a list of passwords found in data breaches. Choose a different one."
 	default:
 		return ""
 	}
@@ -84,13 +92,17 @@ type Judgment struct {
 }
 
 // Judge judges password against the person's details under minimum, in bits of the library's
-// estimate. A minimum under 1 is a programmer's error, and Judge panics.
+// estimate. A password on the list of passwords found in breaches is at 0 whatever the
+// minimum. A minimum under 1 is a programmer's error, and Judge panics.
 func Judge(password string, who Details, minimum int) Judgment {
 	if minimum < 1 {
 		panic("passwordstrength: the minimum is at least 1 bit")
 	}
 	if password == "" {
 		return Judgment{StrongEnough: false, Strength: 0, Reason: ReasonGuessable}
+	}
+	if listed(password) {
+		return Judgment{StrongEnough: false, Strength: 0, Reason: ReasonCracked}
 	}
 
 	judged := firstRunes(password, MaxJudged)

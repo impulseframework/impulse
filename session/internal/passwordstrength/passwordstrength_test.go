@@ -43,8 +43,8 @@ func TestJudge_calibration(t *testing.T) {
 			if tt.strongEnough && got.Reason != "" {
 				t.Errorf("Judge(%q, 30).Reason = %q, want none", tt.password, got.Reason)
 			}
-			if !tt.strongEnough && got.Reason != ReasonGuessable {
-				t.Errorf("Judge(%q, 30).Reason = %q, want %q", tt.password, got.Reason, ReasonGuessable)
+			if !tt.strongEnough && got.Reason == "" {
+				t.Errorf("Judge(%q, 30).Reason is empty, want why it falls short", tt.password)
 			}
 		})
 	}
@@ -112,9 +112,9 @@ func TestJudge_weakWithOtherDetailsStaysGuessable(t *testing.T) {
 	t.Parallel()
 
 	who := Details{Username: "someoneelse", Name: "Other Person", Email: "other@example.com"}
-	got := Judge("rosebud", who, 30)
+	got := Judge("kestrelvaughn", who, 30)
 	if got.StrongEnough || got.Reason != ReasonGuessable {
-		t.Errorf("Judge(rosebud, %+v) = %+v, want it short for %q", who, got, ReasonGuessable)
+		t.Errorf("Judge(kestrelvaughn, %+v) = %+v, want it short for %q", who, got, ReasonGuessable)
 	}
 }
 
@@ -175,6 +175,7 @@ func TestReason_Sentence(t *testing.T) {
 	}{
 		{ReasonGuessable, "This password is too easy to guess. Make it longer, or use several words that do not go together."},
 		{ReasonPersonal, "This password is built on your name, username or email address. Choose one that is not."},
+		{ReasonCracked, "This password is on a list of passwords found in data breaches. Choose a different one."},
 		{"", ""},
 	}
 	for _, tt := range tests {
