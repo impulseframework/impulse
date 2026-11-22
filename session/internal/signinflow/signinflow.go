@@ -1006,24 +1006,8 @@ func acceptInvitation[Tx any](
 				return errAcceptanceSkipped
 			}
 		}
-		var byOwnCode bool
-		if stop, byOwnCode, err = acceptedByCode(ctx, d, tx, inv, user, true, unproven(user, inv), claim); err != nil {
+		if stop, wrote, err = acceptanceAddress(ctx, d, tx, userID, user, inv, unproven(user, inv), claim); err != nil {
 			return err
-		}
-		switch {
-		case stop != nil:
-			// The acceptance is stopped before any address is written.
-		case byOwnCode:
-			if wrote, err = d.VerifyUserEmailIfHeldIn(ctx, tx, userID, claim.Held, claim.Email); err != nil {
-				return errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
-			}
-			if !wrote {
-				stop = codeAddressGone(userID, claim)
-			}
-		default:
-			if stop, err = claimInvitedAddress(ctx, d, tx, user, inv); err != nil {
-				return err
-			}
 		}
 		if stop != nil {
 			// Nothing of the acceptance is kept: the invitation stands.
@@ -1040,35 +1024,27 @@ func acceptInvitation[Tx any](
 
 		return nil
 	}
-	err = d.Transact(ctx, run)
-	if err != nil && d.SignInConflict(err) == dbtype.LockConflict {
+	txErr := d.Transact(ctx, run)
+	if runsOnceMore(d, txErr) {
 		// The database broke a deadlock or a serialization failure: the acceptance runs
 		// once more, and what it answers is decided on that run.
-		err = d.Transact(ctx, run)
+		txErr = d.Transact(ctx, run)
 	}
-	if err != nil {
+	if txErr != nil {
 		if dead {
 			return true, nil, nil
 		}
-		if stop != nil && errors.Is(err, errAcceptanceStopped) {
+		if stop != nil && errors.Is(txErr, errAcceptanceStopped) {
 			return false, stop, nil
 		}
-		if errors.Is(err, errAcceptanceSkipped) {
+		if errors.Is(txErr, errAcceptanceSkipped) {
 			return false, nil, nil
 		}
-		if d.SignInConflict(err) == dbtype.EmailConflict {
-			if claim != nil {
-				// Another account took the code's address at the same moment: the code no
-				// longer stands, and the invitation does.
-				return false, codeAddressGone(userID, claim), nil
-			}
-			// Another account took the invited address at the same moment: the
-			// acceptance is answered as it is where that account held it before, and the
-			// invitation stands.
-			return false, Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
+		if d.SignInConflict(txErr) == dbtype.EmailConflict {
+			return false, addressTakenMeanwhile(userID, inv, claim), nil
 		}
 
-		return false, nil, errors.Wrap(err, "Driver.Transact()")
+		return false, nil, errors.Wrap(txErr, "Driver.Transact()")
 	}
 	inv.Accepted = true
 	if wrote {
@@ -1077,6 +1053,65 @@ func acceptInvitation[Tx any](
 	committed.run(ctx)
 
 	return false, nil, nil
+}
+
+// acceptanceAddress decides the address of an acceptance in acceptInvitation, in the
+// run's transaction tx on the user row it read. stop is what stops the acceptance before
+// any address is written: acceptedByCode's answer (unproven is what it answers for an
+// account that may still enter the code mailed to the invited address), the code_expired
+// refusal of a code whose address the account no longer holds or another account holds
+// (codeAddressGone), or claimInvitedAddress's refusal. An acceptance that rests on the
+// account's own mailed code writes the code's address (Driver.VerifyUserEmailIfHeldIn),
+// and wrote says it did; any other claims the invited address (claimInvitedAddress).
+func acceptanceAddress[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, user *dbtype.User, inv *sessioninfo.Invitation,
+	unproven error, claim *dbtype.CodeAddress,
+) (stop error, wrote bool, err error) {
+	var byOwnCode bool
+	if stop, byOwnCode, err = acceptedByCode(ctx, d, tx, inv, user, true, unproven, claim); err != nil {
+		return nil, false, err
+	}
+	switch {
+	case stop != nil:
+		// The acceptance is stopped before any address is written.
+		return stop, false, nil
+	case byOwnCode:
+		if wrote, err = d.VerifyUserEmailIfHeldIn(ctx, tx, userID, claim.Held, claim.Email); err != nil {
+			return nil, false, errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
+		}
+		if !wrote {
+			return codeAddressGone(userID, claim), false, nil
+		}
+
+		return nil, true, nil
+	default:
+		if stop, err = claimInvitedAddress(ctx, d, tx, user, inv); err != nil {
+			return nil, false, err
+		}
+
+		return stop, false, nil
+	}
+}
+
+// addressTakenMeanwhile is what stops an acceptance in acceptInvitation whose transaction
+// another account's write of the address ended at the same moment (dbtype.EmailConflict);
+// the invitation stands. Where the sign-in carries the claim its own code makes, the code
+// no longer stands; otherwise the acceptance is answered as it is where that account held
+// the invited address before.
+func addressTakenMeanwhile(userID impulse.UUID, inv *sessioninfo.Invitation, claim *dbtype.CodeAddress) error {
+	if claim != nil {
+		return codeAddressGone(userID, claim)
+	}
+
+	return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv))
+}
+
+// runsOnceMore says a sign-in's transaction that ended with err runs once more: the
+// database ended it to break a deadlock or a serialization failure
+// (dbtype.LockConflict). decideAndInsert and acceptInvitation run theirs once more, and
+// a second such end is the store's error.
+func runsOnceMore[Tx any](d Driver[Tx], err error) bool {
+	return err != nil && d.SignInConflict(err) == dbtype.LockConflict
 }
 
 // claimInvitedAddress writes the invited address on user, confirmed, for an acceptance
@@ -2380,7 +2415,7 @@ func decideAndInsert[Tx any](
 		return nil
 	}
 	err := d.Transact(ctx, run)
-	if err != nil && d.SignInConflict(err) == dbtype.LockConflict {
+	if runsOnceMore(d, err) {
 		// The database broke a deadlock (two sign-ins of the user that each shared the
 		// user row's lock and then asked to write it) or a serialization failure: the
 		// transaction runs once more and is answered by what it finds.
