@@ -25,8 +25,8 @@ func (Refit) DefaultConfig() resource.Config {
 }
 
 // NameFields names the resource's name fields: beside each id that points to a row with
-// a name, the name of that row, which a list shows, sorts and filters by. A name is
-// looked up in the pointed-to table by the id; it is no column of this resource.
+// a name, the name of that row, which a list shows and sorts by. A name is looked up in
+// the pointed-to table by the id; it is no column of this resource.
 func (Refit) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
