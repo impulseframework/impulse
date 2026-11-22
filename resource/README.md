@@ -6053,8 +6053,8 @@ transaction: `TableName` and `RowId` say which row, `Sequence` numbers the recor
 transaction writes for the row, `EventTime` is the commit timestamp, `EventSource` says
 who made the change (section 6, `UserEvent`), and `ChangeSet` holds each changed field
 with its old and its new value. `TenantId` holds the key of the tenant the row belongs
-to, empty for a row of a table that belongs to no tenant. A secret field is named as changed with neither value
-(section 23).
+to, empty for a row of a table that belongs to no tenant. A secret field is named as
+changed with neither value (section 23).
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. An application copies them into its first migration, as `impulse new` writes
