@@ -6,9 +6,13 @@
 // passwords most often found in data breaches (cracked.bin), which an attacker online tries
 // before anything else. The answer places the password on one scale from 0 to Full with the
 // minimum at Mark, so a page draws it and calculates nothing, and names the reason a password
-// falls short, which Sentence says to a person. A password is judged by its first MaxJudged
-// characters, since the estimate's cost grows with the square of the length; the list is
-// asked about the whole password.
+// falls short, which Sentence says to a person.
+//
+// One judgment costs a bounded amount of work whatever the password is made of, since anyone
+// may ask one before signing in: the estimate reads a password's first MaxJudged characters
+// and each detail's first maxDetail, and it reads look-alike characters as letters (4 for a,
+// $ for s) only while the ways to read them take at most maxL33tWork passes, each pass
+// costing the square of the length. The list is asked about the whole password.
 package passwordstrength
 
 import (
@@ -18,6 +22,8 @@ import (
 	"unicode/utf8"
 
 	zxcvbn "github.com/ccojocar/zxcvbn-go"
+	"github.com/ccojocar/zxcvbn-go/adjacency"
+	"github.com/ccojocar/zxcvbn-go/matching"
 )
 
 const (
@@ -29,8 +35,18 @@ const (
 	Full = 100
 
 	// MaxJudged is how many characters of a password the estimate reads; the characters
-	// after them change nothing in the answer.
-	MaxJudged = 128
+	// after them change nothing in the answer. It is 64, longer than the passphrases people
+	// type, because the estimate's work grows with the square of the length and is done once
+	// for every way of reading the password's look-alike characters.
+	MaxJudged = 64
+
+	// maxL33tWork is the most passes over a password the estimate's reading of look-alike
+	// characters as letters may take; past it, the estimate reads the password as typed.
+	maxL33tWork = 16
+
+	// maxDetail is how many characters of each of the person's details, after the trim, count
+	// against a password.
+	maxDetail = 256
 
 	// minRun is the shortest run of letters and digits in a person's detail that counts on
 	// its own against a password.
@@ -106,18 +122,31 @@ func Judge(password string, who Details, minimum int) Judgment {
 	}
 
 	judged := firstRunes(password, MaxJudged)
-	bits := zxcvbn.PasswordStrength(judged, inputsOf(who)).Entropy
+	inputs := inputsOf(who)
+	bits := estimate(judged, inputs)
 	strength := strengthOf(bits, minimum)
 	if bits >= float64(minimum) {
 		return Judgment{StrongEnough: true, Strength: max(strength, Mark), Reason: ""}
 	}
 
+	// Without inputs the second estimate would answer as the first.
 	reason := ReasonGuessable
-	if zxcvbn.PasswordStrength(judged, nil).Entropy >= float64(minimum) {
+	if inputs != nil && estimate(judged, nil) >= float64(minimum) {
 		reason = ReasonPersonal
 	}
 
 	return Judgment{StrongEnough: false, Strength: min(strength, Mark-1), Reason: reason}
+}
+
+// estimate is the library's estimate of how hard judged is to guess, in bits, with inputs
+// among the words an attacker tries first. When reading judged's look-alike characters as
+// letters would take more than maxL33tWork passes, the library is asked without that reading.
+func estimate(judged string, inputs []string) float64 {
+	if l33tWork(judged) > maxL33tWork {
+		return zxcvbn.PasswordStrength(judged, inputs, matching.FilterL33tMatcher).Entropy
+	}
+
+	return zxcvbn.PasswordStrength(judged, inputs).Entropy
 }
 
 // strengthOf places bits on the scale from 0 to Full, with minimum at Mark.
@@ -138,9 +167,9 @@ func firstRunes(s string, n int) string {
 }
 
 // inputsOf are the words the person's details give the estimate, in the order Username, Name,
-// Email: each detail whole, trimmed of surrounding space, then each run of letters and digits
-// in it at least minRun characters long, each word once whatever its case. It is nil when the
-// details give none.
+// Email: each detail trimmed of surrounding space and cut to its first maxDetail characters,
+// whole, then each run of letters and digits in it at least minRun characters long, each word
+// once whatever its case. It is nil when the details give none.
 func inputsOf(who Details) []string {
 	var inputs []string
 	seen := map[string]bool{}
@@ -154,7 +183,7 @@ func inputsOf(who Details) []string {
 	}
 
 	for _, detail := range []string{who.Username, who.Name, who.Email} {
-		detail = strings.TrimSpace(detail)
+		detail = firstRunes(strings.TrimSpace(detail), maxDetail)
 		if detail == "" {
 			continue
 		}
@@ -172,4 +201,36 @@ func inputsOf(who Details) []string {
 // notLetterOrDigit says whether r ends a run of letters and digits.
 func notLetterOrDigit(r rune) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+}
+
+// l33tTable is the library's table of look-alike characters: a letter to the characters that
+// stand for it.
+var l33tTable = adjacency.GraphMap["l33t"].Graph
+
+// l33tWork is how many passes over read the library's reading of look-alike characters as
+// letters takes, or more: it reads read once for each choice of one character for every
+// letter that several of read's characters stand for, and again for each letter a character
+// standing for several is given to. A text with none of the characters gives 1.
+func l33tWork(read string) int {
+	work := 1
+	letters := map[string]int{}
+	for _, chars := range l33tTable {
+		present := 0
+		for _, char := range chars {
+			if strings.Contains(read, char) {
+				present++
+				letters[char]++
+			}
+		}
+		if present > 1 {
+			work *= present
+		}
+	}
+	for _, n := range letters {
+		if n > 1 {
+			work *= n
+		}
+	}
+
+	return work
 }

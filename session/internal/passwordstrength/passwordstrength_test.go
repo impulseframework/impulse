@@ -3,6 +3,9 @@ package passwordstrength
 import (
 	"strings"
 	"testing"
+
+	zxcvbn "github.com/ccojocar/zxcvbn-go"
+	"github.com/ccojocar/zxcvbn-go/matching"
 )
 
 // calibration is the table the default minimum is set from: each password with no details,
@@ -139,6 +142,67 @@ func TestJudge_onlyTheFirstCharactersAreJudged(t *testing.T) {
 		if got, want := Judge(weak+tail, Details{}, 30), Judge(weak, Details{}, 30); got != want {
 			t.Errorf("Judge(%d a's + %q) = %+v, want %+v as without the tail", MaxJudged, tail, got, want)
 		}
+	}
+}
+
+func TestL33tWork(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		read string
+		want int
+	}{
+		{"password", 1},
+		{"p@ssw0rd", 1},
+		{"Tr0ub4dour&3", 1},
+		{"qwER43@!", 2},
+		{"neverforget13/3/1997", 8},
+		{"0123456789", 16},
+		{"4@8({[<3691!|70$5+%2", 4608},
+	}
+	for _, tt := range tests {
+		if got := l33tWork(tt.read); got != tt.want {
+			t.Errorf("l33tWork(%q) = %d, want %d", tt.read, got, tt.want)
+		}
+	}
+}
+
+func TestJudge_lookAlikesPastTheBoundAreNotReadAsLetters(t *testing.T) {
+	t.Parallel()
+
+	// A dictionary word written in look-alike characters, beside enough of the characters
+	// that stand for two letters to take the reading past the bound.
+	const password, minimum = "p@$$w0rd1|7", 100
+	if work := l33tWork(password); work <= maxL33tWork {
+		t.Fatalf("l33tWork(%q) = %d, want it over %d: the case proves nothing", password, work, maxL33tWork)
+	}
+	filtered := strengthOf(zxcvbn.PasswordStrength(password, nil, matching.FilterL33tMatcher).Entropy, minimum)
+	read := strengthOf(zxcvbn.PasswordStrength(password, nil).Entropy, minimum)
+	if filtered == read {
+		t.Fatalf("the library answers %q at strength %d with and without the look-alike reading: the case proves nothing", password, read)
+	}
+	if got := Judge(password, Details{}, minimum); got.Strength != filtered {
+		t.Errorf("Judge(%q, %d).Strength = %d, want %d as the library answers without the look-alike reading (%d with it)", password, minimum, got.Strength, filtered, read)
+	}
+}
+
+func TestJudge_calibrationIsUnderTheLookAlikeBound(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range calibration {
+		if work := l33tWork(tt.password); work > maxL33tWork {
+			t.Errorf("l33tWork(%q) = %d, want %d or less, so the table is judged with the look-alike reading", tt.password, work, maxL33tWork)
+		}
+	}
+}
+
+func TestJudge_detailsAreReadByTheirFirstCharacters(t *testing.T) {
+	t.Parallel()
+
+	const password = "vexillumtrek"
+	who := Details{Username: strings.Repeat("a ", 128) + password}
+	if got := Judge(password, who, 30); !got.StrongEnough {
+		t.Errorf("Judge(%q) with the word past the username's %dth character = %+v, want strong enough", password, maxDetail, got)
 	}
 }
 
