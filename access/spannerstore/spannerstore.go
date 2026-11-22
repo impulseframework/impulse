@@ -28,6 +28,7 @@ import (
 	"slices"
 
 	"cloud.google.com/go/spanner"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
@@ -362,6 +363,20 @@ func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wra
 	return nil
 }
 
+// readWrite runs f in a read-write transaction at the serializable isolation level,
+// whatever level the application chose for its client
+// (spanner.ClientConfig.TransactionOptions, which the client applies to a transaction
+// that names none). Several of the store's transactions read and then write another
+// row, and rely on Spanner serializing the read with what another transaction writes: a
+// role's insert with its twin's, a role's or a group's deletion with a membership given
+// at the same moment. At repeatable read, which checks only two writes to one row, both
+// would commit.
+func (s *Store) readWrite(ctx context.Context, f func(context.Context, *spanner.ReadWriteTransaction) error) error {
+	_, err := s.client.ReadWriteTransactionWithOptions(ctx, f, spanner.TransactionOptions{IsolationLevel: sppb.TransactionOptions_SERIALIZABLE})
+
+	return err //nolint:wrapcheck // each caller wraps it with the words that name its transaction
+}
+
 // given is one column an assignment is given beside its period, with the value
 // it is given: a membership's reason.
 type given struct {
@@ -382,7 +397,7 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 		columns = append(columns, g.column)
 		values = append(values, g.value)
 	}
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var m *spanner.Mutation
 		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
 		case err == nil:
@@ -536,17 +551,17 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope
 // re-inserting an existing role is a no-op that leaves the stored description
 // as it is. A name that differs only in case from a custom role held where the
 // two are read side by side is refused with a *policy.CaseTwinError. The read of
-// the roles the name is held to and the insert are one read-write transaction,
-// which Spanner serializes with any other that wrote a row the read reads, so of
-// two inserts of names alike but for case one commits first and the other, run
-// again, reads its row.
+// the roles the name is held to and the insert are one read-write transaction at
+// the serializable isolation level, which Spanner serializes with any other that
+// wrote a row the read reads, so of two inserts of names alike but for case one
+// commits first and the other, run again, reads its row.
 func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	stmt := spanner.Statement{SQL: s.sqlReadMeetingRoles, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
 	m := spanner.Insert(s.names.roles,
 		[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
 		[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		held, err := meetingRoles(ctx, txn, stmt)
 		if err != nil {
 			return err
@@ -629,7 +644,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	kind, axis, domain := policy.ScopeColumns(scope)
 	params := map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)}
 	var deleted bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if members, err := anyRow(ctx, txn, spanner.Statement{SQL: s.sqlRoleHasMembers, Params: params}); err != nil {
 			return errors.Wrap(err, "role members")
 		} else if members {
@@ -758,7 +773,7 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 	}
 
 	for chunk := range slices.Chunk(changes, changeGrantsChunk) {
-		_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			keys := make([]spanner.KeySet, 0, len(chunk))
 			for _, c := range chunk {
 				if !c.remove {

@@ -222,7 +222,7 @@ func (s *Store) InsertGroup(ctx context.Context, group *policy.GroupRow) (bool, 
 // the group was there.
 func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group, description string) (bool, error) {
 	var found bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.setDescription, Params: map[string]any{paramGroup: string(group), paramDescription: description}})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -245,7 +245,7 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	params := map[string]any{paramGroup: string(group)}
 	var deleted bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		for _, check := range []struct{ sql, what string }{{s.groups.hasMembers, "members"}, {s.groups.hasRoles, "roles"}} {
 			held, err := queryHasRow(ctx, txn, spanner.Statement{SQL: check.sql, Params: params})
 			if err != nil {
