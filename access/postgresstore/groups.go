@@ -30,6 +30,7 @@ type groupStatements struct {
 	setDescription string
 	deleteGroup    string
 	lockGroup      string
+	shareGroup     string
 	hasMembers     string
 	hasRoles       string
 	deleteEnded    []string
@@ -61,6 +62,7 @@ func newGroupStatements(n *tableNames) groupStatements {
 		setDescription: fmt.Sprintf(`update %s set "Description" = $2, "UpdatedAt" = now() where "Id" = $1`, n.groups),
 		deleteGroup:    fmt.Sprintf(`delete from %s where "Id" = $1`, n.groups),
 		lockGroup:      fmt.Sprintf(`select 1 from %s where "Id" = $1 for update`, n.groups),
+		shareGroup:     fmt.Sprintf(`select 1 from %s where "Id" = $1 for key share`, n.groups),
 		hasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1 and %s)`, n.groupMembers, standing("")),
 		hasRoles:       fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1 and %s)`, n.groupRoles, standing("")),
 		deleteEnded: []string{
@@ -220,14 +222,6 @@ func (s *Store) readGroups(ctx context.Context, tx pgx.Tx, records *policy.Recor
 	return nil
 }
 
-// foreignKeyViolation reports whether err is the database's refusal of a row by
-// the foreign key of the table written: the row's parent is not there.
-func foreignKeyViolation(err error) bool {
-	var pgErr *pgconn.PgError
-
-	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.ForeignKeyViolation
-}
-
 // InsertGroup creates the group's row. An id already taken, or a name another
 // group kept in the same place holds, is reported as taken and writes nothing.
 func (s *Store) InsertGroup(ctx context.Context, group *policy.GroupRow) (bool, error) {
@@ -369,18 +363,23 @@ func (s *Store) queryGroups(ctx context.Context, sql string, args ...any) ([]pol
 
 // InsertGroupMember gives one person's place in a group its period: the person
 // is added where they are not in the group, and their place given the new
-// period where they are. The group's row must exist: where the table's foreign
-// key, to the group, refuses the row, policy.ErrNoGroup is wrapped.
+// period where they are. It reads the group's row for key share before it
+// writes, as writeUnder says, and wraps policy.ErrNoGroup where the row is not
+// there.
 func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
-	if _, err := s.pool.Exec(ctx, s.groups.insertMember, group, user, period.StartPtr(), period.EndPtr()); err != nil {
-		if foreignKeyViolation(err) {
+	return s.writeUnder(ctx, "assign group member", s.groups.insertMember, []any{group, user, period.StartPtr(), period.EndPtr()}, s.groupRow(group))
+}
+
+// groupRow is the parent of a group's member and of a group's role: the group's
+// row.
+func (s *Store) groupRow(group accesstypes.Group) parent {
+	return parent{
+		sql:  s.groups.shareGroup,
+		args: []any{group},
+		gone: func() error {
 			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
-		}
-
-		return errors.Wrap(err, "pgxpool.Pool.Exec() assign group member")
+		},
 	}
-
-	return nil
 }
 
 // DeleteGroupMember removes one person from a group; removing one who is not
@@ -409,36 +408,25 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 
 // InsertGroupRole gives one role a group holds in scope its period: the role is
 // added where the group does not hold it there, and given the new period where
-// it does. The group's row must exist: where the table's foreign key, to the
-// group, refuses the row, policy.ErrNoGroup is wrapped. The role is named by name
-// alone.
+// it does. It reads the group's row for key share before it writes, as
+// writeUnder says, and wraps policy.ErrNoGroup where the row is not there. The
+// role is named by name alone.
 func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.groups.insertRole, group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()); err != nil {
-		if foreignKeyViolation(err) {
-			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
-		}
 
-		return errors.Wrap(err, "pgxpool.Pool.Exec() assign group role")
-	}
-
-	return nil
+	return s.writeUnder(ctx, "assign group role", s.groups.insertRole, []any{group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()}, s.groupRow(group))
 }
 
 // InsertCustomGroupRole writes what InsertGroupRole writes, only while the roles
 // table holds a row of the custom role where the group's role reads it, as
-// InsertCustomUserRole reads it, and wraps policy.ErrNoRole where it holds none.
-// The role is read before the insert meets the group's foreign key, so where
-// neither is there the answer is policy.ErrNoRole; where the group alone is not,
-// policy.ErrNoGroup is wrapped.
+// InsertCustomUserRole reads it. It reads the role's rows for key share and then
+// the group's row, as writeUnder says: where the role's are not there it wraps
+// policy.ErrNoRole, whether or not the group is, and where the group's is not,
+// policy.ErrNoGroup.
 func (s *Store) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	err := s.assignCustom(ctx, scope, role, "assign group role", s.groups.insertRole, group, kind, axis, domain, role, period.StartPtr(), period.EndPtr())
-	if foreignKeyViolation(err) {
-		return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
-	}
 
-	return err
+	return s.writeUnder(ctx, "assign group role", s.groups.insertRole, []any{group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()}, s.customRole(scope, role), s.groupRow(group))
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it

@@ -2,6 +2,8 @@ package postgresstore
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -225,13 +227,18 @@ func TestDDL_keys(t *testing.T) {
 // turnRole is the custom role the turn tests give and delete, in turnScope.
 const turnRole = accesstypes.Role("Warden")
 
+// turnGroup is the group the turn tests write under and delete, kept in turnScope.
+const turnGroup = accesstypes.Group("7f2f6a52-6c63-4a7a-9c1e-0000000000a1")
+
 var turnScope = accesstypes.DomainPolicyScope("tenant1")
 
-// TestStore_DeleteRole_takesItsTurnWithAGive pins that a role's deletion takes the
-// lock on the role's name a custom role's give takes, and reads after it: a membership
-// written while the delete waits for the lock is seen, and the delete refuses. A
-// delete that read before the lock, or under a snapshot taken before it, would delete
-// the role from under the membership.
+// TestStore_DeleteRole_takesItsTurnWithAGive pins that a role's deletion locks the
+// role's row before it looks for who holds the role, and looks after the lock: a
+// membership written by a transaction that read the row for key share, as an
+// application's own transaction gives a role, and still open when the delete starts,
+// is seen once it commits, and the delete refuses. A delete that looked before the
+// lock, or under a snapshot taken before it, would delete the role from under the
+// membership.
 func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -241,7 +248,11 @@ func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 	}
 	turns := repeatableReadStore(ctx, t, database.Pool)
 
-	lock := holdRoleNameLock(ctx, t, database.Pool, store, turnRole)
+	kind, axis, domain := policy.ScopeColumns(turnScope)
+	give := lockRow(ctx, t, database.Pool, roleRowSQL(store, "key share"), kind, axis, domain, turnRole)
+	if _, err := give.Exec(ctx, store.sqlInsertUserRole, kind, axis, domain, turnRole, "alice", nil, nil, nil); err != nil {
+		t.Fatalf("pgx.Tx.Exec() insert user role error = %v", err)
+	}
 	var (
 		deleted bool
 		err     error
@@ -252,10 +263,7 @@ func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 		deleted, err = turns.DeleteRole(ctx, turnScope, turnRole)
 	}()
 	waitingOnALock(t, database.Pool, done)
-	if err := store.InsertUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, ""); err != nil {
-		t.Fatalf("InsertUserRole() error = %v", err)
-	}
-	if err := lock.Commit(ctx); err != nil {
+	if err := give.Commit(ctx); err != nil {
 		t.Fatalf("pgx.Tx.Commit() error = %v", err)
 	}
 	<-done
@@ -266,44 +274,221 @@ func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 	if exists, err := store.RoleExists(ctx, turnScope, turnRole); err != nil || !exists {
 		t.Errorf("RoleExists() after the refusal = (%v, %v), want the role there", exists, err)
 	}
+	if users, err := store.ListRoleUsers(ctx, turnScope, turnRole); err != nil || len(users) != 1 {
+		t.Errorf("ListRoleUsers() after the refusal = (%v, %v), want alice", users, err)
+	}
 }
 
-// TestStore_InsertCustomUserRole_takesItsTurnWithADelete pins that a custom role's give
-// takes the lock on the role's name a role's deletion takes, and reads the role's row
-// after it: a row deleted while the give waits for the lock is seen gone, and nothing
-// is written.
-func TestStore_InsertCustomUserRole_takesItsTurnWithADelete(t *testing.T) {
+// TestStore_writeUnderAParent_takesItsTurnWithItsDelete pins that a write under a role
+// or a group reads its parent's row for key share before it writes, and reads it after
+// the lock: where a transaction that holds the row deletes it, the write waits, finds
+// the parent gone, answers with the parent's sentinel and writes nothing. A write that
+// left the parent to the foreign key would not wait where it gives an ended row again,
+// and would answer the database's error where the database's default level is
+// repeatable read; one that read the parent before the lock would write under a parent
+// that is gone.
+func TestStore_writeUnderAParent_takesItsTurnWithItsDelete(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	store, database := prepareStore(ctx, t)
+	now := time.Now()
+	ended := accesstypes.Period{Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour)}
+	grant := policy.RoleGrant{Perm: "Read", Resource: "Wards"}
+
+	tests := []struct {
+		name string
+		// group says the parent is turnGroup's row; otherwise it is turnRole's.
+		group bool
+		// endedRow writes the ended row the write gives again, before the parent is locked.
+		endedRow func(ctx context.Context, store *Store) error
+		write    func(ctx context.Context, store *Store) error
+		want     error
+	}{
+		{
+			name: "InsertCustomUserRole under its role",
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertCustomUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, "")
+			},
+			want: policy.ErrNoRole,
+		},
+		{
+			name: "InsertCustomGroupRole under its role",
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertCustomGroupRole(ctx, turnGroup, turnScope, turnRole, accesstypes.Period{})
+			},
+			want: policy.ErrNoRole,
+		},
+		{
+			name:  "InsertCustomGroupRole under its group",
+			group: true,
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertCustomGroupRole(ctx, turnGroup, turnScope, turnRole, accesstypes.Period{})
+			},
+			want: policy.ErrNoGroup,
+		},
+		{
+			name:  "InsertGroupMember of a new member",
+			group: true,
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertGroupMember(ctx, turnGroup, "alice", accesstypes.Period{})
+			},
+			want: policy.ErrNoGroup,
+		},
+		{
+			name:  "InsertGroupMember of an ended member given again",
+			group: true,
+			endedRow: func(ctx context.Context, store *Store) error {
+				return store.InsertGroupMember(ctx, turnGroup, "alice", ended)
+			},
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertGroupMember(ctx, turnGroup, "alice", accesstypes.Period{})
+			},
+			want: policy.ErrNoGroup,
+		},
+		{
+			name:  "InsertGroupRole of a new role",
+			group: true,
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertGroupRole(ctx, turnGroup, turnScope, turnRole, accesstypes.Period{})
+			},
+			want: policy.ErrNoGroup,
+		},
+		{
+			name:  "InsertGroupRole of an ended role given again",
+			group: true,
+			endedRow: func(ctx context.Context, store *Store) error {
+				return store.InsertGroupRole(ctx, turnGroup, turnScope, turnRole, ended)
+			},
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertGroupRole(ctx, turnGroup, turnScope, turnRole, accesstypes.Period{})
+			},
+			want: policy.ErrNoGroup,
+		},
+		{
+			name: "InsertGrant",
+			write: func(ctx context.Context, store *Store) error {
+				return store.InsertGrant(ctx, turnScope, turnRole, grant.Perm, grant.Resource, grant.Field, grant.Condition)
+			},
+			want: policy.ErrNoRole,
+		},
+		{
+			name: "ChangeGrants with an addition",
+			write: func(ctx context.Context, store *Store) error {
+				return store.ChangeGrants(ctx, turnScope, turnRole, nil, []policy.RoleGrant{grant})
+			},
+			want: policy.ErrNoRole,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store, database := prepareStore(ctx, t)
+			turnRoleAndGroup(ctx, t, store)
+			if tt.endedRow != nil {
+				if err := tt.endedRow(ctx, store); err != nil {
+					t.Fatalf("writing the ended row: error = %v", err)
+				}
+			}
+			turns := repeatableReadStore(ctx, t, database.Pool)
+
+			parent := roleParent(store)
+			if tt.group {
+				parent = groupParent(store)
+			}
+			deletion := lockRow(ctx, t, database.Pool, parent.lock, parent.args...)
+			var err error
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				err = tt.write(ctx, turns)
+			}()
+			waitingOnALock(t, database.Pool, done)
+			for _, sql := range parent.deletes {
+				if _, err := deletion.Exec(ctx, sql, parent.args...); err != nil {
+					t.Fatalf("pgx.Tx.Exec() delete the parent error = %v", err)
+				}
+			}
+			if err := deletion.Commit(ctx); err != nil {
+				t.Fatalf("pgx.Tx.Commit() error = %v", err)
+			}
+			<-done
+
+			if !errors.Is(err, tt.want) {
+				t.Errorf("the write under a parent deleted while it waited: error = %v, want %v", err, tt.want)
+			}
+			if held := heldUnder(ctx, t, store); len(held) != 0 {
+				t.Errorf("ReadPolicy() after the refusal holds %v, want nothing under the role or the group", held)
+			}
+		})
+	}
+}
+
+// turnRoleAndGroup writes turnRole and turnGroup, both in turnScope.
+func turnRoleAndGroup(ctx context.Context, t *testing.T, store *Store) {
+	t.Helper()
 	if err := store.InsertRole(ctx, turnScope, turnRole, "Keeps the wards."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	turns := repeatableReadStore(ctx, t, database.Pool)
+	group := &policy.GroupRow{Group: policy.Group{ID: turnGroup, Scope: turnScope}, Name: "Wards", Description: "Who keeps the wards."}
+	if taken, err := store.InsertGroup(ctx, group); err != nil || taken {
+		t.Fatalf("InsertGroup() = (%v, %v), want it written", taken, err)
+	}
+}
 
-	lock := holdRoleNameLock(ctx, t, database.Pool, store, turnRole)
-	var err error
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		err = turns.InsertCustomUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, "")
-	}()
-	waitingOnALock(t, database.Pool, done)
+// parentRow is the row a turn test locks and deletes: the statement that locks it for
+// update, the statements that delete it with the ended rows under it, and the arguments
+// of each.
+type parentRow struct {
+	lock    string
+	deletes []string
+	args    []any
+}
+
+// roleParent is turnRole's row in turnScope. Its grants go with it by the grants
+// table's foreign key.
+func roleParent(store *Store) parentRow {
 	kind, axis, domain := policy.ScopeColumns(turnScope)
-	if _, err := lock.Exec(ctx, store.sqlDeleteRole, kind, axis, domain, turnRole); err != nil {
-		t.Fatalf("pgx.Tx.Exec() delete role error = %v", err)
-	}
-	if err := lock.Commit(ctx); err != nil {
-		t.Fatalf("pgx.Tx.Commit() error = %v", err)
-	}
-	<-done
 
-	if !errors.Is(err, policy.ErrNoRole) {
-		t.Errorf("InsertCustomUserRole() of a role deleted while it waited: error = %v, want policy.ErrNoRole", err)
+	return parentRow{lock: roleRowSQL(store, "update"), deletes: []string{store.sqlDeleteRole}, args: []any{kind, axis, domain, turnRole}}
+}
+
+// groupParent is turnGroup's row, deleted after its ended members and roles.
+func groupParent(store *Store) parentRow {
+	return parentRow{lock: store.groups.lockGroup, deletes: append(slices.Clone(store.groups.deleteEnded), store.groups.deleteGroup), args: []any{turnGroup}}
+}
+
+// roleRowSQL is a statement that reads a role's row, as the roles table keys it, and
+// locks it at the strength named: "key share", as a write under the role does, or
+// "update", as the role's deletion does.
+func roleRowSQL(store *Store, strength string) string {
+	return fmt.Sprintf(`select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 for %s`, store.names.roles, strength)
+}
+
+// heldUnder lists what the store holds that a turn test's write would write: a
+// membership of turnRole, a role or a member of turnGroup, a grant of turnRole.
+func heldUnder(ctx context.Context, t *testing.T, store *Store) []string {
+	t.Helper()
+	records, err := store.ReadPolicy(ctx)
+	if err != nil {
+		t.Fatalf("ReadPolicy() error = %v", err)
 	}
-	if users, err := store.ListRoleUsers(ctx, turnScope, turnRole); err != nil || len(users) != 0 {
-		t.Errorf("ListRoleUsers() after the refusal = (%v, %v), want nobody", users, err)
+	var held []string
+	for i := range records.Memberships {
+		if m := &records.Memberships[i]; m.Role == turnRole || m.Member.Name == string(turnGroup) {
+			held = append(held, fmt.Sprintf("%s holds %s in %s", m.Member.Name, m.Role, m.Scope))
+		}
 	}
+	for i := range records.GroupMembers {
+		if m := &records.GroupMembers[i]; m.Group == turnGroup {
+			held = append(held, fmt.Sprintf("%s is in %s", m.User, m.Group))
+		}
+	}
+	for i := range records.Grants {
+		if g := &records.Grants[i]; g.Subject.Name == string(turnRole) {
+			held = append(held, fmt.Sprintf("%s may %s %s", g.Subject.Name, g.Perm, g.Resource))
+		}
+	}
+
+	return held
 }
 
 // repeatableReadStore is a store on a pool of its own to the test's database whose
@@ -330,11 +515,10 @@ func repeatableReadStore(ctx context.Context, t *testing.T, database *pgxpool.Po
 	return store
 }
 
-// holdRoleNameLock begins a transaction on the test's database that takes the lock a
-// store takes on the role's name, and returns it: a statement of the store that takes
-// the lock waits until the transaction ends. A transaction the test has not ended is
-// rolled back.
-func holdRoleNameLock(ctx context.Context, t *testing.T, database *pgxpool.Pool, store *Store, role accesstypes.Role) pgx.Tx {
+// lockRow begins a transaction on the test's database that runs the locking read of one
+// row given, and returns it: a statement of the store whose lock on the row conflicts
+// waits until the transaction ends. A transaction the test has not ended is rolled back.
+func lockRow(ctx context.Context, t *testing.T, database *pgxpool.Pool, sql string, args ...any) pgx.Tx {
 	t.Helper()
 	tx, err := database.Begin(ctx)
 	if err != nil {
@@ -343,16 +527,20 @@ func holdRoleNameLock(ctx context.Context, t *testing.T, database *pgxpool.Pool,
 	t.Cleanup(func() {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	})
-	if _, err := tx.Exec(ctx, store.sqlLockRoleName, store.names.rawRoles, policy.FoldRoleName(string(role))); err != nil {
-		t.Fatalf("pgx.Tx.Exec() lock role name error = %v", err)
+	tag, err := tx.Exec(ctx, sql, args...)
+	if err != nil {
+		t.Fatalf("pgx.Tx.Exec() lock the row error = %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("pgx.Tx.Exec() lock the row read %d rows, want 1", tag.RowsAffected())
 	}
 
 	return tx
 }
 
 // waitingOnALock waits until a session of the test's database waits on a lock, as a
-// statement of the store does while the test holds the role name's lock. It fails the
-// test where done is closed first: the store answered without waiting for the lock.
+// statement of the store does while the test holds a lock it needs. It fails the test
+// where done is closed first: the store answered without waiting for the lock.
 func waitingOnALock(t *testing.T, database *pgxpool.Pool, done <-chan struct{}) {
 	t.Helper()
 	ctx := t.Context()
@@ -360,7 +548,7 @@ func waitingOnALock(t *testing.T, database *pgxpool.Pool, done <-chan struct{}) 
 	for time.Now().Before(deadline) {
 		select {
 		case <-done:
-			t.Fatal("the store answered before it was seen waiting on the role name's lock")
+			t.Fatal("the store answered before it was seen waiting on a lock")
 		default:
 		}
 		var waiting bool
@@ -374,9 +562,6 @@ func waitingOnALock(t *testing.T, database *pgxpool.Pool, done <-chan struct{}) 
 	}
 	t.Fatal("no session of the database was seen waiting on a lock within 30 seconds")
 }
-
-// turnGroup is the group the turn test of a group's deletion writes a member to.
-const turnGroup = accesstypes.Group("7f2f6a52-6c63-4a7a-9c1e-0000000000a1")
 
 // TestStore_DeleteGroup_takesItsTurnWithAMember pins that a group's deletion locks the
 // group's row before it reads what the group holds, and reads after the lock: a member

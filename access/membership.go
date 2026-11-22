@@ -47,6 +47,12 @@ type RoleKey struct {
 // UserManager.Membership supplies one over the transaction it writes the membership in
 // (through the resource it declares over the roles table), so the role is read in the
 // transaction that seats a person in it: a role deleted beside it fails one of the two.
+// That holds where the read takes its turn with the role's deletion. On Spanner it does
+// in a read-write transaction at the serializable isolation level, which the resource
+// client's transactions are. On PostgreSQL it does where the read locks the row it finds
+// (for key share): the deletion locks the row before it looks for who holds the role. A
+// read that takes no turn can find the role a moment before it goes, and the membership
+// is then left naming a role that is gone.
 type RoleReader func(ctx context.Context, key RoleKey) (bool, error)
 
 // NewMembershipKey spells the membership of user in role, held in scope, as the store's row
