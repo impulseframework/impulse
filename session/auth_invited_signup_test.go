@@ -204,7 +204,7 @@ func invitedSignUpWaits(t *testing.T) {
 	expectFactorCodes(f)
 
 	// The mocked store expects no CreateUser and no SignIn: either call fails the test.
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 
 	held := f.held[pendingID]
 	if held.UserID.Valid || held.Username != "" || held.Identity.Subject != "" || held.PasswordProof != nil {
@@ -245,7 +245,7 @@ func invitedSignUpByCode(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, recorder, links, cookies := invitedPat(t)
 	codes := expectFactorCodes(f)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	inv := invitationOf(links.rows[0])
 
 	if rr := f.serve(f.auth.Pending().SendCode(), http.MethodPost, "/pending/send-code", nil, cookies); rr.Code != http.StatusOK || decoded(t, rr)["codeEmail"] != "p•••@lakeside.edu" {
@@ -270,7 +270,7 @@ func invitedSignUpByCode(t *testing.T) {
 		if u.Username != "patl" || u.PasswordHash == nil || u.Email == nil || *u.Email != "pat@lakeside.edu" || !u.EmailVerified {
 			t.Errorf("CreateUser() given %+v, want the chosen username, a hash and the invitation's address verified", u)
 		}
-		if _, err := securehash.New(securehash.Argon2()).Compare(u.PasswordHash, "correct horse"); err != nil {
+		if _, err := securehash.New(securehash.Argon2()).Compare(u.PasswordHash, "correct horse battery staple"); err != nil {
 			t.Errorf("CreateUser() given a hash that is not the chosen password's: %v", err)
 		}
 
@@ -310,7 +310,7 @@ func invitedSignUpUsernameIsEmail(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
 	f, _, _, cookies := invitedPat(t, UsernameIsEmail())
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse"}, "pat@lakeside.edu")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple"}, "pat@lakeside.edu")
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
@@ -330,7 +330,7 @@ func invitedSignUpUsernameIsEmail(t *testing.T) {
 func invitedSignUpWrongCode(t *testing.T) {
 	t.Parallel()
 	f, _, links, cookies := invitedPat(t)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	expectFactorCode(f, &pendingState{ID: pendingID})
 
 	// The mocked store expects no ConsumePendingSignIn, no CreateUser and no SignIn: any
@@ -357,7 +357,7 @@ func invitedSignUpTaken(t *testing.T) {
 		links.holds("pat@lakeside.edu", &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "pat", Email: strPtr("pat@lakeside.edu")})
 
 		// The mocked store expects no HoldSignIn: a call fails the test.
-		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse battery staple", "username": "patl"}, cookies)
 
 		if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != `the email address "pat@lakeside.edu" is already in use` {
 			t.Errorf("SignUp() for an address an account holds = %d %s, want 409 saying the address is in use", rr.Code, rr.Body.String())
@@ -372,7 +372,7 @@ func invitedSignUpTaken(t *testing.T) {
 		f, recorder, _, cookies := invitedPat(t)
 		f.store.EXPECT().UserByUserName(gomock.Any(), "patl").Return(&sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "patl"}, nil)
 
-		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse battery staple", "username": "patl"}, cookies)
 
 		if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != `username "patl" already exists` {
 			t.Errorf("SignUp() with a username an account holds = %d %s, want 409 saying the username exists", rr.Code, rr.Body.String())
@@ -386,7 +386,7 @@ func invitedSignUpTaken(t *testing.T) {
 func invitedSignUpNotTheApplications(t *testing.T) {
 	t.Parallel()
 	f, _, _, cookies := invitedPat(t)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 
 	// The mocked store expects no ConsumePendingSignIn, no CreateUser and no SignIn.
 	var err error
@@ -478,7 +478,7 @@ func invitedSignUpAttemptRefusals(t *testing.T) {
 			if !ok {
 				t.Fatal("the invitation's link carries no token")
 			}
-			kept := &heldSignUp{InvitationID: links.rows[0].ID, Username: "patl", PasswordHash: hashed(t, "correct horse")}
+			kept := &heldSignUp{InvitationID: links.rows[0].ID, Username: "patl", PasswordHash: hashed(t, "correct horse battery staple")}
 			ctx := context.WithValue(context.WithValue(t.Context(), invitationCtxKey{}, hash), heldSignUpCtxKey{}, kept)
 			pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), Step: sessioninfo.PendingMFA, Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Email: invited}}
 			codeTo := invited

@@ -46,7 +46,7 @@ login() { # login <persona>: the crew's password method under the console prefix
   # POST echoes the token in the header, as the browser does.
   curl -s -L -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null "$API/user/session"
   curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$p\",\"password\":\"lodestar\"}" "$API/user/password/login"
+    -d "{\"username\":\"$p\",\"password\":\"follow-the-lodestar-home\"}" "$API/user/password/login"
   second_factor "$p" "$API" "$p@fleet.example" "$LOG"
 }
 
@@ -649,7 +649,7 @@ login_second() { # login_second <persona>: the persona signed in on the second i
   rm -f "$S/$p.2.jar"
   curl -s -L -c "$S/$p.2.jar" -b "$S/$p.2.jar" -o /dev/null "$API2/user/session"
   curl -s -c "$S/$p.2.jar" -b "$S/$p.2.jar" -o /dev/null -H "X-XSRF-TOKEN: $(awk '$6=="crew-xsrf" {print $7}' "$S/$p.2.jar" | tail -1)" -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$p\",\"password\":\"lodestar\"}" "$API2/user/password/login"
+    -d "{\"username\":\"$p\",\"password\":\"follow-the-lodestar-home\"}" "$API2/user/password/login"
   # The second instance mails the code itself, so it is read from that instance's log.
   second_factor "$p.2" "$API2" "$p@fleet.example" "$S/second.log"
 }
@@ -1071,7 +1071,7 @@ first_codes=$(grep -ac "$FIRST_CODES" "$LOG")
 r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks again, and the code is mailed to the address he confirmed" 200 "$r"
 for _ in $(seq 1 100); do [ "$(grep -ac "$FIRST_CODES" "$LOG")" -gt "$first_codes" ] && break; sleep 0.1; done
 FIRST_CODE=$(grep -a "$FIRST_CODES" "$LOG" | tail -1 | sed -E 's/.*password is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
-r=$(req rookie POST "$API/user/first-password" "{\"code\":\"$FIRST_CODE\",\"password\":\"lodestar\"}"); check "and chooses his password with it" 200 "$r"
+r=$(req rookie POST "$API/user/first-password" "{\"code\":\"$FIRST_CODE\",\"password\":\"follow-the-lodestar-home\"}"); check "and chooses his password with it" 200 "$r"
 r=$(req rookie GET "$API/user/session"); assert_py "his session stands, the one the persona provider opened: a first password ends no session" "$r" "rows['authenticated'] and rows['username']=='rookie' and rows['directory']=={'method':'oidc','connection':'persona'}"
 r=$(req rookie POST "$API/user/first-password/code"); check "and his account takes no second first password" 409 "$r"
 r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, signed in through Bastion's directory and with a password of his own, asks what turning it on would do" 200 "$r"

@@ -78,8 +78,8 @@ func (h *FirstPasswordHandlers) SendCode() http.HandlerFunc {
 }
 
 // Set accepts {"code", "password"} from the signed-in user who holds no password and
-// writes the password, with the code SendCode mailed. The password is held to the rule
-// a sign-up's is (400 when it is shorter than eight characters). A code that is not the
+// writes the password, with the code SendCode mailed. The password is held to the
+// judgment a sign-up's is: a password the judgment refuses (400). A code that is not the
 // one sent is 400, and the fifth wrong one within fifteen minutes ends the code and
 // holds the account's first password for fifteen minutes (429, too_many_attempts and
 // the wait); a code entered when none stands, because none was sent or the one sent
@@ -326,7 +326,8 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if !user.EmailVerified() {
 		return errNoConfirmedAddress()
 	}
-	if err := acceptedPassword(password); err != nil {
+	who := detailsOf(user)
+	if err := a.strongEnough(password, who); err != nil {
 		return err
 	}
 	if err := a.firstPasswordHeld(ctx, user.ID); err != nil {
@@ -336,7 +337,7 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if err != nil {
 		return err
 	}
-	hash, err := a.hashToSet(password)
+	hash, err := a.hashToSet(password, who)
 	if err != nil {
 		return err
 	}

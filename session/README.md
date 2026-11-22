@@ -1398,19 +1398,11 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | --- | --- |
 | `Users(ctx)` | Every user, by username. |
 | `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
-| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, Email})` | A user, password-less when `Password` is nil. `Password` is the seam for a seed or an import, which creates an account that already holds a password: a person's own account is made by an invitation or a sign-up, where the person chooses theirs. The user is created under no password change mark. The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
+| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, Email})` | A user, password-less when `Password` is nil. `Password` is the seam for a seed or an import, which creates an account that already holds a password: a person's own account is made by an invitation or a sign-up, where the person chooses theirs. A password the judgment refuses (400) creates nothing: it is judged against the request's username, name and address (see "Password strength"). The user is created under no password change mark. The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where there is none to continue (a call outside a session of the user, a request a bearer token authenticated, or a session that views the application as them) it records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. The store's own `DeactivateUser`, `ActivateUser` and `DeleteUser` beneath them are the bare writes and are not held to it: they are handed no session to read, so a route calls the session API's three, never the store's. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
 
-One rule holds a password's shape on every path that sets one: it is at least eight
-characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
-A sign-up, the account an invitation's
-acceptance makes, a first password, a person's own change, a password chosen at a reset
-link, a password set by a flow of the application's own and an account created with one all
-hash the password through the one function that asks the rule first, so no path sets a
-password another would refuse. The hash a sign-in upgrades is of a password the person already holds,
-and is not asked.
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking the last link that can sign in a user with no password is refused (Conflict, `sessionstorage.ErrLastSignInMethod`): another link must be one a sign-in is still possible through (`SignsInThrough`), whatever links that sign nobody in remain. A user who holds a password may lose every link. |
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
 | `DirectoryName(method, connection)` | What the Auth's sign-in registrations call the directory an identity of this method and connection came through, for a sentence that names it to a person: the name a registration that takes the connection gives it (`signin.Method.ConnectionName`: a tenant listed with `azure.NamedTenant`, a Google Workspace's name or the domain of one admitted as any Workspace, an OpenID Connect provider's name or its issuer's host), and the label of the button of the first registration of the login page that takes the connection; each is empty where the registrations have none. A tenant listed by its id alone (`azure.Tenant`), one admitted as any tenant, and a method that names no connection have no name, so a sentence says such a directory by the label ("your organization's Microsoft directory") and never by the connection, which for an Entra tenant is an id. It reads nothing. |
@@ -1579,6 +1571,20 @@ password the account held when the link was followed and over no other (the stor
 `ChangeUserPassword`, on the hash read with the link), so a password changed or removed
 in that moment stands and the link answers 409 ("A password reset", below).
 
+### Password strength
+
+One judgment holds a password's strength on every path that sets one: a sign-up, the account
+an invitation's acceptance makes, a first password, a person's own change, the password a
+reset link ends in, and `CreateSessionUser` with a password. A password is refused (400, with
+the sentence that says why) when it is too easy to guess, when it is built on the person's
+own name, username or email address, or when it is among the 100,000 passwords most often
+found in data breaches.
+
+How hard a password is to guess is an estimate in bits. The password method's
+`MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an
+application that wants longer passwords raises it. A password is judged when it is set: one a
+person already holds still signs them in.
+
 ### A person's first password
 
 A person who has only ever signed in through a directory holds no password, and the
@@ -1609,7 +1615,7 @@ What is refused, and how:
 | The session views as someone else | 403, on both routes: an impersonated session changes nothing of the account it looks at, as on every own-account route. |
 | A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |
 | A code entered when none stands | 409: none was sent, or the one sent expired, was used, was replaced by a newer one or was ended by wrong codes. |
-| A password shorter than eight characters | 400: the password is held to the rule a sign-up's is. The code still stands. |
+| A password the judgment refuses | 400, with the sentence that says why: the password is held to the judgment a sign-up's is (see "Password strength"). The code still stands. |
 | A sixth code asked for a mailbox that used none of five | 429 with `too_many_emails` and the wait, the limit the links share (the codes of a sign-in are counted by themselves). |
 
 A first password ends no session: the person added a way to sign in, and nothing
@@ -1645,10 +1651,11 @@ you a link". There is no second mail.
   account's standing reset links, and an application that writes one in rows of its
   own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
   `PasswordReset().Complete()` takes the new password; the login page reaches both with
-  `#reset=<token>`. The new password is held to the same rule as any other, the old one
-  is refused from then on, every session of the person ends, the other reset links of
-  the account are withdrawn, and the person signs in with the new password: completing
-  a reset starts no session.
+  `#reset=<token>`. The new password is held to the same judgment as any other (see
+  "Password strength"): a password the judgment refuses (400) spends nothing, and the
+  link still opens. Once one is set, the old one is refused from then on, every session
+  of the person ends, the other reset links of the account are withdrawn, and the person
+  signs in with the new password: completing a reset starts no session.
 - **The link writes over the password it was followed for, and no other.** Completing
   it spends the link and then writes the new password only while the account still
   holds the password it held when the link was read (`AuthStore.ChangeUserPassword`,
@@ -2282,8 +2289,8 @@ methods table; see "Open to sign-up, or invite only"), anyone may create
 an account: the person gives their address to `SignUp().Start()` (`{"email"}`), which
 mails a link standing `MailSettings.LinkTimeout` (a day); the login page, sent to with
 `#signUp=<token>`, posts the token to `SignUp().Open()` for `{"email",
-"usernameIsEmail"}` and then, with the password the person chose (at least eight
-characters) and the username when the two are apart, to `SignUp().Complete()`, which
+"usernameIsEmail"}` and then, with the password the person chose (a password the
+judgment refuses is 400) and the username when the two are apart, to `SignUp().Complete()`, which
 creates the account with the address verified and the method's default role, and signs
 the person in, answering as the password login does. `Start` answers `{}` whatever the
 address's state: an address an account already holds is pointed at that account by

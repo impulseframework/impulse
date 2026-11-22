@@ -976,7 +976,7 @@ func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *auth
 	if err := json.Unmarshal(body, &refusal); status != http.StatusForbidden || err != nil || refusal.Code != string(sessioninfo.RefusedPasswordChangeRequired) {
 		t.Errorf("GET /whoami under the mark = %d %s, want 403 with code %s", status, body, sessioninfo.RefusedPasswordChangeRequired)
 	}
-	b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password", map[string]string{"oldPassword": "wrong", "newPassword": "chosen-1"})
+	b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password", map[string]string{"oldPassword": "wrong", "newPassword": "chosen-with-care-1"})
 	b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password", map[string]string{"oldPassword": temporary, "newPassword": temporary})
 	b.expect(ctx, http.StatusForbidden, http.MethodGet, "/whoami", nil)
 
@@ -990,7 +990,7 @@ func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *auth
 	// The change clears the mark and continues in a new session that opens the application.
 	b.prime(ctx)
 	b.passwordLogin(ctx, temporary)
-	b.expect(ctx, http.StatusOK, http.MethodPost, "/password", map[string]string{"oldPassword": temporary, "newPassword": "chosen-1"})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/password", map[string]string{"oldPassword": temporary, "newPassword": "chosen-with-care-1"})
 	if authenticated, required := b.passwordChangeRequired(ctx); !authenticated || required {
 		t.Errorf("GET /authenticated after the change = (%v, %v), want the authenticated user without the mark", authenticated, required)
 	}

@@ -390,7 +390,7 @@ func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email
 	if status, body := b.do(ctx, http.MethodPost, "/api/user/invitation", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK {
 		t.Fatalf("POST /api/user/invitation as %s: status %d: %s", username, status, body)
 	}
-	accept, err := json.Marshal(map[string]string{"password": "a-long-password", "username": username})
+	accept, err := json.Marshal(map[string]string{"password": "a-long-password-of-my-own", "username": username})
 	if err != nil {
 		t.Fatal(err)
 	}

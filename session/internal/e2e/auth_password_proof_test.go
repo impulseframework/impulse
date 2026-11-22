@@ -87,9 +87,9 @@ func seamHeldSignInRestsOnItsPassword[Tx any](ctx context.Context, t *testing.T,
 	own, ownCode := held("pat@lakeside.edu", seedPassword)
 	complete(own, ownCode, pat)
 	waiting, code := held("pat@lakeside.edu", seedPassword)
-	own.expect(ctx, http.StatusOK, http.MethodPost, "/password", map[string]string{"oldPassword": seedPassword, "newPassword": "a-new-password-1"})
+	own.expect(ctx, http.StatusOK, http.MethodPost, "/password", map[string]string{"oldPassword": seedPassword, "newPassword": "a-new-password-of-my-own"})
 	refused("the person's own change", waiting, code)
-	renewed, code := held("pat@lakeside.edu", "a-new-password-1")
+	renewed, code := held("pat@lakeside.edu", "a-new-password-of-my-own")
 	complete(renewed, code, pat)
 
 	// A removal: the password signs nobody in any more, with whatever code.

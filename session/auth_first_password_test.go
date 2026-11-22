@@ -90,7 +90,7 @@ func TestAuth_FirstPassword(t *testing.T) {
 	t.Run("an account that holds a password is refused the code and the password", firstPasswordCase4)
 	t.Run("an account with no confirmed address is refused the code, and told to confirm one", firstPasswordCase5)
 	t.Run("an Auth with no password method refuses both", firstPasswordCase6)
-	t.Run("the password is held to the rule a sign-up's is, and a refused one leaves the code standing", firstPasswordCase7)
+	t.Run("the password is held to the judgment a sign-up's is, and a refused one leaves the code standing", firstPasswordCase7)
 	t.Run("a new code replaces the one that stood, and a code writes one password", firstPasswordCase8)
 	t.Run("a mailbox is sent five codes it does not use, then refused", firstPasswordCase9)
 	t.Run("an Auth that records no auth events writes the password and records none", firstPasswordCase10)
@@ -358,19 +358,16 @@ func firstPasswordCase7(t *testing.T) {
 	f.store.EXPECT().AppendAuthEvent(gomock.Any(), sessionID, gomock.Any()).Return(nil)
 
 	code := sendFirstPasswordCode(t, f, recorder, sessionID)
-	rr := f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": "short"}, nil)
-	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "at least 8 characters") {
-		t.Errorf("Set() with a short password = %d %s, want 400 saying how long a password is", rr.Code, rr.Body.String())
-	}
+	answeredWith(t, f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": weakPassword}, nil), tooEasyToGuess)
 	if *written != 0 || links.last(t).ConsumedAt != nil {
 		t.Fatalf("after the refused password: %d written, the code ended = %t; want none written and the code standing", *written, links.last(t).ConsumedAt != nil)
 	}
 	if record := f.attemptsRecord(firstPasswordKey(userID)); record != nil {
 		t.Errorf("the refused password counted as a wrong code: %+v", record)
 	}
-	rr = f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
+	rr := f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
 	if rr.Code != http.StatusOK || *written != 1 {
-		t.Errorf("Set() with the same code and a password long enough = %d %s (%d written), want it written", rr.Code, rr.Body.String(), *written)
+		t.Errorf("Set() with the same code and a password strong enough = %d %s (%d written), want it written", rr.Code, rr.Body.String(), *written)
 	}
 }
 

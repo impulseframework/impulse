@@ -364,9 +364,9 @@ func authResetCase6(t *testing.T) {
 			}).AnyTimes()
 			token := mailedReset(t, f, recorder, userID)
 
-			// A short password is refused before the link is read, and spends nothing.
-			if rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": "short"}, nil); rr.Code != http.StatusBadRequest {
-				t.Errorf("Complete() with a short password = %d, want 400", rr.Code)
+			// A password the judgment refuses spends nothing.
+			if rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": weakPassword}, nil); rr.Code != http.StatusBadRequest {
+				t.Errorf("Complete() with a weak password = %d, want 400", rr.Code)
 			}
 			if links.rows[0].ConsumedAt != nil {
 				t.Fatal("a refused password consumed the link, want it standing")

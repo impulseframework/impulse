@@ -97,6 +97,10 @@ type signInMethods[Tx any] struct {
 	// passwords.
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
+	// minimumStrength is the bits a password must reach to be set (strongEnough): the
+	// password method's minimum, the default while it is not registered, since user
+	// management still sets passwords.
+	minimumStrength int
 	// attempts limits failed password attempts. It is built over the store under the
 	// default limit, and the password method's registration replaces it with one
 	// under its own, so a password check through the API is limited either way.
@@ -212,11 +216,12 @@ func (a *Auth[S, U, Tx]) couldAdmitAddress(email string) bool {
 }
 
 // init sets the methods of a new Auth over storage, before any registration: the
-// default hasher and attempt limit, no external methods.
+// default hasher, minimum strength and attempt limit, no external methods.
 func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
 	m.registered = make(map[string]bool)
 	m.hasher = securehash.New(securehash.Argon2())
 	m.autoUpgrade = true
+	m.minimumStrength = sessioncore.DefaultMinimumStrength
 	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)
 	m.external = make(map[string]*externalMethod[Tx])
 	m.outlets = make(map[string]bool)
@@ -353,6 +358,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	a.refuseBeside(reg.name, reg.method, false)
 	a.methods.registered[reg.name] = true
 	a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
+	a.methods.minimumStrength = reg.password.MinimumStrength
 	a.methods.attempts = attempts.New(reg.password.Attempts, a.storage)
 	settings := *reg.password
 	a.methods.password = &settings
@@ -429,25 +435,28 @@ type PasswordMethod struct {
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
 // handlers. It takes the password options (HashAlgorithm, AutoUpgradeHashes,
-// AttemptLimit, UsernameIsEmail); cookie and session options belong to
-// NewAuth. Whether a person with no account may sign up with a password is no option:
+// AttemptLimit, MinimumPasswordStrength, UsernameIsEmail); cookie and session options
+// belong to NewAuth. Whether a person with no account may sign up with a password is no option:
 // an administrator opens the method in the running application (see "Sign-up" in the
 // README), and until then it is invite only.
 //
 // It panics when the method is already registered on auth, when auth has served a
-// request, when it is given an option that is not a password option, or when the
-// attempt limit is not at least one failure within a positive window and lock. The
-// registration is named "password".
+// request, when it is given an option that is not a password option, when the attempt
+// limit is not at least one failure within a positive window and lock, or when the
+// minimum strength is under one bit. The registration is named "password".
 func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMethod {
 	settings := sessioncore.DefaultPasswordSettings()
 	reg := &signInRegistration{name: string(sessioninfo.MethodPassword), method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
 		if !settings.Apply(opt) {
-			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, UsernameIsEmail); pass cookie and session options to NewAuth")
+			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, MinimumPasswordStrength, UsernameIsEmail); pass cookie and session options to NewAuth")
 		}
 	}
 	if limit := settings.Attempts; reg.err == nil && (limit.Failures < 1 || limit.Window <= 0 || limit.Lock <= 0) {
 		reg.err = errors.Newf("AttemptLimit(%d, %s, %s): the limit is at least one failure within a positive window, locking for a positive period", limit.Failures, limit.Window, limit.Lock)
+	}
+	if reg.err == nil && settings.MinimumStrength < 1 {
+		reg.err = errors.Newf("MinimumPasswordStrength(%d): the minimum is at least 1 bit", settings.MinimumStrength)
 	}
 	h := registerMethod(auth, reg)
 
