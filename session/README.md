@@ -1587,16 +1587,20 @@ read under a share lock a password write waits for, on Spanner in the read-write
 transaction, so of a sign-in and a password write asked at once either the session is
 there for the write's ending of the sessions to find, or the sign-in finds the new
 password and inserts nothing. A pending sign-in completes on the proof its row
-carries, whichever step completes it (`CompletePending`, the email code), and a
-sign-in held again is held with it: once the password was changed, reset or removed,
-the old password completes nothing, however long the row had left and whatever address
-the holder gives the code for. A sign-in refused this way is answered as a wrong
-password is, 401 in the same words ("The username or password is wrong. Check what
-you entered and try again") in the same body, and counts as a failed
-attempt where a password was entered (the login, the confirmation); a completion
-refused this way leaves its pending sign-in spent, and the person signs in again. A
-sign-in no password proved (a directory sign-in waiting for its confirmation or its
-factor, a session the application starts) carries no proof and is held to none. A
+carries, whichever step completes it (`CompletePending`, the email code), and a sign-in
+held again in a wait that names its user is held with it: once the password was changed,
+reset or removed, the old password completes nothing, however long the row had left and
+whatever address the holder gives the code for. A sign-in refused this way is answered
+as a wrong password is, 401 in the same words ("The username or password is wrong. Check
+what you entered and try again") in the same body, and counts as a failed attempt where
+a password was entered (the login, the confirmation); a completion refused this way
+leaves its pending sign-in spent, and the person signs in again. A sign-in no password
+proved (a directory sign-in waiting for its confirmation or its factor, a session the
+application starts) carries no proof and is held to none. A wait that names no user
+carries none either: the wait for an invitation's code of a sign-in through a directory,
+also where the account's password has just confirmed that sign-in's link. The link was
+made on the proof, and the wait is held without it, as the person's next sign-in through
+the directory is. A
 pending sign-ins table made before the proof takes the column from the auth set's
 `SessionPasswordProofs` migration.
 

@@ -542,6 +542,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesInvitationByCode[Tx],
 		},
 		{
+			name: "an invitation's code followed by the account's password is asked for once more: through a directory that sends no address, an account with a password and no address enters the invitation's code, confirms with its password and is linked, enters a second code mailed to the invited address, and is signed in with that address confirmed and the invitation accepted",
+			run:  seamRulesInvitationCodeThenPassword[Tx],
+		},
+		{
 			name: "an invitation's code entered through a directory that sends no address, under the name of an account made ahead that holds another address, is refused with invitation_address: no session, nothing linked, the account's address as it was and the invitation standing",
 			run:  seamRulesInvitationCodeUnderAnotherAccount[Tx],
 		},
@@ -992,6 +996,71 @@ func seamRulesInvitationByCode[Tx any](ctx context.Context, t *testing.T, be bac
 	// Her next sign-in is the directory's alone: the account holds a confirmed address.
 	next := a.browser(t)
 	assertRedirect(t, a.entraRoundTrip(ctx, next, claims), "/home", url.Values{})
+}
+
+// seamRulesInvitationCodeThenPassword is the scenario "an invitation's code followed by
+// the account's password is asked for once more". nell's account has a password and no
+// address, under the name Microsoft presents her by. Microsoft sends no address, so the
+// invitation's code comes first; the account's password then confirms the link, and the
+// sign-in, which rests on the link from then on, is asked for the code once more.
+func seamRulesInvitationCodeThenPassword[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	shape := oneOrganization(inviteOnly)
+	shape.password = true
+	a := newRulesApp(ctx, t, be, shape)
+	const (
+		invited  = "nell@north.example"
+		signedAs = "nell@lakeside.edu"
+	)
+	nell := a.seed(ctx, t, signedAs)
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited, Name: "Nell"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": invitationToken(t, a.mail)}, b.xsrfToken())
+	claims := azureClaims(azureTenant, "oid-nell", signedAs)
+	delete(claims, "email")
+
+	// The invitation's code: the sign-in then waits for the account's password.
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, invited)}); !strings.Contains(string(body), `"mfaIsRequired":true`) {
+		t.Fatalf("the invitation's code = %s, want a sign-in that still waits", body)
+	}
+	if status := string(b.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil)); !strings.Contains(status, `"reason":"confirmation"`) {
+		t.Fatalf("pending status after the invitation's code = %s, want the wait for the account's password", status)
+	}
+
+	// The password links the identity, and the sign-in is held for the code once more,
+	// naming nobody: no session, no address, and the invitation stands.
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/confirm", map[string]string{"password": seedPassword}); !strings.Contains(string(body), `"mfaIsRequired":true`) {
+		t.Fatalf("the password confirmation = %s, want a sign-in held for the code once more", body)
+	}
+	assertOneLink(t, a.links(ctx, t, nell.String()), azureTenant, azureTenant)
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.holds(ctx, t, nell, nil)
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 {
+		t.Fatalf("standing invitations while the sign-in waits again = %d, want the one invitation", len(standing))
+	}
+
+	// The second code goes to the invited address, and accepts the invitation.
+	status := string(b.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil))
+	if !strings.Contains(status, `"factors":["email-code"]`) || !strings.Contains(status, `"codeEmail":"n•••@north.example"`) || strings.Contains(status, `"enrollEmail":true`) {
+		t.Errorf("pending status after the password = %s, want the email code alone, going to the invited address, with no address asked for", status)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, invited)}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		t.Fatalf("the second code = %s, want the sign-in completed", body)
+	}
+	if v := signedInAs(ctx, t, b, signedAs); v.UserID != nell.String() {
+		t.Errorf("session user = %s, want the account made ahead, %s", v.UserID, nell)
+	}
+	if email, verified := b.authenticatedEmail(ctx); email != invited || !verified {
+		t.Errorf("the account's address = %q (confirmed %v), want the invited address confirmed by the code", email, verified)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations after the acceptance = %+v, want none", standing)
+	}
 }
 
 // seamRulesInvitationCodeUnderAnotherAccount: vera's account was made ahead under
