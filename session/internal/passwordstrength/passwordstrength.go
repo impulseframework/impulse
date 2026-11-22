@@ -493,7 +493,7 @@ func plainReading(judged string, inputs []string) string {
 			continue
 		}
 		// The look-alikes are written in capitals when the word's letters typed as themselves are.
-		letter := unicode.ToLower
+		word := longest
 		capitals := true
 		for k := range len(longest) {
 			if c := rune(judged[i+k]); sameInLowerCase(judged[i+k], longest[k]) && unicode.IsLetter(c) {
@@ -501,11 +501,11 @@ func plainReading(judged string, inputs []string) string {
 			}
 		}
 		if capitals {
-			letter = unicode.ToUpper
+			word = strings.ToUpper(longest)
 		}
 		for k := range len(longest) {
 			if !sameInLowerCase(judged[i+k], longest[k]) {
-				plain[i+k] = byte(letter(rune(longest[k])))
+				plain[i+k] = word[k]
 			}
 		}
 		i += len(longest)
@@ -529,10 +529,10 @@ func spellsAt(text, word string) bool {
 	}
 	lookAlike, asItself := false, false
 	for k := range len(word) {
-		switch lower := byte(unicode.ToLower(rune(text[k]))); {
+		switch {
 		case sameInLowerCase(text[k], word[k]):
 			asItself = asItself || unicode.IsLetter(rune(word[k]))
-		case standsFor(text[k], word[k]), standsFor(word[k], lower):
+		case standsFor(text[k], word[k]), standsFor(word[k], text[k]):
 			lookAlike = true
 		default:
 			return false
@@ -547,9 +547,10 @@ func sameInLowerCase(a, b byte) bool {
 	return unicode.ToLower(rune(a)) == unicode.ToLower(rune(b))
 }
 
-// standsFor says whether the character c is one l33tTable lists as standing for the letter.
+// standsFor says whether the character c is one l33tTable lists as standing for the letter,
+// in either case.
 func standsFor(c, letter byte) bool {
-	for _, char := range l33tTable[string(letter)] {
+	for _, char := range l33tTable[strings.ToLower(string(letter))] {
 		if char == string(c) {
 			return true
 		}
@@ -661,7 +662,7 @@ var spelledInASCII = map[rune]string{
 	'ð': "d", 'Ð': "D",
 	'ħ': "h", 'Ħ': "H",
 	'æ': "ae", 'Æ': "AE",
-	'œ': "oe", 'Œ': "OE",
+	'œ': "oe", 'Œ': "OE", //nolint:goconst // ö and ø are also written oe (alsoSpelledInASCII): each entry spells its letter, and a constant would hide the spelling
 	'þ': "th", 'Þ': "TH",
 }
 
