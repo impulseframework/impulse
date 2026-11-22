@@ -283,11 +283,11 @@ type Rules[Tx any] struct {
 // which it is handed, so the invitation is spent and its roles given together or
 // neither is. The invitation is consumed only once the resolution has admitted the
 // sign-in: the user found, linked or provisioned, and enabled. A sign-in the account
-// rules refuse or hold for a confirmation, a disabled user's, or one whose password
-// changed while it waited (a password sign-in's by signInHold, a directory sign-in's
-// that the password confirmed by resolveLinked, or by linkUser where its link was taken
-// away since), leaves the invitation standing, nothing granted, so the person may sign
-// in another way; a sign-in the policy then
+// rules refuse or hold for a confirmation, a disabled user's, or one that carries the
+// proof of a password that changed while it waited (rules.Proven: a password sign-in's
+// by signInHold, a directory sign-in's that the password confirmed by resolveLinked, or
+// by linkUser where its link was taken away since), leaves the invitation standing,
+// nothing granted, so the person may sign in another way; a sign-in the policy then
 // denies or holds leaves it accepted, and what the acceptance granted stands, the
 // invited address with it. An
 // invitation that is no longer live is skipped and the sign-in goes on, unless the
@@ -1429,6 +1429,9 @@ type unlinkedUser struct {
 // resolveUnlinked resolves an identity that is linked to no user: the account rules
 // decide it and their answer is applied. An acceptance that rests on the code mailed to
 // the invited address (acceptsByCode) waits for it first, with nothing read or written.
+// That wait names no user and is kept with no password proof (the Auth's holdPending),
+// so a completion that came with one is not checked against it here: once the code is
+// entered the sign-in is decided afresh, as a new one from the invitation's link is.
 // The sign-in that completes a wait applies an answer for the wait's user and no other
 // (waitedOnAnother).
 func resolveUnlinked[Tx any](

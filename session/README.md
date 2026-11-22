@@ -1309,8 +1309,11 @@ the person reaches.
    mailed to. An invitation's acceptance is apart: it is made before the sign-in policy
    decides, so that the policy sees what the invitation gave, and the invited address is
    written with it. A sign-in the policy then denies or holds leaves the invitation
-   accepted and that address on the account; one whose password changed while it waited,
-   or whose user was disabled, accepts nothing.
+   accepted and that address on the account; one whose user was disabled accepts
+   nothing, and neither does one that carries the proof of a password once that password
+   has changed. Every wait that names its user keeps that proof; the wait for an
+   invitation's code of a sign-in through a directory names none and keeps none (see
+   "Users and the forced password change").
 
 A code mailed to the mailbox of the account that just signed in adds little against a
 stolen password that opens that mailbox too: for a directory, the attestation is the
