@@ -69,6 +69,8 @@ Spanner validates a DDL batch as a whole before applying anything, then applies 
 
 The run refuses, and says how to recover, when the file changed in its already-applied part (restore the file, or force a version) and when the database is dirty from a run that recorded no progress, as releases before 0.4 left it (force the version that matches the database's real state).
 
+Two runners on one database apply every statement once between them. A run writes the version row only while the row is still the one it last read or wrote, and the check and the write are one transaction; a DML group commits in the same transaction as the row that records it. So of two runs started together, one takes each file and the other stops with `ErrAnotherRun`, having applied nothing more: run it again when the first has finished. The runner cannot tell a run that died from one that is still going, so it does not wait: a dirty version is taken up by the next run from its recorded statement, and if the first run is in fact still going, it is the one that stops with `ErrAnotherRun`, at its next write. `ForceSchema` and `ForceData` write the row whatever it holds, and stop a run in progress the same way.
+
 ### PostgreSQL
 
 Each file runs inside one transaction under an advisory lock, with the version row replaced in the same transaction: a file that fails rolls back whole and the version stays where it was, never dirty. Two runners started together on one database apply every file once between them. Statements that cannot run inside a transaction, such as `CREATE INDEX CONCURRENTLY`, are not supported.

@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/db/internal/runner"
 )
 
 // The fixtures the runner tests apply: a table with a value column, so that a unique index
@@ -855,6 +856,94 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSpannerMigrator_CommitHoldsTheRow writes the version row through Commit, as a run does:
+// a commit from the row the run holds goes through, one from a row another run or a forced
+// version replaced stops with ErrAnotherRun having run and written nothing, and a failed
+// statement leaves the row and the data as they were.
+//
+// Deliberately not a table: each step depends on the state the previous one left behind.
+func TestSpannerMigrator_CommitHoldsTheRow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	container, err := NewSpannerContainer(ctx, "latest")
+	if err != nil {
+		t.Fatalf("NewSpannerContainer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	db, migrator := testMigrator(ctx, t, container)
+	if err := migrator.MigrateUpSchema(ctx, writeSource(t, map[string]string{"000001_t.up.sql": sqlCreateT})); err != nil {
+		t.Fatalf("MigrateUpSchema() error = %v", err)
+	}
+	r := migrator.runner("SchemaMigrations")
+	held, err := r.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	stale := held
+
+	insert1 := "INSERT INTO T (Id, Val) VALUES (1, 1)"
+	insert1Again := "INSERT INTO T (Id, Val) VALUES (1, 2)"
+	dirty := runner.Version{Number: 2, Known: true, Dirty: true, Progress: true, Checkpoint: runner.Checkpoint(nil)}
+	dirtyOne := runner.Version{Number: 2, Known: true, Dirty: true, Progress: true, Applied: 1, Checkpoint: runner.Checkpoint([]string{insert1})}
+	clean := runner.Version{Number: 2, Known: true}
+
+	// The row the run holds: the commit goes through and the run holds what it wrote.
+	if _, err := r.Commit(ctx, &held, dirty, nil); err != nil {
+		t.Fatalf("Commit(held, dirty at 2) error = %v", err)
+	}
+	if held != dirty {
+		t.Errorf("held = %v after the commit, want %v", held, dirty)
+	}
+	assertDirty(ctx, t, db.Client, 2, 0)
+
+	// A row another run replaced: nothing is run or written.
+	before := stale
+	if _, err := r.Commit(ctx, &stale, clean, []string{insert1}); !errors.Is(err, ErrAnotherRun) {
+		t.Fatalf("Commit(stale) error = %v, want ErrAnotherRun", err)
+	}
+	if n := countT(ctx, t, db.Client); n != 0 {
+		t.Errorf("T has %d rows after the refused commit, want 0", n)
+	}
+	assertDirty(ctx, t, db.Client, 2, 0)
+	if stale != before {
+		t.Errorf("stale = %v after the refused commit, want %v unchanged", stale, before)
+	}
+
+	// A statement that fails: nothing is applied, the row stays, and the count of the
+	// statements that ran before it comes back.
+	failed, err := r.Commit(ctx, &held, dirtyOne, []string{insert1, insert1Again})
+	if err == nil || errors.Is(err, ErrAnotherRun) || failed != 1 {
+		t.Fatalf("Commit(held, a failing statement) = %d, %v, want 1 and the statement's error", failed, err)
+	}
+	if n := countT(ctx, t, db.Client); n != 0 {
+		t.Errorf("T has %d rows after the failed commit, want 0", n)
+	}
+	assertDirty(ctx, t, db.Client, 2, 0)
+	if held != dirty {
+		t.Errorf("held = %v after the failed commit, want %v unchanged", held, dirty)
+	}
+
+	// The statements and the row together.
+	if _, err := r.Commit(ctx, &held, clean, []string{insert1}); err != nil {
+		t.Fatalf("Commit(held, clean at 2) error = %v", err)
+	}
+	if n := countT(ctx, t, db.Client); n != 1 {
+		t.Errorf("T has %d rows after the commit, want 1", n)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 2)
+
+	// A forced version replaces the row under the run.
+	if err := migrator.ForceSchema(ctx, 5); err != nil {
+		t.Fatalf("ForceSchema() error = %v", err)
+	}
+	if _, err := r.Commit(ctx, &held, runner.Version{Number: 3, Known: true}, nil); !errors.Is(err, ErrAnotherRun) {
+		t.Fatalf("Commit(held) after a forced version error = %v, want ErrAnotherRun", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 5)
 }
 
 // TestSpannerMigrator_VersionAndForce reads and forces both tables.
