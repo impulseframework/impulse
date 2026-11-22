@@ -968,6 +968,10 @@ type signInHold struct {
 // stands. The acceptance is made before the sign-in policy decides, so that the policy
 // sees what it gave: a sign-in the policy then denies or holds leaves the invitation
 // accepted and the address written.
+//
+// A transaction the database ends to break a deadlock or a serialization failure
+// (dbtype.LockConflict) runs once more, as the resolution's does, and the acceptance is
+// answered by what the second run finds.
 func acceptInvitation[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
 	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error, signIn *signInHold,
@@ -982,7 +986,7 @@ func acceptInvitation[Tx any](
 	}
 	inv.Accepted = false
 	var committed committedWork
-	err = d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+	run := func(ctx context.Context, tx Tx) error {
 		// Each run starts with nothing owed or written and the invitation taken for live.
 		committed, dead, stop, wrote = nil, false, nil, false
 		if err := d.ConsumeMailLinkIn(ctx, tx, inv.ID, time.Now()); err != nil {
@@ -1035,7 +1039,13 @@ func acceptInvitation[Tx any](
 		committed.add(granted)
 
 		return nil
-	})
+	}
+	err = d.Transact(ctx, run)
+	if err != nil && d.SignInConflict(err) == dbtype.LockConflict {
+		// The database broke a deadlock or a serialization failure: the acceptance runs
+		// once more, and what it answers is decided on that run.
+		err = d.Transact(ctx, run)
+	}
 	if err != nil {
 		if dead {
 			return true, nil, nil
@@ -2309,6 +2319,13 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // refusal or a wait writes no address, so the person signs in again and is asked for
 // the code again. The claim says it was written (CodeAddress.Written) once the
 // transaction has committed.
+//
+// A transaction the database ends to break a deadlock or a serialization failure
+// (dbtype.LockConflict) runs once more, as the resolution's does: two sign-ins of one
+// user that write the code's address at the same moment each share the user row's lock
+// and then ask to write the row, PostgreSQL ends one of them, and its second run finds
+// the address the other wrote and writes nothing. A second such end is the store's
+// error.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
 	source sessioninfo.UserSource, tenant string, rules Rules[Tx], trusted bool,
@@ -2319,7 +2336,7 @@ func decideAndInsert[Tx any](
 		v     verdict
 		wrote bool
 	)
-	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+	run := func(ctx context.Context, tx Tx) error {
 		// Each run starts from the resolved request, nothing written.
 		*req, v, wrote = base, verdict{}, false
 
@@ -2361,7 +2378,14 @@ func decideAndInsert[Tx any](
 
 		// A refusal or an MFA wait commits the policy's writes without a session row.
 		return nil
-	})
+	}
+	err := d.Transact(ctx, run)
+	if err != nil && d.SignInConflict(err) == dbtype.LockConflict {
+		// The database broke a deadlock (two sign-ins of the user that each shared the
+		// user row's lock and then asked to write it) or a serialization failure: the
+		// transaction runs once more and is answered by what it finds.
+		err = d.Transact(ctx, run)
+	}
 	if err != nil {
 		if claim != nil && d.SignInConflict(err) == dbtype.EmailConflict {
 			// Another account took the code's address at the same moment: the code no
