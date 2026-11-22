@@ -46,6 +46,7 @@ type (
 		Username string       `spanner:"Username" index:"true"`
 		// @primarykey
 		// @attribute(role)
+		// @roleOf(Crew)
 		Role string `spanner:"Role" index:"true"`
 		// @attribute(everyDomain)
 		EveryDomain bool       `spanner:"EveryDomain" index:"true"`

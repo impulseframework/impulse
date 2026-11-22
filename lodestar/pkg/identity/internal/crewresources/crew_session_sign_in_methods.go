@@ -30,9 +30,10 @@ type (
 	// @outlet(default)
 	// @rowWord(way to sign in, plural: ways to sign in)
 	CrewSessionSignInMethod struct {
-		Name             string    `spanner:"Name"`
-		OpenSignUp       bool      `spanner:"OpenSignUp"`
-		OpenedFor        *string   `spanner:"OpenedFor"`
+		Name       string  `spanner:"Name"`
+		OpenSignUp bool    `spanner:"OpenSignUp"`
+		OpenedFor  *string `spanner:"OpenedFor"`
+		// @roleOf(Crew)
 		DefaultRole      *string   `spanner:"DefaultRole"`
 		SelfServiceReset bool      `spanner:"SelfServiceReset"`
 		UpdatedAt        time.Time `spanner:"UpdatedAt"`

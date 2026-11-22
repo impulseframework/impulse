@@ -31,13 +31,14 @@ type (
 	// @page(default: 25, max: 200)
 	// @rowWord(mailed link)
 	MembersSessionMailLink struct {
-		ID              impulse.UUID  `spanner:"Id"`
-		Kind            string        `spanner:"Kind"`
-		Email           string        `spanner:"Email"`
-		Name            *string       `spanner:"Name"`
-		UserID          *impulse.UUID `spanner:"UserId"`
-		TenantID        *string       `spanner:"TenantId"`
-		EveryTenant     bool          `spanner:"EveryTenant"`
+		ID          impulse.UUID  `spanner:"Id"`
+		Kind        string        `spanner:"Kind"`
+		Email       string        `spanner:"Email"`
+		Name        *string       `spanner:"Name"`
+		UserID      *impulse.UUID `spanner:"UserId"`
+		TenantID    *string       `spanner:"TenantId"`
+		EveryTenant bool          `spanner:"EveryTenant"`
+		// @roleOf(Members)
 		RoleNames       []string      `spanner:"RoleNames"`
 		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
 		CreatedAt       time.Time     `spanner:"CreatedAt"`

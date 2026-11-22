@@ -32,13 +32,14 @@ type (
 	// @rowWord(group role)
 	MembersGroupRole struct {
 		// @attribute(group)
-		GroupID   impulse.UUID `spanner:"GroupId"`
-		Kind      string       `spanner:"Kind"`
-		Axis      string       `spanner:"Axis"`
-		DomainID  string       `spanner:"DomainId"`
-		Role      string       `spanner:"Role"`
-		CreatedAt time.Time    `spanner:"CreatedAt"`
-		StartsAt  *time.Time   `spanner:"StartsAt"`
-		EndsAt    *time.Time   `spanner:"EndsAt"`
+		GroupID  impulse.UUID `spanner:"GroupId"`
+		Kind     string       `spanner:"Kind"`
+		Axis     string       `spanner:"Axis"`
+		DomainID string       `spanner:"DomainId"`
+		// @roleOf(Members)
+		Role      string     `spanner:"Role"`
+		CreatedAt time.Time  `spanner:"CreatedAt"`
+		StartsAt  *time.Time `spanner:"StartsAt"`
+		EndsAt    *time.Time `spanner:"EndsAt"`
 	}
 )
