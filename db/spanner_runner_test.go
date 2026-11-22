@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -16,6 +18,8 @@ import (
 	"github.com/impulseframework/impulse/db/internal/runner"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // The fixtures the runner tests apply: a table with a value column, so that a unique index
@@ -1042,6 +1046,128 @@ func TestSpannerMigrator_CommitHoldsTheRow(t *testing.T) {
 		t.Fatalf("Commit(held) after a forced version error = %v, want ErrAnotherRun", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 5)
+}
+
+// TestSpannerMigrator_DDLSendAnswers stages Spanner's answer to the first DDL batch a run
+// sends under its own operation ID, through an interceptor both of the migrator's clients
+// take.
+func TestSpannerMigrator_DDLSendAnswers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	container, err := NewSpannerContainer(ctx, "latest")
+	if err != nil {
+		t.Fatalf("NewSpannerContainer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
+	}{
+		{name: "an answer that does not say whether the batch was taken keeps the name", run: testSendAnswerUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(ctx, t, container)
+		})
+	}
+}
+
+// namedSends is an interceptor that records the DDL batches a run sends under an operation ID
+// of its own and hands the first of them to first, which sends it (send) and may answer in
+// place of Spanner. The version table's creation sends no operation ID and passes untouched.
+type namedSends struct {
+	first func(ctx context.Context, req *databasepb.UpdateDatabaseDdlRequest, send func() error) error
+	mu    sync.Mutex
+	ids   []string
+}
+
+// intercept is the interceptor.
+func (n *namedSends) intercept(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	r, ok := req.(*databasepb.UpdateDatabaseDdlRequest)
+	if method != methodUpdateDatabaseDdl || !ok || r.GetOperationId() == "" {
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+
+	n.mu.Lock()
+	n.ids = append(n.ids, r.GetOperationId())
+	first := len(n.ids) == 1
+	n.mu.Unlock()
+
+	send := func() error {
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+	if first {
+		return n.first(ctx, r, send)
+	}
+
+	return send()
+}
+
+// sent is the operation IDs of the named batches sent so far.
+func (n *namedSends) sent() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	return slices.Clone(n.ids)
+}
+
+// migrateAB makes a database, a migrator on it whose named DDL batches go through sends, and
+// a source whose one file creates tables A and B.
+func migrateAB(ctx context.Context, t *testing.T, container *SpannerContainer, sends *namedSends) (*SpannerDB, *SpannerMigrator, string) {
+	t.Helper()
+
+	db, migrator := testMigrator(ctx, t, container, intercepting(sends.intercept))
+	source := writeSource(t, map[string]string{"000001_ab.up.sql": sqlCreateA + "\n" + sqlCreateB})
+
+	return db, migrator, source
+}
+
+// assertTablesAB checks tables A and B exist, or that neither does.
+func assertTablesAB(ctx context.Context, t *testing.T, db *SpannerDB, want bool) {
+	t.Helper()
+
+	for _, table := range []string{"A", "B"} {
+		if got := exists(ctx, t, db.Client, "table", table); got != want {
+			t.Errorf("table %s exists = %t, want %t", table, got, want)
+		}
+	}
+}
+
+// testSendAnswerUnknown: Spanner takes the batch and the answer that comes back is one the
+// gRPC framework makes itself. The name stays on the row, and the next run resolves it
+// without sending the batch twice.
+func testSendAnswerUnknown(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	sends := &namedSends{first: func(_ context.Context, _ *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
+		if err := send(); err != nil {
+			return err
+		}
+
+		return status.Error(codes.Internal, "the answer was lost")
+	}}
+	db, migrator, source := migrateAB(ctx, t, container, sends)
+
+	err := migrator.MigrateUpSchema(ctx, source)
+	var dirty *DirtyError
+	if err == nil || errors.As(err, &dirty) || errors.Is(err, ErrAnotherRun) || !strings.Contains(err.Error(), "the next run resolves it") {
+		t.Fatalf("MigrateUpSchema() error = %v, want one that is no *DirtyError, not ErrAnotherRun, and says the next run resolves it", err)
+	}
+	ownName := regexp.MustCompile("^" + regexp.QuoteMeta(db.dbStr+"/operations/migrate_") + "[0-9a-f]{32}$")
+	row, ok := readVersionRow(ctx, t, db.Client, "SchemaMigrations")
+	if !ok || row.version != 1 || !row.dirty || !ownName.MatchString(row.operation.StringVal) {
+		t.Fatalf("SchemaMigrations = %+v, want dirty at version 1 with a name of the runner's own form", row)
+	}
+
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema() again error = %v", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
+	assertTablesAB(ctx, t, db, true)
 }
 
 // TestSpannerMigrator_RowChangedUnderARun changes the version row under a run at a staged

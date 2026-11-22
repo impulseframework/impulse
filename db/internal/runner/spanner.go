@@ -190,9 +190,10 @@ func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Mig
 
 // sendRecorded sends the batch of the DDL group a stopped run named on the version row,
 // under the recorded operation ID, when the name is the runner's own form and the file's
-// next group is DDL. Another name was not made by the runner and is only fetched. A batch
-// Spanner refuses applied nothing: the name comes off the row and the run stops with a
-// DirtyError.
+// next group is DDL. Another name was not made by the runner and is only fetched. A refusal
+// of Spanner's own applied nothing: the name comes off the row and the run stops with a
+// DirtyError. Any other failure does not say whether Spanner took the batch: the name stays
+// on the row and the run stops.
 func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migration, stmts []string) error {
 	id, ok := s.ownOperationID(held.Operation)
 	if !ok {
@@ -212,6 +213,8 @@ func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migrati
 		return nil
 	case status.Code(err) == codes.AlreadyExists:
 		return nil
+	case !spannerRefused(err):
+		return errors.Wrapf(err, "sending DDL operation %s of %s: the answer does not say whether Spanner took the batch; its name stays on the version row and the next run resolves it", held.Operation, file.File)
 	}
 
 	v := *held
@@ -274,10 +277,11 @@ func (s *Spanner) progress(m *Migration, stmts []string, applied int, operation 
 
 // applyDDL sends a DDL group as one batch under an operation ID of the run's own, whose
 // name it records on the version row before it sends. Spanner accepts an operation ID once,
-// so a batch whose name is on the row is sent once, whoever sends it. A synchronous refusal
-// applied nothing, and the name comes off the row. A batch another run already sent under
-// the name stops this run (ErrAnotherRun). On failure the operation's commit timestamps say
-// how many statements applied.
+// so a batch whose name is on the row is sent once, whoever sends it. A refusal of Spanner's
+// own applied nothing, and the name comes off the row. Any other failure of the send does not
+// say whether Spanner took the batch: the name stays on the row and the next run resolves it.
+// A batch another run already sent under the name stops this run (ErrAnotherRun). On failure
+// the operation's commit timestamps say how many statements applied.
 func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stmts []string, g Group) error {
 	id, err := newOperationID()
 	if err != nil {
@@ -289,15 +293,17 @@ func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stm
 	}
 
 	op, err := s.ddlBatch(ctx, g.Statements, id)
-	if status.Code(err) == codes.AlreadyExists {
+	switch {
+	case status.Code(err) == codes.AlreadyExists:
 		return errors.Wrapf(ErrAnotherRun, "DDL operation %s of %s was sent by another run; version table %s", name, m.File, s.table)
-	}
-	if err != nil {
+	case spannerRefused(err):
 		if _, commitErr := s.Commit(ctx, held, s.progress(m, stmts, g.Start, ""), nil); commitErr != nil {
 			return commitErr
 		}
 
 		return refused(m, stmts, g, err)
+	case err != nil:
+		return errors.Wrapf(err, "sending DDL operation %s of %s: the answer does not say whether Spanner took the batch; its name stays on the version row and the next run resolves it", name, m.File)
 	}
 
 	waitErr := op.Wait(ctx)
@@ -327,6 +333,18 @@ func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stm
 	_, err = s.Commit(ctx, held, s.progress(m, stmts, g.Start+len(g.Statements), ""), nil)
 
 	return err
+}
+
+// spannerRefused reports whether a send's error is Spanner's own refusal of the batch: its
+// code is one the gRPC framework never generates itself, so Spanner took the request and
+// answered it. Any other code can come back for a request Spanner took.
+func spannerRefused(err error) bool {
+	switch status.Code(err) {
+	case codes.InvalidArgument, codes.NotFound, codes.PermissionDenied, codes.FailedPrecondition, codes.Aborted, codes.OutOfRange, codes.DataLoss:
+		return true
+	default:
+		return false
+	}
 }
 
 // refused is the error of a DDL group's batch Spanner refused when it was sent: nothing of
