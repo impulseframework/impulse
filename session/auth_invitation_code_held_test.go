@@ -73,7 +73,7 @@ func newNamedInvitedWait(t *testing.T) *namedInvitedWait {
 	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "sam"}
 	w.user = user
 	f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), user.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ impulse.UUID, email string) error {
+	f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), user.ID, gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ impulse.UUID, _ *string, email string) error {
 		w.wrote = append(w.wrote, email)
 
 		return nil

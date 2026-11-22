@@ -319,11 +319,11 @@ accepted it, no more are mailed for it and none is taken, however long it stands
 the person asks whoever invited them for a new invitation. A code counts toward the
 twenty-five of the invitation it was mailed for, and it works only in a browser that has
 that invitation's link open: entered anywhere else it is refused, and it still counts.
-While an invitation stands, an account that does not already hold the invited address
-gets it only as the invitation is accepted: a person who types that address to be mailed
-a code is mailed none, and the mailbox is sent a message that says to open the
-invitation's link. So the code of an invitation that was used, withdrawn or has taken
-its twenty-five accepts nothing and puts no address on an account. An account that has
+While an invitation stands, a person who types the invited address to be mailed a code
+is mailed none, and the mailbox is sent a message that says to open the invitation's
+link; a code that was mailed to that address before the invitation was sent stays good
+until it expires. The code of an invitation that was used, withdrawn or has taken its
+twenty-five accepts nothing and puts no address on an account. An account that has
 confirmed the invited address accepts with no code.
 This is described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).

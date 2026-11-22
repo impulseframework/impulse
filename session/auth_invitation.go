@@ -674,7 +674,7 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 		return nil, errInvitationEnded()
 	case inv.ID != held.InvitationID:
 		return nil, errPendingExpired()
-	case !strings.EqualFold(strings.TrimSpace(email), strings.TrimSpace(inv.Email)):
+	case !sameAddress(strings.TrimSpace(email), strings.TrimSpace(inv.Email)):
 		return nil, errCodeExpired()
 	}
 	if err := a.consumePending(ctx, p); err != nil {

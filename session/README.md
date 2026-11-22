@@ -2028,11 +2028,12 @@ one it sends.
   address unconfirmed is mailed its own sign-in code there. Until the code is entered
   the invitation stands, nothing is granted and the account takes no address; entering
   it accepts the invitation and writes the address on the account, confirmed. The
-  invitation's code is held to its invitation here as well: an account that does not
-  already hold the invited address gets it in the acceptance's transaction and nowhere
-  else, so the code entered in a browser that does not carry that invitation, or once
-  the invitation was used, withdrawn or has taken its twenty-five codes, signs nobody
-  in, takes its place in the invitation's count and writes nothing else. The
+  invitation's code is held to its invitation here as well: it puts the invited address
+  on the account in the acceptance's transaction and nowhere else, so the code entered
+  in a browser that does not carry that invitation, or once the invitation was used or
+  withdrawn, signs nobody in, takes its place in the invitation's count and writes
+  nothing else, and the code of an invitation that has taken its twenty-five codes is
+  not counted, signs nobody in and writes nothing. The
   acceptance by hand of a person signed in
   (`Invitation().Accept()`) is held to the address the same way, answered 403 with the
   sentence. A session cannot wait for a code, so a person whose account has not
@@ -3082,7 +3083,7 @@ table is the wire contract:
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, a sign-in whose method vouches for its address reached a user who holds no verified address while another user holds that address verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
-| `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
+| `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. It is also the answer to a sign-in code mailed for an invitation, and to the sign-in that entered it, once that invitation was used, withdrawn or ran out: the code accepts nothing. |
 | `invitation_spent` | `RefusedInvitationSpent` | Auth: a sign-in code asked for, or entered, to accept an invitation that takes no more codes: twenty-five were entered for it and none accepted it. The count is the invitation's, across every sign-in that carried it, and never starts again, so nothing more is mailed for it and no code is compared. The person asks whoever invited them for a new invitation (see "The second factor"). |
 | `invitation_not_open` | `RefusedInvitationNotOpen` | Auth: a sign-in code mailed for an invitation, entered in a browser that carries no invitation or another one. The code is not compared, nothing is written, and it takes its place in the invitation's count. The person opens the invitation's link again and enters the code. |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it answers for (the one the method verified, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, or one its method did not verify, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that names itself and has not confirmed the invited address is not refused at a sign-in, which waits for the code mailed to the invited address; its acceptance by hand, where nothing can wait, is refused with this code and a sentence that says to sign in again from the invitation's link. The login page names the invited address and asks for a sign-in with that account. |

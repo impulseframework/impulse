@@ -615,8 +615,10 @@ used none; a code that is used resets the count; `invitation_spent` when the cod
 invitation that twenty-five codes were entered for already, which takes no more and mails none);
 `enrollEmail(email)` gives the address of an account that holds none and has the code mailed to
 it, and the address is written on the account, verified, once its code is entered (an address
-another account holds is answered as sent and that account told by mail, so the screen reveals
-nothing); `verifyCode(code, rememberDevice)` enters the code and resolves as a sign-in step does,
+another account holds is answered as sent and that account told by mail, and an address an
+invitation is waiting for is answered as sent and its mailbox told to open the invitation's link,
+so the screen reveals nothing); `verifyCode(code, rememberDevice)` enters the code and resolves
+as a sign-in step does,
 a wrong code refused with `invalid_code` and the code standing with one fewer attempt, a code
 entered while none stands (none sent; the one sent expired, was used or took its last attempt)
 with `code_expired`, the twenty-fifth wrong code entered for one invitation, as every code

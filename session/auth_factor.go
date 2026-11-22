@@ -424,8 +424,10 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 // address that an invitation which stands was mailed to is answered the same way: no
 // code is made, the mailbox is sent a message that says to open the invitation's link
 // (addressInvitedMessage), and the screen is answered as sent. While an invitation
-// stands, an account that does not hold its address takes it only as that invitation
-// is accepted. All three are mail somebody asked for by typing an address, and are held
+// stands, no code is mailed that would put its address on an account that does not hold
+// it: the account takes the address as that invitation is accepted. A code mailed to
+// the address before the invitation was sent stays good until it expires. All three are
+// mail somebody asked for by typing an address, and are held
 // to that address's count of such mail (limitMail), never to the count of its own
 // sign-in codes. A wait that accepts an invitation takes no address: its code goes to
 // the invited one (codeDestination), whatever is typed. A sign-in that is not yet the
@@ -684,7 +686,7 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 
 		return
 	}
-	if inv != nil && strings.EqualFold(strings.TrimSpace(email), strings.TrimSpace(inv.Email)) {
+	if inv != nil && sameAddress(strings.TrimSpace(email), strings.TrimSpace(inv.Email)) {
 		a.clearInvitationCodeLimit(ctx, inv)
 	}
 }
@@ -1122,7 +1124,10 @@ func (p *AuthAPI[S, U, Tx]) SendEmailCode(ctx context.Context) (codeEmail string
 // EnrollEmail mails the code to email for a pending identity whose user holds no
 // address; the address is written on the user, verified, when the code is entered. A
 // user who holds an address is refused (Conflict). An address another account holds
-// is told so by mail, and the call returns as if sent. See SendEmailCode.
+// is told so by mail, and the call returns as if sent. An address that an invitation
+// which stands was mailed to is mailed no code either: its mailbox is sent a message
+// that says to open the invitation's link, and the call returns as if sent. See
+// SendEmailCode.
 func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

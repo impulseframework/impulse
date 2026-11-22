@@ -911,8 +911,10 @@ export class AuthClient {
    * Gives the address of an account that holds none, and has the sign-in code mailed to
    * it: reads the methods list again, then posts the address to the enrollment route. The
    * address is written on the account, verified, once its code is entered; an address
-   * another account holds is answered as sent, and that account is told by mail, so the
-   * screen reveals nothing. The result is as sendCode's.
+   * another account holds is answered as sent, and that account is told by mail, and an
+   * address an invitation is waiting for is answered as sent, and its mailbox is told to
+   * open the invitation's link, so the screen reveals nothing. The result is as
+   * sendCode's.
    */
   async enrollEmail(email: string): Promise<EmailCodeResult> {
     const routes = await this.codeRoutes();

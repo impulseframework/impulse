@@ -342,7 +342,9 @@ const (
 	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
 	// admitted, through a sign-in method that is invite only, whose invitation had expired
-	// or been used by the time the sign-in accepted it.
+	// or been used by the time the sign-in accepted it. It is also the code for a sign-in
+	// code mailed for an invitation, and for the sign-in that entered it, once that
+	// invitation was used, withdrawn or ran out.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried
 	// an invitation for another address. An invitation is accepted only by the account
