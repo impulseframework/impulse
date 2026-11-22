@@ -1,6 +1,7 @@
 package passwordstrength
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -284,6 +285,46 @@ func TestJudge_detailsAreReadByTheirFirstCharacters(t *testing.T) {
 	who := Details{Username: strings.Repeat("a ", 128) + password}
 	if got := Judge(password, who, 30); !got.StrongEnough {
 		t.Errorf("Judge(%q) with the word past the username's %dth character = %+v, want strong enough", password, maxDetail, got)
+	}
+}
+
+func TestJudge_aLongDetailCostsNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates
+	const password, minimum = "vexillumtrek", 30
+	long := strings.Repeat("שּׁ", 4<<20/3)
+	first := firstRunes(long, maxDetailTyped)
+	allocated := func(name string) uint64 {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		Judge(password, Details{Name: name}, minimum)
+		runtime.ReadMemStats(&after)
+
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	allocated(first)
+	short := allocated(first)
+	if got := allocated(long); got > short+64<<10 {
+		t.Errorf("Judge with a name of %d bytes allocated %d bytes, want no more than the %d of its first %d characters, within 64 KiB", len(long), got, short, maxDetailTyped)
+	}
+}
+
+func TestFirstRunes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{s: "", n: 3, want: ""},
+		{s: "abc", n: 3, want: "abc"},
+		{s: "abcd", n: 3, want: "abc"},
+		{s: "ééé", n: 2, want: "éé"},
+		{s: "a\xffb", n: 2, want: "a\xff"},
+	}
+	for _, tt := range tests {
+		if got := firstRunes(tt.s, tt.n); got != tt.want {
+			t.Errorf("firstRunes(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+		}
 	}
 }
 

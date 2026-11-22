@@ -10,7 +10,8 @@
 //
 // One judgment costs a bounded amount of work whatever the password is made of, since anyone
 // may ask one before signing in: the estimate reads a password's first MaxJudged characters
-// and each detail's first maxDetail, and it reads look-alike characters as letters (4 for a,
+// and each detail's first maxDetail, a detail cut before it is normalized so a long one is
+// never read whole, and it reads look-alike characters as letters (4 for a,
 // $ for s) while the passes that reading takes, each costing the square of the length, cost
 // no more than maxL33tWork passes over MaxJudged characters. A password past that holds many
 // different look-alike characters for its length, and is estimated as typed. The library
@@ -71,6 +72,11 @@ const (
 	// maxDetail is how many characters of each of the person's details, after the trim, count
 	// against a password.
 	maxDetail = 256
+
+	// maxDetailTyped is how many characters of each of the person's details, as typed, are
+	// put in NFC: a character in NFC is made of a few typed ones at most (a letter and its
+	// marks, the parts of a Hangul syllable), so these give maxDetail.
+	maxDetailTyped = 4 * maxDetail
 
 	// minRun is the shortest run of letters and digits in a person's detail that counts on
 	// its own against a password.
@@ -200,19 +206,24 @@ func strengthOf(bits float64, minimum int) int {
 	return int(max(0, min(strength, Full)))
 }
 
-// firstRunes is s cut to its first n characters, as typed.
+// firstRunes is s cut to its first n characters, as typed. It reads s from its start and no
+// further than the cut, so a long text costs no more than its first characters; a byte that is
+// not valid UTF-8 counts as one character, as ranging over s counts it.
 func firstRunes(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
 	}
-	runes := []rune(s)
 
-	return string(runes[:n])
+	return s
 }
 
 // inputsOf are the words the person's details give the estimate, in the order Username, Name,
-// Email: each detail put in NFC, trimmed of surrounding space and cut to its first maxDetail
-// characters, whole, then each run of letters, digits and marks in it whose reading is at
+// Email: each detail trimmed of surrounding space, cut to its first maxDetailTyped characters,
+// put in NFC and cut to its first maxDetail characters, whole, then each run of letters, digits and marks in it whose reading is at
 // least minRun characters long, each word as read reads it and once whatever its case. It is
 // nil when the details give none.
 func inputsOf(who Details, read *reading) []string {
@@ -228,7 +239,8 @@ func inputsOf(who Details, read *reading) []string {
 	}
 
 	for _, detail := range []string{who.Username, who.Name, who.Email} {
-		detail = firstRunes(strings.TrimSpace(norm.NFC.String(detail)), maxDetail)
+		// The detail is cut before it is put in NFC, so a long one is never read whole.
+		detail = firstRunes(norm.NFC.String(firstRunes(strings.TrimSpace(detail), maxDetailTyped)), maxDetail)
 		if detail == "" {
 			continue
 		}
