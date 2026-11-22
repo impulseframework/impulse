@@ -323,7 +323,7 @@ func Test_settleShape(t *testing.T) {
 		wantSays  string
 	}{
 		{shape: "tenant-owned-users-invite-only", wantOne: true, wantNone: true, wantSays: "A tenant's people come by invitation alone: the application has no tenant directories"},
-		{shape: "tenant-owned-users-by-directory", wantOne: true, wantStart: true, wantSays: "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant's administrator, signed in through their organization's directory, makes it the tenant's"},
+		{shape: "tenant-owned-users-by-directory", wantOne: true, wantStart: true, wantSays: "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant takes its directory when it is made, the organization its founder signs in from"},
 		{shape: "global-users-invite-only", wantNone: true, wantSays: "impulse audit reads the application as 7 Global users, invite only with it as without it."},
 		{shape: "global-users-each-tenant-chooses", wantSays: "Until then impulse audit reads the application as 7 Global users, invite only."},
 	}
@@ -816,7 +816,7 @@ func Test_tenancyStartingPoint(t *testing.T) {
 		},
 		{
 			shape:      "tenant-owned-users-by-directory",
-			wantSays:   "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant's administrator",
+			wantSays:   "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant takes its directory when it is made",
 			wantGoogle: directory,
 		},
 		{

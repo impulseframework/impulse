@@ -978,10 +978,13 @@ that has either is left as its author made it. That shape has no password sign-i
 no command removes a sign-in method: an auth's password method stays, the command says
 that it keeps the application outside the shape and names the hand step that takes it
 out, and impulse audit says the same until it is gone.
-Whether a tenant takes a directory, and whether that directory's people get an account
-without an invitation, is each tenant's choice, made while the application runs. A flag
-given beside --shape that contradicts it is refused, naming both, and impulse audit
-reads the shape back from the code (its sign-in section).
+In global-users-each-tenant-chooses, whether a tenant takes a directory, and whether
+that directory's people get an account without an invitation, is each tenant's choice,
+made while the application runs. In tenant-owned-users-by-directory a tenant takes its
+directory when it is made, the organization its founder signs in from, and only whether
+its people get an account without an invitation is the tenant's choice. A flag given
+beside --shape that contradicts it is refused, naming both, and impulse audit reads the
+shape back from the code (its sign-in section).
 
 The tests the skeleton started with are brought up to an application with tenants where
 they are the skeleton's still (the two harnesses written again, the two tests of sign-up

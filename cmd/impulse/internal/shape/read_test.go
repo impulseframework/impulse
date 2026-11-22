@@ -31,6 +31,9 @@ func TestReading_judgeTenants(t *testing.T) {
 		none     = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
 		declared = "The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it "
 		chosen   = " Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page."
+		// What the reading says where a person belongs to one tenant: the tenant takes
+		// its directory when it is made, and only opening it is the tenant's choice.
+		takes = " A tenant takes its directory when it is made: the organization its founder signs in from. Whether that directory's people get an account without an invitation is each tenant's choice, made while the application runs on the tenant's Sign-in page."
 		// What the reading says of a width the shape does not typically have, after the
 		// method's name and whom it admits.
 		notTypical = ", which works and is not the typical width of this shape (the accounts of any Google Workspace or of any Microsoft Entra tenant, with no personal accounts)."
@@ -76,11 +79,11 @@ func TestReading_judgeTenants(t *testing.T) {
 		},
 		{
 			name: "directories, one tenant, the two methods the shape starts with", directories: true, oneTenant: true, methods: []app.Method{anyWorkspace, anyTenant},
-			wantShape: "tenant-owned-users-by-directory", wantSays: "A tenant's people can come through its organization's directory (the google and azure methods)." + chosen,
+			wantShape: "tenant-owned-users-by-directory", wantSays: "A tenant's people can come through its organization's directory (the google and azure methods)." + takes,
 		},
 		{
 			name: "directories, one tenant, the persona method beside the two changes nothing", directories: true, oneTenant: true, methods: []app.Method{anyWorkspace, anyTenant, persona},
-			wantShape: "tenant-owned-users-by-directory", wantSays: "A tenant's people can come through its organization's directory (the google and azure methods)." + chosen,
+			wantShape: "tenant-owned-users-by-directory", wantSays: "A tenant's people can come through its organization's directory (the google and azure methods)." + takes,
 		},
 		{
 			// An application made before the shape lost its password: named outside the
@@ -91,16 +94,16 @@ func TestReading_judgeTenants(t *testing.T) {
 		{
 			name: "directories, one tenant, a method as wide as any Google account works and is not typical", directories: true, oneTenant: true, methods: []app.Method{anyAccount, anyTenant},
 			wantShape: "tenant-owned-users-by-directory",
-			wantSays:  "A tenant's people can come through its organization's directory (the google and azure methods)." + chosen + " The google method admits any Google account" + notTypical,
+			wantSays:  "A tenant's people can come through its organization's directory (the google and azure methods)." + takes + " The google method admits any Google account" + notTypical,
 		},
 		{
 			name: "directories, one tenant, another identity provider works and is not typical", directories: true, oneTenant: true, methods: []app.Method{okta},
 			wantShape: "tenant-owned-users-by-directory",
-			wantSays:  "A tenant's people can come through its organization's directory (the okta method)." + chosen + " The okta method admits the accounts of one organization's identity provider" + notTypical,
+			wantSays:  "A tenant's people can come through its organization's directory (the okta method)." + takes + " The okta method admits the accounts of one organization's identity provider" + notTypical,
 		},
 		{
 			name: "directories, one tenant, a method whose width is not read is not judged for it", directories: true, oneTenant: true, methods: []app.Method{google},
-			wantShape: "tenant-owned-users-by-directory", wantSays: "A tenant's people can come through its organization's directory (the google method)." + chosen,
+			wantShape: "tenant-owned-users-by-directory", wantSays: "A tenant's people can come through its organization's directory (the google method)." + takes,
 		},
 		{
 			// Global users, each tenant chooses, keeps its password and its widths.
@@ -154,7 +157,7 @@ func TestReading_judge_passwordAndPersona(t *testing.T) {
 	)
 	const (
 		personaSaid = "The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape."
-		chosen      = "A tenant's people can come through its organization's directory (the google and azure methods). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page."
+		chosen      = "A tenant's people can come through its organization's directory (the google and azure methods). A tenant takes its directory when it is made: the organization its founder signs in from. Whether that directory's people get an account without an invitation is each tenant's choice, made while the application runs on the tenant's Sign-in page."
 	)
 	tests := []struct {
 		name      string

@@ -1424,7 +1424,7 @@ one, and says what `impulse audit` then says of it.
 tenant, as in shape 5, and:
 
 ```text
-    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the azure and google methods). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page. The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape.
+    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the azure and google methods). A tenant takes its directory when it is made: the organization its founder signs in from. Whether that directory's people get an account without an invitation is each tenant's choice, made while the application runs on the tenant's Sign-in page. The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape.
 ```
 
 Staff then invite each tenant's first administrator. That person signs in with their

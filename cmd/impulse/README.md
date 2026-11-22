@@ -1435,10 +1435,13 @@ is. The shape has no password sign-in, and no command removes a sign-in method, 
 password method stays where the auth has it: the command says that it keeps the
 application outside the shape and names the files to change by hand, and `impulse audit`
 says the same until it is gone.
-Whether a tenant takes a directory, and whether that directory's people get an account
-without an invitation, is each tenant's choice, made while the application runs, so the
-command writes nothing for it and says where it is chosen. A flag that contradicts the
-shape is refused, naming both (`--shape global-users-invite-only
+In `global-users-each-tenant-chooses`, whether a tenant takes a directory, and whether
+that directory's people get an account without an invitation, is each tenant's choice,
+made while the application runs, so the command writes nothing for it and says where it
+is chosen. In `tenant-owned-users-by-directory` a tenant takes its directory when it is
+made, the organization its founder signs in from, and only whether its people get an
+account without an invitation is the tenant's choice. A flag that contradicts the shape
+is refused, naming both (`--shape global-users-invite-only
 --one-tenant-per-person`, `--shape global-users-each-tenant-chooses
 --tenant-directories=false`), and a name the command does not know is refused with the
 names it knows. What the shape filled in is printed after
