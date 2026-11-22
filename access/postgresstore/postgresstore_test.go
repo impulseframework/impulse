@@ -10,7 +10,6 @@ import (
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -240,9 +239,9 @@ func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 	if err := store.InsertRole(ctx, turnScope, turnRole, "Keeps the wards."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	turns := repeatableReadStore(ctx, t, database)
+	turns := repeatableReadStore(ctx, t, database.Pool)
 
-	lock := holdRoleNameLock(ctx, t, database, store, turnRole)
+	lock := holdRoleNameLock(ctx, t, database.Pool, store, turnRole)
 	var (
 		deleted bool
 		err     error
@@ -252,7 +251,7 @@ func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 		defer close(done)
 		deleted, err = turns.DeleteRole(ctx, turnScope, turnRole)
 	}()
-	waitingOnALock(t, database, done)
+	waitingOnALock(t, database.Pool, done)
 	if err := store.InsertUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, ""); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
@@ -280,16 +279,16 @@ func TestStore_InsertCustomUserRole_takesItsTurnWithADelete(t *testing.T) {
 	if err := store.InsertRole(ctx, turnScope, turnRole, "Keeps the wards."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	turns := repeatableReadStore(ctx, t, database)
+	turns := repeatableReadStore(ctx, t, database.Pool)
 
-	lock := holdRoleNameLock(ctx, t, database, store, turnRole)
+	lock := holdRoleNameLock(ctx, t, database.Pool, store, turnRole)
 	var err error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		err = turns.InsertCustomUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, "")
 	}()
-	waitingOnALock(t, database, done)
+	waitingOnALock(t, database.Pool, done)
 	kind, axis, domain := policy.ScopeColumns(turnScope)
 	if _, err := lock.Exec(ctx, store.sqlDeleteRole, kind, axis, domain, turnRole); err != nil {
 		t.Fatalf("pgx.Tx.Exec() delete role error = %v", err)
@@ -311,7 +310,7 @@ func TestStore_InsertCustomUserRole_takesItsTurnWithADelete(t *testing.T) {
 // sessions begin every transaction at repeatable read: the database's default level is
 // not the store's to count on, so a transaction of the store that leaves its level to
 // the database reads under a snapshot taken before it waited, and fails the test.
-func repeatableReadStore(ctx context.Context, t *testing.T, database *db.PostgresDatabase) *Store {
+func repeatableReadStore(ctx context.Context, t *testing.T, database *pgxpool.Pool) *Store {
 	t.Helper()
 	config := database.Config()
 	if config.ConnConfig.RuntimeParams == nil {
@@ -335,7 +334,7 @@ func repeatableReadStore(ctx context.Context, t *testing.T, database *db.Postgre
 // store takes on the role's name, and returns it: a statement of the store that takes
 // the lock waits until the transaction ends. A transaction the test has not ended is
 // rolled back.
-func holdRoleNameLock(ctx context.Context, t *testing.T, database *db.PostgresDatabase, store *Store, role accesstypes.Role) pgx.Tx {
+func holdRoleNameLock(ctx context.Context, t *testing.T, database *pgxpool.Pool, store *Store, role accesstypes.Role) pgx.Tx {
 	t.Helper()
 	tx, err := database.Begin(ctx)
 	if err != nil {
@@ -354,7 +353,7 @@ func holdRoleNameLock(ctx context.Context, t *testing.T, database *db.PostgresDa
 // waitingOnALock waits until a session of the test's database waits on a lock, as a
 // statement of the store does while the test holds the role name's lock. It fails the
 // test where done is closed first: the store answered without waiting for the lock.
-func waitingOnALock(t *testing.T, database *db.PostgresDatabase, done <-chan struct{}) {
+func waitingOnALock(t *testing.T, database *pgxpool.Pool, done <-chan struct{}) {
 	t.Helper()
 	ctx := t.Context()
 	deadline := time.Now().Add(30 * time.Second)
@@ -392,7 +391,7 @@ func TestStore_DeleteGroup_takesItsTurnWithAMember(t *testing.T) {
 	if taken, err := store.InsertGroup(ctx, group); err != nil || taken {
 		t.Fatalf("InsertGroup() = (%v, %v), want it written", taken, err)
 	}
-	turns := repeatableReadStore(ctx, t, database)
+	turns := repeatableReadStore(ctx, t, database.Pool)
 
 	member, err := database.Begin(ctx)
 	if err != nil {
@@ -413,7 +412,7 @@ func TestStore_DeleteGroup_takesItsTurnWithAMember(t *testing.T) {
 		defer close(done)
 		deleted, deleteErr = turns.DeleteGroup(ctx, turnGroup)
 	}()
-	waitingOnALock(t, database, done)
+	waitingOnALock(t, database.Pool, done)
 	if err := member.Commit(ctx); err != nil {
 		t.Fatalf("pgx.Tx.Commit() error = %v", err)
 	}
