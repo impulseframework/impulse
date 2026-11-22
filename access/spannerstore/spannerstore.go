@@ -432,7 +432,7 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, "spanner.Client.ReadWriteTransaction() assign user role",
+		period, "spanner.Client.ReadWriteTransactionWithOptions() assign user role",
 		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 
@@ -579,7 +579,7 @@ func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() insert role")
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() insert role")
 	}
 
 	return nil
@@ -676,7 +676,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction() delete role")
+		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() delete role")
 	}
 
 	return deleted, nil
@@ -821,7 +821,7 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 			return nil
 		})
 		if err != nil {
-			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() change grants")
+			return errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() change grants")
 		}
 	}
 
