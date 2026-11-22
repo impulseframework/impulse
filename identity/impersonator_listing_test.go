@@ -139,6 +139,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.SignInMethods":                   {none: reads},
 	"Manager.AnyMethodOpen":                   {none: reads},
 	"Manager.SignUpRoles":                     {none: reads},
+	"Manager.SkippedStoredGrants":             {none: reads},
 	"Tenant.Domain":                           {none: reads},
 }
 

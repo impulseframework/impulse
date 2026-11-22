@@ -155,6 +155,62 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 	}
 }
 
+// Test_prepareIdentity_listedRoleGrants pins the list of the custom roles' grants a page
+// reads: a computed list in the methods package, keyed by the whole grant as the role
+// grants table is, each row with the permission engine's word on it, the engine asked of
+// every row read in one call. The table's own declaration loses its list route, and says
+// which list is its rows'. An auth whose schema holds no grants table is written no such
+// list.
+func Test_prepareIdentity_listedRoleGrants(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	listed := identitySource(t, "crewidentity/crew_listed_role_grants.go")
+	assertContains(t, "crewidentity/crew_listed_role_grants.go", listed, []string{
+		"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Role asc)\n// @page(default: 25, max: 200)\n// @rowWord(role grant)\ntype CrewListedRoleGrant struct {",
+		"// @primarykey\n Kind string `spanner:\"Kind\"`\n" +
+			" // @primarykey\n Axis string `spanner:\"Axis\"`\n" +
+			" // @primarykey\n DomainID string `spanner:\"DomainId\"`\n" +
+			" // @primarykey\n Role string `spanner:\"Role\"`\n" +
+			" // @primarykey\n Permission string `spanner:\"Permission\"`\n" +
+			" // @primarykey\n ResourceName string `spanner:\"Resource\"`\n" +
+			" // @primarykey\n Field string `spanner:\"Field\"`\n" +
+			" // @primarykey\n Condition string `spanner:\"Condition\"`\n" +
+			" UpdatedAt time.Time `spanner:\"UpdatedAt\"`\n" +
+			" Skipped string `spanner:\"Skipped\"`\n}",
+		"func (CrewListedRoleGrant) Resource() accesstypes.Resource {\n return \"CrewListedRoleGrants\"\n}",
+		"func ListCrewListedRoleGrant(ctx context.Context, _ *resource.QuerySet[CrewListedRoleGrant], reader resource.Client, client *Client) iter.Seq2[*CrewListedRoleGrant, error] {",
+		// Every row of the table, its nine columns, with no filter.
+		"crewresources.NewCrewRoleGrantQuery().\n AddColumns(crewresources.NewCrewRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition().UpdatedAt())",
+		"for row, err := range query.List(ctx, reader) {",
+		"yield(nil, errors.Wrap(err, \"crewresources.CrewRoleGrantQuery.List()\"))",
+		// The engine is asked of all of them at once, and each row carries its answer.
+		"skipped, err := client.manager.SkippedStoredGrants(grants)",
+		"yield(nil, errors.Wrap(err, \"identity.Manager.SkippedStoredGrants()\"))",
+		"row.Skipped = skipped[i]",
+	}, nil)
+	if keys := strings.Count(listed, "// @primarykey"); keys != 8 {
+		t.Errorf("crewidentity/crew_listed_role_grants.go declares %d keys, want the 8 of the whole grant:\n%s", keys, listed)
+	}
+
+	table := identitySource(t, "internal/crewresources/crew_role_grants.go")
+	assertContains(t, "internal/crewresources/crew_role_grants.go", table, []string{
+		"// @resource\n // @suppress(listHandler)\n // @suppress(readHandler)\n // @suppress(patchHandler)\n",
+		"// here changes one. No route lists the table: CrewListedRoleGrant is the list of\n // its rows, which says of each whether its role holds it.\n",
+	}, nil)
+
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		if strings.Contains(file, "members_listed_role_grant") {
+			t.Errorf("%s is written, and the schema holds no grants table of the Members auth", file)
+		}
+	}
+}
+
 // Test_prepareIdentity_holdings_noGroups pins what an auth that keeps no groups is
 // written of what is held, where the application gives the roles by hand and its schema
 // holds no group tables: no list of the groups with what each holds and none of a
