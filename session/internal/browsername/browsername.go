@@ -38,11 +38,17 @@ var browsers = []mark{
 	{word: "Safari", substrings: []string{"Safari/", "Version/"}, all: true},
 }
 
+// The words of the phones' systems, which Phone looks for too.
+const (
+	android = "Android"
+	iPhone  = "iPhone"
+)
+
 // systems are tried in order: Android's header names Linux, an iPhone's says "like Mac
 // OS X" and ChromeOS's names X11, so each comes before the system it also names.
 var systems = []mark{
-	{word: "Android", substrings: []string{"Android"}},
-	{word: "iPhone", substrings: []string{"iPhone", "iPod"}},
+	{word: android, substrings: []string{android}},
+	{word: iPhone, substrings: []string{iPhone, "iPod"}},
 	{word: "iPad", substrings: []string{"iPad"}},
 	{word: "ChromeOS", substrings: []string{"CrOS"}},
 	{word: "Windows", substrings: []string{"Windows"}},
@@ -51,7 +57,7 @@ var systems = []mark{
 }
 
 // phones are the systems whose browsers are phones'.
-var phones = []string{"Android", "iPhone"}
+var phones = []string{android, iPhone}
 
 // Of names the browser that sent userAgent, its User-Agent header: "Chrome on Android"
 // where both the browser and its system are recognized, the one word where only one of

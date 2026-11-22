@@ -520,9 +520,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.ChangeName = changeNamePathOf(list)
 	answer.SignInMeans = signInMeansPathOf(list)
 	answer.ChangeLook = changeLookPathOf(list)
-	answer.ChangeUsername, answer.UsernameFree = usernamePathsOf(list, a.methods.usernameIsEmail())
-	answer.OwnSessions = ownSessionsAnswerOf(list.OwnSessions)
-	answer.ForgetBrowsers = accountPathOf(list.ForgetBrowsers, "forget-all-remembered-browsers", "ForgetBrowsers", "/api/user/browser/forget-all")
+	ownAccountPathsOf(answer, list, a.methods.usernameIsEmail())
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
@@ -530,6 +528,16 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.PasswordReset = passwordResetAnswerOf(list.PasswordReset, passwordListed)
 
 	return answer
+}
+
+// ownAccountPathsOf sets on answer the paths list names for a signed-in person's own
+// account page: the change of their username and the question whether a name is free
+// (none where usernameIsEmail), where they are signed in, and the forgetting of every
+// browser remembered for them.
+func ownAccountPathsOf(answer *methodsAnswer, list *MethodList, usernameIsEmail bool) {
+	answer.ChangeUsername, answer.UsernameFree = usernamePathsOf(list, usernameIsEmail)
+	answer.OwnSessions = ownSessionsAnswerOf(list.OwnSessions)
+	answer.ForgetBrowsers = accountPathOf(list.ForgetBrowsers, "forget-all-remembered-browsers", "ForgetBrowsers", "/api/user/browser/forget-all")
 }
 
 // passwordResetAnswerOf validates the password reset routes: none, or all three as

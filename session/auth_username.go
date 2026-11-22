@@ -63,10 +63,10 @@ func (a *Auth[S, U, Tx]) ChangeUsername() http.HandlerFunc {
 		}
 		user := sessioninfo.UserFromCtx(ctx)
 		name := strings.TrimSpace(req.Username)
-		switch {
-		case name == "":
+		switch name {
+		case "":
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Type a username."))
-		case name == user.Username:
+		case user.Username:
 			return httpio.NewEncoder(w).Ok(response{Username: name})
 		}
 		free, err := a.usernameFreeFor(ctx, name, user)
