@@ -231,7 +231,19 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 			name:       "a file granting on a name with more than one dot",
 			collection: grammarCollection{},
 			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.first"}]}}]}}`),
-			wantErr:    "resource Widgets.name.first does not require",
+			wantErr:    "grant on Widgets.name.first: a grant's resource holds at most one dot",
+		},
+		{
+			name:       "a file granting all the fields of a field",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.*"}]}}]}}`),
+			wantErr:    "grant on Widgets.name.*: a grant's resource holds at most one dot",
+		},
+		{
+			name:       "a file naming a field with a dot",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name.first"]}]}}]}}`),
+			wantErr:    `grant on Widgets: field "name.first" holds a dot`,
 		},
 		{
 			name:       "a file granting a domain resource to a global role",

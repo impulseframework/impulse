@@ -641,7 +641,8 @@ func validateRoleDescriptions(roles ScopedRoles) error {
 }
 
 // validateGrantGrammar checks one role's authored grants for what needs no
-// collection: every grant names a resource; a dotted field resource is a
+// collection: every grant names a resource; a resource holds at most one dot,
+// and a field named in Fields holds none; a dotted field resource is a
 // bare mechanical grant, with no Fields or Condition; and no
 // (permission, resource, condition) triple is written twice.
 func validateGrantGrammar(r *Role) error {
@@ -651,8 +652,16 @@ func validateGrantGrammar(r *Role) error {
 			if grant.Resource == "" {
 				return errors.Newf("role %s: a %s grant names no resource", r.Name, perm)
 			}
+			if strings.Count(string(grant.Resource), ".") > 1 {
+				return errors.Newf("role %s: grant on %s: a grant's resource holds at most one dot. A dot separates a resource from one of its fields: name the resource, one of its fields (Resource.field) or all of them (Resource.*)", r.Name, grant.Resource)
+			}
 			if strings.ContainsRune(string(grant.Resource), '.') && (len(grant.Fields) > 0 || grant.Condition != "") {
 				return errors.Newf("role %s: grant on %s: a dotted field resource takes no Fields or Condition — name the base resource and put fields in Fields", r.Name, grant.Resource)
+			}
+			for _, field := range grant.Fields {
+				if strings.ContainsRune(string(field), '.') {
+					return errors.Newf("role %s: grant on %s: field %q holds a dot. A field is named as the resource lists it, with no dot; a dot separates a resource from one of its fields", r.Name, grant.Resource, field)
+				}
 			}
 			if seen.note(perm, grant.Resource, grant.Condition) {
 				if grant.Condition == "" {
