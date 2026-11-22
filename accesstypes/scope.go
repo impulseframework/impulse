@@ -1,11 +1,19 @@
 package accesstypes
 
+import "github.com/go-playground/errors/v5"
+
+// ErrNoScope is what a permission check, a digest or a listing asked in the
+// zero Scope is refused with.
+var ErrNoScope = errors.New("the check names no scope: it was asked in the zero accesstypes.Scope, which is neither the application's scope nor a tenant's; accesstypes.DomainScope with an empty tenant is the zero scope too. Ask in accesstypes.GlobalScope(), or in accesstypes.DomainScope with the tenant's name")
+
 // Scope identifies the permission partition an operation applies to: the
 // global partition or a single tenant domain. Global-ness is structural — the
 // unexported flag, never a distinguished Domain value — so no domain string
 // can ever reference the global partition: DomainScope("anything") is a tenant
-// scope by construction. The zero Scope is the zero Domain's tenant scope,
-// which holds no grants (fail closed), never global.
+// scope by construction. The zero Scope names neither the global partition nor
+// a tenant, and so does DomainScope of an empty Domain. A permission check
+// asked in it is a mistake of the code that asked and is refused with
+// ErrNoScope; it is never answered from a grant.
 //
 // A tenant domain belongs to an axis: the dimension its tenant list partitions
 // the application along. An application with one tenant list declares no axis
@@ -41,6 +49,12 @@ func DomainScope(domain Domain) Scope {
 // IsGlobal reports whether the scope is the global partition.
 func (s Scope) IsGlobal() bool {
 	return s.global
+}
+
+// IsZero reports whether the scope is the zero Scope, which names neither the
+// global partition nor a tenant.
+func (s Scope) IsZero() bool {
+	return s == Scope{}
 }
 
 // Domain returns the tenant domain and true for a tenant scope, or the zero

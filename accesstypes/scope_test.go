@@ -14,6 +14,7 @@ func TestScope(t *testing.T) {
 		wantDomain Domain
 		wantOK     bool
 		wantString string
+		wantZero   bool
 	}{
 		{
 			name:       "global scope",
@@ -43,10 +44,18 @@ func TestScope(t *testing.T) {
 			wantString: "access:global",
 		},
 		{
-			name:       "zero scope is the zero domain's tenant scope",
+			name:       "the zero scope",
 			scope:      Scope{},
 			wantOK:     true,
 			wantString: "",
+			wantZero:   true,
+		},
+		{
+			name:       "the scope of an empty tenant is the zero scope",
+			scope:      DomainScope(""),
+			wantOK:     true,
+			wantString: "",
+			wantZero:   true,
 		},
 	}
 
@@ -56,6 +65,9 @@ func TestScope(t *testing.T) {
 
 			if got := tt.scope.IsGlobal(); got != tt.wantGlobal {
 				t.Errorf("IsGlobal() = %v, want %v", got, tt.wantGlobal)
+			}
+			if got := tt.scope.IsZero(); got != tt.wantZero {
+				t.Errorf("IsZero() = %v, want %v", got, tt.wantZero)
 			}
 			domain, ok := tt.scope.Domain()
 			if domain != tt.wantDomain || ok != tt.wantOK {
