@@ -79,8 +79,9 @@ func Collection() *resource.GeneratedCollection {
 	})
 }
 `
-		founder   = `{"roles": {"global": [{"name": "Founder", "description": "Opens a harbor.", "permissions": {"Execute": [{"resource": "Launch"}, {"resource": "CreateHarbor"}]}}], "domain": [{"name": "Pilot", "description": "Brings ships in.", "permissions": {"Read": [{"resource": "CreateHarbor"}]}}]}}`
-		launcher  = `{"roles": {"global": [{"name": "Launcher", "description": "Launches ships.", "permissions": {"Execute": [{"resource": "Launch"}]}}], "domain": []}}`
+		founder   = `{"auth": "staff", "roles": {"global": [{"name": "Founder", "description": "Opens a harbor.", "permissions": {"Execute": [{"resource": "Launch"}, {"resource": "CreateHarbor"}]}}], "domain": [{"name": "Pilot", "description": "Brings ships in.", "permissions": {"Read": [{"resource": "CreateHarbor"}]}}]}}`
+		launcher  = `{"auth": "staff", "roles": {"global": [{"name": "Launcher", "description": "Launches ships.", "permissions": {"Execute": [{"resource": "Launch"}]}}], "domain": []}}`
+		otherAuth = `pkg/auth/staff/roles.json: the role file says it holds the roles of "members" (its "auth"), and it is the staff auth's file; write "auth": "staff", the name of the auth's package: the permission engine takes a role file only under the name it carries`
 		whyNoRole = "which is an action no role is given (pkg/router/zz_gen_collection.go writes it with NoRole: true): nothing asks for a grant of it, so the grant would do nothing, and the action is registered only so that a permission mask can refuse it to a session that acts as someone; remove the grant from the role"
 	)
 
@@ -101,7 +102,7 @@ func Collection() *resource.GeneratedCollection {
 		},
 		{
 			name:       "a grant of all the fields of an action no role is given",
-			files:      withCollection(`{"roles": {"global": [{"name": "Founder", "description": "Opens a harbor.", "permissions": {"Execute": [{"resource": "Launch"}, {"resource": "CreateHarbor.*"}]}}], "domain": []}}`, harborCollection),
+			files:      withCollection(`{"auth": "staff", "roles": {"global": [{"name": "Founder", "description": "Opens a harbor.", "permissions": {"Execute": [{"resource": "Launch"}, {"resource": "CreateHarbor.*"}]}}], "domain": []}}`, harborCollection),
 			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
 			wantDetails: []string{
 				"pkg/auth/staff/roles.json: role Founder grants Execute on CreateHarbor.*, " + whyNoRole,
@@ -141,13 +142,13 @@ func Collection() *resource.GeneratedCollection {
 		},
 		{
 			name:       "a role taking the name of the framework's role",
-			files:      withRoles(`{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs the application.", "permissions": {}}]}}`),
+			files:      withRoles(`{"auth": "staff", "roles": {"global": [{"name": "SuperAdministrator", "description": "Runs the application.", "permissions": {}}]}}`),
 			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
 			wantDetails: []string{"pkg/auth/staff/roles.json: role SuperAdministrator: the name is reserved: every auth has the Super Administrator role, which the framework defines, and an application defines no role of that name; remove it from the global roles and give what it grants to a role of another name"},
 		},
 		{
 			name:       "a tenant role taking the name in another case",
-			files:      withRoles(`{"roles": {"domain": [{"name": "Superadministrator", "description": "Runs one tenant.", "permissions": {}}]}}`),
+			files:      withRoles(`{"auth": "staff", "roles": {"domain": [{"name": "Superadministrator", "description": "Runs one tenant.", "permissions": {}}]}}`),
 			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
 			wantDetails: []string{"pkg/auth/staff/roles.json: role Superadministrator: the name is reserved: every auth has the Super Administrator role, which the framework defines, and an application defines no role of that name; remove it from the domain roles and give what it grants to a role of another name"},
 		},
@@ -157,9 +158,28 @@ func Collection() *resource.GeneratedCollection {
 			wantDetails: []string{"pkg/auth/staff/roles.json: role Auditor: a role carries a description, one or two plain sentences saying what the role is for"},
 		},
 		{
-			name: "a file that is not JSON", files: withRoles("{\"roles\": {\"global\": [}\n"),
+			name: "a file that is not JSON", files: withRoles("{\"auth\": \"staff\", \"roles\": {\"global\": [}\n"),
 			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
 			wantDetails: []string{"pkg/auth/staff/roles.json: the role file does not parse: invalid character '}' looking for beginning of value"},
+		},
+		{
+			name: "a file that does not say whose roles it holds", files: withRoles(strings.Replace(launcher, `"auth": "staff", `, "", 1)),
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{`pkg/auth/staff/roles.json: the role file does not say whose roles it holds; add "auth": "staff" as its first key, the name of the auth's package: the permission engine takes a role file only under the name it carries`},
+		},
+		{
+			name: "a file that names another auth", files: withRoles(strings.Replace(launcher, `"auth": "staff"`, `"auth": "members"`, 1)),
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{otherAuth},
+		},
+		{
+			name: "a file that names another auth and grants an action no role is given", files: withCollection(strings.Replace(founder, `"auth": "staff"`, `"auth": "members"`, 1), harborCollection),
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{
+				otherAuth,
+				"pkg/auth/staff/roles.json: role Founder grants Execute on CreateHarbor, " + whyNoRole,
+				"pkg/auth/staff/roles.json: role Pilot grants Read on CreateHarbor, " + whyNoRole,
+			},
 		},
 		{
 			name: "the role file is missing", files: withRoles(""),

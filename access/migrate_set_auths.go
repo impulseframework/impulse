@@ -48,6 +48,29 @@ func validateAuthName(store PermissionCollection, auth string) error {
 		auth, strings.Join(known, ", "))
 }
 
+// validateFileAuth holds a role configuration to the name it is handed over under: the
+// name the file carries (RoleConfig.Auth) and the name handed over are the same, or the
+// file is refused. A file that names one auth, handed to another auth's engine, would
+// give that auth's people its roles; a file that names none, handed over under a name,
+// says nothing that ties it to that auth; and a file that names one, handed over under
+// none, is held to no auth's sets. A nil configuration is no file and is held to nothing.
+func validateFileAuth(config *RoleConfig, auth string) error {
+	if config == nil || config.Auth == auth {
+		return nil
+	}
+	switch {
+	case config.Auth == "":
+		return errors.Newf(`the role file does not say whose roles it holds, and it is handed over as the roles of %q. A role file is handed over under the name it carries: add "auth": %q as the file's first key`,
+			auth, auth)
+	case auth == "":
+		return errors.Newf(`the role file says it holds the roles of %q (its "auth"), and it is handed over under no auth's name: hand it over under the name it carries, access.WithDefaultRoles(file, %q)`,
+			config.Auth, config.Auth)
+	default:
+		return errors.Newf(`the role file says it holds the roles of %q (its "auth"), and it is handed over as the roles of %q. An engine holds the roles of one auth, and a role file is handed over under the name it carries: hand the %s auth its own role file, or correct the file's "auth" if these are the %s auth's roles`,
+			config.Auth, auth, auth, auth)
+	}
+}
+
 // validateEngineAuth refuses an engine opened with no role file over a collection that
 // knows several auths. Such an engine is told no auth's name, so nothing says whose
 // roles it holds, and the grants of its custom roles would be held to no auth's sets.

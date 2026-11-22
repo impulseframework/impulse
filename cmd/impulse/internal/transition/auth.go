@@ -706,7 +706,7 @@ func createsPrefixed(data []byte, prefix string) bool {
 var createTableRE = regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?")
 
 // writeRoles writes the auth's role file, empty, in the package: the file its Roles()
-// embeds.
+// embeds, carrying the auth's name, the name the package hands it over under.
 func (au Auth) writeRoles(a *app.App, src *authSource, ch *Change) error {
 	rel := path.Join(src.AuthDir, au.Name, app.RolesFileName)
 	if _, err := os.Stat(a.Abs(rel)); err == nil {
@@ -714,7 +714,7 @@ func (au Auth) writeRoles(a *app.App, src *authSource, ch *Change) error {
 
 		return nil
 	}
-	if err := writeNew(a, rel, "{\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n"); err != nil {
+	if err := writeNew(a, rel, fmt.Sprintf("{\n  \"auth\": %q,\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n", au.Name)); err != nil {
 		return err
 	}
 	ch.didf("%s: the %s auth's role file, empty: author its roles when its surfaces are bound", rel, au.Name)

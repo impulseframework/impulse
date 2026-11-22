@@ -1,6 +1,7 @@
 package access
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,7 @@ func TestValidateRoles_authName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := ValidateRoles(setsCollection{auths: tt.auths}, &RoleConfig{Roles: ScopedRoles{Domain: []*Role{readsNoSet()}}}, tt.auth)
+			_, err := ValidateRoles(setsCollection{auths: tt.auths}, &RoleConfig{Auth: tt.auth, Roles: ScopedRoles{Domain: []*Role{readsNoSet()}}}, tt.auth)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("ValidateRoles() error = %v, want none", err)
@@ -123,7 +124,7 @@ func TestNew_authName(t *testing.T) {
 
 			var opts []Option
 			if !tt.noRoleFile {
-				opts = append(opts, WithDefaultRoles(grammarRoleFile, tt.auth))
+				opts = append(opts, WithDefaultRoles(readerRoleFile(tt.auth), tt.auth))
 			}
 			client, err := New(newFakeStore(), setsCollection{auths: tt.auths}, opts...)
 			if client != nil {
@@ -149,5 +150,144 @@ func TestNew_authName(t *testing.T) {
 				t.Errorf("New() error = %v, want it to refuse the name and say nothing against the role file", err)
 			}
 		})
+	}
+}
+
+// Sentences a role file is refused with where the name it carries (its "auth") and the
+// name it is handed over under differ, for a file that says "staff" or nothing and a
+// name of "members" or nothing.
+const (
+	fileAuthOtherName = `the role file says it holds the roles of "staff" (its "auth"), and it is handed over as the roles of "members". An engine holds the roles of one auth, and a role file is handed over under the name it carries: hand the members auth its own role file, or correct the file's "auth" if these are the members auth's roles`
+	fileAuthNone      = `the role file does not say whose roles it holds, and it is handed over as the roles of "members". A role file is handed over under the name it carries: add "auth": "members" as the file's first key`
+	fileAuthUnnamed   = `the role file says it holds the roles of "staff" (its "auth"), and it is handed over under no auth's name: hand it over under the name it carries, access.WithDefaultRoles(file, "staff")`
+)
+
+// fileAuthTests are the pairs of a file's "auth" and the name it is handed over under,
+// over a collection that knows the auths members and staff, or only staff where an
+// empty name is handed over (several auths refuse an empty name before the file is
+// read), and the sentence each pair is refused with.
+var fileAuthTests = []struct {
+	name     string
+	fileAuth string
+	auth     string
+	wantErr  string
+}{
+	{name: "a file that names no auth, handed over under no name"},
+	{name: "a file handed over under the name it carries", fileAuth: "staff", auth: "staff"},
+	{name: "a file handed over under another auth's name", fileAuth: "staff", auth: "members", wantErr: fileAuthOtherName},
+	{name: "a file that names no auth, handed over under a name", auth: "members", wantErr: fileAuthNone},
+	{name: "a file that names an auth, handed over under no name", fileAuth: "staff", wantErr: fileAuthUnnamed},
+}
+
+// fileAuthCollection is the collection a fileAuthTests pair is handed to.
+func fileAuthCollection(auth string) setsCollection {
+	if auth == "" {
+		return setsCollection{auths: []string{"staff"}}
+	}
+
+	return setsCollection{auths: []string{"members", "staff"}}
+}
+
+// authKey is the first line of a role file in a test that carries auth as its "auth",
+// and nothing where auth is empty: the file then names no auth.
+func authKey(auth string) string {
+	if auth == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("\n  \"auth\": %q,", auth)
+}
+
+// readerRoleFile is a role file over setsCollection whose one domain role reads no set,
+// carrying auth as its "auth" where auth is not empty.
+func readerRoleFile(auth string) RoleFile {
+	return RoleFile(`{` + authKey(auth) + `
+  "roles": {
+    "domain": [
+      {"name": "Clerk", "description": "Reads every widget.", "permissions": {"Read": [{"resource": "Widgets"}]}}
+    ]
+  }
+}`)
+}
+
+// TestValidateRoles_fileAuth pins that ValidateRoles takes a configuration only under
+// the name it carries (RoleConfig.Auth), and holds a nil configuration to no name.
+func TestValidateRoles_fileAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range fileAuthTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := &RoleConfig{Auth: tt.fileAuth, Roles: ScopedRoles{Domain: []*Role{readsNoSet()}}}
+			_, err := ValidateRoles(fileAuthCollection(tt.auth), config, tt.auth)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateRoles() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "error="+tt.wantErr) {
+				t.Fatalf("ValidateRoles() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+	t.Run("a nil configuration, under a name", func(t *testing.T) {
+		t.Parallel()
+
+		if _, err := ValidateRoles(setsCollection{auths: []string{"members", "staff"}}, nil, "members"); err != nil {
+			t.Fatalf("ValidateRoles() error = %v, want none", err)
+		}
+	})
+}
+
+// TestNew_fileAuth pins that New takes a role file only under the name it carries, and
+// says so as a refusal of the file it was handed (access.WithDefaultRoles()).
+func TestNew_fileAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range fileAuthTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, err := New(newFakeStore(), fileAuthCollection(tt.auth), WithDefaultRoles(readerRoleFile(tt.fileAuth), tt.auth))
+			if client != nil {
+				t.Cleanup(func() {
+					if err := client.Close(); err != nil {
+						t.Errorf("Client.Close() error = %v", err)
+					}
+				})
+			}
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("New() error = %v, want none", err)
+				}
+
+				return
+			}
+			for _, want := range []string{"error=" + tt.wantErr, "error=access.WithDefaultRoles()"} {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("New() error = %v, want it to contain %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestNew_fileAuthAfterAuthName pins the order of the two refusals of a name: a name
+// generation did not know is refused as that, by the sentence it has had all along,
+// before the file's "auth" is held to it.
+func TestNew_fileAuthAfterAuthName(t *testing.T) {
+	t.Parallel()
+
+	want := `the role file is handed over as the roles of "visitors", and the application's generation knew no auth of that name: the auths it knew are members, staff.`
+	_, err := New(newFakeStore(), setsCollection{auths: []string{"members", "staff"}}, WithDefaultRoles(readerRoleFile("staff"), "visitors"))
+	if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), `(its "auth")`) {
+		t.Fatalf("New() error = %v, want it to contain %q and say nothing of the file's auth", err, want)
+	}
+	_, err = ValidateRoles(setsCollection{auths: []string{"members", "staff"}}, &RoleConfig{Auth: "staff", Roles: ScopedRoles{Domain: []*Role{readsNoSet()}}}, "visitors")
+	if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), `(its "auth")`) {
+		t.Fatalf("ValidateRoles() error = %v, want it to contain %q and say nothing of the file's auth", err, want)
 	}
 }

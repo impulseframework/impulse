@@ -1010,11 +1010,11 @@ func TestGeneratedIdentitySectorRolesAreEachMethodsOwn(t *testing.T) {
 func provesFieldGrant(t *testing.T, roles access.RoleFile, role, permission, field string) {
 	t.Helper()
 
-	var file map[string]map[string][]map[string]any
+	var file looseRoleFile
 	if err := json.Unmarshal(roles, &file); err != nil {
 		t.Fatalf("reading the role file: %v", err)
 	}
-	for _, set := range file["roles"] {
+	for _, set := range file.Roles {
 		for _, entry := range set {
 			if entry["name"] != role {
 				continue
@@ -1039,12 +1039,12 @@ func provesFieldGrant(t *testing.T, roles access.RoleFile, role, permission, fie
 func withoutCondition(t *testing.T, roles access.RoleFile, role, permission, res string) access.RoleFile {
 	t.Helper()
 
-	var file map[string]map[string][]map[string]any
+	var file looseRoleFile
 	if err := json.Unmarshal(roles, &file); err != nil {
 		t.Fatalf("reading the role file: %v", err)
 	}
 	taken := false
-	for _, set := range file["roles"] {
+	for _, set := range file.Roles {
 		for _, entry := range set {
 			if entry["name"] != role {
 				continue

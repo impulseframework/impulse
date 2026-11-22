@@ -101,6 +101,9 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		if err := validateAuthName(collection, options.auth); err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
+		if err := validateFileAuth(config, options.auth); err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
 	} else if err := validateEngineAuth(collection); err != nil {
 		return nil, err
 	}

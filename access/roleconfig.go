@@ -169,6 +169,11 @@ func (f RoleFile) Parse() (*RoleConfig, error) {
 
 // RoleConfig contains the release's default roles, declared by scope.
 type RoleConfig struct {
+	// Auth is the name of the auth whose roles the file holds, as the auth's
+	// package names it (its Name). New and ValidateRoles take the configuration
+	// only under this name (WithDefaultRoles), so one auth's file opens no other
+	// auth's engine. A file handed over under no name carries none.
+	Auth  string      `json:"auth,omitempty"`
 	Roles ScopedRoles `json:"roles"`
 }
 
@@ -284,9 +289,13 @@ func (g Grant) expand() []accesstypes.Resource {
 // UnreadSetWarning) and refuses a grant whose condition reads one. An empty
 // auth is refused where the collection knows several auths. Where it knows one
 // or none, an empty auth looks at every set and refuses no grant for whose
-// people its set describes.
+// people its set describes. The configuration is held to the name it carries
+// as New holds a file (RoleConfig.Auth); a nil configuration is held to none.
 func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig, auth string) ([]Warning, error) {
 	if err := validateAuthName(store, auth); err != nil {
+		return nil, err
+	}
+	if err := validateFileAuth(roleConfig, auth); err != nil {
 		return nil, err
 	}
 	defaults, err := compileDefaultRoles(store, roleConfig, nil, auth)

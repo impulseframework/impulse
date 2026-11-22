@@ -90,7 +90,7 @@ func requestFieldRoles() []requestFieldRole {
 func requestFieldRoleFile(t *testing.T, roles ...requestFieldRole) access.RoleFile {
 	t.Helper()
 
-	var file map[string]map[string][]map[string]any
+	var file looseRoleFile
 	if err := json.Unmarshal(crew.Roles(), &file); err != nil {
 		t.Fatalf("the crew's role file does not parse: %v", err)
 	}
@@ -99,7 +99,7 @@ func requestFieldRoleFile(t *testing.T, roles ...requestFieldRole) access.RoleFi
 		if role.domain {
 			scope = "domain"
 		}
-		file["roles"][scope] = append(file["roles"][scope], map[string]any{
+		file.Roles[scope] = append(file.Roles[scope], map[string]any{
 			"name":        role.name,
 			"description": "A role of this test.",
 			"permissions": role.permissions,

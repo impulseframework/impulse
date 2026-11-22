@@ -230,7 +230,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles}, fixtureAuth)
+			got, err := ValidateRoles(probeCollection{}, &RoleConfig{Auth: fixtureAuth, Roles: tt.roles}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}
@@ -283,7 +283,7 @@ func TestValidateRoles_errors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			warnings, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles}, fixtureAuth)
+			warnings, err := ValidateRoles(probeCollection{}, &RoleConfig{Auth: fixtureAuth, Roles: tt.roles}, fixtureAuth)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("ValidateRoles() error = %v, want one containing %q", err, tt.wantErr)
 			}

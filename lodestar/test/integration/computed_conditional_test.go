@@ -97,7 +97,7 @@ func TestComputedConditionalGrant(t *testing.T) {
 func TestComputedRowConditionRefused(t *testing.T) {
 	t.Parallel()
 
-	conf := &access.RoleConfig{Roles: access.ScopedRoles{Domain: []*access.Role{{
+	conf := &access.RoleConfig{Auth: crew.Name, Roles: access.ScopedRoles{Domain: []*access.Role{{
 		Name:        "BadAnalyst",
 		Description: "Reads the hazard board by a row's reading.",
 		Permissions: map[accesstypes.Permission][]access.Grant{
