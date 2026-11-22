@@ -92,11 +92,11 @@ func TestAuth_ChangeLook(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(user(nil, nil), nil)
-		f.store.EXPECT().SetUserLook(gomock.Any(), userID, gomock.Any()).Return(httpio.NewBadRequestMessage("a scheme is light or dark"))
+		f.store.EXPECT().SetUserLook(gomock.Any(), userID, gomock.Any()).Return(httpio.NewBadRequestMessage("a scheme is light, dark or device"))
 
 		rr := httptest.NewRecorder()
 		f.auth.ChangeLook().ServeHTTP(rr, request(signedIn(), `{"scheme":"sepia"}`))
-		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "a scheme is light or dark") {
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "a scheme is light, dark or device") {
 			t.Errorf("ChangeLook() = %d %s, want 400 with the store's message", rr.Code, rr.Body.String())
 		}
 	})

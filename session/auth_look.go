@@ -21,9 +21,10 @@ var lookDecoder = sessioncore.NewDecoder[lookRequest]()
 // ChangeLook is the handler a signed-in person's pages call to keep the look the person
 // chose, so it follows them to every browser they sign in from: it accepts {"scheme",
 // "palette"} and answers the look as it is kept, each half absent when the person now
-// holds none. The scheme is light or dark; the palette is an id as the application
-// names its palettes, which the session library does not know, so a page drops one its
-// application no longer offers. A scheme that is neither, or a palette id longer than a
+// holds none. The scheme is light, dark or device, under which a page is drawn light or
+// dark as the device it is on is set; the palette is an id as the application names its
+// palettes, which the session library does not know, so a page drops one its application
+// no longer offers. A scheme that is none of the three, or a palette id longer than a
 // user row keeps, is a 400. The look replaces the one held as a whole: a half left out
 // is taken off.
 //

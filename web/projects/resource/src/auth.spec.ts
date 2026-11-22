@@ -1024,9 +1024,9 @@ describe('keeping the look the person chose', () => {
 
   const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
     {
-      name: "a scheme that is neither light nor dark resolves with the server's words",
-      answer: { status: 400, body: { message: 'a scheme is light or dark' } },
-      want: { outcome: 'refused', status: 400, message: 'a scheme is light or dark' },
+      name: "a scheme that is not light, dark or device resolves with the server's words",
+      answer: { status: 400, body: { message: 'a scheme is light, dark or device' } },
+      want: { outcome: 'refused', status: 400, message: 'a scheme is light, dark or device' },
     },
     {
       name: 'an impersonated session resolves as refused',
