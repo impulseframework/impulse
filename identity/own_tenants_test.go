@@ -63,7 +63,7 @@ func leavingStore() *fakeStore {
 // leavingManager builds a manager over the store that calls a tenant a sector, mails
 // through a mailbox and, unless unnamed, names Warden as the role that administers a
 // tenant.
-func leavingManager(t *testing.T, store *fakeStore, unnamed bool) (*Manager, *fakeEngine, *fakeMail) {
+func leavingManager(t *testing.T, store Store, unnamed bool) (*Manager, *fakeEngine, *fakeMail) {
 	t.Helper()
 
 	opts := []Option{WithTenantWord("sector")}
@@ -111,6 +111,106 @@ func leave(t *testing.T, m *Manager, domain accesstypes.Domain, deletesAccount b
 	})
 
 	return deleted, err
+}
+
+// readCountingStore is the fake store counting the reads a person's tenants are judged
+// by: what the person holds (Memberships, UserGroups, UserPeriods) and who holds a role
+// in a tenant (RoleHolders, GroupsHolding).
+type readCountingStore struct {
+	*fakeStore
+	reads map[string]int
+}
+
+func (s *readCountingStore) Memberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
+	s.reads["Memberships"]++
+
+	return s.fakeStore.Memberships(ctx, txn, userID)
+}
+
+func (s *readCountingStore) UserGroups(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]GroupPlace, error) {
+	s.reads["UserGroups"]++
+
+	return s.fakeStore.UserGroups(ctx, txn, userID)
+}
+
+func (s *readCountingStore) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*UserPeriods, error) {
+	s.reads["UserPeriods"]++
+
+	return s.fakeStore.UserPeriods(ctx, txn, userID)
+}
+
+func (s *readCountingStore) RoleHolders(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]accesstypes.User, error) {
+	s.reads["RoleHolders"]++
+
+	return s.fakeStore.RoleHolders(ctx, txn, key)
+}
+
+func (s *readCountingStore) GroupsHolding(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]impulse.UUID, error) {
+	s.reads["GroupsHolding"]++
+
+	return s.fakeStore.GroupsHolding(ctx, txn, key)
+}
+
+// TestManager_PersonTenants_reads pins what judging a person's tenants costs: the list
+// and the leaving each read what the person holds once, however many tenants they are
+// in, and ask who administers a tenant only of a person who may be one of them, by an
+// administrator role of their own in the tenant or a place in one of its groups.
+func TestManager_PersonTenants_reads(t *testing.T) {
+	t.Parallel()
+
+	gammaReader := access.NewMembershipKey(accesstypes.DomainPolicyScope("gamma"), dana, "Reader")
+	once := map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1}
+	for name, tt := range map[string]struct {
+		held      func(store *fakeStore)
+		leave     bool
+		wantSays  string
+		wantReads map[string]int
+	}{
+		"three tenants, no administrator's role in any: the list reads what the person holds once and asks nobody who administers them": {
+			held: func(store *fakeStore) {
+				store.memberships[danaAlphaReader], store.memberships[danaBetaReader], store.memberships[gammaReader] = true, true, true
+			},
+			wantReads: once,
+		},
+		"three tenants, no administrator's role in any: the leaving reads what the person holds once and asks nobody who administers it": {
+			held: func(store *fakeStore) {
+				store.memberships[danaAlphaReader], store.memberships[danaBetaReader], store.memberships[gammaReader] = true, true, true
+			},
+			leave:     true,
+			wantReads: once,
+		},
+		"a place in a group of the tenant: who administers it is asked": {
+			held: func(store *fakeStore) {
+				store.memberships[danaGlobal] = true
+				store.groupMembers[memberKey(nightID, userID)] = true
+				store.groupRoles[nightWarden] = true
+			},
+			wantSays:  lastAdministratorSays,
+			wantReads: map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "RoleHolders": 1, "GroupsHolding": 1},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &readCountingStore{fakeStore: leavingStore(), reads: map[string]int{}}
+			tt.held(store.fakeStore)
+			m, _, _ := leavingManager(t, store, false)
+
+			if tt.leave {
+				if _, err := leave(t, m, "alpha", false); err != nil {
+					t.Fatalf("LeaveTenant() error = %v", err)
+				}
+			} else {
+				listed := listTenants(t, m)
+				if len(listed) == 0 || listed[0].Domain != "alpha" || listed[0].Refusal != tt.wantSays {
+					t.Errorf("PersonTenants() = %+v, want alpha first with the refusal %q", listed, tt.wantSays)
+				}
+			}
+			if diff := cmp.Diff(tt.wantReads, store.reads); diff != "" {
+				t.Errorf("reads (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 // TestManager_PersonTenants pins which tenants a person's list holds and what each says:

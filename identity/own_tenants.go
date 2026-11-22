@@ -74,6 +74,17 @@ type leaving struct {
 	deletesAccount   bool
 }
 
+// tenantHolds is what a person's own tenants are judged by, read once a request: every
+// row their account holds, whatever its period (heldRows), and of those the memberships
+// and places that have not ended at now (standingAt), which place the person in a
+// tenant. No tenant's judgment reads what the person holds again.
+type tenantHolds struct {
+	rows   *heldRows
+	own    []access.MembershipKey
+	places []GroupPlace
+	now    time.Time
+}
+
 // PersonTenants answers the tenants the person holds something in, in the tenant
 // itself, sorted by their keys and never nil: a role of their own held in the tenant,
 // or a place in a group kept in the tenant, that has not ended (one whose period has not
@@ -90,13 +101,17 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	held, err := m.tenantsHeld(ctx, txn, userID)
+	holds, err := m.readTenantHolds(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	held, err := m.tenantsHeld(ctx, txn, holds)
 	if err != nil {
 		return nil, err
 	}
 	tenants := make([]PersonTenant, 0, len(held))
 	for _, domain := range slices.Sorted(maps.Keys(held)) {
-		judged, err := m.judgeLeaving(ctx, txn, userID, domain)
+		judged, err := m.judgeLeaving(ctx, txn, holds, domain)
 		if err != nil {
 			return nil, err
 		}
@@ -147,14 +162,18 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 	if domain == "" {
 		return false, httpio.NewBadRequestMessagef(noTenantNamedMessage, m.tenantWord)
 	}
-	held, err := m.tenantsHeld(ctx, txn, userID)
+	holds, err := m.readTenantHolds(ctx, txn, userID)
+	if err != nil {
+		return false, err
+	}
+	held, err := m.tenantsHeld(ctx, txn, holds)
 	if err != nil {
 		return false, err
 	}
 	if _, in := held[domain]; !in {
 		return false, httpio.NewNotFoundMessagef(notInTenantMessage, m.tenantWord)
 	}
-	judged, err := m.judgeLeaving(ctx, txn, userID, domain)
+	judged, err := m.judgeLeaving(ctx, txn, holds, domain)
 	if err != nil {
 		return false, err
 	}
@@ -250,16 +269,26 @@ func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransa
 	return nil
 }
 
+// readTenantHolds reads what the person's own tenants are judged by (tenantHolds): one
+// read of their memberships, one of the groups they are in and one of the periods of
+// both (readHeld).
+func (m *Manager) readTenantHolds(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (*tenantHolds, error) {
+	rows, err := m.readHeld(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	own, places := rows.standingAt(now)
+
+	return &tenantHolds{rows: rows, own: own, places: places, now: now}, nil
+}
+
 // tenantsHeld answers the tenants the person holds something in now, in the tenant
 // itself, each with the roles held there in words, sorted and each once, never nil: the
 // tenants PersonTenants lists and LeaveTenant lets a person leave. A row whose period
 // has ended gives nothing; a place in a group of the tenant lists the tenant though the
-// group holds no role there now.
-func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (map[accesstypes.Domain][]string, error) {
-	own, places, err := m.standing(ctx, txn, userID)
-	if err != nil {
-		return nil, err
-	}
+// group holds no role there now. A group's roles are read once for each place.
+func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds) (map[accesstypes.Domain][]string, error) {
 	roles := map[accesstypes.Domain]map[string]struct{}{}
 	hold := func(domain accesstypes.Domain) map[string]struct{} {
 		if roles[domain] == nil {
@@ -268,19 +297,18 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 
 		return roles[domain]
 	}
-	for _, key := range own {
+	for _, key := range holds.own {
 		if domain, ok := tenantOf(key.Kind, key.Axis, key.Domain); ok {
 			hold(domain)[roleInWords(key.Role)] = struct{}{}
 		}
 	}
-	now := time.Now()
-	for _, place := range places {
+	for _, place := range holds.places {
 		domain, ok := tenantOf(place.Kind, place.Axis, place.Domain)
 		if !ok {
 			continue
 		}
 		named := hold(domain)
-		holding, err := m.groupHolding(ctx, txn, place.ID, now)
+		holding, err := m.groupHolding(ctx, txn, place.ID, holds.now)
 		if err != nil {
 			return nil, err
 		}
@@ -304,56 +332,48 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 	return held, nil
 }
 
-// judgeLeaving judges the person's leaving of the tenant: the rows that go, every
-// membership of their own held in the tenant and every place of theirs in a group kept
-// in it, whatever their periods; why they may not leave (leavingRefusal); and whether
-// the account goes, which it does when everything the person holds that has not ended
-// (holds) is in the tenant. Where it goes, every row of theirs outside the tenant, all
-// of them ended, goes with it.
-func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain) (*leaving, error) {
-	own, err := m.store.Memberships(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
+// judgeLeaving judges the person's leaving of the tenant from what they hold: the rows
+// that go, every membership of their own held in the tenant and every place of theirs in
+// a group kept in it, whatever their periods; why they may not leave (leavingRefusal);
+// and whether the account goes, which it does when everything the person holds that has
+// not ended is in the tenant (the rule holds reads: their standing memberships, and each
+// standing place where its group is kept). Where it goes, every row of theirs outside
+// the tenant, all of them ended, goes with it.
+func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (*leaving, error) {
+	person := User(holds.rows.userID)
 	var memberships []access.MembershipKey
-	for _, key := range own {
+	for _, key := range holds.rows.own {
 		if heldIn(key.Kind, key.Axis, key.Domain, domain) {
 			memberships = append(memberships, key)
 		}
 	}
 	var gone []access.GroupMemberKey
-	for _, place := range places {
+	for _, place := range holds.rows.places {
 		if heldIn(place.Kind, place.Axis, place.Domain, domain) {
-			gone = append(gone, access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)})
+			gone = append(gone, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
 		}
 	}
-	refusal, err := m.leavingRefusal(ctx, txn, userID, domain)
-	if err != nil {
-		return nil, err
-	}
-	held, err := m.holds(ctx, txn, userID)
+	refusal, err := m.leavingRefusal(ctx, txn, holds, domain)
 	if err != nil {
 		return nil, err
 	}
 	judged := &leaving{memberships: memberships, places: gone, refusal: refusal}
-	judged.deletesAccount = !slices.ContainsFunc(held, func(key access.MembershipKey) bool {
+	judged.deletesAccount = !slices.ContainsFunc(holds.own, func(key access.MembershipKey) bool {
 		return !heldIn(key.Kind, key.Axis, key.Domain, domain)
+	}) && !slices.ContainsFunc(holds.places, func(place GroupPlace) bool {
+		return !heldIn(place.Kind, place.Axis, place.Domain, domain)
 	})
 	if !judged.deletesAccount {
 		return judged, nil
 	}
-	for _, key := range own {
+	for _, key := range holds.rows.own {
 		if !heldIn(key.Kind, key.Axis, key.Domain, domain) {
 			judged.endedMemberships = append(judged.endedMemberships, key)
 		}
 	}
-	for _, place := range places {
+	for _, place := range holds.rows.places {
 		if !heldIn(place.Kind, place.Axis, place.Domain, domain) {
-			judged.endedPlaces = append(judged.endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)})
+			judged.endedPlaces = append(judged.endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
 		}
 	}
 
@@ -370,15 +390,21 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 // the whole application, is nobody the tenant counts. Without the administrator roles
 // (WithAdministratorRoles) nobody leaves a tenant themselves, as nobody removes their own
 // role in one.
-func (m *Manager) leavingRefusal(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain) (string, error) {
+//
+// Who administers the tenant is read only for a person who may be one of them
+// (mayAdminister); anyone else leaves it with nothing more read.
+func (m *Manager) leavingRefusal(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (string, error) {
 	if m.administrators == nil {
 		return fmt.Sprintf(leavingUnnamedMessage, m.tenantWord), nil
+	}
+	if !m.mayAdminister(holds, domain) {
+		return "", nil
 	}
 	holdings, err := m.administratorHoldings(ctx, txn, accesstypes.DomainPolicyScope(domain))
 	if err != nil {
 		return "", err
 	}
-	person := User(userID)
+	person := User(holds.rows.userID)
 	if !slices.ContainsFunc(holdings, func(h administratorHolding) bool { return h.user == person }) {
 		return "", nil
 	}
@@ -387,6 +413,23 @@ func (m *Manager) leavingRefusal(ctx context.Context, txn resource.ReadWriteTran
 	}
 
 	return fmt.Sprintf(lastAdministratorLeavingMessage, m.tenantWord), nil
+}
+
+// mayAdminister reports whether the person may be among the tenant's administrators
+// (administratorHoldings), which list a person by one of two rows and no other way: a
+// membership of their own in the tenant whose role administers a tenant, or a place in a
+// group kept in the tenant. Both are judged among what has not ended. A person who holds
+// neither administers the tenant by nothing.
+func (m *Manager) mayAdminister(holds *tenantHolds, domain accesstypes.Domain) bool {
+	if slices.ContainsFunc(holds.own, func(key access.MembershipKey) bool {
+		return heldIn(key.Kind, key.Axis, key.Domain, domain) && slices.Contains(m.administrators.domain, key.Role)
+	}) {
+		return true
+	}
+
+	return slices.ContainsFunc(holds.places, func(place GroupPlace) bool {
+		return heldIn(place.Kind, place.Axis, place.Domain, domain)
+	})
 }
 
 // tenantOf answers the tenant a row is held in, from the row's kind, axis and domain: a

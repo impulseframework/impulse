@@ -321,27 +321,56 @@ func (m *Manager) settleGroupRolePeriod(
 	return true, nil
 }
 
+// heldRows is everything a person's account holds as the tables hold it, whatever the
+// periods: the memberships of their own, the groups they are in, and the periods of
+// both. A rule that judges the person several ways in one request reads it once
+// (readHeld) and asks it what stands (standingAt).
+type heldRows struct {
+	userID  impulse.UUID
+	own     []access.MembershipKey
+	places  []GroupPlace
+	periods *UserPeriods
+}
+
+// readHeld reads everything the person's account holds, as committed (heldRows).
+func (m *Manager) readHeld(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (*heldRows, error) {
+	own, err := m.store.Memberships(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.Memberships()")
+	}
+	places, err := m.store.UserGroups(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
+	}
+	periods, err := m.store.UserPeriods(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.UserPeriods()")
+	}
+
+	return &heldRows{userID: userID, own: own, places: places, periods: periods}, nil
+}
+
+// standingAt answers what of the rows has not ended at now: the memberships of the
+// person's own and the groups they are in, less the ones whose period is over. An
+// assignment whose period has not begun stands. The rows themselves are left whole.
+func (h *heldRows) standingAt(now time.Time) ([]access.MembershipKey, []GroupPlace) {
+	own := slices.DeleteFunc(slices.Clone(h.own), func(key access.MembershipKey) bool { return h.periods.Memberships[key].Ended(now) })
+	places := slices.DeleteFunc(slices.Clone(h.places), func(place GroupPlace) bool {
+		return h.periods.Places[access.GroupMemberKey{Group: GroupID(place.ID), User: User(h.userID)}].Ended(now)
+	})
+
+	return own, places
+}
+
 // standing answers what a person holds that has not ended: the memberships of their
 // own and the groups they are in, less the ones whose period is over. An assignment
 // whose period has not begun stands.
 func (m *Manager) standing(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, []GroupPlace, error) {
-	own, err := m.store.Memberships(ctx, txn, userID)
+	held, err := m.readHeld(ctx, txn, userID)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.Memberships()")
+		return nil, nil, err
 	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	periods, err := m.store.UserPeriods(ctx, txn, userID)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.UserPeriods()")
-	}
-	now := time.Now()
-	own = slices.DeleteFunc(own, func(key access.MembershipKey) bool { return periods.Memberships[key].Ended(now) })
-	places = slices.DeleteFunc(places, func(place GroupPlace) bool {
-		return periods.Places[access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)}].Ended(now)
-	})
+	own, places := held.standingAt(time.Now())
 
 	return own, places, nil
 }
