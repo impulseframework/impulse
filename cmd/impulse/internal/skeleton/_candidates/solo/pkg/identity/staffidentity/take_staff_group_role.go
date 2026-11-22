@@ -16,7 +16,7 @@ import (
 // application has no tenants, so the role is the one held for the whole application and
 // the request names no place. Every person in the group is served without it at their
 // next request, unless they hold it some other way. A role the group does not hold is no
-// error. It names no row: a page runs it from a row of StaffGroupRole, the roles the
+// error. It names no row: a page runs it from a row of StaffListedGroupRole, the roles the
 // groups hold, filling the request from the row.
 //
 // A group gives nobody a power that giving the role directly would not: beside the

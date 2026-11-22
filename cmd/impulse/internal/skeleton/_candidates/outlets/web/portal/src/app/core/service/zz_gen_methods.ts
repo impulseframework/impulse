@@ -613,8 +613,10 @@ export interface MethodMeta {
   /**
    * The resources whose rows offer a method that names no target row (@callerEnters naming
    * them): a page fills the method's request from such a row, and the row's Execute answer lists
-   * the method for a caller the server would let run it there. Absent on a method no row answers
-   * for, which is offered wherever its grant is held.
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
    */
   offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
