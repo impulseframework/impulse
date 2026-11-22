@@ -1223,6 +1223,154 @@ func SignUp[Tx any](
 	return id, nil
 }
 
+// AddressConfirmation is one use of a mail link that confirms an address: the link, the
+// account it names, the address it was mailed to, and the caller's rule.
+type AddressConfirmation struct {
+	LinkID impulse.UUID
+	UserID impulse.UUID
+	Email  string
+	// Refuse is asked inside the transaction with what the account holds there; an
+	// error it returns is the confirmation's answer. It may be asked more than once and
+	// decides from held alone. Nil refuses nothing.
+	Refuse func(held *AddressHeld) error
+}
+
+// AddressHeld is what an account holds when a link's address is about to be written:
+// its address (nil for none), when its person confirmed it (nil for an address not
+// confirmed and for none), and whether one of its identity links came through an
+// organization's directory (signin.Directory.Organization).
+type AddressHeld struct {
+	Email       *string
+	ConfirmedAt *time.Time
+	Directory   bool
+}
+
+// ConfirmedAddress is what a confirmation by link answers: what the account held before
+// the write, the username its row held, and whether the write renamed it (a store whose
+// usernames are the addresses, and a username that differs from the address in any
+// byte).
+type ConfirmedAddress struct {
+	Held     AddressHeld
+	Username string
+	Renamed  bool
+}
+
+// errConfirmationRefused ends the transaction of a confirmation by link that is refused
+// (ConfirmAddressByLink): the link's consumption is rolled back and nothing is
+// committed.
+var errConfirmationRefused = errors.New("the confirmation by link is refused")
+
+// ConfirmAddressByLink writes the address a mail link confirms on the account the link
+// names, confirmed at the database's time, in one transaction: the link c.LinkID is
+// consumed (Driver.ConsumeMailLinkIn), the account read with the link decision's lock
+// (Driver.LockUserIn) with its identity links (Driver.IdentitiesByUserIn), c.Refuse is
+// asked with what it holds (its address, when its person confirmed it, and whether one
+// of its identity links came through an organization's directory), and c.Email is
+// written, replacing what the account held (Driver.VerifyUserEmailIn), or none of it
+// happens. On a store whose usernames are the addresses the write renames the user and
+// its live sessions. It answers what the account held before the write. A link that is
+// no longer live and an account that is gone are NotFound; an address another user
+// holds, read in the transaction (Driver.UserByEmailIn) or refused by the users table
+// at the write (dbtype.EmailConflict, dbtype.UsernameConflict), is a Conflict; an error
+// c.Refuse returns is answered as it is. Nothing is written by a refusal, and the link
+// stands.
+//
+// A transaction the database ends to break a deadlock or a serialization failure
+// (dbtype.LockConflict) runs once more, and the confirmation is answered by what the
+// second run finds; c.Refuse is asked again there.
+func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressConfirmation) (*ConfirmedAddress, error) {
+	var (
+		confirmed *ConfirmedAddress
+		// refused is the answer of a refusal decided in the run, which ends it with
+		// errConfirmationRefused.
+		refused error
+	)
+	run := func(ctx context.Context, tx Tx) error {
+		// Each run starts with nothing refused and nothing answered.
+		confirmed, refused = nil, nil
+		if err := d.ConsumeMailLinkIn(ctx, tx, c.LinkID, time.Now()); err != nil {
+			if httpio.HasNotFound(err) {
+				refused = err
+
+				return errConfirmationRefused
+			}
+
+			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
+		}
+		user, err := d.LockUserIn(ctx, tx, c.UserID)
+		if err != nil {
+			if httpio.HasNotFound(err) {
+				refused = err
+
+				return errConfirmationRefused
+			}
+
+			return errors.Wrap(err, "Driver.LockUserIn()")
+		}
+		links, err := d.IdentitiesByUserIn(ctx, tx, c.UserID)
+		if err != nil {
+			return errors.Wrap(err, "Driver.IdentitiesByUserIn()")
+		}
+		held := AddressHeld{Email: user.Email, ConfirmedAt: user.EmailConfirmedAt, Directory: organizationLinked(links)}
+		if c.Refuse != nil {
+			shown := held
+			if refused = c.Refuse(&shown); refused != nil {
+				return errConfirmationRefused
+			}
+		}
+		holder, err := d.UserByEmailIn(ctx, tx, c.Email)
+		if err != nil {
+			return errors.Wrap(err, "Driver.UserByEmailIn()")
+		}
+		if holder != nil && holder.ID != c.UserID {
+			refused = addressInUse(c.Email)
+
+			return errConfirmationRefused
+		}
+		if err := d.VerifyUserEmailIn(ctx, tx, c.UserID, c.Email); err != nil {
+			return errors.Wrap(err, "Driver.VerifyUserEmailIn()")
+		}
+		confirmed = &ConfirmedAddress{Held: held, Username: user.Username, Renamed: d.UsernameIsEmail() && user.Username != c.Email}
+
+		return nil
+	}
+	txErr := d.Transact(ctx, run)
+	if runsOnceMore(d, txErr) {
+		// The database broke a deadlock or a serialization failure: the confirmation runs
+		// once more, and what it answers is decided on that run.
+		txErr = d.Transact(ctx, run)
+	}
+	if txErr != nil {
+		if refused != nil && errors.Is(txErr, errConfirmationRefused) {
+			return nil, refused
+		}
+		if conflict := d.SignInConflict(txErr); conflict == dbtype.EmailConflict || conflict == dbtype.UsernameConflict {
+			return nil, addressInUse(c.Email)
+		}
+
+		return nil, errors.Wrap(txErr, "Driver.Transact()")
+	}
+
+	return confirmed, nil
+}
+
+// addressInUse is the Conflict of an address another user holds, in the drivers' words.
+func addressInUse(email string) error {
+	return httpio.NewConflictMessagef("the email address %q is already in use", email)
+}
+
+// organizationLinked reports whether one of links came through an organization's
+// directory (signin.Directory.Organization).
+func organizationLinked(links []*dbtype.SessionIdentity) bool {
+	for _, link := range links {
+		if (signin.Directory{Method: link.Method, Connection: link.Connection}).Organization() {
+			return true
+		}
+	}
+
+	return false
+}
+
 // LinkConfirmed links identity to userID once the person has confirmed the link with
 // the user's password, in one transaction, and gives the person the default seat of
 // the tenant whose directory the identity came through, when directories reads one

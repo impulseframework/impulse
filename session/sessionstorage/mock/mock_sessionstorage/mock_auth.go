@@ -177,6 +177,21 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) ClearSignInAttempts(ctx, name an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSignInAttempts", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).ClearSignInAttempts), ctx, name)
 }
 
+// ConfirmAddressByLink mocks base method.
+func (m *MockAuthStoreMethods[Tx]) ConfirmAddressByLink(ctx context.Context, c *sessionstorage.AddressConfirmation) (*sessionstorage.ConfirmedAddress, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfirmAddressByLink", ctx, c)
+	ret0, _ := ret[0].(*sessionstorage.ConfirmedAddress)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConfirmAddressByLink indicates an expected call of ConfirmAddressByLink.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) ConfirmAddressByLink(ctx, c any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfirmAddressByLink", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).ConfirmAddressByLink), ctx, c)
+}
+
 // ConsumeFactorCode mocks base method.
 func (m *MockAuthStoreMethods[Tx]) ConsumeFactorCode(ctx context.Context, id impulse.UUID) error {
 	m.ctrl.T.Helper()
