@@ -1148,9 +1148,7 @@ sign-in's three handlers, and each declared method's handlers under its registra
 name (`PasswordLogin`; `GoogleLogin` and `GoogleCallback` for a method named `google`;
 `LakesideEntraLogout` too for an Azure one), the default outlet's embedded
 (`DefaultSession`) and each additional one's through a getter named after it
-(`Portal() PortalSession`); `BindAuth(name)` only when more than one session
-auth is declared, so a misspelled or removed auth package is a compile error at
-`BindAuth(crew.Name)`; `<Outlet>Tokens` per machine outlet (`Droids() DroidsTokens`,
+(`Portal() PortalSession`); `<Outlet>Tokens` per machine outlet (`Droids() DroidsTokens`,
 embedded as `DefaultTokens` for a default machine outlet), the token check the issuing
 auth's `*session.MachineOutlet` satisfies, and on the issuing auth's session surface the
 device and token handlers (`DeviceAuthorize`, `DeviceToken`, `DeviceLookup`,
@@ -1194,7 +1192,8 @@ outlet, top to bottom; a not-found handler per outlet prefix, so an unknown API 
 paths first, so an application at `"/"` is the catch-all; and, with several web apps, the
 root redirect.
 
-A session outlet's group is `BindAuth(<pkg>.Name)` (with two session auths), `NoCaching`,
+A session outlet's group is `resource.BindAuth(<pkg>.Name)` (with two session auths; the
+router's own, so a misspelled or removed auth package is a compile error there), `NoCaching`,
 `CompressionMiddleware`, `StartSession`, `SetXSRFToken`; the session routes under the
 prefix; then the authenticated sub-group, `ValidateSession` and `ValidateXSRFToken`
 around the hook and the generated routes. In that sub-group the routes a signed-in
@@ -1243,9 +1242,18 @@ proof. The password strength question (`PasswordStrength`, the password method's
 `Strength`) reads no session and is mounted beside them; the methods route names it as
 `passwordStrength`, where every page that sets a password asks while the person types.
 
+With two session auths the router binds every request of an outlet to the outlet's auth,
+and `resource.SessionPermissions` answers a bound request only from that auth's permission
+engine. The checkers it is handed say which auth their engine was opened for (`Auth()`);
+where that is another auth, or none, every check, digest and list of the request answers an
+error that names both, so the request fails with a 500 and the log says which engine was
+asked. The application chooses the engine for a request by `resource.BoundAuth(ctx)`. A
+surface written by hand binds its own requests the same way, with
+`resource.BindAuth(<pkg>.Name)` in front of its routes.
+
 **Machine outlets.** A machine outlet declares the auth whose `Auth` issues its tokens,
 `Tokens(importPath)`, the same `*session.Auth` a session outlet of the program binds to
-through `Auth`; its people issue the tokens there. The outlet's group is `BindAuth`
+through `Auth`; its people issue the tokens there. The outlet's group is `resource.BindAuth`
 (when several auths are declared), `NoCaching`, `CompressionMiddleware`,
 `ReleaseHeader`, the device flow's two public endpoints (`POST <prefix>/oauth/device/authorize`
 and `POST <prefix>/oauth/token`, RFC 8628 and the refresh grant, served by the issuing

@@ -784,7 +784,7 @@ func TestAuthApply(t *testing.T) {
 			wantSkipped: []string{
 				invited,
 				handed,
-				"no file declares a Configurer interface, so the App is not given the partners auth: the generated router's Handlers requires BindAuth(name string) func(http.Handler) http.Handler and the portal outlet's session handlers from the partners auth (partners.Auth.Handlers()), and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client (partners.Auth.Identity()); the application does not compile until the App holds them",
+				"no file declares a Configurer interface, so the App is not given the partners auth: the generated router's Handlers requires the portal outlet's session handlers from the partners auth (partners.Auth.Handlers()), and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client (partners.Auth.Identity()), and the library answers a request the router binds to the partners auth only from that auth's permission engine; the application does not compile until the App holds them",
 			},
 			// The default outlet still declares the staff auth, so its management stays.
 			neverSkipped: []string{"no outlet declares"},

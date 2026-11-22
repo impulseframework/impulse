@@ -27,9 +27,8 @@ type authWiring struct {
 	au     Auth
 	src    *authSource
 	outlet *app.Outlet
-	// authPath is the import path of the auth's package, and authsPath of the package the
-	// auths lie beneath, where the record of the auth a request came through is kept.
-	authPath, authsPath string
+	// authPath is the import path of the auth's package.
+	authPath string
 	// identityDir is the tree the program generates the auth's management into, and
 	// identityPath the import path of the auth's package in it; both are empty where the
 	// program generates none.
@@ -66,14 +65,14 @@ func tenantSettingsOf(spec *authpkg.Spec) []string {
 // wire gives the application's Go side what the regeneration asks of it for the added
 // auth, so the application the command leaves builds and serves the auth at its outlet.
 // The Configurer hands the App the auth and its identity client, the App holds the
-// auth's session handlers, its identity client and its permission engine, binds a session
-// group's requests to the auth that authenticated them (BindAuth) and answers a session's
-// permissions from that auth's engine, the outlet's accessor returns the added auth's
-// handlers in place of the auth the outlet served before, the data level answers the
-// identity client, and every test configurer answers both, from the added auth where the
-// harness opens the first auth and serves the application (openInHarness). An application
-// whose App is not the base's keeps what it has, and the change lists what is left to its
-// author.
+// auth's session handlers, its identity client and its permission engine and answers a
+// session's permissions from the engine of the auth the request came through, which the
+// regenerated router binds each outlet's requests to (resource.BoundAuth), the outlet's
+// accessor returns the added auth's handlers in place of the auth the outlet served
+// before, the data level answers the identity client, and every test configurer answers
+// both, from the added auth where the harness opens the first auth and serves the
+// application (openInHarness). An application whose App is not the base's keeps what it
+// has, and the change lists what is left to its author.
 func (au Auth) wire(a *app.App, choice *OutletChoice, src *authSource, spec *authpkg.Spec, ch *Change) error {
 	if !choice.Site.GeneratedRouter {
 		return nil
@@ -81,8 +80,8 @@ func (au Auth) wire(a *app.App, choice *OutletChoice, src *authSource, spec *aut
 	module := modulePath(a)
 	w := &authWiring{
 		au: au, src: src, outlet: &choice.Outlet,
-		authPath: path.Join(module, src.AuthDir, au.Name), authsPath: path.Join(module, src.AuthDir),
-		srcPath: path.Join(module, src.Dir), page: outletLoginPage(&choice.Outlet), tenantSettings: tenantSettingsOf(spec),
+		authPath: path.Join(module, src.AuthDir, au.Name),
+		srcPath:  path.Join(module, src.Dir), page: outletLoginPage(&choice.Outlet), tenantSettings: tenantSettingsOf(spec),
 	}
 	if spec.IdentityDir != "" {
 		w.identityDir, w.identityPath = spec.IdentityDir, path.Join(module, spec.IdentityDir, au.Name+"identity")
@@ -92,7 +91,7 @@ func (au Auth) wire(a *app.App, choice *OutletChoice, src *authSource, spec *aut
 		return err
 	}
 	if rel == "" {
-		ch.skipf("no file declares a %[1]s interface, so the App is not given the %[2]s auth: the generated router's Handlers requires BindAuth(name string) func(http.Handler) http.Handler and the %[3]s outlet's session handlers from the %[2]s auth (%[2]s.Auth.Handlers())%[4]s; the application does not compile until the App holds them", configurerType, au.Name, au.Outlet, w.identityLeft())
+		ch.skipf("no file declares a %[1]s interface, so the App is not given the %[2]s auth: the generated router's Handlers requires the %[3]s outlet's session handlers from the %[2]s auth (%[2]s.Auth.Handlers())%[4]s, and the library answers a request the router binds to the %[2]s auth only from that auth's permission engine; the application does not compile until the App holds them", configurerType, au.Name, au.Outlet, w.identityLeft())
 
 		return nil
 	}
@@ -242,7 +241,7 @@ func (w *authWiring) answerPermissions(e *sourceEdit, methods []string, engine s
 	m := defaultEngineRE.FindSubmatch(e.src)
 	if len(m) != 5 || string(m[4]) != engine {
 		if !bytes.Contains(e.src, []byte(".engine(")) {
-			e.skipped = append(e.skipped, fmt.Sprintf("%s: no UserPermissions answers a session's permissions from the App's one engine as the base's does, so a session of the %s auth may be answered from the default auth's store; answer from the engine of the auth the request came through (engine(ctx))", e.rel, w.au.Name))
+			e.skipped = append(e.skipped, fmt.Sprintf("%s: no UserPermissions answers a session's permissions from the App's one engine as the base's does, so a request of the %s auth may be asked of the default auth's engine, which the library refuses; answer from the engine of the auth the request came through (engine(ctx), over resource.BoundAuth)", e.rel, w.au.Name))
 		}
 
 		return nil
@@ -254,10 +253,9 @@ func (w *authWiring) answerPermissions(e *sourceEdit, methods []string, engine s
 }
 
 // declare writes the methods the App lacks for the auth into a file of its own beside
-// the App: BindAuth, which the generated router's Handlers requires once two auths are
-// declared, the engine a request's auth names, and the identity client's accessor the
-// generated contract asks for. BindAuth records the auth in the package the auths lie
-// beneath, which gains the record where it has none.
+// the App: the engine of the auth a request came through, which the regenerated router
+// binds each outlet's requests to (resource.BoundAuth), and the identity client's
+// accessor the generated contract asks for.
 func (w *authWiring) declare(a *app.App, e *sourceEdit, methods []string, engine string, ch *Change) error {
 	name, pascal, dir := w.au.Name, w.au.Pascal(), path.Dir(e.rel)
 	access, err := app.ImportName(e.rel, e.src, accessImport)
@@ -265,21 +263,14 @@ func (w *authWiring) declare(a *app.App, e *sourceEdit, methods []string, engine
 		return err
 	}
 	file := &appMethods{}
-	binds := !slices.Contains(methods, "BindAuth") && !slices.Contains(methods, "engine") && engine != "" && access != ""
 	switch {
-	case binds:
-		bound, err := w.record(a, ch)
-		if err != nil {
-			return err
-		}
-		if !bound {
-			break
-		}
-		file.imports = append(file.imports, "context", "net/http", accessImport, w.authsPath)
-		file.declare("BindAuth", fmt.Sprintf("\n// BindAuth is the middleware a session group carries to say which auth authenticated its\n// requests, so the permission checks and the tenant visibility of everything behind it\n// answer from that auth's store. A group that binds nothing gets the default auth.\nfunc (a *%[1]s) BindAuth(name string) func(http.Handler) http.Handler {\n\treturn func(next http.Handler) http.Handler {\n\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\t\tnext.ServeHTTP(w, r.WithContext(%[2]s.Bind(r.Context(), name)))\n\t\t})\n\t}\n}\n", appType, path.Base(w.authsPath)))
-		file.declare("engine", fmt.Sprintf("\n// engine returns the permission engine of the auth the request came through.\nfunc (a *%[1]s) engine(ctx context.Context) %[2]s.Controller {\n\tif engine, ok := a.engines[%[3]s.Name(ctx)]; ok {\n\t\treturn engine\n\t}\n\n\treturn a.%[4]s\n}\n", appType, access, path.Base(w.authsPath), engine))
-	case !slices.Contains(methods, "BindAuth"):
-		ch.skipf("%s: %s holds no default permission engine the command can read, so BindAuth is not declared; declare BindAuth(name string) func(http.Handler) http.Handler, which the generated router's Handlers requires once two auths are declared, and answer a request from the engine of the auth it names", e.rel, appType)
+	case slices.Contains(methods, "engine"):
+		// The App chooses a request's engine itself.
+	case engine != "" && access != "":
+		file.imports = append(file.imports, "context", accessImport, resourceImport)
+		file.declare("engine", fmt.Sprintf("\n// engine returns the permission engine of the auth the request came through, which\n// the generated router binds each outlet's requests to (resource.BoundAuth). A request\n// bound to no auth gets the default auth's engine.\nfunc (a *%[1]s) engine(ctx context.Context) %[2]s.Controller {\n\tif engine, ok := a.engines[resource.BoundAuth(ctx)]; ok {\n\t\treturn engine\n\t}\n\n\treturn a.%[3]s\n}\n", appType, access, engine))
+	default:
+		ch.skipf("%s: %s holds no default permission engine the command can read, so engine is not declared; answer a request from the engine of the auth it came through (resource.BoundAuth names it): the library refuses a request of the %s auth asked of another auth's engine", e.rel, appType, name)
 	}
 	if w.identityPath != "" && !slices.Contains(methods, pascal+"Identity") {
 		file.imports = append(file.imports, w.identityPath)
@@ -305,55 +296,6 @@ func (w *authWiring) declare(a *app.App, e *sourceEdit, methods []string, engine
 	ch.didf("%s: %s declares %s, which the regenerated router and the generated contract require of it for the %s auth", rel, appType, joinAnd(file.declared), name)
 
 	return nil
-}
-
-// record gives the package the auths lie beneath the record of the auth a request came
-// through (Bind and Name), where it has none, and reports whether the package holds it.
-func (w *authWiring) record(a *app.App, ch *Change) (bool, error) {
-	rel := path.Join(w.src.AuthDir, "auth.go")
-	if exists(a, rel) {
-		data, _, err := readFile(a, rel)
-		if err != nil {
-			return false, err
-		}
-		if bytes.Contains(data, []byte("func Bind(")) && bytes.Contains(data, []byte("func Name(")) {
-			return true, nil
-		}
-		ch.skipf("%s: the file declares no Bind and Name, so the App's BindAuth is not declared; record the auth a request came through there (Bind(ctx, name) and Name(ctx)), and declare BindAuth on the App over it, which the generated router's Handlers requires once two auths are declared", rel)
-
-		return false, nil
-	}
-	pkg := path.Base(w.src.AuthDir)
-	if err := writeNew(a, rel, fmt.Sprintf(`// Package %[1]s holds what the auths share: the request-scoped record of which auth a
-// request came through. Each auth is its own package beneath this one, owning its session
-// manager, its permission store, and its role file. A surface binds a request to an auth
-// in the session group that authenticated it, and everything that answers for that
-// request (permission checks, tenant visibility) answers from that auth's store.
-package %[1]s
-
-import "context"
-
-type ctxKey struct{}
-
-// Bind records the auth a request came through: the name of the auth package whose
-// session group authenticated it.
-func Bind(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, ctxKey{}, name)
-}
-
-// Name returns the auth the request came through, or "" when no session group bound it,
-// which every surface treats as its default auth.
-func Name(ctx context.Context) string {
-	name, _ := ctx.Value(ctxKey{}).(string)
-
-	return name
-}
-`, pkg)); err != nil {
-		return false, err
-	}
-	ch.didf("%s: the record of the auth a request came through (Bind, Name), which the App's BindAuth writes and its permission checks read", rel)
-
-	return true, nil
 }
 
 // serveOutlet makes the outlet's accessor on the App return the added auth's session

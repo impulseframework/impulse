@@ -421,10 +421,11 @@ func validateWebAppMounts(outlets []*routerOutlet) error {
 type servedRouterData struct {
 	Source  string
 	Package string
-	// AuthImports are the auth packages the file imports for BindAuth(<pkg>.Name),
-	// sorted; empty unless more than one session auth is declared.
+	// AuthImports are the auth packages the file imports for
+	// resource.BindAuth(<pkg>.Name), sorted; empty unless more than one session auth
+	// is declared.
 	AuthImports []string
-	// MultiAuth emits BindAuth: more than one distinct session auth is declared.
+	// MultiAuth emits resource.BindAuth: more than one distinct session auth is declared.
 	MultiAuth bool
 	// Outlets is every outlet, the default first.
 	Outlets []*servedOutlet
@@ -1658,11 +1659,6 @@ type Handlers interface {
 	{{ .SessionInterface }}
 {{- end }}
 {{- end }}
-{{- if .MultiAuth }}
-	// BindAuth marks a session group's requests as authenticated by the named auth, so
-	// the handlers behind it check permissions and tenant visibility in that auth's store.
-	BindAuth(name string) func(http.Handler) http.Handler
-{{- end }}
 {{- range .MachineOutlets }}
 {{- if .Getter }}
 	// {{ .Getter }} returns the {{ .Name }} outlet's token surface: the machine outlet the application
@@ -1914,7 +1910,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	r.Group(func(r chi.Router) {
 {{- template "outletWord" . }}
 {{- if .AuthPackage }}
-		r.Use(h.BindAuth({{ .AuthPackage }}.Name))
+		r.Use(resource.BindAuth({{ .AuthPackage }}.Name))
 {{- end }}
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
@@ -1949,7 +1945,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	r.Group(func(r chi.Router) {
 {{- template "outletWord" . }}
 {{- if .AuthPackage }}
-		r.Use(h.BindAuth({{ .AuthPackage }}.Name))
+		r.Use(resource.BindAuth({{ .AuthPackage }}.Name))
 {{- end }}
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
@@ -3187,10 +3183,28 @@ func newRouterCallRecorder() *routerCallRecorder {
 	return &routerCallRecorder{generatedCallRecorder: newGeneratedCallRecorder()}
 }
 
+{{- if .MultiAuth }}
+
+// routerBindRecorded marks a request whose bind to an auth the chain records already.
+type routerBindRecorded struct{}
+
+// Middleware returns middleware that appends its name to the chain when it runs. The
+// first recorded middleware that runs on a request bound to an auth (resource.BindAuth,
+// which the router mounts itself) appends the bind in front of its own name, so the
+// chain shows where the router's bind sits.
+{{- else }}
+
 // Middleware returns middleware that appends its name to the chain when it runs.
+{{- end }}
 func (rec *routerCallRecorder) Middleware(name string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+{{- if .MultiAuth }}
+			if auth := resource.BoundAuth(r.Context()); auth != "" && r.Context().Value(routerBindRecorded{}) == nil {
+				rec.chain = append(rec.chain, "BindAuth("+auth+")")
+				r = r.WithContext(context.WithValue(r.Context(), routerBindRecorded{}, true))
+			}
+{{- end }}
 			rec.chain = append(rec.chain, name)
 			next.ServeHTTP(w, r)
 		})
@@ -3376,11 +3390,6 @@ func (s *routerHandlersStub) {{ .Getter }}() {{ .TokensInterface }} {
 }
 {{ end }}
 {{- end }}
-{{- if .MultiAuth }}
-func (s *routerHandlersStub) BindAuth(name string) func(http.Handler) http.Handler {
-	return s.rec.Middleware("BindAuth(" + name + ")")
-}
-{{ end }}
 {{- if .ScheduledRoutes }}
 func (s *routerHandlersStub) SchedulerAuth(next http.Handler) http.Handler {
 	return s.rec.Middleware("SchedulerAuth")(next)
