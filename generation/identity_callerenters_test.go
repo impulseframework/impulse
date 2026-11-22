@@ -218,7 +218,9 @@ func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 // account, the kind, the tenant and the role; the helper over the roles the client sets;
 // the two lists of a person's roles answering TenantsToEnter with it, by four columns and
 // neither the group nor the axis; and the list of the groups' roles answering it with the
-// group's query, by the group and the same three. With no switch declared, none of it.
+// group's query, by the group and the same three. With no switch declared, none of it; nor
+// in the roles people hold where a directory writes the auth's roles, since the method that
+// takes a role away is not written there.
 func Test_identityRoleTemplates_administeredTenants(t *testing.T) {
 	t.Parallel()
 
@@ -235,6 +237,9 @@ func Test_identityRoleTemplates_administeredTenants(t *testing.T) {
 			Policy: access.Tables{UserRoles: "CrewUserRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles"},
 		}
 	}
+	// A directory that writes the auth's roles: no method takes a role away from a person.
+	synced := data(directory)
+	synced.rolesSynced = true
 	imported := "\"github.com/impulseframework/impulse/resource\""
 	none := []string{"AdministeredTenants", "enteringAdministratorRoles", "TenantsToEnter", "impulse/resource\""}
 	personDoc := "// TenantsToEnter names the sector the row's role makes its holder an administrator of,\n" +
@@ -279,6 +284,13 @@ func Test_identityRoleTemplates_administeredTenants(t *testing.T) {
 			name:     "the roles people hold, with no switch declared",
 			template: "identityHeldRolesTemplate", source: identityHeldRolesTemplate,
 			data:            data(nil),
+			wantContains:    []string{"CrewHeldRole struct {"},
+			wantNotContains: none,
+		},
+		{
+			name:     "the roles people hold, of an auth whose directory writes its roles, with the switch declared",
+			template: "identityHeldRolesTemplate", source: identityHeldRolesTemplate,
+			data:            synced,
 			wantContains:    []string{"CrewHeldRole struct {"},
 			wantNotContains: none,
 		},

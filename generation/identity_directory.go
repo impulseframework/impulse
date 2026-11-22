@@ -114,9 +114,10 @@ func (d *identitySourceData) OffersToEntering() bool {
 // role from a person from, for its @callerEnters: the roles people hold and, where a person
 // takes a role for a set time, the roles held so ("CrewHeldRole, CrewTakenRole"). Empty
 // where no row offers the method only to a caller who enters a tenant: no switch is
-// declared (offersToEntering), or the instance declares no list of the roles people hold.
+// declared (offersToEntering), the instance declares no list of the roles people hold, or a
+// directory writes the auth's roles and the method is not written (GivesRoles).
 func (d *identitySourceData) RoleRemovalRows() string {
-	if !d.offersToEntering() || !d.listsHeldRoles() {
+	if !d.offersToEntering() || !d.listsHeldRoles() || !d.GivesRoles() {
 		return ""
 	}
 	rows := d.HeldRole()

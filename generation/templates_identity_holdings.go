@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
-	{{- if .OffersToEntering }}
+	{{- if .RoleRemovalRows }}
 	"github.com/impulseframework/impulse/resource"
 	{{- end }}
 )
@@ -118,7 +118,7 @@ FROM (` + "`" + ` + {{ GoCamel .SubjectUserGroupRole }}Query + ` + "`" + `) h
 func ({{ .HeldRole }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .HeldRole }}Query, nil
 }
-{{- if .OffersToEntering }}
+{{- if .RoleRemovalRows }}
 
 // {{ GoCamel .HeldRole }}AdministeredTenantsQuery answers the {{ .TenantWord }} each role a person of the {{ .Auth }} auth holds of
 // their own makes them an administrator of, a row for each, with the account's id, the kind,

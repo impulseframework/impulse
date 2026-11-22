@@ -1821,7 +1821,7 @@ type Take{{ .Subject }}GroupRole struct {
 // one held in the global scope, in one domain (Domain), or in every domain
 // (EveryDomain). Every person in the group is served without it at their next request,
 // unless they hold it some other way. A role the group does not hold there is no error.
-// It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the groups
+// It names no row: a page runs it from a row of {{ .ListedGroupRole }}, the roles the groups
 // hold, filling the request from the row. A person in the group does not take from it
 // the role that makes them the last administrator of a tenant.` + identityJudgedNote + identityGroupRoleRemovalEntersNote + `
 {{- else -}}
@@ -1829,7 +1829,7 @@ type Take{{ .Subject }}GroupRole struct {
 // application has no tenants, so the role is the one held for the whole application and
 // the request names no place. Every person in the group is served without it at their
 // next request, unless they hold it some other way. A role the group does not hold is no
-// error. It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the
+// error. It names no row: a page runs it from a row of {{ .ListedGroupRole }}, the roles the
 // groups hold, filling the request from the row.` + identityJudgedNote + `
 {{- end }}
 //
