@@ -193,8 +193,8 @@ func (a *Auth[S, U, Tx]) ForgetBrowsers() http.HandlerFunc {
 }
 
 // ownSessionRequest validates the request's session where the middleware has not, as
-// the name change does, and refuses an impersonated session for operation: the
-// person's own sessions and remembered browsers are theirs alone.
+// the name change does, and refuses an impersonated session for operation: what it
+// serves (the person's sessions, remembered browsers or username) is theirs alone.
 func (a *Auth[S, U, Tx]) ownSessionRequest(ctx context.Context, operation string) (context.Context, error) {
 	if _, validated := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo); !validated {
 		var err error
