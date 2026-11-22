@@ -1653,6 +1653,7 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/distress-relays',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'distress relay', many: 'distress relays' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
