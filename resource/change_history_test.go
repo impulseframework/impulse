@@ -19,7 +19,12 @@ const wantDataChangeEventsTable = `CREATE TABLE DataChangeEvents (
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
+  TenantId STRING(MAX) NOT NULL,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime)`
+
+// wantDataChangeEventsIndex is the change history table's index by tenant as every schema
+// in the repository carries it.
+const wantDataChangeEventsIndex = "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC)"
 
 // TestDataChangeEventsDDL pins the change history table's statements for each database
 // and period, and pins the test fixture migration to the Spanner statements for 365 days,
@@ -36,12 +41,13 @@ func TestDataChangeEventsDDL(t *testing.T) {
 		want       []string
 	}{
 		{
-			name:       "Spanner, 365 days: the table and its row deletion policy",
+			name:       "Spanner, 365 days: the table, its index by tenant and its row deletion policy",
 			dbType:     SpannerDBType,
 			period:     KeepChangeHistoryDays(365),
 			periodText: "KeepChangeHistoryDays(365)",
 			want: []string{
 				wantDataChangeEventsTable,
+				wantDataChangeEventsIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY))",
 			},
 		},
@@ -52,15 +58,16 @@ func TestDataChangeEventsDDL(t *testing.T) {
 			periodText: "KeepChangeHistoryDays(30)",
 			want: []string{
 				wantDataChangeEventsTable,
+				wantDataChangeEventsIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 30 DAY))",
 			},
 		},
 		{
-			name:       "Spanner, forever: the table alone",
+			name:       "Spanner, forever: the table and its index by tenant",
 			dbType:     SpannerDBType,
 			period:     KeepChangeHistoryForever(),
 			periodText: "KeepChangeHistoryForever()",
-			want:       []string{wantDataChangeEventsTable},
+			want:       []string{wantDataChangeEventsTable, wantDataChangeEventsIndex},
 		},
 		{
 			name:       "Spanner, a period never declared: no statement",
