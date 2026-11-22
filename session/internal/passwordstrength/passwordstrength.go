@@ -24,9 +24,10 @@
 // whole password.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
-// ASCII alone, one character for each character typed: an accented letter is read as its
-// letter, and any other character outside ASCII as one stand-in, the same for the same
-// letter, with or without its marks and in either case, throughout one judgment.
+// ASCII alone, one character for each character typed but a ß, which is read as ss: an
+// accented letter is read as its letter, a dotless ı as i, and any other character outside
+// ASCII as one stand-in, the same for the same letter, with or without its marks and in
+// either case, throughout one judgment.
 package passwordstrength
 
 import (
@@ -149,7 +150,8 @@ func Judge(password string, who Details, minimum int) Judgment {
 	}
 
 	read := newReading()
-	judged := read.of(firstRunes(password, MaxJudged))
+	// A ß reads as two characters, so the reading is cut as well.
+	judged := firstRunes(read.of(firstRunes(password, MaxJudged)), MaxJudged)
 	inputs := inputsOf(who, read)
 	bits := estimate(judged, inputs)
 	if plain := plainReading(judged, inputs); plain != judged {
@@ -327,9 +329,9 @@ func notLetterOrDigit(r rune) bool {
 }
 
 // reading makes the text the library is asked about from what a person typed, in ASCII alone
-// and one character for each character typed. One reading serves one judgment, the password
-// first and then the person's details, so a character outside ASCII has one stand-in
-// throughout.
+// and one character for each character typed but a ß, read as two. One reading serves one
+// judgment, the password first and then the person's details, so a character outside ASCII
+// has one stand-in throughout.
 type reading struct {
 	standIn map[rune]byte
 }
@@ -340,8 +342,9 @@ func newReading() *reading {
 }
 
 // of is typed in NFC as the library is to read it: a character in ASCII as it is; outside
-// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a mark
-// on its own dropped, and any other character as its stand-in.
+// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a ß as
+// ss and a capital ẞ as SS, a letter whose capital is in ASCII (the dotless ı) as that
+// letter in lower case, a mark on its own dropped, and any other character as its stand-in.
 func (r *reading) of(typed string) string {
 	var text strings.Builder
 	for _, c := range norm.NFC.String(typed) {
@@ -355,6 +358,16 @@ func (r *reading) of(typed string) string {
 
 			continue
 		}
+		if spelled, ok := spelledInASCII[c]; ok {
+			text.WriteString(spelled)
+
+			continue
+		}
+		if upper := unicode.ToUpper(c); upper < utf8.RuneSelf && unicode.IsLetter(upper) {
+			text.WriteRune(unicode.ToLower(upper))
+
+			continue
+		}
 		if unicode.IsMark(c) {
 			// A mark on no letter is not a character a person counts.
 			continue
@@ -364,6 +377,10 @@ func (r *reading) of(typed string) string {
 
 	return text.String()
 }
+
+// spelledInASCII are the letters a person spells with two ASCII letters: the sharp s (ß) as ss,
+// and its capital (ẞ) as SS.
+var spelledInASCII = map[rune]string{'ß': "ss", 'ẞ': "SS"}
 
 // standInOf is c's stand-in, the same in either case and with or without c's marks: the one
 // c's letter was given in this reading, or else the next of standIns. A stand-in is kept

@@ -100,6 +100,10 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a Greek name in capitals", password: "ΝΙΚΟΛΑΟΣ1990", who: Details{Name: "Νικόλαος Παπαδόπουλος"}},
 		{name: "a name typed without a letter's mark", password: "Федоров1985!", who: Details{Name: "Фёдор Фёдоров"}},
 		{name: "the name in look-alike characters", password: "Z@br0w$k!2077", who: Details{Name: "Quentin Zabrowski"}},
+		{name: "a name with a dotless i, in capitals", password: "YILDIRIMKAYA2077", who: Details{Name: "Nur Yıldırımkaya"}},
+		{name: "a name with a dotless i, typed with i", password: "yildirimkaya2077", who: Details{Name: "Nur Yıldırımkaya"}},
+		{name: "a name with a ß, in capitals", password: "GROSSKREUTZ2077", who: Details{Name: "Jörg Großkreutz"}},
+		{name: "a name with ss, typed with a ß", password: "Großkreutz2077", who: Details{Name: "Uwe Grosskreutz"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -194,6 +198,16 @@ func TestJudge_onlyTheFirstCharactersAreJudged(t *testing.T) {
 		if got, want := Judge(weak+tail, Details{}, 30), Judge(weak, Details{}, 30); got != want {
 			t.Errorf("Judge(%d a's + %q) = %+v, want %+v as without the tail", MaxJudged, tail, got, want)
 		}
+	}
+}
+
+func TestJudge_theReadingIsCutToTheFirstCharacters(t *testing.T) {
+	t.Parallel()
+
+	// A ß reads as two characters, so 64 of them read as 128: only the first 64 are judged.
+	long, short := strings.Repeat("ß", MaxJudged), strings.Repeat("ß", MaxJudged/2)
+	if got, want := Judge(long, Details{}, 30), Judge(short, Details{}, 30); got != want {
+		t.Errorf("Judge(%d ß) = %+v, want %+v as for %d ß: both are %d s to the library", MaxJudged, got, want, MaxJudged/2, MaxJudged)
 	}
 }
 
@@ -295,6 +309,25 @@ func TestJudge_anAccentTypedApartIsJudgedAsTheAccentedLetter(t *testing.T) {
 	apart := strings.Repeat("e\u0301", 8)
 	if got, want := Judge(apart, Details{}, 30), Judge("éééééééé", Details{}, 30); got != want {
 		t.Errorf("Judge(%+q, 30) = %+v, want %+v as for %+q", apart, got, want, "éééééééé")
+	}
+}
+
+func TestReading_of(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typed string
+		want  string
+	}{
+		{typed: "Yıldız", want: "Yildiz"},
+		{typed: "Strauß", want: "Strauss"},
+		{typed: "STRAUẞ", want: "STRAUSS"},
+		{typed: "İstanbul", want: "Istanbul"},
+	}
+	for _, tt := range tests {
+		if got := newReading().of(tt.typed); got != tt.want {
+			t.Errorf("of(%+q) = %q, want %q", tt.typed, got, tt.want)
+		}
 	}
 }
 
