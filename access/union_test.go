@@ -668,11 +668,15 @@ func TestUnionCollection_authsOfOneForm(t *testing.T) {
 // TestUnionCollection_oneSetDefinedTwoWays pins that the union refuses collections that
 // declare one subject set in two different ways, naming both by position, the set, and
 // the first part their definitions differ in: a role file reads a set by its name
-// alone, so a name holds the same people in every site. Each collection that lists the
-// set is compared with the first that lists it; a definition with no part where the
-// other has one is said as no definition when it is empty and as nothing more when it
-// is not. Collections that say one set is two auths' are told that first, and the union
-// answers a set's definition from the first collection that declares it.
+// alone, so a name holds the same people in every site. For a set some collection
+// lists, each collection that lists it or answers a definition for it is compared with
+// the first of them, so a set a person wrote in one site is compared with the set of a
+// person's groups another site's generation declares under its name, which no
+// collection lists; a name no collection lists is not compared. A definition with no
+// part where the other has one is said as no definition when it is empty and as
+// nothing more when it is not. Collections that say one set is two auths' are told that
+// first, and the union answers a set's definition from the first collection that
+// declares it.
 func TestUnionCollection_oneSetDefinedTwoWays(t *testing.T) {
 	t.Parallel()
 
@@ -727,10 +731,42 @@ func TestUnionCollection_oneSetDefinedTwoWays(t *testing.T) {
 			wantErr: `UnionCollection: collections 1 and 2 (in argument order) both declare subject set "crews" and disagree on whose people it describes: auth "staff" vs auth "members"`,
 		},
 		{
-			name: "a set one collection names an auth for without listing it is not compared",
+			name: "a set one collection lists and another defines differently without listing it",
 			collections: []PermissionCollection{
 				listing(crews),
 				&stubCollection{unlistedSets: map[string]string{"crews": "staff"}, definitions: map[string][]string{"crews": ships}},
+			},
+			wantErr: refusal(1, 2, "value: CrewId", "value: ShipId"),
+		},
+		{
+			name: "the collection that defines the set without listing it comes first",
+			collections: []PermissionCollection{
+				&stubCollection{unlistedSets: map[string]string{"crews": "staff"}, definitions: map[string][]string{"crews": ships}},
+				listing(crews),
+			},
+			wantErr: refusal(1, 2, "value: ShipId", "value: CrewId"),
+		},
+		{
+			name: "a collection that defines the set the same way without listing it",
+			collections: []PermissionCollection{
+				listing(crews),
+				&stubCollection{unlistedSets: map[string]string{"crews": "staff"}, definitions: map[string][]string{"crews": slices.Clone(crews)}},
+			},
+			want: crews,
+		},
+		{
+			name: "a collection that names an auth for the set, does not list it and does not define it",
+			collections: []PermissionCollection{
+				listing(crews),
+				&stubCollection{unlistedSets: map[string]string{"crews": "staff"}},
+			},
+			want: crews,
+		},
+		{
+			name: "two collections that define the set differently and neither lists it",
+			collections: []PermissionCollection{
+				&stubCollection{definitions: map[string][]string{"crews": crews}},
+				&stubCollection{definitions: map[string][]string{"crews": ships}},
 			},
 			want: crews,
 		},

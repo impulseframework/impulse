@@ -434,6 +434,11 @@ func TestGeneratedCollection_SubjectSetDefinition(t *testing.T) {
 			Domain:      &DomainBindingData{Column: "SectorId"},
 			SubjectSets: []SubjectBindingData{{Name: "squadrons", UserColumn: "UserId", Column: "SquadronId", Type: AttributeTypeString}},
 		},
+		{
+			Name:        "CrewGroupMembers",
+			Scope:       accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{{Name: "crewGroups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true, Auth: "crew"}},
+		},
 	}})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -484,6 +489,19 @@ func TestGeneratedCollection_SubjectSetDefinition(t *testing.T) {
 			},
 		},
 		{
+			name: "a set the generator declares for an auth, which the listing leaves out",
+			set:  "crewGroups",
+			want: []string{
+				"declared on CrewGroupMembers (global)",
+				"person: UserId",
+				"value: GroupId",
+				"type: string",
+				"who: (none)",
+				"where: (none)",
+				"tenant: (none)",
+			},
+		},
+		{
 			name: "a name no set has",
 			set:  "ghosts",
 		},
@@ -496,5 +514,8 @@ func TestGeneratedCollection_SubjectSetDefinition(t *testing.T) {
 				t.Errorf("SubjectSetDefinition(%q) mismatch (-want +got):\n%s", tt.set, diff)
 			}
 		})
+	}
+	if _, listed := g.SubjectSets("")["crewGroups"]; listed {
+		t.Errorf("SubjectSets(\"\") lists crewGroups, a set the generator declares, want it left out")
 	}
 }

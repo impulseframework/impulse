@@ -180,21 +180,32 @@ func refuseSetOfTwoAuths(collections []PermissionCollection) error {
 // refuseSetDefinedTwoWays refuses collections that declare one subject set in two
 // different ways (SubjectSetDefinition). subject.<name> is one name to a role file, so
 // a name holds the same people in every site. For each set some collection lists
-// (SubjectSets), in name order, each collection that lists it is compared with the
-// first that does, in argument order; the first two that differ are named, with the
-// part at the first place their definitions differ. A set a collection names an auth
-// for without listing it is not compared.
+// (SubjectSets), in name order, every collection that lists it or answers a definition
+// for it is compared with the first of them, in argument order; the first two that
+// differ are named, with the part at the first place their definitions differ. A
+// collection that answers a definition without listing the set is compared too: the
+// set of a person's groups that generation declares for an auth is listed by no
+// collection, and a set a person wrote under its name in another site is a second
+// meaning of the name. A name no collection lists is not compared.
 func refuseSetDefinedTwoWays(collections []PermissionCollection) error {
-	listers := make(map[string][]int)
+	listings := make([]map[string][]string, len(collections))
+	listed := make(map[string]bool)
 	for i, c := range collections {
-		for name := range c.SubjectSets("") {
-			listers[name] = append(listers[name], i)
+		listings[i] = c.SubjectSets("")
+		for name := range listings[i] {
+			listed[name] = true
 		}
 	}
-	for _, name := range slices.Sorted(maps.Keys(listers)) {
-		first := listers[name][0]
+	for _, name := range slices.Sorted(maps.Keys(listed)) {
+		var declarers []int
+		for i, c := range collections {
+			if _, lists := listings[i][name]; lists || c.SubjectSetDefinition(name) != nil {
+				declarers = append(declarers, i)
+			}
+		}
+		first := declarers[0]
 		definition := collections[first].SubjectSetDefinition(name)
-		for _, i := range listers[name][1:] {
+		for _, i := range declarers[1:] {
 			other := collections[i].SubjectSetDefinition(name)
 			if slices.Equal(definition, other) {
 				continue
@@ -444,8 +455,9 @@ func (u *unionCollection) SubjectSetAuth(name string) string {
 
 // SubjectSetDefinition says how a subject set is declared, from the first collection
 // (in argument order) that answers for it: the subject namespace is application-wide,
-// and collections that list one set and declare it in two different ways are refused
-// where the union is built (UnionCollection), so the first answer is every listing
+// and collections that declare a set one of them lists in two different ways are
+// refused where the union is built (UnionCollection), whether each lists the set or
+// only answers for it, so for a listed set the first answer is every answering
 // collection's.
 func (u *unionCollection) SubjectSetDefinition(name string) []string {
 	for _, c := range u.collections {
