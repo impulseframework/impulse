@@ -25,6 +25,7 @@ package postgresstore
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -123,6 +124,8 @@ type Store struct {
 	// Statements are built once here — table names are identifiers, not bind
 	// parameters — so no query text is assembled at call sites.
 	sqlInsertRole          string
+	sqlLockRoleName        string
+	sqlReadMeetingRoles    string
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
 	sqlDeleteEndedMembers  string
@@ -159,6 +162,8 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		names: names,
 
 		sqlInsertRole:         fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "Description") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.roles),
+		sqlLockRoleName:       `select pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+		sqlReadMeetingRoles:   fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s where "Axis" = $1 and (("Kind" = $2 and "DomainId" = $3) or ($2 <> '%s' and "Kind" = '%s') or ($2 = '%s' and "Kind" = '%s'))`, names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
 		sqlDeleteRole:         fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4`, names.roles),
 		sqlRoleHasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s)`, names.userRoles, standing("")),
 		sqlDeleteEndedMembers: fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s`, names.userRoles, ended),
@@ -502,14 +507,76 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope
 
 // InsertRole creates the (scope, role) row with its description;
 // re-inserting an existing role is a no-op that leaves the stored description
-// as it is.
+// as it is. A name that differs only in case from a custom role held where the
+// two are read side by side is refused with a *policy.CaseTwinError. The read of
+// the roles the name is held to and the insert are one transaction, which first
+// takes an advisory lock keyed by the roles table and the folded name: two
+// inserts of names alike but for case, in whatever scope, take turns, and the
+// second reads the first's row.
 func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertRole, kind, axis, domain, role, description); err != nil {
-		return errors.Wrap(err, "pgxpool.Pool.Exec() insert role")
+	// Read committed whatever the database's default: each statement reads what
+	// has committed when it starts, so the read after the lock sees the row of
+	// the insert that held the lock before it.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return errors.Wrap(err, "pgxpool.Pool.BeginTx() insert role")
+	}
+	defer func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+	}()
+
+	if _, err := tx.Exec(ctx, s.sqlLockRoleName, s.names.rawRoles, policy.FoldRoleName(string(role))); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec() lock role name")
+	}
+	held, err := s.meetingRoles(ctx, tx, kind, axis, domain)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(held, policy.Role{Scope: scope, Name: role}) {
+		return nil
+	}
+	if twin, found := policy.CaseTwin(held, scope, role); found {
+		return errors.Wrapf(&policy.CaseTwinError{Held: twin}, "role %q in scope %s", role, scope)
+	}
+	if _, err := tx.Exec(ctx, s.sqlInsertRole, kind, axis, domain, role, description); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec() insert role")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit() insert role")
 	}
 
 	return nil
+}
+
+// meetingRoles reads, inside tx, the custom roles a new name held where the
+// columns say could meet (policy.RoleNamesMeet): those of the same place, every
+// domain's for one domain, and every domain's and each domain's for every
+// domain.
+func (s *Store) meetingRoles(ctx context.Context, tx pgx.Tx, kind, axis, domain string) ([]policy.Role, error) {
+	rows, err := tx.Query(ctx, s.sqlReadMeetingRoles, axis, kind, domain)
+	if err != nil {
+		return nil, errors.Wrap(err, "pgx.Tx.Query() roles")
+	}
+	roles, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Role, error) {
+		var rowKind, rowAxis, rowDomain string
+		var r policy.Role
+		if err := row.Scan(&rowKind, &rowAxis, &rowDomain, &r.Name); err != nil {
+			return policy.Role{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
+		}
+		scope, err := policy.ScopeFromColumns(rowKind, rowAxis, rowDomain)
+		if err != nil {
+			return policy.Role{}, errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		r.Scope = scope
+
+		return r, nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "pgx.CollectRows() roles")
+	}
+
+	return roles, nil
 }
 
 // ListRoles returns the scope's roles with their descriptions, sorted by

@@ -307,7 +307,7 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 			return err
 		}
 		twins := slices.DeleteFunc(domainHeld, func(r policy.Role) bool {
-			return r.Name == role || !sameRoleName(string(r.Name), string(role))
+			return r.Name == role || !policy.SameRoleName(string(r.Name), string(role))
 		})
 		if len(twins) > 0 {
 			twin := slices.MinFunc(twins, func(a, b policy.Role) int {
@@ -321,7 +321,14 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 		}
 	}
 
+	// The checks above answer the usual case; a twin added at the same moment is
+	// one only the store's insert sees, and it refuses the name the same way.
 	if err := u.store.addRole(ctx, scope, role, description); err != nil {
+		var twin *policy.CaseTwinError
+		if errors.As(err, &twin) {
+			return httpio.NewConflictMessagef(roleCaseTwin, string(role), string(twin.Held.Name), twin.Held.Scope)
+		}
+
 		return err
 	}
 
@@ -901,12 +908,11 @@ func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role access
 // a custom role held in scope, or — for one domain — a custom role held in
 // every domain. The exact spelling wins when it exists; otherwise the one role
 // that matches case-insensitively; two such roles with no exact match is an
-// error, never a guess (AddRole and the role file refuse the pair. A store can
-// hold one all the same: where a release brings a default role whose name
-// differs only in case from a custom role already held, where two such names
-// were added at the same moment, or where the store was written before this
-// rule. The answer is then this error, which names the roles, until one of them
-// is removed). Case is the case of ASCII letters alone: a letter from outside
+// error, never a guess (AddRole, the store's insert and the role file refuse the
+// pair. A store can hold one all the same: where a release brings a default role
+// whose name differs only in case from a custom role already held, or where the
+// store was written before this rule. The answer is then this error, which names
+// the roles, until one of them is removed). Case is the case of ASCII letters alone: a letter from outside
 // ASCII matches only itself, so a name written with a look-alike letter (the
 // Kelvin sign for k, the long s for s) is no role's.
 func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
@@ -922,7 +928,7 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 		if role.Name == accesstypes.Role(name) {
 			return role.Name, true, nil
 		}
-		if sameRoleName(string(role.Name), name) {
+		if policy.SameRoleName(string(role.Name), name) {
 			matches = append(matches, role.Name)
 		}
 	}

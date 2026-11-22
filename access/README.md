@@ -753,7 +753,8 @@ custom role whose name matches an existing role of the scope without regard to
 case, so a resolution
 is ambiguous only where a pair came about another way: a release that brings a
 default role whose name differs only in case from a custom role a tenant already
-holds, or two such names added at the same moment. `ResolveRole` then answers an
+holds. Two such names added at the same moment do not both land: the store
+refuses the second in the insert's own transaction. `ResolveRole` then answers an
 error that names the roles, until one of them is removed. A role added in every
 domain is held to the custom roles of each single domain as well, since a name
 asked in one domain is read against both. `AddRole` also holds a custom role's

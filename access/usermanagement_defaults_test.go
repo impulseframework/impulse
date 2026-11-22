@@ -14,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 )
@@ -172,7 +174,7 @@ func Test_userManager_defaults_ResolveRole_ambiguous(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	m, store := defaultsManager(t)
-	store.roles[fakeRoleKey{scope: tenant1Policy, role: "zed"}] = "A case twin written before the rule."
+	store.writeRoleUnchecked(tenant1Policy, "zed", "A case twin written before the rule.")
 
 	if got, found, err := m.ResolveRole(ctx, tenant1Policy, "Zed"); err != nil || !found || got != "Zed" {
 		t.Errorf("ResolveRole(Zed) = (%q, %v, %v), want the exact spelling", got, found, err)
@@ -313,6 +315,101 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 			}
 		})
 	}
+}
+
+// caseTwinInsertStore is the fake store whose InsertRole refuses every name as
+// a case twin of held, as a store refuses the second of two names added at the
+// same moment once AddRole's own checks have found no twin.
+type caseTwinInsertStore struct {
+	*fakeStore
+	held policy.Role
+}
+
+func (s *caseTwinInsertStore) InsertRole(context.Context, accesstypes.PolicyScope, accesstypes.Role, string) error {
+	return errors.Wrap(&policy.CaseTwinError{Held: s.held}, "insert role")
+}
+
+// Test_userManager_defaults_AddRole_storeRefusesCaseTwin pins that a twin only
+// the store's insert sees, one added at the same moment, is refused in the
+// words AddRole says a twin it finds itself in: the name asked, the role held
+// and where it is held.
+func Test_userManager_defaults_AddRole_storeRefusesCaseTwin(t *testing.T) {
+	t.Parallel()
+	m, store := defaultsManager(t)
+	held := policy.Role{Scope: everyDomainPolicy, Name: "NEWROLE"}
+	m.store = newStoreManager(&caseTwinInsertStore{fakeStore: store, held: held})
+
+	err := m.AddRole(t.Context(), tenant2Policy, "Newrole", aDescription)
+	if !httpio.HasConflict(err) {
+		t.Fatalf("AddRole() error = %v, want a conflict", err)
+	}
+	if got, want := httpio.Message(err), fmt.Sprintf(roleCaseTwin, "Newrole", "NEWROLE", everyDomainPolicy); got != want {
+		t.Errorf("AddRole() message = %q, want %q", got, want)
+	}
+}
+
+// Test_fakeStore_InsertRole_caseTwins holds the fake to the stores' contract
+// for a name that differs only in case from a custom role held: refused where
+// the two are read side by side, with nothing written; written where they are
+// not; and a re-insert of a row that is there is the no-op whatever else the
+// store holds.
+func Test_fakeStore_InsertRole_caseTwins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		held     policy.Role
+		scope    accesstypes.PolicyScope
+		role     accesstypes.Role
+		wantTwin bool
+	}{
+		{name: "a twin in the scope itself is refused", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: tenant1Policy, role: "ZED", wantTwin: true},
+		{name: "a role held in every domain refuses its twin in one domain", held: policy.Role{Scope: everyDomainPolicy, Name: "Zed"}, scope: tenant1Policy, role: "ZED", wantTwin: true},
+		{name: "a role held in one domain refuses its twin in every domain", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: everyDomainPolicy, role: "ZED", wantTwin: true},
+		{name: "a twin in the global partition of a role held in a domain lands", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: globalPolicy, role: "ZED"},
+		{name: "a twin in another domain lands", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: tenant2Policy, role: "ZED"},
+		{name: "the same exact name in a place that meets lands", held: policy.Role{Scope: everyDomainPolicy, Name: "Zed"}, scope: tenant1Policy, role: "Zed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			store := newFakeStore()
+			if err := store.InsertRole(ctx, tt.held.Scope, tt.held.Name, aDescription); err != nil {
+				t.Fatalf("InsertRole(%s, %q) error = %v", tt.held.Scope, tt.held.Name, err)
+			}
+
+			err := store.InsertRole(ctx, tt.scope, tt.role, aDescription)
+			_, landed := store.roles[fakeRoleKey{scope: tt.scope, role: tt.role}]
+			if !tt.wantTwin {
+				if err != nil || !landed {
+					t.Errorf("InsertRole(%s, %q) = %v, landed %v; want nil and the row", tt.scope, tt.role, err, landed)
+				}
+
+				return
+			}
+			var twin *policy.CaseTwinError
+			if !errors.As(err, &twin) || twin.Held != tt.held {
+				t.Errorf("InsertRole(%s, %q) error = %v, want a *policy.CaseTwinError naming %v", tt.scope, tt.role, err, tt.held)
+			}
+			if landed {
+				t.Errorf("InsertRole(%s, %q) wrote the refused row", tt.scope, tt.role)
+			}
+		})
+	}
+
+	t.Run("a re-insert of a role that has a twin from before is the no-op", func(t *testing.T) {
+		t.Parallel()
+		store := newFakeStore()
+		store.writeRoleUnchecked(tenant1Policy, "Zed", aDescription)
+		store.writeRoleUnchecked(tenant1Policy, "ZED", aDescription)
+		if err := store.InsertRole(t.Context(), tenant1Policy, "Zed", "Another description."); err != nil {
+			t.Errorf("InsertRole() re-insert error = %v, want the no-op", err)
+		}
+		if got := store.roles[fakeRoleKey{scope: tenant1Policy, role: "Zed"}]; got != aDescription {
+			t.Errorf("InsertRole() re-insert changed the description to %q", got)
+		}
+	})
 }
 
 // Test_userManager_defaults_DeleteRole pins what DeleteRole refuses — a

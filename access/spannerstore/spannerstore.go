@@ -137,6 +137,7 @@ type Store struct {
 	sqlDeleteEndedMembers  string
 	sqlRoleExists          string
 	sqlListRoles           string
+	sqlReadMeetingRoles    string
 	sqlListUserRoles       string
 	sqlListUserMemberships string
 	sqlListUserAssignments string
@@ -167,6 +168,7 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlDeleteEndedMembers:  fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", names.userRoles, ended),
 		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
+		sqlReadMeetingRoles:    fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s WHERE Axis = @axis AND ((Kind = @kind AND DomainId = @domain) OR (@kind != '%s' AND Kind = '%s') OR (@kind = '%s' AND Kind = '%s'))", names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
 		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND UserId = @user AND %s ORDER BY Role", names.userRoles, counting("")),
 		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, counting("")),
 		sqlListUserAssignments: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt, Reason FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, standing("")),
@@ -532,14 +534,66 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope
 
 // InsertRole creates the (scope, role) row with its description;
 // re-inserting an existing role is a no-op that leaves the stored description
-// as it is.
+// as it is. A name that differs only in case from a custom role held where the
+// two are read side by side is refused with a *policy.CaseTwinError. The read of
+// the roles the name is held to and the insert are one read-write transaction,
+// which Spanner serializes with any other that wrote a row the read reads, so of
+// two inserts of names alike but for case one commits first and the other, run
+// again, reads its row.
 func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlReadMeetingRoles, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
 	m := spanner.Insert(s.names.roles,
 		[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
 		[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
+	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		held, err := meetingRoles(ctx, txn, stmt)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(held, policy.Role{Scope: scope, Name: role}) {
+			return nil
+		}
+		if twin, found := policy.CaseTwin(held, scope, role); found {
+			return errors.Wrapf(&policy.CaseTwinError{Held: twin}, "role %q in scope %s", role, scope)
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
 
-	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert role")
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() insert role")
+	}
+
+	return nil
+}
+
+// meetingRoles reads, through txn, the custom roles a new name held where stmt's
+// columns say could meet (policy.RoleNamesMeet): those of the same place, every
+// domain's for one domain, and every domain's and each domain's for every
+// domain.
+func meetingRoles(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) ([]policy.Role, error) {
+	var roles []policy.Role
+	err := txn.Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var kind, axis, domain, role string
+		if err := row.Columns(&kind, &axis, &domain, &role); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		scope, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		roles = append(roles, policy.Role{Scope: scope, Name: accesstypes.Role(role)})
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.Query() roles")
+	}
+
+	return roles, nil
 }
 
 // ListRoles returns the scope's roles with their descriptions, sorted by

@@ -9,6 +9,7 @@ package policy
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"slices"
 	"strings"
@@ -160,6 +161,129 @@ var ErrStillAssigned = errors.New("assignments that have not ended stand in the 
 // wraps ErrStillAssigned for a person's own membership, so the access package
 // says which of the two stands in the way.
 var ErrHeldByGroup = errors.New("a group holds the role, now or for a period that has not begun")
+
+// SameRoleName reports whether a and b are the same role name but for the case
+// of their ASCII letters: an ASCII capital letter equals its lower-case letter,
+// and every other byte equals only itself. It is the rule the library compares
+// two addresses by, never Unicode's case folding, which takes some letters from
+// outside ASCII for ASCII ones (the Kelvin sign for k, the long s for s), so a
+// name written with one would find the role its plain name names.
+func SameRoleName(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if lowerRoleNameByte(a[i]) != lowerRoleNameByte(b[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// FoldRoleName is name with its ASCII capital letters in lower case and every
+// other byte as it was written: two names fold alike exactly when SameRoleName
+// reports them the same.
+func FoldRoleName(name string) string {
+	b := []byte(name)
+	for i, c := range b {
+		b[i] = lowerRoleNameByte(c)
+	}
+
+	return string(b)
+}
+
+// lowerRoleNameByte is c in lower case when it is an ASCII capital letter, and
+// c otherwise.
+func lowerRoleNameByte(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+
+	return c
+}
+
+// RoleNamesMeet reports whether a new role's name in scope is held to a role
+// held in held: whether the two are read side by side, so that names which
+// differ only in case could not be told apart. Two places on one axis meet when
+// they are the global partition both, the same domain, or every domain and one
+// domain or every domain. The global partition and a domain never meet, and
+// neither do two different domains.
+func RoleNamesMeet(scope, held accesstypes.PolicyScope) bool {
+	if scope.Axis() != held.Axis() {
+		return false
+	}
+	switch {
+	case scope.IsGlobal():
+		return held.IsGlobal()
+	case scope.IsEveryDomain():
+		return !held.IsGlobal()
+	case held.IsEveryDomain():
+		return true
+	default:
+		domain, _ := scope.Domain()
+		heldDomain, oneDomain := held.Domain()
+
+		return oneDomain && heldDomain == domain
+	}
+}
+
+// CaseTwin returns the role among roles that a new role's name in scope
+// differs from only in case: one held where the name meets it (RoleNamesMeet)
+// whose name is not name but is the same by SameRoleName. The same exact name
+// held in another place is no twin. With several it answers the first of one
+// held in scope itself, then one held in every domain, then by domain in byte
+// order, then by name in byte order; with none it answers false. Rows that do
+// not meet scope are ignored, so a caller may hand it more rows than the places.
+func CaseTwin(roles []Role, scope accesstypes.PolicyScope, name accesstypes.Role) (Role, bool) {
+	var twin Role
+	found := false
+	for _, r := range roles {
+		if r.Name == name || !RoleNamesMeet(scope, r.Scope) || !SameRoleName(string(r.Name), string(name)) {
+			continue
+		}
+		if !found || compareTwins(scope, r, twin) < 0 {
+			twin = r
+			found = true
+		}
+	}
+
+	return twin, found
+}
+
+// compareTwins orders two twins of a name in scope the way CaseTwin answers
+// the first: held in scope itself, then held in every domain, then by domain,
+// then by name.
+func compareTwins(scope accesstypes.PolicyScope, a, b Role) int {
+	place := func(r Role) int {
+		switch {
+		case r.Scope == scope:
+			return 0
+		case r.Scope.IsEveryDomain():
+			return 1
+		default:
+			return 2
+		}
+	}
+	aDomain, _ := a.Scope.Domain()
+	bDomain, _ := b.Scope.Domain()
+
+	return cmpChain(place(a)-place(b), strings.Compare(string(aDomain), string(bDomain)), strings.Compare(string(a.Name), string(b.Name)))
+}
+
+// CaseTwinError is a store's refusal of a role whose name differs only in case
+// from a custom role held where the two are read side by side (CaseTwin). Held
+// is that role. A store may wrap it, so the access package finds it with As and
+// says the refusal to the caller in words.
+type CaseTwinError struct {
+	Held Role
+}
+
+// Error says which role the refused name differs from only in case, and where
+// it is held.
+func (e *CaseTwinError) Error() string {
+	return fmt.Sprintf("the role %q held in scope %s differs from the name only in case", e.Held.Name, e.Held.Scope)
+}
 
 // Records is a reader's complete, store-agnostic output.
 type Records struct {

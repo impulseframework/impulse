@@ -63,6 +63,10 @@ import (
 //     not ended still name the role (checked in the same transaction as the
 //     delete), takes the ended ones with the role, and reports whether a row
 //     was actually deleted.
+//   - InsertRole reads the roles a new name is held to and inserts in one
+//     transaction that no other insert of a name alike but for case runs
+//     beside: of two such names added at the same moment, one is held and the
+//     other is refused.
 //   - InsertGrant requires the (scope, role) row to exist (DB-enforced
 //     parent interleave or foreign key): a grant is a custom role's.
 //   - ChangeGrants applies a role's removals and additions in one transaction,
@@ -103,8 +107,12 @@ type Store interface {
 	// Roles. A role row carries the description its creator gave it, as
 	// opaque text: InsertRole writes it with the row and, for a (scope, role)
 	// that exists, is the documented no-op, so the stored description stays
-	// as it is. ListRoles returns each role with its description, sorted by
-	// name.
+	// as it is. InsertRole refuses a name that differs only in the case of
+	// its ASCII letters from a custom role held where the two names would be
+	// read side by side (policy.CaseTwin): in the scope itself, for one domain
+	// in every domain as well, and for every domain in each single domain as
+	// well. The refusal is a *policy.CaseTwinError naming the role held.
+	// ListRoles returns each role with its description, sorted by name.
 	InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
 	ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error)
 	DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)

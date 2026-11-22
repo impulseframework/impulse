@@ -47,16 +47,16 @@ func TestStore_conformance(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	store, _ := prepareStore(ctx, t)
-	storetest.Run(t, store)
+	store, database := prepareStore(ctx, t)
+	storetest.Run(t, store, roleWriter(database, store))
 }
 
 func TestStore_conformance_namedStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	store, _ := prepareStore(ctx, t, WithStore("AdminPortal"))
-	storetest.Run(t, store)
+	store, database := prepareStore(ctx, t, WithStore("AdminPortal"))
+	storetest.Run(t, store, roleWriter(database, store))
 }
 
 // TestStore_isolation proves separate stores in one database cannot see each
