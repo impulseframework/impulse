@@ -202,9 +202,9 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 
 			rows := newTransactionRows()
 			for _, w := range tt.writes {
-				rows.note("Docks", w.patchType, w.columns)
+				rows.note("Docks", w.patchType, rowMatchKey(KeySet{}.Add("ID", w.columns["Id"])), w.columns)
 			}
-			rows.note("Berths", CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "another table's"})
+			rows.note("Berths", CreatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1", "YardId": "another table's"})
 
 			got, known, err := rows.buffered(read)
 			if err != nil {
@@ -212,6 +212,99 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 			}
 			if known != tt.wantKnown || got != tt.want {
 				t.Errorf("buffered() = %+v, known %t, want %+v, known %t", got, known, tt.want, tt.wantKnown)
+			}
+		})
+	}
+}
+
+// TestChangeRecordTenant_ownColumn pins how a row's own column is answered from what the
+// transaction's patches buffered for that row: the newest write of the row that says
+// anything of the column answers, a write of another row or table says nothing, and a
+// row is the same row whichever order its key was given in.
+func TestChangeRecordTenant_ownColumn(t *testing.T) {
+	t.Parallel()
+
+	berth := func(id string) string {
+		return rowMatchKey(KeySet{}.Add("ID", id))
+	}
+	type write struct {
+		table     accesstypes.Resource
+		patchType PatchType
+		row       string
+		columns   map[string]any
+	}
+	tests := []struct {
+		name      string
+		writes    []write
+		row       string
+		want      any
+		wantKnown bool
+	}{
+		{
+			name:      "a write of the row that set the column answers its value",
+			writes:    []write{{"Berths", UpdatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "DockId": "dock-2"}}},
+			row:       berth("berth-1"),
+			want:      "dock-2",
+			wantKnown: true,
+		},
+		{
+			name:   "a write of another row says nothing",
+			writes: []write{{"Berths", CreatePatchType, berth("berth-2"), map[string]any{"Id": "berth-2", "DockId": "dock-2"}}},
+			row:    berth("berth-1"),
+		},
+		{
+			name:   "a write of another table says nothing",
+			writes: []write{{"Docks", CreatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "DockId": "dock-2"}}},
+			row:    berth("berth-1"),
+		},
+		{
+			name: "a compound key keyed in another order is the same row",
+			writes: []write{{"Berths", UpdatePatchType, rowMatchKey(KeySet{}.Add("YardID", "yard-1").Add("Number", 3)),
+				map[string]any{"YardId": "yard-1", "Number": 3, "DockId": "dock-2"}}},
+			row:       rowMatchKey(KeySet{}.Add("Number", 3).Add("YardID", "yard-1")),
+			want:      "dock-2",
+			wantKnown: true,
+		},
+		{
+			name: "an update that did not set the column is passed over for an older create",
+			writes: []write{
+				{"Berths", CreatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "DockId": "dock-1"}},
+				{"Berths", UpdatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "Name": "renamed"}},
+			},
+			row:       berth("berth-1"),
+			want:      "dock-1",
+			wantKnown: true,
+		},
+		{
+			name:      "a create that left the column out answers empty",
+			writes:    []write{{"Berths", CreatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "Name": "first"}}},
+			row:       berth("berth-1"),
+			want:      nil,
+			wantKnown: true,
+		},
+		{
+			name:   "an update alone that did not set the column says nothing",
+			writes: []write{{"Berths", CreateOrUpdatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "Name": "renamed"}}},
+			row:    berth("berth-1"),
+		},
+		{
+			name:   "a delete is not noted",
+			writes: []write{{"Berths", DeletePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "DockId": "dock-9"}}},
+			row:    berth("berth-1"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows := newTransactionRows()
+			for _, w := range tt.writes {
+				rows.note(w.table, w.patchType, w.row, w.columns)
+			}
+
+			got, known := rows.ownColumn("Berths", tt.row, "DockId")
+			if known != tt.wantKnown || got != tt.want {
+				t.Errorf("ownColumn() = %v, known %t, want %v, known %t", got, known, tt.want, tt.wantKnown)
 			}
 		})
 	}
@@ -329,7 +422,7 @@ func TestChangeRecordTenant_pointReader(t *testing.T) {
 			name: "what the transaction buffered answers before what it read",
 			txn: func() ReadWriteTransaction {
 				rows := newTransactionRows()
-				rows.note("Docks", UpdatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-buffered"})
+				rows.note("Docks", UpdatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1", "YardId": "yard-buffered"})
 				rows.remember(read, pointAnswer{text: "yard-read", found: true})
 
 				return &rowsRecordingTxn{rows: rows}

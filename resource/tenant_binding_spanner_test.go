@@ -226,6 +226,57 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 		}
 	})
 
+	t.Run("a dock moved to another yard, then renamed: both records carry the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db, spanner.InsertMap("Docks", map[string]any{"Id": "dock-11", "YardId": north, "Name": "Eleventh"}))
+		applyTogether(t, client,
+			changePatch[changeDock](UpdatePatchType, "dock-11", map[accesstypes.Field]any{"YardID": south}),
+			changePatch[changeDock](UpdatePatchType, "dock-11", map[accesstypes.Field]any{"Name": "Renamed"}),
+		)
+		if diff := cmp.Diff([]string{south, south}, changeTenants(t, db, "Docks", "dock-11")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a berth moved to another yard's dock, then renamed: both records carry the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db, spanner.InsertMap("Berths", map[string]any{"Id": "berth-12", "DockId": dockNorth, "Name": "Twelfth"}))
+		applyTogether(t, client,
+			changePatch[changeBerth](UpdatePatchType, "berth-12", map[accesstypes.Field]any{"DockID": &dockSouth}),
+			changePatch[changeBerth](UpdatePatchType, "berth-12", map[accesstypes.Field]any{"Name": "Renamed"}),
+		)
+		if diff := cmp.Diff([]string{south, south}, changeTenants(t, db, "Berths", "berth-12")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a berth created, then written by insert-or-update with its name alone: both carry the dock's yard", func(t *testing.T) {
+		t.Parallel()
+
+		applyTogether(t, client,
+			changePatch[changeBerth](CreatePatchType, "berth-13", map[accesstypes.Field]any{"DockID": &dockSouth, "Name": "Thirteenth"}),
+			changePatch[changeBerth](CreateOrUpdatePatchType, "berth-13", map[accesstypes.Field]any{"Name": "Again"}),
+		)
+		if diff := cmp.Diff([]string{south, south}, changeTenants(t, db, "Berths", "berth-13")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a berth moved to another yard's dock, then deleted: both records carry the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db, spanner.InsertMap("Berths", map[string]any{"Id": "berth-14", "DockId": dockNorth, "Name": "Fourteenth"}))
+		applyTogether(t, client,
+			changePatch[changeBerth](UpdatePatchType, "berth-14", map[accesstypes.Field]any{"DockID": &dockSouth}),
+			changePatch[changeBerth](DeletePatchType, "berth-14", nil),
+		)
+		if diff := cmp.Diff([]string{south, south}, changeTenants(t, db, "Berths", "berth-14")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("a berth with no dock: empty, and the write succeeds", func(t *testing.T) {
 		t.Parallel()
 

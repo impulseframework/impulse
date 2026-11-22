@@ -22,7 +22,11 @@ import (
 // see the transaction's buffered writes, so each step looks first at what the
 // transaction's own patches buffered, and the transaction remembers each point read.
 // The change history never stops a write: a row with no way to a tenant carries the
-// empty string.
+// empty string. The tenant is the row's at the moment the record is buffered, by what
+// the transaction has written until then: a later write of the same transaction (the
+// row's parent moved to another tenant, the parent's key given to a new row) does not
+// change a record already buffered, and a row the transaction changes by a statement of
+// its own, past the patches, is not seen.
 
 // TenantBinding is a tenant resource's way to its tenant: Field is the struct field the
 // way leaves through, which holds the tenant's key when Path is empty, or the foreign
@@ -57,10 +61,11 @@ type pointAnswer struct {
 	found bool
 }
 
-// bufferedColumns is one write a patch of the transaction buffered: its patch type and
-// the columns it was given.
+// bufferedColumns is one write a patch of the transaction buffered: its patch type, the
+// row it wrote (rowMatchKey) and the columns it was given.
 type bufferedColumns struct {
 	patchType PatchType
+	row       string
 	columns   map[string]any
 }
 
@@ -83,12 +88,51 @@ func newTransactionRows() *transactionRows {
 	}
 }
 
-// note records the columns a patch buffered. A delete is not noted.
-func (t *transactionRows) note(table accesstypes.Resource, patchType PatchType, columns map[string]any) {
+// note records the columns a patch buffered for one row, which row is its key as
+// rowMatchKey spells it. A delete is not noted.
+func (t *transactionRows) note(table accesstypes.Resource, patchType PatchType, row string, columns map[string]any) {
 	if patchType == DeletePatchType {
 		return
 	}
-	t.writes[string(table)] = append(t.writes[string(table)], bufferedColumns{patchType: patchType, columns: maps.Clone(columns)})
+	t.writes[string(table)] = append(t.writes[string(table)], bufferedColumns{patchType: patchType, row: row, columns: maps.Clone(columns)})
+}
+
+// ownColumn answers a column of one row, which row is its key as rowMatchKey spells it,
+// from what the transaction's patches buffered for that row, newest first: a write that
+// set the column answers its value, a create that did not answers nil, and an update or
+// an insert-or-update that did not is passed over. known is false when no buffered write
+// of the row says.
+func (t *transactionRows) ownColumn(table, row, column string) (value any, known bool) {
+	writes := t.writes[table]
+	for i := len(writes) - 1; i >= 0; i-- {
+		if writes[i].row != row {
+			continue
+		}
+		if value, ok := writes[i].columns[column]; ok {
+			return value, true
+		}
+		if writes[i].patchType == CreatePatchType {
+			return nil, true
+		}
+	}
+
+	return nil, false
+}
+
+// bufferedOwnColumn answers the row's value of one field from what the transaction's
+// patches buffered for the row (ownColumn). A transaction that keeps no record of its
+// buffered columns (the Mock's, PostgreSQL) is not asked, and known is false.
+func (p *PatchSet[Resource]) bufferedOwnColumn(txn ReadWriteTransaction, field accesstypes.Field) (value any, known bool) {
+	recorder, ok := txn.(rowsRecorder)
+	if !ok {
+		return nil, false
+	}
+	column, ok := p.querySet.rMeta.dbFieldMap(txn.DBType())[field]
+	if !ok {
+		return nil, false
+	}
+
+	return recorder.transactionRows().ownColumn(string(p.Resource()), rowMatchKey(p.PrimaryKey()), column.ColumnName)
 }
 
 // buffered answers a point read from what the transaction's patches buffered, newest
@@ -218,7 +262,8 @@ func spannerPointText(ctx context.Context, querier spxapi.Querier, stmt *Stateme
 const changeRecordTenantNotImplemented = "finding the tenant of a changed row"
 
 // changeRecordTenant answers the tenant a change record of the patch's row carries: the
-// key of the tenant the row belongs to after the write, the empty string for a resource
+// key of the tenant the row belongs to once this write is made, by what the transaction
+// has buffered until then, the empty string for a resource
 // that declares no way to a tenant or a row whose way is empty. deleted is a delete's
 // change set, which holds the row's values as they were; any other patch passes nil.
 func (p *PatchSet[Resource]) changeRecordTenant(ctx context.Context, txn ReadWriteTransaction, deleted map[accesstypes.Field]DiffElem) (string, error) {
@@ -264,35 +309,25 @@ func (p *PatchSet[Resource]) changeRecordTenant(ctx context.Context, txn ReadWri
 }
 
 // tenantAnchor reads the row's value of the field its way to its tenant leaves through,
-// as text: the patch's own value, the patch's key, a deleted row's value as the delete
-// read it, nothing for a create that does not set it, and otherwise the stored row's,
-// one point read on the primary key. A row that is not stored, and a transaction with
-// no tables to ask (the Mock's), answer the empty string.
+// as text: the patch's own value, the patch's key, nothing for a create that does not
+// set it, what the transaction's patches buffered for the row before, a deleted row's
+// value as the delete read it, and otherwise the stored row's, one point read on the
+// primary key. A row that is not stored, and a transaction with no tables to ask (the
+// Mock's), answer the empty string.
 func (p *PatchSet[Resource]) tenantAnchor(ctx context.Context, txn ReadWriteTransaction, field accesstypes.Field, deleted map[accesstypes.Field]DiffElem) (string, error) {
 	switch {
 	case p.IsSet(field):
-		text, err := columnText(p.Get(field))
-		if err != nil {
-			return "", errors.Wrapf(err, "field %s", field)
-		}
-
-		return text, nil
+		return fieldText(field, p.Get(field))
 	case p.Key(field) != nil:
-		text, err := columnText(p.Key(field))
-		if err != nil {
-			return "", errors.Wrapf(err, "field %s", field)
-		}
-
-		return text, nil
-	case p.patchType == DeletePatchType:
-		text, err := columnText(deleted[field].Old)
-		if err != nil {
-			return "", errors.Wrapf(err, "field %s", field)
-		}
-
-		return text, nil
+		return fieldText(field, p.Key(field))
 	case p.patchType == CreatePatchType:
 		return "", nil
+	}
+	if value, known := p.bufferedOwnColumn(txn, field); known {
+		return fieldText(field, value)
+	}
+	if p.patchType == DeletePatchType {
+		return fieldText(field, deleted[field].Old)
 	}
 
 	if txn.DBType() != SpannerDBType {
@@ -301,12 +336,22 @@ func (p *PatchSet[Resource]) tenantAnchor(ctx context.Context, txn ReadWriteTran
 	if txn.SpannerReadOnlyTransaction() == nil {
 		return "", nil
 	}
-	text, found, err := p.rowText(ctx, txn, field)
+	text, found, err := p.storedRowText(ctx, txn, field)
 	if err != nil {
 		return "", err
 	}
 	if !found {
 		return "", nil
+	}
+
+	return text, nil
+}
+
+// fieldText spells a field's value as text (columnText), naming the field in the error.
+func fieldText(field accesstypes.Field, value any) (string, error) {
+	text, err := columnText(value)
+	if err != nil {
+		return "", errors.Wrapf(err, "field %s", field)
 	}
 
 	return text, nil

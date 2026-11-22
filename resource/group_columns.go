@@ -189,30 +189,36 @@ func (p *PatchSet[Resource]) checkGroupColumns(ctx context.Context, txn ReadWrit
 }
 
 // rowText reads the row's value of one field as text: the patch's own where the patch
-// carries it or the field is one of its keys, and the stored row's otherwise, one point
-// read on the primary key. A create that does not carry the field reads as empty. found
-// is false when the patch carries none and no row is stored.
+// carries it or the field is one of its keys, what the transaction's patches buffered
+// for the row before where they say, and the stored row's otherwise, one point read on
+// the primary key. A create that does not carry the field reads as empty. found is
+// false when the patch carries none and no row is stored.
 func (p *PatchSet[Resource]) rowText(ctx context.Context, txn ReadWriteTransaction, field accesstypes.Field) (text string, found bool, err error) {
 	if p.IsSet(field) {
-		text, err := columnText(p.Get(field))
-		if err != nil {
-			return "", false, errors.Wrapf(err, "field %s", field)
-		}
+		text, err := fieldText(field, p.Get(field))
 
-		return text, true, nil
+		return text, err == nil, err
 	}
 	if key := p.Key(field); key != nil {
-		text, err := columnText(key)
-		if err != nil {
-			return "", false, errors.Wrapf(err, "field %s", field)
-		}
+		text, err := fieldText(field, key)
 
-		return text, true, nil
+		return text, err == nil, err
 	}
 	if p.patchType == CreatePatchType {
 		return "", true, nil
 	}
+	if value, known := p.bufferedOwnColumn(txn, field); known {
+		text, err := fieldText(field, value)
 
+		return text, err == nil, err
+	}
+
+	return p.storedRowText(ctx, txn, field)
+}
+
+// storedRowText reads the stored row's value of one field as text, one point read on
+// the primary key. found is false when no row is stored.
+func (p *PatchSet[Resource]) storedRowText(ctx context.Context, txn ReadWriteTransaction, field accesstypes.Field) (text string, found bool, err error) {
 	qSet := NewQuerySet(p.querySet.rMeta)
 	for key, value := range p.querySet.KeySet().KeyMap() {
 		qSet.SetKey(key, value)
@@ -234,12 +240,9 @@ func (p *PatchSet[Resource]) rowText(ctx context.Context, txn ReadWriteTransacti
 	if !value.IsValid() {
 		return "", false, errors.Newf("%s is not a field of %s", field, p.Resource())
 	}
-	text, err = columnText(value.Interface())
-	if err != nil {
-		return "", false, errors.Wrapf(err, "field %s", field)
-	}
+	text, err = fieldText(field, value.Interface())
 
-	return text, true, nil
+	return text, err == nil, err
 }
 
 // columnText reads a key column's value as the text the database holds: a string, a

@@ -297,7 +297,8 @@ func TestPatchSet_groupColumns_parent(t *testing.T) {
 }
 
 // TestPatchSet_groupColumns_sameTransaction pins the rule for a row created in one
-// transaction with its parent: the parent's yard is what the transaction buffered.
+// transaction with its parent, and for a row the transaction moved to another yard
+// before it names a group: the yard is what the transaction buffered.
 func TestPatchSet_groupColumns_sameTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -330,6 +331,42 @@ func TestPatchSet_groupColumns_sameTransaction(t *testing.T) {
 			stored := readGroupRow(t, db, "GroupSeals", "ShareId", seal)
 			if tt.refused != (stored == nil) {
 				t.Errorf("the stored row = %+v, refused = %t", stored, tt.refused)
+			}
+		})
+	}
+
+	// A share moved to the other yard, then given a group by an update that does not set
+	// the yard: the yard the transaction moved it to is the one the group is held to.
+	moved := []groupCase{
+		{name: "a share moved to another yard, then given its first yard's group, is refused", group: groupOfNorth, refused: true},
+		{name: "a share moved to another yard, then given its new yard's group, is written", group: groupOfSouth},
+	}
+	for i, tt := range moved {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			share := fmt.Sprintf("moved-share-%d", i)
+			if _, err := db.Apply(ctx, []*spanner.Mutation{
+				spanner.InsertMap("GroupShares", map[string]any{"Id": share, "Yard": groupYardNorth, "Note": "stored"}),
+			}); err != nil {
+				t.Fatalf("spanner.Client.Apply() error = %v", err)
+			}
+			group := tt.group
+			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				if err := groupSharePatch(UpdatePatchType, share, groupYardSouth, nil).Buffer(ctx, txn); err != nil {
+					return err
+				}
+
+				return groupSharePatch(UpdatePatchType, share, "", &group).Buffer(ctx, txn)
+			})
+			tt.judge(t, err)
+			want := &storedGroupRow{Anchor: groupYardSouth, Group: tt.group}
+			if tt.refused {
+				// Nothing of the transaction is written: the share stays where it was.
+				want = &storedGroupRow{Anchor: groupYardNorth}
+			}
+			if stored := readGroupRow(t, db, "GroupShares", "Yard", share); stored == nil || *stored != *want {
+				t.Errorf("the stored share = %+v, want %+v", stored, want)
 			}
 		})
 	}
