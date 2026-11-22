@@ -354,6 +354,24 @@ func (d *memDriver) VerifyUserEmailIfHeldIn(_ context.Context, tx *memTx, userID
 	return true, nil
 }
 
+// VerifyUserEmailIn writes email on the user, confirmed, replacing what the user held;
+// where the usernames are the addresses it is written as the username too. A missing
+// user is NotFound.
+func (d *memDriver) VerifyUserEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) error {
+	user, ok := d.store.users[userID]
+	if !ok {
+		return httpio.NewNotFoundMessagef("user %s not found", userID)
+	}
+	tx.buffer(func() {
+		user.email, user.confirmed = email, true
+		if d.usernamesAreAddresses {
+			user.username = email
+		}
+	})
+
+	return nil
+}
+
 func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse.UUID, name string) (bool, error) {
 	if d.store.users[userID].name != "" {
 		return false, nil

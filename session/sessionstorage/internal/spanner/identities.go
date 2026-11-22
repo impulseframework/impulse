@@ -216,6 +216,14 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 		return nil, errors.Wrap(err, "spanner.Row.Column()")
 	}
 	user.EmailConfirmed, user.EmailHeld = email.Valid && verifiedAt.Valid, email.Valid
+	if email.Valid {
+		held := email.StringVal
+		user.Email = &held
+		if verifiedAt.Valid {
+			confirmedAt := verifiedAt.Time
+			user.EmailConfirmedAt = &confirmedAt
+		}
+	}
 
 	return user, nil
 }

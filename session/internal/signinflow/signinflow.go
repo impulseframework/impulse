@@ -81,6 +81,14 @@ type Driver[Tx any] interface {
 	// time alone, and only where the row holds held and email is the user's username;
 	// held nil writes nothing there.
 	VerifyUserEmailIfHeldIn(ctx context.Context, tx Tx, userID impulse.UUID, held *string, email string) (bool, error)
+	// VerifyUserEmailIn writes email on the user as their address, confirmed at the
+	// database's time, inside tx, replacing whatever the user held: VerifyUserEmail in
+	// the caller's transaction. On a store whose usernames are the addresses it is
+	// written as the username, which renames the user, its live sessions and the live
+	// impersonations it holds as an actor. A missing user is NotFound. An address or a
+	// name another user holds ends the transaction with an EmailConflict or a
+	// UsernameConflict.
+	VerifyUserEmailIn(ctx context.Context, tx Tx, userID impulse.UUID, email string) error
 	// ClaimUserNameIn writes name on the user inside tx when the user holds none, and
 	// reports whether it wrote. A user inserted earlier in tx is not claimed for: its
 	// insert carries the name.
