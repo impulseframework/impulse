@@ -89,6 +89,10 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	// reads who administers a tenant by the engine's own names, the ones the sign-in and
 	// the session's reach decide by.
 	staffresources.SetStaffTenantUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// A row of the auth's people offers the methods that change how a tenant's
+	// administrator signs in only to a caller who enters the tenants the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	staffresources.SetStaffSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
 
 	return &Client{manager: manager}, nil
 }

@@ -4074,8 +4074,13 @@ a request that names either field is refused as any field the method does not ha
 Every resource over a table is global, none has a write route, and none
 carries a password hash or a token hash: no declaration has such a field. A method that
 targets a resource is listed in that resource's rows' Execute answer
-(`capabilities=Execute`), so a page draws its buttons from the row. The Auth's shape
-decides which methods exist: the two role methods, the two invitation methods, and the
+(`capabilities=Execute`), so a page draws its buttons from the row. While a tenant is
+directory only, the methods that change how one of its administrators signs in or
+whether their account stands (rename, change the email address, require a new password,
+remove the password, unlink a sign-in identity, disable, enable, delete) are in that
+person's row only for a caller whose session enters the tenant, and for a super
+administrator. Nobody else is shown them, and the server refuses them as before. The
+Auth's shape decides which methods exist: the two role methods, the two invitation methods, and the
 list and the two methods of the sign-in methods ("Who may sign up", below) are left out
 for an Auth whose roles a directory writes (`SyncsRoles`), where the directory admits its
 own members and the first sign-in creates the row, the method that requires a new

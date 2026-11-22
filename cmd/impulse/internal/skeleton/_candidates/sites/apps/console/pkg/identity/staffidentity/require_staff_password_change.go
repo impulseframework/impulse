@@ -16,7 +16,11 @@ import (
 // password they hold lifts the requirement, so it is refused for a person who holds
 // none.
 //
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
 // @class(credential)
