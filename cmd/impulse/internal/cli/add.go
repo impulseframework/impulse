@@ -221,7 +221,7 @@ to the agent.`,
 // askExistingSite asks what the existing site is called when a flat application grows its
 // second site and --existing did not say.
 func askExistingSite(cmd *cobra.Command, a *app.App) (string, error) {
-	if !stdinIsTerminal() {
+	if !answers(cmd) {
 		return "", errors.New("--existing is required on a flat application: the existing site moves under apps/<existing>/ and the name is its directory for good, so it is asked rather than defaulted")
 	}
 	hint := ""
@@ -534,7 +534,7 @@ func askOutlet(cmd *cobra.Command, appDir, auth string) (string, error) {
 	if len(keys) == 0 {
 		return "", errors.New("no outlet for the auth to serve: the generator programs declare no session outlet (GenerateRoutes, WithRouterOutlet with Auth); impulse add outlet adds one")
 	}
-	if !stdinIsTerminal() {
+	if !answers(cmd) {
 		return "", errors.Newf("--outlet is required: the outlet the %s auth serves, one of %s; its declaration is pointed at the auth, and there is no default because an auth is reachable only through the outlet bound to it", auth, strings.Join(keys, ", "))
 	}
 	w := cmd.ErrOrStderr()
@@ -744,7 +744,7 @@ const authorityQuestion = `Who is the authority for this method's role membershi
 // the terminal. Without a terminal the flag is required: there is no default, because the
 // wrong answer deletes hand-assigned roles at the next sign-in.
 func askAuthority(cmd *cobra.Command) (string, error) {
-	if !stdinIsTerminal() {
+	if !answers(cmd) {
 		return "", errors.New("--authority is required for a directory method: directory (the directory's roles are synchronized at every sign-in and roles it does not name are removed) or application (roles are assigned in the application). It is asked because the wrong answer deletes hand-assigned roles at the next sign-in")
 	}
 	fmt.Fprint(cmd.ErrOrStderr(), authorityQuestion)
