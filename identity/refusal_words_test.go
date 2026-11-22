@@ -23,6 +23,7 @@ func TestRoleInWords(t *testing.T) {
 		{role: "night_shift_lead", want: "Night shift lead"},
 		{role: "Night shift lead", want: "Night shift lead"},
 		{role: "HQAuditor", want: "Hq auditor"},
+		{role: "KeyIDs", want: "Key IDs"},
 		{role: "", want: ""},
 	}
 	for _, tt := range tests {
