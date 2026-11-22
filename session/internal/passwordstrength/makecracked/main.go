@@ -1,8 +1,8 @@
 // Command makecracked writes cracked.bin, the list of passwords found in breaches that the
 // judgment of a password refuses whatever its estimate. The list is the 100,000 passwords
-// most often found in data breaches, which the UK's National Cyber Security Centre published
-// from Have I Been Pwned's Pwned Passwords. The Centre's own address no longer serves it, so
-// the copy read is the one the SecLists project keeps, pinned to one commit and checked
+// most often found in data breaches, which the UK's national cyber security agency, the NCSC,
+// published from Have I Been Pwned's Pwned Passwords. The NCSC's own address no longer serves
+// it, so the copy read is the one the SecLists project keeps, pinned to one commit and checked
 // against its SHA-256 before anything is written. For each line it writes the first six
 // bytes of the line's SHA-256, sorted ascending and each once, with no header: the passwords
 // themselves are not in the repository, and every run writes the same bytes. It takes no

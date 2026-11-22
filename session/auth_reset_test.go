@@ -52,7 +52,7 @@ func TestAuth_PasswordReset(t *testing.T) {
 	t.Run("a mailbox at its limit is refused whether or not it has an account, whoever asks", authResetCase3)
 	t.Run("an administrator's link says whose administrator asked, is sent whatever self-service is set to, and is refused in one sentence for an account with no password or no confirmed address", authResetCase4)
 	t.Run("the link opens to the username; completing it spends the link, writes the password while the account holds the one it held, and withdraws the person's other reset links; it completes once", authResetCase5)
-	t.Run("a link is dead once the account holds another address than the one it was mailed to, or no password; a short password spends nothing", authResetCase6)
+	t.Run("a link is dead once the account holds another address than the one it was mailed to, or no password; a password the judgment refuses spends nothing", authResetCase6)
 	t.Run("the login page is told where a person asks for a link only while self-service reset is on, and where a link is followed either way", authResetCase7)
 	t.Run("a reset link does not outlive another write of the password: an application's own write withdraws the links mailed before", authResetCase8)
 	t.Run("a person's request is answered before the account is looked up, so the answer's time says nothing of whether there is one", authResetCase9)

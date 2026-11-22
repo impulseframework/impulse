@@ -559,7 +559,7 @@ const linkRefusals: readonly number[] = [400, 404];
 const resetRefusals: readonly number[] = [...linkRefusals, 409];
 /** An acceptance by a signed-in person: 404 when the browser carries no live invitation. */
 const acceptRefusals: readonly number[] = [401, 403, 404, 409];
-/** An account created from a link: the sign-in's refusals, 400 for a short password or no username, 404 for a dead link, 409 for a taken name or address. */
+/** An account created from a link: the sign-in's refusals, 400 for a password the judgment refuses or no username, 404 for a dead link, 409 for a taken name or address. */
 const accountRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 /** A request for a mailed link: 400 for what is not an address, 404 where the step is not offered, 429 for a mailbox sent too many. */
 const mailRefusals: readonly number[] = [400, 404, 429];

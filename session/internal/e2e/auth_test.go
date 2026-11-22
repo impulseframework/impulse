@@ -929,8 +929,9 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 			"status": "/pending", "confirm": "/pending/confirm", "cancel": "/pending/cancel",
 			"sendCode": "/pending/code/send", "verifyCode": "/pending/code/verify", "enrollEmail": "/pending/email",
 		},
-		"changePassword": "/password",
-		"removePassword": "/password/remove",
+		"changePassword":   "/password",
+		"removePassword":   "/password/remove",
+		"passwordStrength": "/password/strength",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("GET /methods mismatch (-want +got):\n%s", diff)
