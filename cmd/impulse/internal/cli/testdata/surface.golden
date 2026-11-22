@@ -187,6 +187,7 @@ checks:
   ci-workflow
   paging
   rpc-execute
+  constant-annotations
   feature-flags
   sites-generators
   env-template

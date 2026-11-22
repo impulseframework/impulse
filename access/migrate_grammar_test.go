@@ -101,6 +101,12 @@ func (grammarCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+// SubjectSetDefinition says nothing of how a set is declared: the fixture is one
+// collection, never a member of a union.
+func (grammarCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
 // Auths lists none: the fixture knows no auth, so a role file is accepted under any
 // name (setsCollection lists its own).
 func (grammarCollection) Auths() []string {

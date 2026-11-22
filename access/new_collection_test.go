@@ -1,8 +1,10 @@
 package access
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -88,6 +90,69 @@ func TestNew_refusalsDoNotNameNew(t *testing.T) {
 				t.Errorf("New() error = %q, want %q", got, tt.wantPrefix)
 			case !strings.HasPrefix(got, tt.wantPrefix):
 				t.Errorf("New() error = %q, want it to start %q", got, tt.wantPrefix)
+			}
+		})
+	}
+}
+
+// TestNew_oneRoleFile pins that an engine takes one role file: WithDefaultRoles among
+// New's options more than once is refused, the same file given twice as two files are,
+// with the number of times it was given, since an engine holds the roles of one auth and
+// the last file given used to replace the others without a word. One file opens.
+func TestNew_oneRoleFile(t *testing.T) {
+	t.Parallel()
+
+	lookouts := RoleFile(`{
+  "roles": {
+    "domain": [
+      {"name": "Lookout", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name"]}]}}
+    ]
+  }
+}`)
+	refusal := func(times int) string {
+		return fmt.Sprintf("access.WithDefaultRoles() is among the options %d times, and an engine holds the roles of one auth, so it takes one role file: "+
+			"hand it its own auth's, once (another auth has an engine of its own)", times)
+	}
+	tests := []struct {
+		name    string
+		opts    []Option
+		wantErr string
+	}{
+		{
+			name:    "the same file twice",
+			opts:    []Option{WithDefaultRoles(grammarRoleFile, fixtureAuth), WithDefaultRoles(grammarRoleFile, fixtureAuth)},
+			wantErr: refusal(2),
+		},
+		{
+			name:    "two files",
+			opts:    []Option{WithDefaultRoles(grammarRoleFile, fixtureAuth), WithHeartbeatInterval(time.Minute), WithDefaultRoles(lookouts, "members")},
+			wantErr: refusal(2),
+		},
+		{
+			name:    "three files",
+			opts:    []Option{WithDefaultRoles(grammarRoleFile, fixtureAuth), WithDefaultRoles(lookouts, "members"), WithDefaultRoles(lookouts, "members")},
+			wantErr: refusal(3),
+		},
+		{
+			name: "one file",
+			opts: []Option{WithDefaultRoles(grammarRoleFile, fixtureAuth), WithHeartbeatInterval(time.Minute)},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.wantErr == "" {
+				newPolicyClient(t, newFakeStore(), grammarCollection{}, tt.opts...)
+
+				return
+			}
+			client, err := New(newFakeStore(), grammarCollection{}, tt.opts...)
+			if err == nil {
+				t.Fatalf("New() = %v, want the refusal %q", client, tt.wantErr)
+			}
+			if got := plainText(err); got != tt.wantErr {
+				t.Errorf("New() error = %q, want %q", got, tt.wantErr)
 			}
 		})
 	}

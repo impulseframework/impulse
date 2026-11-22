@@ -336,3 +336,110 @@ func TestAuthPackagesAreTheTreeRules(t *testing.T) {
 		})
 	}
 }
+
+// TestScan_constantAnnotations pins what the scan records of the two annotations
+// generation reads off a resources package's constants: every package-level constant
+// whose comment starts a line with @manualAddResource or @manualAddPermission (the
+// comment above it, the one at the end of its line, or the one above its const
+// declaration), once for each keyword, wherever the constant is declared; and every such
+// line in a comment that belongs to no declaration (LooseAnnotations), once for each
+// line. A function's comment, a comment in a function's body, a longer word, a line that
+// names the annotation inside it, a test file and a generated file give none.
+func TestScan_constantAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		files     map[string]string
+		want      []ConstantAnnotation
+		wantLoose []LooseAnnotation
+	}{
+		{
+			name: "an annotated constant, above it or at the end of its line",
+			files: map[string]string{
+				"pkg/rpc/beacon.go": "package rpc\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// PingBeacon is the method's resource.\n//\n// @manualAddResource(Execute)\nconst PingBeacon accesstypes.Resource = \"PingBeacon\"\n\nconst Relight accesstypes.Resource = \"Relight\" // @manualAddResource(Execute)\n",
+			},
+			want: []ConstantAnnotation{
+				{File: "pkg/rpc/beacon.go", Line: 8, Constant: "PingBeacon", Keyword: "manualAddResource"},
+				{File: "pkg/rpc/beacon.go", Line: 10, Constant: "Relight", Keyword: "manualAddResource"},
+			},
+		},
+		{
+			name: "a constant carrying both keywords gives two",
+			files: map[string]string{
+				"app/routes.go": "package app\n\nconst (\n\t// Override is checked by hand.\n\t//\n\t// @manualAddPermission\n\t// @manualAddResource(Read)\n\tOverride = \"Override\"\n)\n",
+			},
+			want: []ConstantAnnotation{
+				{File: "app/routes.go", Line: 8, Constant: "Override", Keyword: "manualAddPermission"},
+				{File: "app/routes.go", Line: 8, Constant: "Override", Keyword: "manualAddResource"},
+			},
+		},
+		{
+			name: "a group's comment counts for each constant of the group",
+			files: map[string]string{
+				"app/routes.go": "package app\n\n// @manualAddPermission\nconst (\n\tOverride = \"Override\"\n\tRelease, Recall = \"Release\", \"Recall\"\n)\n",
+			},
+			want: []ConstantAnnotation{
+				{File: "app/routes.go", Line: 5, Constant: "Override", Keyword: "manualAddPermission"},
+				{File: "app/routes.go", Line: 6, Constant: "Release", Keyword: "manualAddPermission"},
+				{File: "app/routes.go", Line: 6, Constant: "Recall", Keyword: "manualAddPermission"},
+			},
+		},
+		{
+			name: "a registration a blank line parts from its constant is loose, and no constant's",
+			files: map[string]string{
+				"pkg/rpc/beacon.go": "package rpc\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Execute)\n\nconst PingBeacon accesstypes.Resource = \"PingBeacon\"\n",
+			},
+			wantLoose: []LooseAnnotation{
+				{File: "pkg/rpc/beacon.go", Line: 5, Keyword: "manualAddResource", Text: "@manualAddResource(Execute)"},
+			},
+		},
+		{
+			name: "a comment a blank line parts from the next constant of a group is loose",
+			files: map[string]string{
+				"app/routes.go": "package app\n\nconst (\n\tRecall = \"Recall\"\n\n\t// @manualAddPermission\n\n\tRelease = \"Release\"\n)\n",
+			},
+			wantLoose: []LooseAnnotation{
+				{File: "app/routes.go", Line: 6, Keyword: "manualAddPermission", Text: "@manualAddPermission"},
+			},
+		},
+		{
+			name: "a comment no declaration follows, of prose and then the annotation",
+			files: map[string]string{
+				"app/routes.go": "package app\n\nconst Release = \"Release\"\n\n// Release is checked by hand.\n//\n// @manualAddPermission\n",
+			},
+			wantLoose: []LooseAnnotation{
+				{File: "app/routes.go", Line: 5, Keyword: "manualAddPermission", Text: "@manualAddPermission"},
+			},
+		},
+		{
+			name: "a function's comment, a comment in a function's body, a longer word, a line that names the annotation inside it, a test file and a generated file give none",
+			files: map[string]string{
+				"app/log.go":                        "package app\n\n// shipsLog serves the log by hand. Its resource is declared in the resources package:\n// @manualAddResource(Read) stands on that constant.\nfunc shipsLog() {\n\t// @manualAddResource(Read)\n\t_ = func() {\n\t\t// @manualAddPermission\n\t}\n}\n\n// The log names @manualAddResource(Read) inside a line, and a blank line parts it from the function.\n\nfunc shipsLogEntries() {}\n",
+				"pkg/resources/sets.go":             "package resources\n\n// Crews are listed by hand.\n//\n// @manualAddResourceSet(Read)\ntype Crews struct{}\n\n// @manualAddResourceSet(Read)\nconst CrewSet = \"Crews\"\n\n// @manualAddResourceSet(Read)\n\nconst CrewSets = \"CrewSets\"\n",
+				"pkg/rpc/beacon_test.go":            "package rpc\n\n// @manualAddResource(Execute)\nconst PingBeacon = \"PingBeacon\"\n\n// @manualAddResource(Execute)\n\nconst Relight = \"Relight\"\n",
+				"pkg/rpc/zz_gen_beacon.go":          "package rpc\n\n// @manualAddPermission\nconst Override = \"Override\"\n\n// @manualAddPermission\n\nconst Release = \"Release\"\n",
+				"pkg/resources/zz_gen_resources.go": "package resources\n\n// @manualAddResource(Read)\nconst Ledgers = \"Ledgers\"\n",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeTree(t, root, map[string]string{"go.mod": "module example.com/acme/beacon\n\ngo 1.26\n"})
+			writeTree(t, root, tt.files)
+			a, err := Discover(root)
+			if err != nil {
+				t.Fatalf("Discover() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, a.ConstantAnnotations, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("ConstantAnnotations mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantLoose, a.LooseAnnotations, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("LooseAnnotations mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
