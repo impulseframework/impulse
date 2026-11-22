@@ -56,8 +56,8 @@ func TestManager_DirectoryRole(t *testing.T) {
 			wantBadRequest: `"Steward" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Steward"},
 		},
 		{
-			name: "a role that exists nowhere is refused", role: "Nobody",
-			wantBadRequest: `"Nobody" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Nobody"},
+			name: "a role that exists nowhere is refused", role: "NightShiftLead",
+			wantBadRequest: `"Night shift lead" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " NightShiftLead"},
 		},
 		{name: "a call outside any request is the application's own act, held to the role's existence alone", role: "Warden", outside: true},
 		{name: "and still refuses a role the tenant does not hold", role: "Steward", outside: true, wantBadRequest: `"Steward" is not a role of this tenant`},

@@ -126,8 +126,8 @@ func TestManager_OpenSignUp(t *testing.T) {
 		},
 		{
 			name:    "a default role that is not held for the whole application is refused",
-			open:    SignUp{Method: "google", DefaultRole: "Reader"},
-			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
+			open:    SignUp{Method: "google", DefaultRole: "NightShiftLead"},
+			refused: httpio.HasBadRequest, wantHas: `\"Night shift lead\" is not a role held for the whole application: choose one of the roles the picker lists`,
 		},
 		{
 			name:   "a caller who may give the role is told that it is not held for the whole application",
@@ -147,7 +147,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "the Super Administrator role is never a default role",
 			open:    SignUp{Method: "google", DefaultRole: accesstypes.SuperAdministrator},
-			refused: httpio.HasBadRequest, wantHas: "is never a default role",
+			refused: httpio.HasBadRequest, wantHas: "the Super administrator role is never a default role",
 		},
 		{
 			name:       "with tenants, a method is opened with no role",

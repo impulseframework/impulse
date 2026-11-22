@@ -172,6 +172,7 @@ func TestManager_TakeRole(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	own := access.NewMembershipKey(alphaScope, dana, "Reader")
 	text := membershipText(&own)
+	lead := access.NewMembershipKey(alphaScope, dana, "NightShiftLead")
 	erins := access.NewMembershipKey(alphaScope, erin, "Reader")
 	steward := access.NewMembershipKey(globalScope, dana, "Steward")
 	super := access.NewMembershipKey(globalScope, dana, accesstypes.SuperAdministrator)
@@ -262,9 +263,9 @@ func TestManager_TakeRole(t *testing.T) {
 			refused: httpio.HasBadRequest, wantSays: "one line of plain text",
 		},
 		{
-			name: "a caller who may not give themselves the role", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
-			grants:  &fakeGrants{noGive: []accesstypes.Role{"Reader"}},
-			refused: httpio.HasForbidden, wantSays: "you may not give yourself the role Reader there", wantAsked: []string{"give " + text},
+			name: "a caller who may not give themselves the role", ctx: asDana, scope: alphaScope, role: "NightShiftLead", length: TakeOneHour, reason: why,
+			grants:  &fakeGrants{noGive: []accesstypes.Role{"NightShiftLead"}},
+			refused: httpio.HasForbidden, wantSays: "you may not give yourself the role Night shift lead there", wantAsked: []string{"give " + membershipText(&lead)},
 		},
 		{
 			name: "a manager built with no role grants cannot judge, and does not pass", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,

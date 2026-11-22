@@ -401,7 +401,9 @@ func signUpRoleNotGiven(role accesstypes.Role) string {
 // tells nobody anything.
 func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
-		return httpio.NewBadRequestMessagef("the %s role is never a default role: every person who signed up would administer the application; choose another role", string(role))
+		const said = "the %s role is never a default role: every person who signed up would administer the application; choose another role"
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role)), said, roleInWords(role))
 	}
 	may, err := m.mayGiveBySignUp(ctx, txn, role)
 	if err != nil {
@@ -420,7 +422,9 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if !exists {
-		return httpio.NewBadRequestMessagef("%q is not a role held for the whole application: choose one of the roles the picker lists", string(role))
+		const said = "%q is not a role held for the whole application: choose one of the roles the picker lists"
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role)), said, roleInWords(role))
 	}
 
 	return nil
