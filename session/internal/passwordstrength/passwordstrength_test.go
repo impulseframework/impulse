@@ -171,14 +171,26 @@ func TestL33tWork(t *testing.T) {
 	}
 }
 
-func TestJudge_lookAlikesPastTheBoundAreNotReadAsLetters(t *testing.T) {
+func TestJudge_aCommonWordInLookAlikesFallsShort(t *testing.T) {
 	t.Parallel()
 
-	// A dictionary word written in look-alike characters, beside enough of the characters
-	// that stand for two letters to take the reading past the bound.
-	const password, minimum = "p@$$w0rd1|7", 100
-	if work := l33tWork(password); work <= maxL33tWork {
-		t.Fatalf("l33tWork(%q) = %d, want it over %d: the case proves nothing", password, work, maxL33tWork)
+	// Common words written in look-alike characters, with a year or symbols after them.
+	for _, password := range []string{
+		"P@ssw0rd!1976", "p@$$w0rd1|7", "5unsh1n3|7", "pr1nc3$$|7", "f00tb@ll|7!1", "m0nk3y1976!", "Footb@ll!1976",
+	} {
+		if got := Judge(password, Details{}, 30); got.StrongEnough || got.Reason != ReasonGuessable {
+			t.Errorf("Judge(%q, 30) = %+v, want it short for %q", password, got, ReasonGuessable)
+		}
+	}
+}
+
+func TestJudge_aTextPastTheBoundIsEstimatedAsTyped(t *testing.T) {
+	t.Parallel()
+
+	// Many different look-alike characters for its length: 21 characters, 4,608 ways.
+	const password, minimum = "p@$$w0rd4(5{[<69!|1+7", 100
+	if readsLookAlikes(password) {
+		t.Fatalf("l33tWork(%q) = %d at %d characters is within the bound: the case proves nothing", password, l33tWork(password), len(password))
 	}
 	filtered := strengthOf(zxcvbn.PasswordStrength(password, nil, matching.FilterL33tMatcher).Entropy, minimum)
 	read := strengthOf(zxcvbn.PasswordStrength(password, nil).Entropy, minimum)
@@ -194,8 +206,8 @@ func TestJudge_calibrationIsUnderTheLookAlikeBound(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range calibration {
-		if work := l33tWork(tt.password); work > maxL33tWork {
-			t.Errorf("l33tWork(%q) = %d, want %d or less, so the table is judged with the look-alike reading", tt.password, work, maxL33tWork)
+		if !readsLookAlikes(tt.password) {
+			t.Errorf("l33tWork(%q) = %d at %d characters is past the bound, want it within, so the table is judged with the look-alike reading", tt.password, l33tWork(tt.password), len(tt.password))
 		}
 	}
 }

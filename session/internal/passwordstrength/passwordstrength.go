@@ -11,8 +11,10 @@
 // One judgment costs a bounded amount of work whatever the password is made of, since anyone
 // may ask one before signing in: the estimate reads a password's first MaxJudged characters
 // and each detail's first maxDetail, and it reads look-alike characters as letters (4 for a,
-// $ for s) only while the ways to read them take at most maxL33tWork passes, each pass
-// costing the square of the length. The list is asked about the whole password.
+// $ for s) while the passes that reading takes, each costing the square of the length, cost
+// no more than maxL33tWork passes over MaxJudged characters. A password past that holds many
+// different look-alike characters for its length, and is estimated as typed. The list is
+// asked about the whole password.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone, one character for each character typed: an accented letter is read as its
@@ -46,9 +48,15 @@ const (
 	// for every way of reading the password's look-alike characters.
 	MaxJudged = 64
 
-	// maxL33tWork is the most passes over a password the estimate's reading of look-alike
-	// characters as letters may take; past it, the estimate reads the password as typed.
+	// maxL33tWork is the most passes over a text of MaxJudged characters the estimate's
+	// reading of look-alike characters as letters may take. A pass costs the square of the
+	// length, so a shorter text may take more passes, by the square of how much shorter it is;
+	// past that, the estimate reads the text as typed.
 	maxL33tWork = 16
+
+	// maxL33tCost is the most the reading of look-alike characters may cost, in passes times
+	// the square of the length: maxL33tWork passes over MaxJudged characters.
+	maxL33tCost = maxL33tWork * MaxJudged * MaxJudged
 
 	// maxDetail is how many characters of each of the person's details, after the trim, count
 	// against a password.
@@ -153,13 +161,22 @@ func Judge(password string, who Details, minimum int) Judgment {
 
 // estimate is the library's estimate of how hard judged is to guess, in bits, with inputs
 // among the words an attacker tries first. When reading judged's look-alike characters as
-// letters would take more than maxL33tWork passes, the library is asked without that reading.
+// letters would cost more than maxL33tCost, the library is asked without that reading.
 func estimate(judged string, inputs []string) float64 {
-	if l33tWork(judged) > maxL33tWork {
+	if !readsLookAlikes(judged) {
 		return zxcvbn.PasswordStrength(judged, inputs, matching.FilterL33tMatcher).Entropy
 	}
 
 	return zxcvbn.PasswordStrength(judged, inputs).Entropy
+}
+
+// readsLookAlikes says whether the estimate reads judged's look-alike characters as letters:
+// whether the passes that reading takes, times the square of judged's length, are within
+// maxL33tCost. judged is in ASCII, so its length in bytes is its length in characters.
+func readsLookAlikes(judged string) bool {
+	n := len(judged)
+
+	return l33tWork(judged)*n*n <= maxL33tCost
 }
 
 // strengthOf places bits on the scale from 0 to Full, with minimum at Mark.
