@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
@@ -476,20 +477,20 @@ func structCommentTenantLabel(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
 }
 
 // sentenceWord is what the application calls one tenant as the middle of a sentence
-// says it: the record's label where it declares one, else its name in words, with the
-// first letter lowered unless the first word is an initialism ("Customer" is
-// "customer", "ServiceDistrict" is "service district", "HQ unit" stays).
+// says it: the record's label where it declares one, else its name in words
+// (words.InWords); a label has its first letter lowered unless its first word is an
+// initialism ("Customer" is "customer", "ServiceDistrict" is "service district", "HQ
+// unit" stays).
 func sentenceWord(name, label string) string {
-	word := label
-	if word == "" {
-		word = screenWords(name)
+	if label == "" {
+		return words.InWords(name)
 	}
-	first, _, _ := strings.Cut(word, " ")
-	if word == "" || isInitialism(first) {
-		return word
+	first, _, _ := strings.Cut(label, " ")
+	if isInitialism(first) {
+		return label
 	}
 
-	return strings.ToLower(word[:1]) + word[1:]
+	return strings.ToLower(label[:1]) + label[1:]
 }
 
 // structCommentOutlets reads the outlets a struct's comment names (@outlet), the default

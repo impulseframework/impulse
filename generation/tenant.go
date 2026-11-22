@@ -12,6 +12,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // The tenant record (@tenant) is the global, table-backed resource whose rows are the
@@ -191,14 +192,14 @@ func (r *resourceGenerator) tenantWord(tenant *resourceInfo) tenantWordData {
 }
 
 // screenWords spells a Go name as words with the first one capitalized: "ShipClass" is
-// "Ship class".
+// "Ship class". A plural acronym keeps its letters: "PilotIDs" is "Pilot IDs".
 func screenWords(name string) string {
-	words := strcase.ToCase(name, strcase.LowerCase, ' ')
-	if words == "" {
+	spelled := words.InWords(name)
+	if spelled == "" {
 		return ""
 	}
 
-	return strings.ToUpper(words[:1]) + words[1:]
+	return strings.ToUpper(spelled[:1]) + spelled[1:]
 }
 
 // requireTenantRecordForMethods is resolveTenantRecord's rule for the RPC methods, which
@@ -366,7 +367,7 @@ func (r *resourceGenerator) generateTenants() error {
 		Name:                tenant.Name(),
 		Table:               r.pluralize(tenant.Name()),
 		KeyColumn:           keyColumn,
-		RecordLower:         strings.ToLower(strcase.ToCase(tenant.Name(), strcase.LowerCase, ' ')),
+		RecordLower:         words.InWords(tenant.Name()),
 		Declaration:         declaration,
 		NoDirectories:       declaresNoDirectories(tenant, declaration),
 		LocalPackageImports: r.localPackageImports(),

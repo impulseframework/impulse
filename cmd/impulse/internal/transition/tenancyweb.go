@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // The browser half of add tenancy: the tenant pages copied into the default browser
@@ -231,18 +232,19 @@ func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) e
 // "Service areas"), and in lower case inside a sentence.
 func (tn Tenancy) one() string       { return screenWords(tn.Record()) }
 func (tn Tenancy) many() string      { return screenWords(tn.Table) }
-func (tn Tenancy) oneLower() string  { return strings.ToLower(tn.one()) }
-func (tn Tenancy) manyLower() string { return strings.ToLower(tn.many()) }
+func (tn Tenancy) oneLower() string  { return words.InWords(tn.Record()) }
+func (tn Tenancy) manyLower() string { return words.InWords(tn.Table) }
 
 // screenWords spells a Go name as words with the first one capitalized, as the generator
-// spells the tenant word: "ServiceArea" is "Service area".
+// spells the tenant word: "ServiceArea" is "Service area". A plural acronym keeps its
+// letters: "PilotIDs" is "Pilot IDs".
 func screenWords(name string) string {
-	words := strcase.ToCase(name, strcase.LowerCase, ' ')
-	if words == "" {
+	spelled := words.InWords(name)
+	if spelled == "" {
 		return ""
 	}
 
-	return strings.ToUpper(words[:1]) + words[1:]
+	return strings.ToUpper(spelled[:1]) + spelled[1:]
 }
 
 // recordRename is one name or word of the reference's record and the application's.

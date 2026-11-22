@@ -506,6 +506,33 @@ func TestTenancyBrowserSignIn(t *testing.T) {
 	}
 }
 
+// TestTenancyWords pins the record's words as the screen shows them and inside a
+// sentence: a record whose name ends in a plural acronym keeps its letters where there
+// are several, and a record of two words is spelled as before.
+func TestTenancyWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		table                                          string
+		wantOne, wantMany, wantOneLower, wantManyLower string
+	}{
+		{table: "PartnerAPIs", wantOne: "Partner api", wantMany: "Partner APIs", wantOneLower: "partner api", wantManyLower: "partner APIs"},
+		{table: "ServiceAreas", wantOne: "Service area", wantMany: "Service areas", wantOneLower: "service area", wantManyLower: "service areas"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.table, func(t *testing.T) {
+			t.Parallel()
+
+			tn := Tenancy{Table: tt.table}
+			got := []string{tn.one(), tn.many(), tn.oneLower(), tn.manyLower()}
+			want := []string{tt.wantOne, tt.wantMany, tt.wantOneLower, tt.wantManyLower}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("one(), many(), oneLower(), manyLower() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestTenancyBrowserRecordWords pins the record's words in everything the browser half
 // writes, for a record of two words: every name the generator derives from the record
 // (its resources, their bodies' types, the client's properties, the routes, the route
