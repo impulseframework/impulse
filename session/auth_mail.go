@@ -104,11 +104,14 @@ func mailLimitKey(email string) string {
 
 // codeLimitKey is the key of the address's sign-in codes in the sign-in attempts table:
 // the address as the users table compares addresses (util.LowerASCII), under a kind of
-// its own. It is not folded as mailLimitKey folds an address. That fold is for an
-// address anybody can type. Nobody types this one: it is the address an account holds,
-// and one account holds it. Under that fold an account whose address only reads like
-// another's was counted with it, and five codes asked for at its own step left the
-// other account refused a code.
+// its own. It is not folded as mailLimitKey folds an address. That fold is for a count
+// anybody can run up by typing an address. Nobody runs this one up by typing: a code is
+// counted here only under the address an account holds (limitCode), and one account
+// holds it. Under that fold an account whose address only reads like another's was
+// counted with it, and five codes asked for at its own step left the other account
+// refused a code. A right code clears the row of the address it was mailed to, a typed
+// or an invited address among them (clearCodeLimit): under this key that is the row of
+// that very address, and of none that only reads like it.
 func codeLimitKey(email string) string {
 	return attempts.OwnKey(attempts.KindCode, util.LowerASCII(email))
 }
