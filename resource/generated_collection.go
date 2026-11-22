@@ -352,7 +352,8 @@ func (b *CollectionBuilder) AddResourceSet(scope accesstypes.PermissionScope, re
 }
 
 // SetMethodFormerName records an RPC method resource's former name within scope: the
-// name older browser applications still execute it under.
+// name older browser applications still execute it under. A former name that holds a dot
+// is refused where the collection is built (GeneratedCollection, NewGeneratedCollection).
 func (b *CollectionBuilder) SetMethodFormerName(scope accesstypes.PermissionScope, method, former accesstypes.Resource) {
 	b.g.setFormerName(scope, method, former)
 }
@@ -468,11 +469,13 @@ func (b *CollectionBuilder) Data() CollectionData {
 	return collectionDataFrom(b.g)
 }
 
-// GeneratedCollection returns the built collection directly, for consumers that do not
-// need the serializable form. The builder must not be used again afterward: the returned
-// collection shares its storage.
-func (b *CollectionBuilder) GeneratedCollection() *GeneratedCollection {
-	return b.g
+// GeneratedCollection returns the collection of everything registered so far, for
+// consumers that do not need the serializable form. It is the collection
+// NewGeneratedCollection builds from Data(), so it is held to every rule collection data
+// is held to, and it answers the refusal of what the builder took and the data refuses: a
+// method's former name that holds a dot is one.
+func (b *CollectionBuilder) GeneratedCollection() (*GeneratedCollection, error) {
+	return NewGeneratedCollection(b.Data())
 }
 
 type (

@@ -576,7 +576,10 @@ func TestGeneratedCollection_readMethods(t *testing.T) {
 		t.Fatalf("AddMethodResource() error = %v", err)
 	}
 
-	direct := b.GeneratedCollection()
+	direct, err := b.GeneratedCollection()
+	if err != nil {
+		t.Fatalf("GeneratedCollection() error = %v", err)
+	}
 	fromData, err := NewGeneratedCollection(b.Data())
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -640,7 +643,10 @@ func TestGeneratedCollection_TypescriptDataExcluding(t *testing.T) {
 	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "DoThing"); err != nil {
 		t.Fatalf("AddMethodResource() error = %v", err)
 	}
-	g := b.GeneratedCollection()
+	g, err := b.GeneratedCollection()
+	if err != nil {
+		t.Fatalf("GeneratedCollection() error = %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -843,7 +849,11 @@ func TestGeneratedCollection_methodCallerEnters(t *testing.T) {
 	if diff := cmp.Diff(want, marks(loaded)); diff != "" {
 		t.Errorf("MethodsTargeting(Tasks) CallerEnters after a load (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(want, marks(b.GeneratedCollection())); diff != "" {
+	built, err := b.GeneratedCollection()
+	if err != nil {
+		t.Fatalf("GeneratedCollection() error = %v", err)
+	}
+	if diff := cmp.Diff(want, marks(built)); diff != "" {
 		t.Errorf("MethodsTargeting(Tasks) CallerEnters on the built collection (-want +got):\n%s", diff)
 	}
 
@@ -1133,7 +1143,7 @@ func TestCollectionBuilder_SetActionClasses_joins(t *testing.T) {
 	b.SetActionClasses(accesstypes.GlobalPermissionScope, "SetPassword", nil)
 
 	want := []accesstypes.ActionClass{accesstypes.ClassCredential, "sensitive"}
-	if diff := cmp.Diff(want, b.GeneratedCollection().ActionClasses(accesstypes.GlobalPermissionScope, "SetPassword")); diff != "" {
+	if diff := cmp.Diff(want, b.g.ActionClasses(accesstypes.GlobalPermissionScope, "SetPassword")); diff != "" {
 		t.Errorf("ActionClasses() after two registrations mismatch (-want +got):\n%s", diff)
 	}
 	for _, res := range b.Data().Resources {

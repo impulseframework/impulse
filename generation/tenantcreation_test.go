@@ -373,7 +373,10 @@ func Test_collectTenantCreationRegistration(t *testing.T) {
 		}
 		// What the mark does where the collection is read: nothing a role file may
 		// grant names the action, and the masked check still finds its class.
-		collection := b.GeneratedCollection()
+		collection, err := b.GeneratedCollection()
+		if err != nil {
+			t.Fatalf("GeneratedCollection() error = %v", err)
+		}
 		if got := collection.List()[accesstypes.Execute]; len(got) != 0 {
 			t.Errorf("the collection lists %v under Execute, want nothing a role file may grant", got)
 		}
@@ -842,7 +845,11 @@ func Test_typescriptConstants_tenantCreationAction(t *testing.T) {
 				t.Fatalf("AddMethodResource(Launch) error = %v", err)
 			}
 
-			gen := &typescriptGenerator{client: r.client, rc: b.GeneratedCollection(), outletName: outlet, tenantCreation: tenantCreationBoth}
+			collection, err := b.GeneratedCollection()
+			if err != nil {
+				t.Fatalf("GeneratedCollection() error = %v", err)
+			}
+			gen := &typescriptGenerator{client: r.client, rc: collection, outletName: outlet, tenantCreation: tenantCreationBoth}
 			if _, _, err := gen.applyOutletFilter(slices.Clone(gen.resources), nil); err != nil {
 				t.Fatalf("applyOutletFilter() error = %v", err)
 			}
