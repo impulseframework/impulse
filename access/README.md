@@ -107,7 +107,7 @@ func main() {
     // The collection is what the release declares, here Read on documents and
     // their fields: the application's generated router answers it. An
     // application that ships default roles adds
-    // access.WithDefaultRoles(roles.File, auth); see Default Roles.
+    // access.WithDefaultRoles(staff.Roles(), staff.Name); see Default Roles.
     client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
@@ -211,7 +211,7 @@ client, err := access.New(store,
     // The release's default roles: the role file embedded in the binary,
     // validated against the collection, with the name of the auth whose
     // roles they are (see Default Roles).
-    access.WithDefaultRoles(roles.File, auth),
+    access.WithDefaultRoles(staff.Roles(), staff.Name),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -851,11 +851,11 @@ the default policy.
 
 ### Usage
 
-Embed the role file in a package of the application:
+Embed the role file in the auth's package, which gives it beside its name:
 
 ```go
-// Package roles holds the release's default roles.
-package roles
+// Package staff is the auth of the application's staff.
+package staff
 
 import (
     _ "embed"
@@ -863,17 +863,23 @@ import (
     "github.com/impulseframework/impulse/access"
 )
 
-// File is the release's role file.
-//
+// Name is the auth's name.
+const Name = "staff"
+
 //go:embed roles.json
-var File access.RoleFile
+var roleFile access.RoleFile
+
+// Roles returns the auth's role file.
+func Roles() access.RoleFile {
+    return roleFile
+}
 ```
 
 Hand it to `New`, which validates it against the collection it is given:
 
 ```go
 client, err := access.New(store, router.Collection(),
-    access.WithDefaultRoles(roles.File, auth),
+    access.WithDefaultRoles(staff.Roles(), staff.Name),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -1144,11 +1150,11 @@ as `[]access.Warning`, with no store and no client involved, so a project test o
 gets the answer the release's start would:
 
 ```go
-config, err := roles.File.Parse()
+config, err := staff.Roles().Parse()
 if err != nil {
     return err
 }
-warnings, err := access.ValidateRoles(router.Collection(), config, auth)
+warnings, err := access.ValidateRoles(router.Collection(), config, staff.Name)
 if err != nil {
     return err // the refusals that would fail New
 }
@@ -1178,7 +1184,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, collection, access.WithDefaultRoles(roles.File, auth))
+client, err := access.New(store, collection, access.WithDefaultRoles(staff.Roles(), staff.Name))
 ```
 
 ### JSON Configuration
