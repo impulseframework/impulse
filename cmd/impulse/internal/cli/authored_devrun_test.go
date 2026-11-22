@@ -211,8 +211,9 @@ type devRun struct {
 // startDevelopment starts each process of the Procfile that runs no package manager, by
 // the command on its line, with bash in the application's root under the environment, and
 // ends them all when the test ends: each process group is asked to end, then killed when
-// it has not, and what a container tool left on the run's emulator ports is removed. When
-// the test failed, each process's output is printed as far as it may be (withheld).
+// it has not, and a container a tool left on the run's emulator ports fails the test and is
+// removed. When the test failed, each process's output is printed as far as it may be
+// (withheld).
 func startDevelopment(t *testing.T, made *authoredApplication, env []string, ports *devPorts) *devRun {
 	t.Helper()
 
@@ -226,7 +227,7 @@ func startDevelopment(t *testing.T, made *authoredApplication, env []string, por
 	run := &devRun{}
 	t.Cleanup(func() {
 		run.end(t)
-		run.removeContainers(t, ports)
+		run.leavesNoContainer(t, ports)
 	})
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -337,12 +338,14 @@ func (r *devRun) marks() []int {
 	return marks
 }
 
-// end asks every process group to end, and kills each that has not after devEndWait.
+// end asks every process group to end as its author stops the run, with the interrupt
+// signal overmind sends each process by default (Ctrl-C sends it too), and kills each
+// that has not after devEndWait.
 func (r *devRun) end(t *testing.T) {
 	t.Helper()
 
 	for _, p := range r.procs {
-		signalGroup(t, p, syscall.SIGTERM)
+		signalGroup(t, p, syscall.SIGINT)
 	}
 	deadline := time.After(devEndWait)
 	for _, p := range r.procs {
@@ -366,16 +369,18 @@ func signalGroup(t *testing.T, p *devProcess, sig syscall.Signal) {
 	}
 }
 
-// removeContainers removes the containers a process's container tool still runs on the
-// run's emulator ports. An emulator in a container can ignore the signal to end, as the
-// container's first process, and killing the tool's client leaves the container running.
-func (r *devRun) removeContainers(t *testing.T, ports *devPorts) {
+// leavesNoContainer fails the test for each container a process's container tool still
+// runs on the run's emulator ports once the run has ended: the next start finds the port
+// taken. Each is removed all the same, so no machine keeps it.
+func (r *devRun) leavesNoContainer(t *testing.T, ports *devPorts) {
 	t.Helper()
 
 	var tools []string
 	for _, p := range r.procs {
-		if tool, _, _ := strings.Cut(p.command, " "); (tool == "podman" || tool == "docker") && !slices.Contains(tools, tool) {
-			tools = append(tools, tool)
+		for _, word := range strings.Fields(p.command) {
+			if (word == "podman" || word == "docker") && !slices.Contains(tools, word) {
+				tools = append(tools, word)
+			}
 		}
 	}
 	for _, tool := range tools {
@@ -393,11 +398,11 @@ func (r *devRun) removeContainers(t *testing.T, ports *devPorts) {
 				if !strings.Contains(published, "127.0.0.1:"+port+"->") {
 					continue
 				}
+				t.Errorf("stopping the development run left the container %s on port %s: the next start finds the port taken", id, port)
 				// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 				if out, err := osexec.CommandContext(context.WithoutCancel(t.Context()), tool, "rm", "-f", id).CombinedOutput(); err != nil { //nolint:gosec // podman or docker, as the Procfile names it, on a container of the run's
 					t.Errorf("%s rm -f %s: %v\n%s", tool, id, err, out)
 				}
-				t.Logf("removed the container %s the run left on port %s", id, port)
 			}
 		}
 	}
