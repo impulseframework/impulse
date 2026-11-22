@@ -89,6 +89,9 @@ func formerNameOf(arg genlang.Arg, where string) (string, error) {
 	if name == "" || strings.ContainsAny(name, ", \t\"()") {
 		return "", errors.Newf("%s: @%s(%s) takes one name, written as the field or method was: @%s(Title)", where, formerlyKeyword, name, formerlyKeyword)
 	}
+	if strings.Contains(name, ".") {
+		return "", errors.Newf("%s: @%s(%s) holds a dot. A dot separates a resource from one of its fields, so the former name would be read as a field of another resource; write the name as the field or method was, without a dot: @%s(Title)", where, formerlyKeyword, name, formerlyKeyword)
+	}
 
 	return name, nil
 }
