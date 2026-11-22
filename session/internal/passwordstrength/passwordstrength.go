@@ -239,9 +239,10 @@ func firstRunes(s string, n int) string {
 
 // inputsOf are the words the person's details give the estimate, in the order Username, Name,
 // Email: each detail trimmed of surrounding space, cut to its first maxDetailTyped characters,
-// put in NFC and cut to its first maxDetail characters, whole, then each run of letters, digits and marks in it whose reading is at
-// least minRun characters long, each word as read reads it and once whatever its case. It is
-// nil when the details give none.
+// put in NFC and cut to its first maxDetail characters, whole; then each run of letters,
+// digits and marks in it, and after a run that holds a digit each part of it between digits
+// (zabrowski in zabrowski77), whose reading is at least minRun characters long. Each word is
+// as read reads it and given once whatever its case. It is nil when the details give none.
 func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
@@ -253,6 +254,12 @@ func inputsOf(who Details, read *reading) []string {
 		seen[key] = true
 		inputs = append(inputs, word)
 	}
+	addRun := func(run string) {
+		// The reading is in ASCII, so its length in bytes is its length in characters.
+		if word := read.of(run); len(word) >= minRun {
+			add(word)
+		}
+	}
 
 	for _, detail := range []string{who.Username, who.Name, who.Email} {
 		// The detail is cut before it is put in NFC, so a long one is never read whole.
@@ -262,9 +269,12 @@ func inputsOf(who Details, read *reading) []string {
 		}
 		add(read.of(detail))
 		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
-			// The reading is in ASCII, so its length in bytes is its length in characters.
-			if word := read.of(run); len(word) >= minRun {
-				add(word)
+			addRun(run)
+			if !strings.ContainsFunc(run, unicode.IsDigit) {
+				continue
+			}
+			for _, part := range strings.FieldsFunc(run, unicode.IsDigit) {
+				addRun(part)
 			}
 		}
 	}

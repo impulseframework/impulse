@@ -106,6 +106,8 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a name with a dotless i, typed with i", password: "yildirimkaya2077", who: Details{Name: "Nur Yıldırımkaya"}},
 		{name: "a name with a ß, in capitals", password: "GROSSKREUTZ2077", who: Details{Name: "Jörg Großkreutz"}},
 		{name: "a name with ss, typed with a ß", password: "Großkreutz2077", who: Details{Name: "Uwe Grosskreutz"}},
+		{name: "the letters of a username with digits after them", password: "Zabrowski2077!", who: Details{Username: "zabrowski77"}},
+		{name: "the letters of a username with digits after them, in look-alike characters", password: "Z@br0w$k!2077", who: Details{Username: "zabrowski77"}},
 		{name: "a name with a ł, typed with l", password: "Lukasz2077horse", who: Details{Name: "Łukasz Błaszczykowski"}},
 		{name: "a name with an ø, typed with o", password: "Soren2077horse", who: Details{Name: "Søren Kierkegaard"}},
 		{name: "a Thai name with its vowel signs and tone mark", password: "กิตติศักดิ์2077", who: Details{Name: "กิตติศักดิ์ ศรีสุวรรณ"}},
