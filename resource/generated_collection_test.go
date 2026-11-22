@@ -1084,39 +1084,109 @@ func TestCollectionBuilder_SetActionClasses_joins(t *testing.T) {
 	}
 }
 
+// TestNewGeneratedCollection_oneScopePerName pins that collection data built by hand
+// lists a name in one scope: the collection finds a resource's scope by its name alone
+// (Scope), so a name of two scopes was answered with either from one call to the next.
+// The rule holds whatever either entry registers; the first scope said is the earlier
+// entry's.
+func TestNewGeneratedCollection_oneScopePerName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		resources []CollectionResource
+		wantErr   string
+	}{
+		{
+			name: "a record listed for the whole application and for a tenant",
+			resources: []CollectionResource{
+				{Name: "Widgets", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+				{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+			},
+			wantErr: `resource "Widgets" is listed in the scope "global" and in the scope "domain": a name is of one scope, which a role's grant and a check find by the name alone. ` +
+				`List it in one scope, or give one of the two a name of its own`,
+		},
+		{
+			name: "a classed action for the whole application and an action of the same name for a tenant",
+			resources: []CollectionResource{
+				{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+				{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}},
+			},
+			wantErr: `resource "SetPassword" is listed in the scope "global" and in the scope "domain": a name is of one scope, which a role's grant and a check find by the name alone. ` +
+				`List it in one scope, or give one of the two a name of its own`,
+		},
+		{
+			name: "a classed action for the whole application and a record of the same name for a tenant",
+			resources: []CollectionResource{
+				{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+				{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+			},
+			wantErr: `resource "SetPassword" is listed in the scope "global" and in the scope "domain": a name is of one scope, which a role's grant and a check find by the name alone. ` +
+				`List it in one scope, or give one of the two a name of its own`,
+		},
+		{
+			name: "an entry that registers no permission for a tenant and a record of the same name for the whole application",
+			resources: []CollectionResource{
+				{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Attributes: []AttributeData{{Name: "status", Column: "Status", Type: AttributeTypeString}}},
+				{Name: "Widgets", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+			},
+			wantErr: `resource "Widgets" is listed in the scope "domain" and in the scope "global": a name is of one scope, which a role's grant and a check find by the name alone. ` +
+				`List it in one scope, or give one of the two a name of its own`,
+		},
+		{
+			name: "one name twice in one scope",
+			resources: []CollectionResource{
+				{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+				{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Update}},
+			},
+			wantErr: `duplicate resource "Widgets" in scope "domain"`,
+		},
+		{
+			name: "two names, one in each scope",
+			resources: []CollectionResource{
+				{Name: "Widgets", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+				{Name: "Gadgets", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g, err := NewGeneratedCollection(CollectionData{Resources: tt.resources})
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("NewGeneratedCollection() error = %v", err)
+				}
+				for _, res := range tt.resources {
+					if got := g.Scope(res.Name); got != res.Scope {
+						t.Errorf("Scope(%s) = %q, want %q", res.Name, got, res.Scope)
+					}
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("NewGeneratedCollection() error = %v, want one ending in %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestNewGeneratedCollection_actionClassValidation pins what the collection refuses of
 // an action's classes at start-up.
 func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		res  CollectionResource
-		// beside is another entry of the collection, when the case is of two.
-		beside  *CollectionResource
+		name    string
+		res     CollectionResource
 		wantErr string
 	}{
 		{
 			name: "a class on an action",
 			res:  CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
-		},
-		{
-			name:   "a classed action for the whole application and an action of the same name for a tenant",
-			res:    CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
-			beside: &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}},
-		},
-		{
-			name:   "a classed action for the whole application and a record of the same name for a tenant",
-			res:    CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
-			beside: &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
-			wantErr: `resource "SetPassword" registers [List Read] in the scope "domain" and carries the classes [credential] in the scope "global": a class is carried by an action alone, ` +
-				`a name that registers Execute and nothing else in either scope. A record's writes are given a class by the generator alone, where the record decides what a person may do; any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
-		},
-		{
-			name:    "a record for the whole application and a classed action of the same name for a tenant, the record first",
-			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Update}},
-			beside:  &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
-			wantErr: `resource "SetPassword" registers [Update] in the scope "global" and carries the classes [access] in the scope "domain"`,
 		},
 		{
 			name:    "a class named as no class is",
@@ -1149,11 +1219,7 @@ func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data := CollectionData{Resources: []CollectionResource{tt.res}}
-			if tt.beside != nil {
-				data.Resources = append(data.Resources, *tt.beside)
-			}
-			_, err := NewGeneratedCollection(data)
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{tt.res}})
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("NewGeneratedCollection() error = %v", err)

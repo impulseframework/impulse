@@ -531,6 +531,9 @@ func newGeneratedCollection() *GeneratedCollection {
 // NewGeneratedCollection validates data and constructs the collection. It rejects
 // duplicate resources, duplicate or null permissions, and duplicate tags, so invalid
 // generated data fails at startup rather than surfacing as wrong permission decisions.
+// It refuses a name listed in both scopes: the collection finds a resource's scope by
+// its name alone (Scope), so such a name was answered with either scope from one call
+// to the next.
 func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	g := newGeneratedCollection()
 
@@ -553,11 +556,7 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	}
 	slices.Sort(g.auths)
 
-	type resourceKey struct {
-		scope accesstypes.PermissionScope
-		name  accesstypes.Resource
-	}
-	seen := make(map[resourceKey]struct{}, len(data.Resources))
+	scopes := make(map[accesstypes.Resource]accesstypes.PermissionScope, len(data.Resources))
 
 	for i := range data.Resources {
 		res := &data.Resources[i]
@@ -567,11 +566,18 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 		if res.Scope == "" {
 			return nil, errors.Newf("resource %q has an empty permission scope", res.Name)
 		}
-		key := resourceKey{scope: res.Scope, name: res.Name}
-		if _, ok := seen[key]; ok {
-			return nil, errors.Newf("duplicate resource %q in scope %q", res.Name, res.Scope)
+		if earlier, ok := scopes[res.Name]; ok {
+			if earlier == res.Scope {
+				return nil, errors.Newf("duplicate resource %q in scope %q", res.Name, res.Scope)
+			}
+
+			return nil, errors.Newf(
+				"resource %q is listed in the scope %q and in the scope %q: a name is of one scope, which a role's grant and a check find by the name alone. "+
+					"List it in one scope, or give one of the two a name of its own",
+				res.Name, earlier, res.Scope,
+			)
 		}
-		seen[key] = struct{}{}
+		scopes[res.Name] = res.Scope
 
 		for _, perm := range res.Permissions {
 			if perm == accesstypes.NullPermission {
@@ -605,11 +611,6 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 		})
 
 		if err := g.addResourceDeclarations(res); err != nil {
-			return nil, err
-		}
-	}
-	for i := range data.Resources {
-		if err := g.refuseClassFromOtherScope(&data.Resources[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -757,33 +758,6 @@ func (g *GeneratedCollection) addWriteClasses(res *CollectionResource) error {
 			}
 		}
 		g.setWriteClasses(res.Scope, res.Name, write.Permission, write.Classes)
-	}
-
-	return nil
-}
-
-// refuseClassFromOtherScope refuses a name that registers a permission other than
-// Execute in one scope and carries a class in the other. One CollectionResource that
-// does both is refused where it is read (addActionDeclarations); here the two are two
-// entries of one name. The masked check reads an action's classes by its name whichever
-// scope registers it, so the class would ride the record's permission with the
-// action's.
-func (g *GeneratedCollection) refuseClassFromOtherScope(res *CollectionResource) error {
-	if !slices.ContainsFunc(res.Permissions, func(permission accesstypes.Permission) bool {
-		return permission != accesstypes.Execute
-	}) {
-		return nil
-	}
-	for _, scope := range scopeVocabulary {
-		if classes := g.classes[scope][res.Name]; len(classes) > 0 {
-			return errors.Newf(
-				"resource %q registers %v in the scope %q and carries the classes %v in the scope %q: a class is carried by an action alone, "+
-					"a name that registers Execute and nothing else in either scope. "+
-					"A record's writes are given a class by the generator alone, where the record decides what a person may do; "+
-					"any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
-				res.Name, res.Permissions, res.Scope, classes, scope,
-			)
-		}
 	}
 
 	return nil

@@ -324,7 +324,8 @@ func scopeOrGlobal(scope accesstypes.PermissionScope) accesstypes.PermissionScop
 // collection finds a resource's scope by its name alone
 // (resource.GeneratedCollection.Scope), which is how a role's grant is held to its scope
 // and how a check finds what binds the resource to a tenant, so a name of two scopes
-// would be answered with either, one run to the next.
+// would be answered with either, one run to the next. A collection made from data built
+// by hand is refused the same (resource.NewGeneratedCollection).
 func oneScopePerName(data resource.CollectionData) error {
 	global := make(map[accesstypes.Resource]*resource.CollectionResource)
 	for i := range data.Resources {
