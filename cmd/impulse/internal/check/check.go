@@ -219,6 +219,7 @@ func All() []Check {
 		rpcExecute{},
 		constantAnnotations{},
 		featureFlags{},
+		changeHistory{},
 		sitesGenerators{},
 		envTemplate{},
 		envReads{},
