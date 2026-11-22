@@ -464,6 +464,64 @@ func Test_newSnapshot_findings(t *testing.T) {
 	}
 }
 
+// Test_newSnapshot_findings_defaultRoleGrants pins that a stored grant under a
+// default role's name gives nothing whether or not the store holds a row for
+// the role: the grant is skipped, the role is reported as shadowed once for
+// its (scope, role) however many grants it has, and its members hold the
+// default's grants alone.
+func Test_newSnapshot_findings_defaultRoleGrants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		records *policy.Records
+	}{
+		{
+			name: "a grant with no role row",
+			records: &policy.Records{
+				Grants: []policy.Grant{
+					{Scope: tenant2Policy, Subject: roleSubject("Reader"), Perm: "Update", Resource: "Widgets"},
+				},
+				Memberships: []policy.Membership{
+					{Scope: tenant2Policy, Member: userSubject("lee"), Role: "Reader"},
+				},
+			},
+		},
+		{
+			name: "two grants under a role row",
+			records: &policy.Records{
+				Roles: []policy.Role{{Scope: tenant2Policy, Name: "Reader"}},
+				Grants: []policy.Grant{
+					{Scope: tenant2Policy, Subject: roleSubject("Reader"), Perm: "Update", Resource: "Widgets"},
+					{Scope: tenant2Policy, Subject: roleSubject("Reader"), Perm: "List", Resource: "Widgets"},
+				},
+				Memberships: []policy.Membership{
+					{Scope: tenant2Policy, Member: userSubject("lee"), Role: "Reader"},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			snap, findings := compileWithDefaults(t, compileDefaults(t, readerRunnerFile()), tt.records)
+
+			want := []policyFinding{&ShadowedRole{Scope: tenant2Policy, Role: "Reader"}}
+			if diff := cmp.Diff(want, findings, cmpopts.EquateComparable(accesstypes.PolicyScope{})); diff != "" {
+				t.Errorf("findings (-want +got):\n%s", diff)
+			}
+			if got := snap.decideUserResources("lee", tenant2Scope, "Read", "Widgets.name"); decisionText(got[0]) != "granted" {
+				t.Errorf("the default's member reading Widgets.name = %s, want granted", decisionText(got[0]))
+			}
+			for _, perm := range []accesstypes.Permission{"Update", "List"} {
+				if got := snap.decideUserResources("lee", tenant2Scope, perm, "Widgets"); decisionText(got[0]) != "denied" {
+					t.Errorf("the default's member asked %s on Widgets = %s, want denied", perm, decisionText(got[0]))
+				}
+			}
+		})
+	}
+}
+
 // Test_snapshot_thousandDomains pins the scale the layering is for: a
 // thousand tenants, each with a custom role and a member of its own, compile
 // to a thousand overlays, while the release's domain defaults and the

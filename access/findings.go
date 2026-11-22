@@ -98,7 +98,9 @@ func (e *SkippedGrant) Unwrap() error {
 // load, so the custom role's grants are skipped and its members hold the
 // default role's grants. One report per such role reaches the reload-error
 // hook each time a snapshot compiles, and the deploy check lists it as a
-// Warning. Rename or delete the custom role to clear it.
+// Warning. Rename or delete the custom role to clear it. A stored grant under
+// a default role's name is skipped and reported the same way where the store
+// holds no row for the role.
 type ShadowedRole struct {
 	Scope accesstypes.PolicyScope
 	Role  accesstypes.Role

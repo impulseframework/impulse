@@ -255,7 +255,8 @@ A load reports two more findings the same way. A custom role whose name a
 default role of the running release has, in the same kind of scope, is a
 `*access.ShadowedRole`: the default wins, the custom role's grants are skipped,
 and its members hold the default role's grants; rename or delete the custom
-role to clear it. Memberships naming a role that is neither a default role nor
+role to clear it. A stored grant under a default role's name is skipped and
+reported the same way where the store holds no row for the role. Memberships naming a role that is neither a default role nor
 a custom role in their scope are an `*access.OrphanedMembership`: the members
 hold nothing from it, as happens when a release retires a default role and its
 memberships remain. Each finding reaches the hook once per compiled snapshot,
