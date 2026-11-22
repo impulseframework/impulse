@@ -195,26 +195,34 @@ type outcome struct {
 	kid         string
 }
 
-// exchange posts a code to the token endpoint, the form changed by mutate when it is not nil.
-func exchange(ctx context.Context, th *testHost, g grant, mutate func(url.Values)) outcome {
+// postCode posts a code to the token endpoint, the form changed by mutate when it is not nil,
+// and returns the status and the decoded answer; -1 and an error name when no answer came.
+func postCode(ctx context.Context, th *testHost, g grant, mutate func(url.Values)) (status int, body map[string]any) {
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {g.code}, "redirect_uri": {appCallback}, "client_id": {clientID}, "code_verifier": {g.verifier}}
 	if mutate != nil {
 		mutate(form)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, th.issuer+"/oauth/token", strings.NewReader(form.Encode()))
 	if err != nil {
-		return outcome{status: -1, oauthError: "request"}
+		return -1, map[string]any{"error": "request"}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return outcome{status: -1, oauthError: "transport"}
+		return -1, map[string]any{"error": "transport"}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var body map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&body)
-	o := outcome{status: resp.StatusCode}
+
+	return resp.StatusCode, body
+}
+
+// exchange posts a code to the token endpoint, the form changed by mutate when it is not nil,
+// and says what came back without the tokens themselves.
+func exchange(ctx context.Context, th *testHost, g grant, mutate func(url.Values)) outcome {
+	status, body := postCode(ctx, th, g, mutate)
+	o := outcome{status: status}
 	if e, ok := body["error"].(string); ok {
 		o.oauthError = e
 	}
@@ -227,6 +235,35 @@ func exchange(ctx context.Context, th *testHost, g grant, mutate func(url.Values
 	}
 
 	return o
+}
+
+// accessTokenOf exchanges a code and returns the access token, which the test holds in memory
+// for its next request and never prints.
+func accessTokenOf(ctx context.Context, t *testing.T, th *testHost, g grant) string {
+	t.Helper()
+
+	status, body := postCode(ctx, th, g, nil)
+	token, _ := body["access_token"].(string)
+	if status != http.StatusOK || token == "" {
+		t.Fatalf("the exchange answered %d with error %v, want an access token", status, body["error"])
+	}
+
+	return token
+}
+
+// userinfoEndpoint is the userinfo endpoint's address in the discovery document.
+func (th *testHost) userinfoEndpoint(ctx context.Context, t *testing.T) string {
+	t.Helper()
+
+	status, answer := th.call(ctx, t, http.MethodGet, th.issuer+"/.well-known/openid-configuration", "", nil)
+	var doc struct {
+		UserinfoEndpoint string `json:"userinfo_endpoint"`
+	}
+	if status != http.StatusOK || json.Unmarshal([]byte(answer), &doc) != nil || doc.UserinfoEndpoint == "" {
+		t.Fatalf("the discovery document = %d %s, want one with a userinfo endpoint", status, answer)
+	}
+
+	return doc.UserinfoEndpoint
 }
 
 // keyID is the key ID in a token's header.
@@ -416,5 +453,38 @@ func TestSignIn_firstKeyOnce(t *testing.T) {
 				t.Errorf("the rotating instance publishes %d keys, want 2", n)
 			}
 		})
+	}
+}
+
+// TestSignIn_tokensReadAcrossARotation: an instance started after a key rotation answers an
+// access token an instance started before it issued.
+func TestSignIn_tokensReadAcrossARotation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client := newDatabase(ctx, t)
+
+	hostA := newHostOn(ctx, t, client, spannerstore.New(client))
+	if hostA == nil {
+		t.FailNow()
+	}
+	hostA.mustRegister(ctx, t)
+	b := hostA.browser(t)
+	b.signInToHost(ctx, hostA, "u-pat")
+	token := accessTokenOf(ctx, t, hostA, getCode(ctx, t, hostA, b))
+	if err := hostA.svc.RotateSigningKey(ctx); err != nil {
+		t.Fatalf("Service.RotateSigningKey() error = %v", err)
+	}
+
+	hostB := newHostOn(ctx, t, client, spannerstore.New(client))
+	if hostB == nil {
+		t.FailNow()
+	}
+	status, answer := hostB.call(ctx, t, http.MethodGet, hostB.userinfoEndpoint(ctx, t), token, nil)
+	var info struct {
+		Subject string `json:"sub"`
+	}
+	_ = json.Unmarshal([]byte(answer), &info)
+	if status != http.StatusOK || info.Subject != "cadet" {
+		t.Errorf("instance B's userinfo answered A's access token with %d and subject %q, want 200 and cadet", status, info.Subject)
 	}
 }

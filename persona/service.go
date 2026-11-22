@@ -83,21 +83,23 @@ func New(ctx context.Context, host Host, store Store, config *Config) (*Service,
 	if err != nil {
 		return nil, err
 	}
-	// The access token is the token's ID encrypted under a key every instance shares:
-	// one derived from the signing key, which the store holds for all of them.
-	der, err := x509.MarshalPKCS8PrivateKey(keys[0].Key)
+	// The access token is the token's ID encrypted under a key every instance shares: one
+	// derived from the first signing key, which the store holds for all of them and a
+	// rotation does not replace.
+	first := keys[len(keys)-1]
+	der, err := x509.MarshalPKCS8PrivateKey(first.Key)
 	if err != nil {
 		return nil, errors.Wrap(err, "x509.MarshalPKCS8PrivateKey()")
 	}
 	opConfig := &op.Config{
 		CryptoKey:          sha256.Sum256(der),
-		CryptoKeyId:        keys[0].ID,
+		CryptoKeyId:        first.ID,
 		CodeMethodS256:     true,
 		SupportedScopes:    []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail},
 		SupportedClaims:    []string{"sub", "aud", "exp", "iat", "iss", "auth_time", "nonce", "name", "preferred_username", "email", "email_verified"},
 		SupportedUILocales: []language.Tag{language.English},
 	}
-	s.cryptoKeyID = keys[0].ID
+	s.cryptoKeyID = first.ID
 	opts := []op.Option{}
 	if cfg.AllowInsecureIssuer {
 		opts = append(opts, op.WithAllowInsecure())

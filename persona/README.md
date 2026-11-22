@@ -78,8 +78,9 @@ migrations into the host's migration set as they are; the names are
 The signing keys live in the store so every instance signs with the same key and
 publishes the same key set. The first key is made once: of two instances that start
 together on an empty store, the store keeps one key and both sign with it. The access
-tokens are encrypted under a key derived from the newest signing key, for the same
-reason. `RotateSigningKey` adds a new key; the older ones stay published so tokens
+tokens are encrypted under a key derived from the first signing key, which the store
+keeps for good, so an instance started after a rotation reads the tokens of one started
+before it. `RotateSigningKey` adds a new key; the older ones stay published so tokens
 signed before the rotation still verify.
 
 ## The registration endpoint
