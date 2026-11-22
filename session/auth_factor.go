@@ -696,7 +696,7 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 		a.clearAddressGuesses(ctx, email)
 	}
 
-	at, holder, err := a.attemptWithCode(ctx, p, before, entered)
+	at, err := a.attemptWithCode(ctx, p, before, entered)
 	if err != nil {
 		return nil, err
 	}
@@ -705,7 +705,9 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 		return nil, err
 	}
 	if outcome.pending == nil {
-		a.codeAddressWritten(ctx, holder, at.codeAddress)
+		if claim := at.codeAddress; claim != nil && claim.Written {
+			logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", outcome.userID, claim.Email)
+		}
 		// The person proved who they are: the name's failed attempts are reset.
 		if p.Username != "" {
 			a.clearAttempts(ctx, p.Username)
@@ -716,25 +718,6 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 	}
 
 	return outcome, nil
-}
-
-// codeAddressWritten tells of the address the account's own code confirmed (claim),
-// once the sign-in that carried it started a session: the store wrote it on holder,
-// the account as the code was checked against it, where holder had confirmed none. On a
-// store whose usernames are the addresses an address that is another than the username
-// renames the user, and the application's rename hook is told; a failure of the hook is
-// logged, and the session stands.
-func (a *Auth[S, U, Tx]) codeAddressWritten(ctx context.Context, holder *sessionstorage.SessionUser, claim *sessionstorage.CodeAddress) {
-	if claim == nil || holder == nil || holder.EmailVerified() {
-		return
-	}
-	written := claim.Email
-	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", holder.ID, written)
-	if a.registered().usernameIsEmail() && !sameAddress(holder.Username, written) && a.userRenamed != nil {
-		if err := a.userRenamed(ctx, holder.ID, holder.Username, written); err != nil {
-			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", holder.ID, holder.Username, written, err)
-		}
-	}
 }
 
 // clearInvitationCodeOf resets the count of the codes sent to accept the invitation
@@ -756,8 +739,7 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 // entered, was found right: the wait is consumed, so it completes once, and the sign-in
 // carries the invitation the code was mailed for, if any. A wait that names its user
 // holds the code to the address the account holds now (codeHolder), whether it is the
-// account's own or was mailed for an invitation, and holder is that account as it was
-// read then. The account's own code writes nothing here: the sign-in carries the
+// account's own or was mailed for an invitation. The account's own code writes nothing here: the sign-in carries the
 // address it confirms (codeAddressOf), which the store writes on the account in the
 // transaction that inserts the session, and only then. A code mailed for an invitation
 // carries no address, whether the wait names an account or none: the sign-in that
@@ -769,32 +751,31 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 // read before the code was consumed (codeHolder).
 func (a *Auth[S, U, Tx]) attemptWithCode(
 	ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, entered *sessionstorage.FactorCode,
-) (at *signInAttempt, holder *sessionstorage.SessionUser, err error) {
+) (at *signInAttempt, err error) {
 	if signsUpInvited(p) {
-		at, err := a.invitedSignUpAttempt(ctx, p, entered.Email)
-
-		return at, nil, err
+		return a.invitedSignUpAttempt(ctx, p, entered.Email)
 	}
 	var claim *sessionstorage.CodeAddress
 	if p.UserID.Valid {
-		if holder, err = a.codeHolder(ctx, p, before, entered.Email); err != nil {
-			return nil, nil, err
+		holder, err := a.codeHolder(ctx, p, before, entered.Email)
+		if err != nil {
+			return nil, err
 		}
 		if !entered.InvitationID.Valid {
 			claim = codeAddressOf(holder, entered.Email)
 		}
 	}
 	if err := a.consumePending(ctx, p); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	at, err = a.pendingAttempt(p, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	at.codeInvitation = entered.InvitationID
 	at.codeAddress = claim
 
-	return at, holder, nil
+	return at, nil
 }
 
 // codeAddressOf is the address the account's own code, mailed to email, confirms on

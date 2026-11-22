@@ -157,6 +157,9 @@ type CodeAddress struct {
 	// Email is the address the code confirms: Held's own spelling where the account
 	// holds an address, else the address the person gave, which the code was mailed to.
 	Email string
+	// Written is set by the sign-in: the address was written, in the transaction that
+	// committed.
+	Written bool
 }
 
 // SignInConflict is a driver's classification of the error a sign-in's transaction

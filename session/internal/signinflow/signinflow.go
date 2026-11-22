@@ -901,9 +901,9 @@ type signInHold struct {
 // to the invited address. An error is the driver's or the acceptor's, and nothing is
 // written either. inv.Accepted is set to the outcome.
 //
-// signIn is what the acceptance a sign-in makes is held to, nil for one by hand. It goes
-// on only while the user, read in its transaction, still holds the password the sign-in
-// proved, and is enabled: a password changed since the proof ends it with
+// signIn is what the acceptance a sign-in makes is held to, nil for one by hand. It
+// goes on only while the user, read in its transaction, still holds the password the
+// sign-in proved, and is enabled: a password changed since the proof ends it with
 // dbtype.ErrPasswordChanged, and a disabled user's acceptance is skipped with no error,
 // the sign-in then refused user_disabled; nothing is written either way, and the
 // invitation stands. Where the acceptance rests on the account's own mailed code
@@ -911,25 +911,29 @@ type signInHold struct {
 // spelling, and only while the account still holds what it held when the code was
 // checked and no other account holds the address (Driver.VerifyUserEmailIfHeldIn), the
 // users table's refusal of an address another account took at the same moment
-// (dbtype.EmailConflict) included; otherwise the code no longer stands, stop is the
-// code_expired refusal
-// (codeAddressGone), and nothing is written: the invitation stands. The acceptance is
-// made before the sign-in policy decides, so that the policy sees what it gave: a
-// sign-in the policy then denies or holds leaves the invitation accepted and the
-// address written.
+// (dbtype.EmailConflict) included, and the claim says so once the transaction has
+// committed (CodeAddress.Written); otherwise the code no longer stands, stop is the
+// code_expired refusal (codeAddressGone), and nothing is written: the invitation
+// stands. The acceptance is made before the sign-in policy decides, so that the policy
+// sees what it gave: a sign-in the policy then denies or holds leaves the invitation
+// accepted and the address written.
 func acceptInvitation[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
 	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error, signIn *signInHold,
 ) (dead bool, stop, err error) {
-	var claim *dbtype.CodeAddress
+	var (
+		claim *dbtype.CodeAddress
+		// wrote says the run wrote the code's address on the account.
+		wrote bool
+	)
 	if signIn != nil {
 		claim = signIn.claim
 	}
 	inv.Accepted = false
 	var committed committedWork
 	err = d.Transact(ctx, func(ctx context.Context, tx Tx) error {
-		// Each run starts with nothing owed and the invitation taken for live.
-		committed, dead, stop = nil, false, nil
+		// Each run starts with nothing owed or written and the invitation taken for live.
+		committed, dead, stop, wrote = nil, false, nil, false
 		if err := d.ConsumeMailLinkIn(ctx, tx, inv.ID, time.Now()); err != nil {
 			dead = httpio.HasNotFound(err)
 
@@ -952,8 +956,7 @@ func acceptInvitation[Tx any](
 			return err
 		}
 		if stop == nil && byOwnCode {
-			wrote, err := d.VerifyUserEmailIfHeldIn(ctx, tx, userID, claim.Held, claim.Email)
-			if err != nil {
+			if wrote, err = d.VerifyUserEmailIfHeldIn(ctx, tx, userID, claim.Held, claim.Email); err != nil {
 				return errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
 			}
 			if !wrote {
@@ -999,6 +1002,9 @@ func acceptInvitation[Tx any](
 		return false, nil, errors.Wrap(err, "Driver.Transact()")
 	}
 	inv.Accepted = true
+	if wrote {
+		claim.Written = true
+	}
 	committed.run(ctx)
 
 	return false, nil, nil
@@ -2181,26 +2187,32 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // written, so a session is never inserted on the strength of a password the user no
 // longer holds. The nil proof holds the sign-in to nothing.
 //
-// The address the account's own mailed code confirms (rules.CodeAddress) is written here,
-// in the transaction that inserts the session, and only when the sign-in goes ahead: the
-// user is enabled, the password unchanged, the policy has allowed it and neither
-// addressHold nor addressTaken stopped it. It is written only while the account still
-// holds what it held when the code was checked and no other account holds the address
-// (Driver.VerifyUserEmailIfHeldIn), the users table's refusal of an address another
-// account took at the same moment (dbtype.EmailConflict) included; otherwise the code no
-// longer stands, and the sign-in is refused with code_expired and no session. A user
-// who already holds a confirmed address is written nothing. A refusal or a wait writes
-// no address, so the person signs in again and is asked for the code again.
+// The address the account's own mailed code confirms (rules.CodeAddress) is written
+// here, in the transaction that inserts the session, and only when the sign-in goes
+// ahead: the user is enabled, the password unchanged, the policy has allowed it and
+// neither addressHold nor addressTaken stopped it. It is written only while the account
+// still holds what it held when the code was checked and no other account holds the
+// address (Driver.VerifyUserEmailIfHeldIn), the users table's refusal of an address
+// another account took at the same moment (dbtype.EmailConflict) included; otherwise
+// the code no longer stands, and the sign-in is refused with code_expired and no
+// session. A user who already holds a confirmed address is written nothing, and goes
+// ahead only while the account still holds the code's address (codeAddressWrite). A
+// refusal or a wait writes no address, so the person signs in again and is asked for
+// the code again. The claim says it was written (CodeAddress.Written) once the
+// transaction has committed.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
 	source sessioninfo.UserSource, tenant string, rules Rules[Tx], trusted bool,
 ) error {
 	policy, proven, confirmAddress, claim := rules.Policy, rules.Proven, rules.ConfirmAddress, rules.CodeAddress
 	base := *req
-	var v verdict
+	var (
+		v     verdict
+		wrote bool
+	)
 	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
-		// Each run starts from the resolved request.
-		*req, v = base, verdict{}
+		// Each run starts from the resolved request, nothing written.
+		*req, v, wrote = base, verdict{}, false
 
 		user, err := d.UserIn(ctx, tx, req.UserID)
 		if err != nil {
@@ -2227,13 +2239,9 @@ func decideAndInsert[Tx any](
 				return err
 			}
 		}
-		if v.proceeds() && claim != nil && !user.EmailConfirmed {
-			wrote, err := d.VerifyUserEmailIfHeldIn(ctx, tx, user.ID, claim.Held, claim.Email)
-			if err != nil {
-				return errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
-			}
-			if !wrote {
-				v = verdict{stop: codeAddressGone(user.ID, claim)}
+		if v.proceeds() && claim != nil {
+			if v.stop, wrote, err = codeAddressWrite(ctx, d, tx, user, claim); err != nil {
+				return err
 			}
 		}
 		if v.proceeds() {
@@ -2254,8 +2262,41 @@ func decideAndInsert[Tx any](
 
 		return errors.Wrap(err, "Driver.Transact()")
 	}
+	if wrote {
+		claim.Written = true
+	}
 
 	return v.err()
+}
+
+// codeAddressWrite writes the address the account's own code confirms (claim) on user,
+// confirmed, while the account still holds what it held when the code was checked and
+// no other account holds the address (Driver.VerifyUserEmailIfHeldIn), and reports that
+// it wrote. A user who already holds a confirmed address is written nothing, and goes
+// ahead only while the account still holds the code's address: one that confirmed
+// another address after the code was checked is not the one the code was mailed to.
+// stop is the code_expired refusal where the code no longer stands (codeAddressGone).
+func codeAddressWrite[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *dbtype.User, claim *dbtype.CodeAddress) (stop error, wrote bool, err error) {
+	if user.EmailConfirmed {
+		holder, err := d.UserByEmailIn(ctx, tx, claim.Email)
+		if err != nil {
+			return nil, false, errors.Wrap(err, "Driver.UserByEmailIn()")
+		}
+		if holder == nil || holder.ID != user.ID {
+			return codeAddressGone(user.ID, claim), false, nil
+		}
+
+		return nil, false, nil
+	}
+	wrote, err = d.VerifyUserEmailIfHeldIn(ctx, tx, user.ID, claim.Held, claim.Email)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
+	}
+	if !wrote {
+		return codeAddressGone(user.ID, claim), false, nil
+	}
+
+	return nil, true, nil
 }
 
 // verdict is decideSignIn's answer. The zero verdict lets the sign-in go ahead. A

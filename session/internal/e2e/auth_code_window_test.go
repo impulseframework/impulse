@@ -225,15 +225,15 @@ func runCodeWindowSeams[Tx any](t *testing.T, be backend[Tx]) {
 		}{
 			{
 				name: shape.name + ": the password changed while the sign-in waited refuses the right code, and the account's address is as it was",
-				run:  seamRefusedAfterTheCode(shape.holding, changesThePassword[Tx]),
+				run:  seamRefusedAfterTheCode(shape.holding, changesThePassword[Tx], ""),
 			},
 			{
 				name: shape.name + ": the user disabled while the sign-in waited is refused the right code, and the account's address is as it was",
-				run:  seamRefusedAfterTheCode(shape.holding, disablesTheUser[Tx]),
+				run:  seamRefusedAfterTheCode(shape.holding, disablesTheUser[Tx], "user_disabled"),
 			},
 			{
 				name: shape.name + ": the policy that denies the completion refuses the right code, and the account's address is as it was",
-				run:  seamRefusedAfterTheCode(shape.holding, deniesTheCompletion[Tx]),
+				run:  seamRefusedAfterTheCode(shape.holding, deniesTheCompletion[Tx], ""),
 			},
 			{
 				name: shape.name + ": a tenant switched to directory only while a member's sign-in waited refuses the right code with directory_only, and the account's address is as it was",
@@ -405,8 +405,8 @@ func (a *authApp[Tx]) heldForTheCode(ctx context.Context, t *testing.T, b *brows
 }
 
 // refusedTheRightCode fails unless entering code in b is refused, with wantCode where it
-// is not "", and leaves no session in the browser.
-func refusedTheRightCode(ctx context.Context, t *testing.T, b *browser, code, wantCode string) {
+// is not "", and leaves no session in the browser. It returns the refusal's body.
+func refusedTheRightCode(ctx context.Context, t *testing.T, b *browser, code, wantCode string) []byte {
 	t.Helper()
 
 	status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
@@ -416,6 +416,8 @@ func refusedTheRightCode(ctx context.Context, t *testing.T, b *browser, code, wa
 	if status, body := b.do(ctx, http.MethodGet, "/whoami", nil); status != http.StatusUnauthorized {
 		t.Errorf("the browser's session = %d %s, want none", status, body)
 	}
+
+	return body
 }
 
 // seamRefusedAfterTheCode: pat proved the account's password, and the sign-in waits for
@@ -423,8 +425,10 @@ func refusedTheRightCode(ctx context.Context, t *testing.T, b *browser, code, wa
 // or at the address pat gives at the step, where the account holds none. move is made
 // while the sign-in waits, once the code is mailed. The right code is then refused, no
 // session starts, and the account's address is as it was before the sign-in: the
-// address a code confirms is written with the session or not at all.
-func seamRefusedAfterTheCode[Tx any](holding bool, move func(ctx context.Context, t *testing.T, a *codeWindowApp[Tx], pat impulse.UUID)) func(ctx context.Context, t *testing.T, be backend[Tx]) {
+// address a code confirms is written with the session or not at all. The refusal is
+// wantCode where it is not "", and never code_expired: the code was good, and the
+// sign-in was refused for what move did.
+func seamRefusedAfterTheCode[Tx any](holding bool, move func(ctx context.Context, t *testing.T, a *codeWindowApp[Tx], pat impulse.UUID), wantCode string) func(ctx context.Context, t *testing.T, be backend[Tx]) {
 	return func(ctx context.Context, t *testing.T, be backend[Tx]) {
 		a := newCodeWindowApp(ctx, t, be)
 		const address = "pat@lakeside.edu"
@@ -441,7 +445,9 @@ func seamRefusedAfterTheCode[Tx any](holding bool, move func(ctx context.Context
 		code := a.heldForTheCode(ctx, t, b, "pat", address, holding)
 		move(ctx, t, a, pat)
 
-		refusedTheRightCode(ctx, t, b, code, "")
+		if body := refusedTheRightCode(ctx, t, b, code, wantCode); strings.Contains(string(body), `"code":"code_expired"`) {
+			t.Errorf("verify of the right code = %s, want a refusal other than code_expired", body)
+		}
 		a.holds(ctx, t, pat, before)
 	}
 }

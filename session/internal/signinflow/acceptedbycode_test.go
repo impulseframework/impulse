@@ -268,7 +268,8 @@ func TestInvitedCodeMessage(t *testing.T) {
 // the account still holds it as it held it when the code was checked: otherwise the code
 // no longer stands (code_expired) and the invitation stands. The acceptance is made
 // before the policy decides, so the policy sees what it gave: a sign-in the policy then
-// denies or holds leaves the invitation accepted and the address written.
+// denies or holds leaves the invitation accepted and the address written, and the claim
+// says so (Written) wherever the acceptance wrote it.
 func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
 	t.Parallel()
 
@@ -407,6 +408,9 @@ func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
 			}
 			if got := store.users[id]; got.email != tt.wantAddress || got.confirmed != tt.wantConfirmed {
 				t.Errorf("the account holds %q (confirmed %t), want %q (confirmed %t)", got.email, got.confirmed, tt.wantAddress, tt.wantConfirmed)
+			}
+			if claim := rules.CodeAddress; claim != nil && claim.Written != tt.wantAccepted {
+				t.Errorf("CodeAddress.Written = %t, want %t: the acceptance on the account's own code writes its address", claim.Written, tt.wantAccepted)
 			}
 		})
 	}

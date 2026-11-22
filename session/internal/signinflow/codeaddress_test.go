@@ -41,7 +41,10 @@ func addressOf(address string) *string {
 // time the session would be inserted refuses the sign-in with code_expired and writes
 // nothing. The account's own spelling of the address it holds is kept; an address typed
 // at the step is written where the account holds none; a user who has already
-// confirmed an address is written nothing.
+// confirmed an address is written nothing, and goes ahead only while the account still
+// holds the code's address: one that confirmed another address after the code was
+// checked is refused with code_expired. The claim says it was written (Written) exactly
+// where the transaction that wrote it committed.
 func TestSignIn_aCodesAddressIsWrittenWithTheSessionOrNotAtAll(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +128,11 @@ func TestSignIn_aCodesAddressIsWrittenWithTheSessionOrNotAtAll(t *testing.T) {
 			name:    "a user who has already confirmed an address is written nothing",
 			address: typed, confirmed: true, proof: proof, claim: &dbtype.CodeAddress{Held: addressOf(typed), Email: typed},
 			wantAddress: typed, wantConfirmed: true,
+		},
+		{
+			name:    "a user who confirmed another address after the code was checked: refused, and nothing is written",
+			address: "pat@elsewhere.example", confirmed: true, proof: proof, claim: &dbtype.CodeAddress{Held: addressOf(typed), Email: typed},
+			wantErr: wantRefusal(sessioninfo.RefusedCodeExpired), wantAddress: "pat@elsewhere.example", wantConfirmed: true,
 		},
 		{
 			name:  "the password changed since it was proved: the address is as it was",
@@ -219,6 +227,11 @@ func TestSignIn_aCodesAddressIsWrittenWithTheSessionOrNotAtAll(t *testing.T) {
 			}
 			if d.writes != tt.wantWrites {
 				t.Errorf("the flow tried %d write(s) of the code's address, want %d", d.writes, tt.wantWrites)
+			}
+			// The address was written exactly where a write was tried and a session
+			// started: the write and the session commit together.
+			if wantWritten := tt.wantWrites == 1 && tt.wantErr == nil; tt.claim.Written != wantWritten {
+				t.Errorf("CodeAddress.Written = %t, want %t", tt.claim.Written, wantWritten)
 			}
 			if tt.link {
 				linked, ok := store.links[linkKey(outside.Method, outside.Connection, outside.Subject)]
@@ -406,6 +419,9 @@ func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testin
 			}
 			if inv != nil && (inv.Accepted || !store.invitations[inv.ID]) {
 				t.Errorf("Invitation.Accepted = %t, still live = %t, want the invitation standing", inv.Accepted, store.invitations[inv.ID])
+			}
+			if tt.claim != nil && tt.claim.Written {
+				t.Error("CodeAddress.Written = true, want false: nothing committed")
 			}
 		})
 	}
