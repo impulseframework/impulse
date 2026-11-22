@@ -633,10 +633,14 @@ func (r *reading) of(typed string) string {
 // capital is in ASCII (the dotless ı) as that letter in lower case, a mark NFC left on its own
 // dropped when it is one a person may leave off (leftOff), a chandrabindu as an anusvara, and
 // any other character as its stand-in, a vowel sign or tone mark that a script types as a
-// character of its own (Thai, Hindi) among them.
+// character of its own (Thai, Hindi) among them. A spelling from either table is written in
+// the case of the word it stands in (inCase).
 func (r *reading) as(typed string, how spelling) string {
 	var text strings.Builder
-	for _, c := range norm.NFC.String(typed) {
+	// typed is a password cut to MaxJudged characters or a detail cut to maxDetail, so the
+	// slice is small.
+	chars := []rune(norm.NFC.String(typed))
+	for i, c := range chars {
 		if c < utf8.RuneSelf {
 			text.WriteRune(c)
 
@@ -644,7 +648,7 @@ func (r *reading) as(typed string, how spelling) string {
 		}
 		// Before baseOf, since ä, ö, ü and å have a letter they are written on.
 		if second, ok := alsoSpelledInASCII[c]; ok && how == spelledSecond {
-			text.WriteString(second)
+			text.WriteString(inCase(second, chars, i))
 
 			continue
 		}
@@ -658,7 +662,7 @@ func (r *reading) as(typed string, how spelling) string {
 				// A letter read as two counts once toward the strength.
 				text.WriteByte(r.standInOf(c))
 			} else {
-				text.WriteString(spelled)
+				text.WriteString(inCase(spelled, chars, i))
 			}
 
 			continue
@@ -681,6 +685,32 @@ func (r *reading) as(typed string, how spelling) string {
 	return text.String()
 }
 
+// inCase is spelling, the plain letters the letter chars[i] is written as, in the case of the
+// word it stands in. The word's case is the case of the letter after it, or of the letter
+// before it when no letter comes after; with no letter beside it, the spelling is as the table
+// has it. A capital in a word not typed in capitals keeps one capital (Ü is Ue in Übel and UE
+// in ÜBEL): two capitals where a person typed one would cost the estimate a capital nobody
+// typed. A ß has no capital on a keyboard, so in a word typed in capitals it is SS.
+func inCase(spelling string, chars []rune, i int) string {
+	var beside rune
+	switch {
+	case i+1 < len(chars) && unicode.IsLetter(chars[i+1]):
+		beside = chars[i+1]
+	case i > 0 && unicode.IsLetter(chars[i-1]):
+		beside = chars[i-1]
+	default:
+		return spelling
+	}
+	switch c := chars[i]; {
+	case c == 'ß' && unicode.IsUpper(beside):
+		return strings.ToUpper(spelling)
+	case unicode.IsUpper(c) && !unicode.IsUpper(beside):
+		return spelling[:1] + strings.ToLower(spelling[1:])
+	default:
+		return spelling
+	}
+}
+
 // leftOff says whether the mark c is one a person may leave off, so it is no character: a
 // mark Unicode gives no script of its own (an accent typed apart from a letter it does not
 // combine with), a point of Hebrew, Arabic or Syriac, scripts usually written without them,
@@ -696,7 +726,8 @@ func leftOff(c rune) bool {
 
 // spelledInASCII are the letters Unicode does not take apart that people also write in plain
 // letters, with that spelling, in either case: one letter for ł, ø, đ, ð and ħ, two for ß, æ,
-// œ and þ (the letters read as two).
+// œ and þ (the letters read as two). A capital's two letters are as written in a word in
+// capitals; inCase writes them for any other.
 var spelledInASCII = map[rune]string{
 	'ß': "ss", 'ẞ': "SS",
 	'ł': "l", 'Ł': "L",
@@ -711,7 +742,8 @@ var spelledInASCII = map[rune]string{
 
 // alsoSpelledInASCII are the letters people write in plain letters two ways, with the longer
 // spelling, in either case; the shorter is the letter itself (u for ü) or spelledInASCII's
-// (o for ø).
+// (o for ø). A capital's two letters are as written in a word in capitals; inCase writes them
+// for any other.
 var alsoSpelledInASCII = map[rune]string{
 	'ä': "ae", 'Ä': "AE",
 	'ö': "oe", 'Ö': "OE",
