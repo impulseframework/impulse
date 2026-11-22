@@ -2,6 +2,7 @@ import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ApiDescriptor } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { ThemeService } from '@impulseframework/resource-angular/ui-theme';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import {
@@ -12,10 +13,12 @@ import {
   specDescriptor,
   specTransport,
 } from './frame-testing';
+import { ShownEntry } from './menu';
 import { initialsOf, PersonMenuComponent } from './person-menu.component';
 
 // The person's menu holds what is theirs: their account page, their API keys where the
-// application issues tokens, the application's own entries, Appearance, and Sign out last. Both pages are every place's: they open where the person is.
+// application issues tokens, the application's own entries, Appearance, and Sign out last.
+// Both pages are every place's: they open where the person is.
 
 interface Setup {
   methods?: Record<string, unknown>;
@@ -233,6 +236,30 @@ describe('PersonMenuComponent', () => {
     await open({ descriptor: issuingDescriptor });
     expect(labels()).toEqual([['Your account', 'Your API keys'], ['Appearance'], ['Sign out']]);
     expect(fixture.componentInstance.groups()[0]?.entries[1]?.link).toEqual(['api-keys']);
+  });
+
+  it('offers Light, Dark and Match my device under Appearance, the one in force checked, and follows the device on the third', async () => {
+    await open({});
+    const schemes = (): readonly ShownEntry[] =>
+      fixture.componentInstance
+        .groups()
+        .flatMap((group) => group.entries)
+        .find((entry) => entry.label === 'Appearance')?.groups?.[0]?.entries ?? [];
+    const checked = (): [string, boolean | undefined][] => schemes().map((entry) => [entry.label, entry.checked]);
+    expect(checked()).toEqual([
+      ['Light', true],
+      ['Dark', false],
+      ['Match my device', false],
+    ]);
+    const device = schemes()[2];
+    expect(device?.icon).toBe('devices');
+    device?.run?.();
+    expect(TestBed.inject(ThemeService).scheme()).toBe('device');
+    expect(checked()).toEqual([
+      ['Light', false],
+      ['Dark', false],
+      ['Match my device', true],
+    ]);
   });
 
   it("puts the application's own entries above Appearance", async () => {

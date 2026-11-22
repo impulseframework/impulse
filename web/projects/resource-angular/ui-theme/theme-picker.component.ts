@@ -5,9 +5,9 @@ import { ColorScheme, ThemeService } from './theme.service';
 
 /**
  * The control for the look a person chooses, for the page an application keeps a person's
- * own settings on: Light or Dark, and, when the application offers more than one palette,
- * the palettes by name, each with a swatch of its primary color. A choice applies as it is
- * made and is remembered by ThemeService; there is nothing to save.
+ * own settings on: Light, Dark or Match my device, and, when the application offers more
+ * than one palette, the palettes by name, each with a swatch of its primary color. A choice
+ * applies as it is made and is remembered by ThemeService; there is nothing to save.
  *
  *     <impulse-theme-picker />
  */

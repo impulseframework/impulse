@@ -96,11 +96,11 @@ export const appConfig: ApplicationConfig = {
     // refuses this one's release.
     provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
     provideAppUpdate(),
-    // The look the person chose, light or dark, applied before the first page renders,
-    // remembered in the browser and kept with the person's account, so it follows them
-    // to another device (the frame writes it there); Appearance in the person's menu is
-    // where they choose. The portal offers one palette (theme.scss), so no palette is
-    // named here.
+    // The look the person chose, light, dark or as their device is set, applied before
+    // the first page renders, remembered in the browser and kept with the person's
+    // account, so it follows them to another device (the frame writes it there);
+    // Appearance in the person's menu is where they choose. The portal offers one palette
+    // (theme.scss), so no palette is named here.
     provideTheme(),
   ],
 };

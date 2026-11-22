@@ -51,6 +51,13 @@ describe('ThemeService', () => {
     expect(root().getAttribute('data-palette')).toBe('workspace');
   });
 
+  it('applies a remembered choice of the device at start', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ scheme: 'device', palette: 'workspace' }));
+    const theme = start();
+    expect(theme.scheme()).toBe('device');
+    expect(root().style.getPropertyValue('color-scheme')).toBe('light dark');
+  });
+
   const fallbacks: { name: string; raw: string; scheme: string; palette: string }[] = [
     {
       name: 'a palette no longer offered',
@@ -84,6 +91,15 @@ describe('ThemeService', () => {
     theme.setPalette('workspace');
     expect(root().getAttribute('data-palette')).toBe('workspace');
     expect(remembered()).toEqual({ scheme: 'dark', palette: 'workspace' });
+  });
+
+  it("follows the device on the person's choice of it: both schemes on the root, the browser drawing the device's", () => {
+    const theme = start();
+    theme.setScheme('device');
+    expect(theme.scheme()).toBe('device');
+    expect(root().style.getPropertyValue('color-scheme')).toBe('light dark');
+    expect(remembered()).toEqual({ scheme: 'device', palette: 'blue' });
+    expect(theme.chosen()).toEqual({ scheme: 'device', palette: 'blue' });
   });
 
   it('ignores a palette the application does not offer', () => {
@@ -145,6 +161,15 @@ describe('ThemeService', () => {
       expect(theme.chosen()).toBeUndefined();
     });
 
+    it('that follows the device is applied and remembered, and is not a change the person made here', () => {
+      const theme = start();
+      theme.adopt({ scheme: 'device' });
+      expect(theme.scheme()).toBe('device');
+      expect(root().style.getPropertyValue('color-scheme')).toBe('light dark');
+      expect(remembered()).toEqual({ scheme: 'device', palette: 'blue' });
+      expect(theme.chosen()).toBeUndefined();
+    });
+
     const partial: { name: string; choice: Record<string, unknown>; scheme: string; palette: string }[] = [
       { name: 'a scheme alone leaves the palette', choice: { scheme: 'dark' }, scheme: 'dark', palette: 'blue' },
       {
@@ -160,7 +185,7 @@ describe('ThemeService', () => {
         palette: 'blue',
       },
       {
-        name: 'a scheme that is neither is left out',
+        name: 'a scheme that is none of the three is left out',
         choice: { scheme: 'sepia', palette: 'workspace' },
         scheme: 'light',
         palette: 'workspace',

@@ -15,10 +15,10 @@ export interface SessionInfo {
    */
   name?: string | null;
   /**
-   * The look the person chose, light or dark and one of the palettes the application
-   * offers, when their account holds one: what their pages are drawn in on every browser
-   * they sign in from. The frame applies it once the session is checked and writes the
-   * person's next change back (`api.auth.changeLook`).
+   * The look the person chose, light, dark or as their device is set, and one of the
+   * palettes the application offers, when their account holds one: what their pages are
+   * drawn in on every browser they sign in from. The frame applies it once the session is
+   * checked and writes the person's next change back (`api.auth.changeLook`).
    */
   look?: Look | null;
   /**

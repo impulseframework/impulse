@@ -200,9 +200,9 @@ export interface LoginMethods {
   readonly changeName?: string;
   /**
    * The path where a signed-in person's pages keep the look the person chose
-   * (`changeLook()`): light or dark, and one of the palettes the application offers, kept
-   * with the account so it follows the person to every browser. Absent on a server that
-   * does not serve it.
+   * (`changeLook()`): light, dark or as their device is set, and one of the palettes the
+   * application offers, kept with the account so it follows the person to every browser.
+   * Absent on a server that does not serve it.
    */
   readonly changeLook?: string;
   /**
@@ -391,12 +391,13 @@ export interface LinkedDirectory {
 export type NameChangeResult = { readonly outcome: 'changed'; readonly name?: string } | SignInRefusal;
 
 /**
- * The look a person chose for the application's pages: light or dark, and the id of one
- * of the palettes the application offers. Either half may be absent, for none chosen. The
- * session read carries it (`look`) when the account holds one.
+ * The look a person chose for the application's pages: light, dark or as their device is
+ * set (`device`, under which a page is drawn light or dark as the device it is on is set),
+ * and the id of one of the palettes the application offers. Either half may be absent,
+ * for none chosen. The session read carries it (`look`) when the account holds one.
  */
 export interface Look {
-  readonly scheme?: 'light' | 'dark';
+  readonly scheme?: 'light' | 'dark' | 'device';
   readonly palette?: string;
 }
 
@@ -404,7 +405,7 @@ export interface Look {
  * What keeping a person's look resolves to: `changed` with the look as the server keeps
  * it (the palette's id without the space around it, a half absent where the person now
  * holds none), or the server's refusal, resolved rather than thrown, with its words: the
- * scheme is neither light nor dark, the palette's id is too long, or the session is an
+ * scheme is not light, dark or device, the palette's id is too long, or the session is an
  * impersonation.
  */
 export type LookChangeResult = { readonly outcome: 'changed'; readonly look: Look } | SignInRefusal;
@@ -611,10 +612,10 @@ interface LookAnswer {
   palette?: string | null;
 }
 
-/** The look in an answer, keeping only what is one: a scheme that is light or dark, a palette id that is not empty. */
+/** The look in an answer, keeping only what is one: a scheme that is light, dark or device, a palette id that is not empty. */
 function lookOf(answer: LookAnswer | null | undefined): Look {
-  const look: { scheme?: 'light' | 'dark'; palette?: string } = {};
-  if (answer?.scheme === 'light' || answer?.scheme === 'dark') {
+  const look: { scheme?: Look['scheme']; palette?: string } = {};
+  if (answer?.scheme === 'light' || answer?.scheme === 'dark' || answer?.scheme === 'device') {
     look.scheme = answer.scheme;
   }
   if (typeof answer?.palette === 'string' && answer.palette !== '') {

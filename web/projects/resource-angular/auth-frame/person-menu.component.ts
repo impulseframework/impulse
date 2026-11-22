@@ -155,6 +155,12 @@ export class PersonMenuComponent {
                     checked: scheme === 'dark',
                     run: () => this.theme.setScheme('dark'),
                   },
+                  {
+                    label: 'Match my device',
+                    icon: 'devices',
+                    checked: scheme === 'device',
+                    run: () => this.theme.setScheme('device'),
+                  },
                 ],
               },
               ...(this.theme.palettes.length > 1

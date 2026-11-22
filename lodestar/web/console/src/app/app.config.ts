@@ -145,11 +145,11 @@ export const appConfig: ApplicationConfig = {
     // Demonstrates: webapp.installable, webapp.update-notice.
     provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
     provideAppUpdate(),
-    // The look the person chose, light or dark and one of the palettes named here, the
-    // ids of theme.scss's palette map in the same order, applied before the first page
-    // renders, remembered in the browser and kept with the person's account, so it
-    // follows them to another device (the frame writes it there); Appearance in the
-    // person's menu is where they choose.
+    // The look the person chose, light, dark or as their device is set, and one of the
+    // palettes named here, the ids of theme.scss's palette map in the same order, applied
+    // before the first page renders, remembered in the browser and kept with the person's
+    // account, so it follows them to another device (the frame writes it there);
+    // Appearance in the person's menu is where they choose.
     //
     // Demonstrates: webapp.theme-choice.
     provideTheme({
