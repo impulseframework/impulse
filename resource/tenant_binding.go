@@ -323,7 +323,7 @@ func transactionPointReader(txn ReadWriteTransaction, notImplemented string) poi
 }
 
 // read answers column of the row of table whose keyColumn holds value (pointReader).
-func (r *transactionReader) read(ctx context.Context, table, keyColumn string, value any, column string) (any, bool, error) {
+func (r *transactionReader) read(ctx context.Context, table, keyColumn string, value any, column string) (next any, found bool, err error) {
 	spelled, err := columnText(value)
 	if err != nil {
 		return nil, false, errors.Wrapf(err, "%s.%s", table, keyColumn)
@@ -365,7 +365,7 @@ func (r *transactionReader) querier() (spxapi.Querier, error) {
 
 // stored answers a read that names no buffered row: what the transaction read before,
 // then the database, whose answer it remembers.
-func (r *transactionReader) stored(ctx context.Context, read pointRead, value any) (any, bool, error) {
+func (r *transactionReader) stored(ctx context.Context, read pointRead, value any) (next any, found bool, err error) {
 	if r.rows != nil {
 		if answer, ok := r.rows.remembered(read); ok {
 			return answer.value, answer.found, nil
@@ -375,7 +375,7 @@ func (r *transactionReader) stored(ctx context.Context, read pointRead, value an
 	if err != nil || querier == nil {
 		return nil, false, err
 	}
-	next, found, err := spannerPointRead(ctx, querier, read.table, read.keyColumn, value, read.column)
+	next, found, err = spannerPointRead(ctx, querier, read.table, read.keyColumn, value, read.column)
 	if err != nil {
 		return nil, false, err
 	}
@@ -388,7 +388,7 @@ func (r *transactionReader) stored(ctx context.Context, read pointRead, value an
 
 // storedByKey answers column of a buffered row no buffered write of which says it: the
 // stored row's, read by the row's key by column and remembered by its spelling.
-func (r *transactionReader) storedByKey(ctx context.Context, table string, write bufferedColumns, column string) (any, bool, error) {
+func (r *transactionReader) storedByKey(ctx context.Context, table string, write bufferedColumns, column string) (next any, found bool, err error) {
 	read := keyedRead{table: table, key: write.keyText, column: column}
 	if answer, ok := r.rows.keyReads[read]; ok {
 		return answer.value, answer.found, nil
@@ -427,36 +427,15 @@ func (r *transactionReader) storedByKey(ctx context.Context, table string, write
 // database names the row under the value by its key, read once with the column and
 // remembered, and a buffered write of that row answers with its newest say on the
 // column (ownColumn); otherwise the column just read answers.
-func (r *transactionReader) namedByDatabase(ctx context.Context, read pointRead, value any, keyColumns []string) (any, bool, error) {
+func (r *transactionReader) namedByDatabase(ctx context.Context, read pointRead, value any, keyColumns []string) (next any, found bool, err error) {
 	row, ok := r.rows.rowReads[read]
 	if !ok {
-		querier, err := r.querier()
-		if err != nil || querier == nil {
+		var querier spxapi.Querier
+		if querier, err = r.querier(); err != nil || querier == nil {
 			return nil, false, err
 		}
-		selected := make([]string, 0, len(keyColumns)+1)
-		for _, keyColumn := range keyColumns {
-			selected = append(selected, "`"+keyColumn+"`")
-		}
-		selected = append(selected, "`"+read.column+"`")
-		stmt := spanner.Statement{
-			SQL:    "SELECT " + strings.Join(selected, ", ") + " FROM `" + read.table + "` WHERE `" + read.keyColumn + "` = @value",
-			Params: map[string]any{"value": value},
-		}
-		values, found, err := spannerFirstRow(ctx, querier, stmt)
-		if err != nil {
+		if row, err = spannerRowByValue(ctx, querier, read, value, keyColumns); err != nil {
 			return nil, false, err
-		}
-		if found {
-			key := make(map[string]any, len(keyColumns))
-			for i, keyColumn := range keyColumns {
-				key[keyColumn] = values[i]
-			}
-			keyText, err := keySpelling(key)
-			if err != nil {
-				return nil, false, errors.Wrapf(err, "the key of a row of %s", read.table)
-			}
-			row = storedRow{found: true, key: keyText, value: values[len(keyColumns)]}
 		}
 		r.rows.rowReads[read] = row
 	}
@@ -472,13 +451,45 @@ func (r *transactionReader) namedByDatabase(ctx context.Context, read pointRead,
 	return row.value, true, nil
 }
 
+// spannerRowByValue reads the row of the read's table whose key column holds value, the
+// value bound in its own type: its key columns, spelled as one key (keySpelling), and
+// the read's column as Spanner returned it.
+func spannerRowByValue(ctx context.Context, querier spxapi.Querier, read pointRead, value any, keyColumns []string) (row storedRow, err error) {
+	selected := make([]string, 0, len(keyColumns)+1)
+	for _, keyColumn := range keyColumns {
+		selected = append(selected, "`"+keyColumn+"`")
+	}
+	selected = append(selected, "`"+read.column+"`")
+	stmt := spanner.Statement{
+		SQL:    "SELECT " + strings.Join(selected, ", ") + " FROM `" + read.table + "` WHERE `" + read.keyColumn + "` = @" + pointReadParam,
+		Params: map[string]any{pointReadParam: value},
+	}
+	values, found, err := spannerFirstRow(ctx, querier, stmt)
+	if err != nil || !found {
+		return storedRow{}, err
+	}
+	key := make(map[string]any, len(keyColumns))
+	for i, keyColumn := range keyColumns {
+		key[keyColumn] = values[i]
+	}
+	keyText, err := keySpelling(key)
+	if err != nil {
+		return storedRow{}, errors.Wrapf(err, "the key of a row of %s", read.table)
+	}
+
+	return storedRow{found: true, key: keyText, value: values[len(keyColumns)]}, nil
+}
+
+// pointReadParam names the parameter a read by a column's value binds the value to.
+const pointReadParam = "value"
+
 // spannerPointRead reads column of the row of table whose keyColumn holds value, the
 // value bound in its own type, and answers the column as Spanner returned it (a
 // spanner.GenericColumnValue), and whether there is such a row.
 func spannerPointRead(ctx context.Context, querier spxapi.Querier, table, keyColumn string, value any, column string) (next any, found bool, err error) {
 	stmt := spanner.Statement{
-		SQL:    "SELECT `" + column + "` FROM `" + table + "` WHERE `" + keyColumn + "` = @value",
-		Params: map[string]any{"value": value},
+		SQL:    "SELECT `" + column + "` FROM `" + table + "` WHERE `" + keyColumn + "` = @" + pointReadParam,
+		Params: map[string]any{pointReadParam: value},
 	}
 	values, found, err := spannerFirstRow(ctx, querier, stmt)
 	if err != nil || !found {

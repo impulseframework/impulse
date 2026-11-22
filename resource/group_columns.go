@@ -115,9 +115,9 @@ const groupColumnsNotImplemented = "holding a group a row names to the row's ten
 // pointTextStatement renders PostgreSQL's read of one column of the row a key names, as
 // text whatever the column's own type, by the key's value as text.
 func pointTextStatement(table, key, column, value string) *Statement {
-	sql := `SELECT CAST("` + column + `" AS text) FROM "` + table + `" WHERE "` + key + `" = @value`
+	sql := `SELECT CAST("` + column + `" AS text) FROM "` + table + `" WHERE "` + key + `" = @` + pointReadParam
 
-	return &Statement{SQL: sql, Params: map[string]any{"value": value}}
+	return &Statement{SQL: sql, Params: map[string]any{pointReadParam: value}}
 }
 
 // checkGroupColumns holds every group the row names to the row's tenant, before the
