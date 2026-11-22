@@ -528,15 +528,16 @@ func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *
 	return nil
 }
 
-// keepGrantedDeclaredOrder is the computed resource's rule for its declared
-// order, where the request states no sort: the handler, or the body, sorts the
-// rows by their real values and nothing masks a cell to the sort, so a field of
-// the order the caller does not hold with no condition is left out of the
-// caller's order, and the list comes in the order of the order's other terms,
-// then the key. Nothing is refused: the caller asked for no sort. The order kept
-// is a new slice, since the one the query set was given is the decoder's own,
-// shared by every request.
-func (q *QuerySet[Resource]) keepGrantedDeclaredOrder(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions) error {
+// settleDeclaredOrder is the computed resource's rule for its declared order,
+// where the request states no sort. A field of the order the caller may not read
+// is left out of the caller's order, and the list comes in the order of the
+// order's other terms, then the key. A field the caller holds under a condition
+// stays, and its condition is kept on the plan (rowConditions.order): the handler
+// sorts a row by the field's value where the condition holds for the row, and as a
+// row with no value where it does not (Collect). Nothing is refused: the caller
+// asked for no sort. The order kept is a new slice, since the one the query set
+// was given is the decoder's own, shared by every request.
+func (q *QuerySet[Resource]) settleDeclaredOrder(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions, plan *rowConditions) error {
 	fields := q.declaredOrderFields()
 	if len(fields) == 0 {
 		return nil
@@ -548,15 +549,25 @@ func (q *QuerySet[Resource]) keepGrantedDeclaredOrder(ctx context.Context, rSet 
 	kept := make([]SortField, 0, len(q.defaultOrder))
 	for _, sf := range q.defaultOrder {
 		field := q.grantField(accesstypes.Field(sf.Field))
-		at := slices.IndexFunc(decided, func(qf queryField) bool { return qf.field == field })
-		if at >= 0 && !decisions[decided[at].res].IsGranted() {
-			continue
+		if at := slices.IndexFunc(decided, func(qf queryField) bool { return qf.field == field }); at >= 0 {
+			res := decided[at].res
+			switch decision := decisions[res]; {
+			case decision.IsGranted():
+			case decision.IsConditional():
+				expr, err := conditionalExpr(res, decision)
+				if err != nil {
+					return err
+				}
+				plan.order = append(plan.order, fieldCondition{field: accesstypes.Field(sf.Field), expr: expr})
+			default:
+				continue
+			}
 		}
 		kept = append(kept, sf)
 	}
 	if len(kept) == 0 {
 		// An order with no term left is still the key's: Order() appends the
-		// key to an order it is given, and to none.
+		// key to an order it is given, and to no empty one.
 		for _, key := range q.keyFields {
 			kept = append(kept, SortField{Field: string(key), Direction: SortAscending})
 		}

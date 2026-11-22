@@ -3,6 +3,7 @@ package resource
 import (
 	"iter"
 	"reflect"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -28,7 +29,9 @@ import (
 // ascending and last descending, PostgreSQL the reverse — so a plain ORDER BY in
 // the body's query produces it with no NULL handling of its own, and the
 // handler's sort and page boundary follow the same placement whenever they still
-// run.
+// run. Where the caller holds a field of the declared order under a condition, the
+// handler sorts the yielded rows again over what the caller may see, so the body's
+// own order does not decide the page.
 func (q *QuerySet[Resource]) TakeSort() []SortField {
 	q.sortTaken = true
 
@@ -123,19 +126,20 @@ func decodeBoundary(rowType reflect.Type, order []SortField, keys []*string) ([]
 // listed and not counted, and a field it refuses is left out of the row
 // (Page.RowFields). A whole list (limit=all, or a key-less list) with no sort
 // asked and no order declared is not sorted: the rows keep the order the body
-// yielded them in, after the filter. The sort and the cursor position place NULL
-// where the application's database does (the type the computed decoder stamped),
-// so they agree with the rows a body's plain ORDER BY yields; a QuerySet no
-// computed decoder produced is refused.
+// yielded them in, after the filter. The sort is over what the caller may see:
+// where the caller holds a field of the declared order under a condition a row
+// does not meet, the row sorts as one with no value in the field, and the rows of
+// a body that took that order are sorted again. The sort and the cursor position
+// place NULL where the application's database does (the type the computed
+// decoder stamped), so they agree with the rows a body's plain ORDER BY yields; a
+// QuerySet no computed decoder produced is refused.
 func (q *QuerySet[Resource]) Collect(rows iter.Seq2[*Resource, error]) (*Page[Resource], error) {
 	if q.dbType == "" {
 		return nil, errors.New("resource.QuerySet.Collect: the query set carries no database type; a computed query set comes from a ComputedQueryDecoder, which stamps it")
 	}
 	filter := q.Filter()
 	var kept []*Resource
-	// hidden holds, for a row shown without some of its projected fields, those
-	// fields; a row shown whole has no entry.
-	var hidden map[*Resource][]accesstypes.Field
+	judged := &rowJudgments[Resource]{}
 	for row, err := range rows {
 		if err != nil {
 			return nil, err
@@ -154,13 +158,12 @@ func (q *QuerySet[Resource]) Collect(rows iter.Seq2[*Resource, error]) (*Page[Re
 		if !ok {
 			continue
 		}
-		kept = append(kept, row)
-		if len(without) > 0 {
-			if hidden == nil {
-				hidden = make(map[*Resource][]accesstypes.Field)
-			}
-			hidden[row] = without
+		blank, err := q.blankOrderFields(row)
+		if err != nil {
+			return nil, err
 		}
+		kept = append(kept, row)
+		judged.note(row, without, blank)
 	}
 
 	page := q.Page()
@@ -169,41 +172,93 @@ func (q *QuerySet[Resource]) Collect(rows iter.Seq2[*Resource, error]) (*Page[Re
 		page.total = &total
 	}
 
-	if order := q.readOrder(); !q.sortTaken && len(order) > 0 {
-		if err := SortRows(kept, order, q.dbType); err != nil {
+	blanking := q.rowConditions != nil && len(q.rowConditions.order) > 0
+	if order := q.readOrder(); len(order) > 0 && (!q.sortTaken || blanking) {
+		if err := sortRowsBlanking(kept, order, q.dbType, judged.blank); err != nil {
 			return nil, err
 		}
 	}
 	if q.cursor != nil && !q.pageTaken {
 		var err error
-		kept, err = q.afterBoundary(kept)
+		kept, err = q.afterBoundary(kept, judged)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	for _, row := range kept {
-		// The envelope names the cells the row is shown without. A sort key is
-		// never among them (it needs an unconditional grant), so the cursor reads
-		// its boundary off the row's real values.
-		without := hidden[row]
-		masked := make([]string, 0, len(without))
-		for _, field := range without {
-			masked = append(masked, q.jsonName(field))
-		}
-		if !page.Add(&Row[Resource]{Data: *row, masked: masked}) {
+		if !page.Add(q.envelope(row, judged)) {
 			break
 		}
 		page.rows = append(page.rows, row)
-		page.rowFields = append(page.rowFields, q.fieldsWithout(without))
+		page.rowFields = append(page.rowFields, q.fieldsWithout(judged.hidden[row]))
 	}
 
 	return page, nil
 }
 
+// rowJudgments holds what Collect's judgment leaves on each row it keeps: the
+// projected fields the row is shown without (hidden), and the fields of the
+// declared order it sorts as a row with no value in (blanks, from
+// blankOrderFields). A row with neither has no entry.
+type rowJudgments[Resource any] struct {
+	hidden map[*Resource][]accesstypes.Field
+	blanks map[*Resource][]accesstypes.Field
+}
+
+// note keeps one row's judgment.
+func (j *rowJudgments[Resource]) note(row *Resource, without, blank []accesstypes.Field) {
+	if len(without) > 0 {
+		if j.hidden == nil {
+			j.hidden = make(map[*Resource][]accesstypes.Field)
+		}
+		j.hidden[row] = without
+	}
+	if len(blank) > 0 {
+		if j.blanks == nil {
+			j.blanks = make(map[*Resource][]accesstypes.Field)
+		}
+		j.blanks[row] = blank
+	}
+}
+
+// blank reports whether the row sorts as a row with no value in the field.
+func (j *rowJudgments[Resource]) blank(row *Resource, field string) bool {
+	return slices.Contains(j.blanks[row], accesstypes.Field(field))
+}
+
+// envelope is a kept row as the page holds it. It names the cells the row is
+// shown without. A field of the declared order the row sorts as one with no value
+// in carries a NULL cursor value, so the cursor reads the boundary where the sort
+// placed the row; every other sort key is read off the row's real value (a sort
+// the request asks for needs an unconditional grant, so no cell of it is hidden).
+func (q *QuerySet[Resource]) envelope(row *Resource, judged *rowJudgments[Resource]) *Row[Resource] {
+	without := judged.hidden[row]
+	masked := make([]string, 0, len(without))
+	for _, field := range without {
+		masked = append(masked, q.jsonName(field))
+	}
+	envelope := &Row[Resource]{Data: *row, masked: masked}
+	rowType := reflect.TypeOf(row).Elem()
+	for _, field := range judged.blanks[row] {
+		declared, ok := structField(rowType, string(field))
+		if !ok {
+			continue
+		}
+		if envelope.cursorValues == nil {
+			envelope.cursorValues = make(map[accesstypes.Field]reflect.Value)
+		}
+		envelope.cursorValues[field] = reflect.Zero(reflect.PointerTo(declared.Type))
+	}
+
+	return envelope
+}
+
 // afterBoundary keeps the rows strictly after the cursor's boundary row in the
-// read order, the in-memory form of the cursor predicate.
-func (q *QuerySet[Resource]) afterBoundary(rows []*Resource) ([]*Resource, error) {
+// read order, the in-memory form of the cursor predicate. A row sorts there as it
+// sorted on the page before: as one with no value in a field it was judged blank
+// in (rowJudgments).
+func (q *QuerySet[Resource]) afterBoundary(rows []*Resource, judged *rowJudgments[Resource]) ([]*Resource, error) {
 	var r Resource
 	order := q.readOrder()
 	boundary, err := decodeBoundary(reflect.TypeOf(r), order, q.cursor.Keys)
@@ -213,7 +268,7 @@ func (q *QuerySet[Resource]) afterBoundary(rows []*Resource) ([]*Resource, error
 
 	kept := make([]*Resource, 0, len(rows))
 	for _, row := range rows {
-		after, err := rowAfter(reflect.ValueOf(row).Elem(), order, boundary, q.dbType)
+		after, err := rowAfter(reflect.ValueOf(row).Elem(), order, boundary, q.dbType, judged.blanks[row])
 		if err != nil {
 			return nil, err
 		}
@@ -228,10 +283,14 @@ func (q *QuerySet[Resource]) afterBoundary(rows []*Resource) ([]*Resource, error
 // rowAfter reports whether a row sorts strictly after the boundary values in the
 // order, with the application database's NULL placement (dbType): the one
 // SortRows uses and a plain ORDER BY in a pushdown body produces, so the rows a
-// body yielded in its own order and the rows the handler sorted page alike.
-func rowAfter(row reflect.Value, order []SortField, boundary []any, dbType DBType) (bool, error) {
+// body yielded in its own order and the rows the handler sorted page alike. A
+// field in blank is read as the row's NULL, as the handler's sort read it.
+func rowAfter(row reflect.Value, order []SortField, boundary []any, dbType DBType, blank []accesstypes.Field) (bool, error) {
 	for i, sf := range order {
 		field := fieldValue(row, sf.Field)
+		if field.IsValid() && slices.Contains(blank, accesstypes.Field(sf.Field)) {
+			field = reflect.Zero(reflect.PointerTo(field.Type()))
+		}
 		var bound reflect.Value
 		if boundary[i] != nil {
 			bound = reflect.ValueOf(boundary[i])
