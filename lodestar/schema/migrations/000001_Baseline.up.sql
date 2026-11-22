@@ -436,7 +436,7 @@ CREATE TABLE HangarPasses (
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL OR UserId = '', 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
   CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
-  CONSTRAINT FK_HangarPasses_SectorIdHangarId FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars(Id, SectorId) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_HangarIdSectorId FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars(Id, SectorId) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
 ) PRIMARY KEY (Id);
@@ -661,7 +661,7 @@ CREATE TABLE DistressRelays (
   CONSTRAINT CK_DistressRelays_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_DistressRelays_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_DistressRelays_SectorIdCaseNumber FOREIGN KEY (SectorId, CaseNumber) REFERENCES DistressCalls(SectorId, CaseNumber),
-  CONSTRAINT FK_DistressRelays_SectorIdAnswersRelayId FOREIGN KEY (AnswersRelayId, SectorId) REFERENCES DistressRelays(Id, SectorId),
+  CONSTRAINT FK_DistressRelays_AnswersRelayIdSectorId FOREIGN KEY (AnswersRelayId, SectorId) REFERENCES DistressRelays(Id, SectorId),
 ) PRIMARY KEY (Id);
 
 -- A call's page lists its relays by the case number, and a sector's relays list in the
