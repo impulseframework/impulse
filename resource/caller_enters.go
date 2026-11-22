@@ -22,11 +22,11 @@ import (
 //
 //	func (User) TenantsToEnter() resource.TenantsToEnter
 type TenantsToEnter struct {
-	// Query is one SELECT, with no WITH, of two columns, RowKey and Tenant: one row for
-	// each tenant a caller's session must enter to be offered the held methods on the row
-	// RowKey names. It is written in the dialect of the database it runs on; on
-	// PostgreSQL its two column names are written quoted (AS "RowKey", AS "Tenant"),
-	// since the statement names them quoted.
+	// Query is one query, with no WITH, of two columns, RowKey and Tenant (a SELECT, or a
+	// compound of them such as a UNION): one row for each tenant a caller's session must
+	// enter to be offered the held methods on the row RowKey names. It is written in the
+	// dialect of the database it runs on; on PostgreSQL its two column names are written
+	// quoted (AS "RowKey", AS "Tenant"), since the statement names them quoted.
 	Query string
 
 	// Params are the named parameters the query binds. None starts with an underscore,
