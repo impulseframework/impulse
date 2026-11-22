@@ -206,8 +206,10 @@ func TestGeneratedIdentityRolesAreOneList(t *testing.T) {
 // TestGeneratedIdentityHeldRolesAnswerTheRoleQuestion holds the question a list's role
 // column asks when its filter menu opens, as the browser sends it to the whole fleet's
 // list of the roles people hold: the roles named left out, the rows sorted by role, one
-// row, and the role column. Named every role the list holds but one, the list answers one
-// row, holding the role left out; named every role, it answers none.
+// row, and the role column. Asked, as the first question is while no role is known, for a
+// row whose role holds a value, the list answers one row, holding the first role in order.
+// Named every role the list holds but one, it answers one row, holding the role left out;
+// named every role, it answers none.
 func TestGeneratedIdentityHeldRolesAnswerTheRoleQuestion(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -230,10 +232,10 @@ func TestGeneratedIdentityHeldRolesAnswerTheRoleQuestion(t *testing.T) {
 		t.Fatalf("the roles the list holds = %v, want two at least", held)
 	}
 
-	ask := func(known []string) []map[string]any {
+	ask := func(filter string) []map[string]any {
 		t.Helper()
 		query := url.Values{
-			"filter":  {"role:notin:(" + strings.Join(known, ",") + ")"},
+			"filter":  {filter},
 			"sort":    {"role:asc"},
 			"limit":   {"1"},
 			"columns": {"role"},
@@ -244,12 +246,20 @@ func TestGeneratedIdentityHeldRolesAnswerTheRoleQuestion(t *testing.T) {
 		return decodeRows(t, body)
 	}
 
+	notin := func(known []string) string {
+		return "role:notin:(" + strings.Join(known, ",") + ")"
+	}
+
+	// The first question, while the browser knows no role: any row whose cell holds one.
+	if answer := ask("role:isnotnull"); len(answer) != 1 || cell[string](t, answer[0], "role") != held[0] {
+		t.Errorf("asked for a role, any, the list answered %v, want one row holding %s, the first of %v", answer, held[0], held)
+	}
 	left := held[len(held)/2]
-	answer := ask(slices.DeleteFunc(slices.Clone(held), func(role string) bool { return role == left }))
+	answer := ask(notin(slices.DeleteFunc(slices.Clone(held), func(role string) bool { return role == left })))
 	if len(answer) != 1 || cell[string](t, answer[0], "role") != left {
 		t.Errorf("asked for a role other than %v, the list answered %v, want one row holding %s", held, answer, left)
 	}
-	if answer := ask(held); len(answer) != 0 {
+	if answer := ask(notin(held)); len(answer) != 0 {
 		t.Errorf("asked for a role other than every one it holds, %v, the list answered %v, want no row", held, answer)
 	}
 }

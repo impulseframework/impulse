@@ -78,6 +78,8 @@ const metas: Record<string, ResourceMeta> = {
       // A role's name the server filters by, and one it does not.
       field('dutyRole', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
       field('reliefRole', { roles: ['Reader'] }),
+      // A role's name the server filters by, on a resource whose role file names none it may hold.
+      field('watchRole', { isIndex: true, filterable: 'always', roles: [] }),
       field('digest', { displayType: 'bytes', sortable: false }),
       field('lastRefitAt', { displayType: 'date' }),
       field('decommissioned', { displayType: 'boolean' }),
@@ -626,9 +628,12 @@ describe('ResourceListComponent', () => {
       if (refuse[asked]) {
         return refuse[asked];
       }
-      const known = notin(questions().at(-1));
+      // The column asked for is the field the question is about.
+      const field = url.searchParams.get('columns') ?? '';
+      const known =
+        new RegExp(`${field}:notin:\\(([^)]*)\\)`).exec(url.searchParams.get('filter') ?? '')?.[1].split(',') ?? [];
       const next = held.filter((role) => !known.includes(role)).sort()[0];
-      return { status: 200, body: next === undefined ? [] : [{ dutyRole: next }] };
+      return { status: 200, body: next === undefined ? [] : [{ [field]: next }] };
     };
     /** Waits until the questions stop: each answer may ask the next. */
     const quiet = async (): Promise<void> => {
@@ -643,20 +648,25 @@ describe('ResourceListComponent', () => {
     };
     const grid = (): AppGridComponent =>
       fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
-    const picks = (): string[] => (grid().filterChoices()['dutyRole'] ?? []).map((choice) => choice.label);
-    /** Opens the duty role column's filter menu by its button, waits for the questions, and closes it. */
-    const openDutyRoleMenu = async (): Promise<void> => {
+    const picks = (column = 'dutyRole'): string[] =>
+      (grid().filterChoices()[column] ?? []).map((choice) => choice.label);
+    /** Opens a column's filter menu by its button, waits for the questions, and closes it. */
+    const openMenuOf = async (header: string): Promise<void> => {
       const heading = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('th.data-col')).find(
-        (th) => th.querySelector('.col-header')?.textContent?.trim() === 'Duty Role',
+        (th) => th.querySelector('.col-header')?.textContent?.trim() === header,
       );
       const trigger = heading?.querySelector<HTMLButtonElement>('button.filter-trigger');
       if (!trigger) {
-        throw new Error('no filter button on the duty role column');
+        throw new Error(`no filter button on the column ${header}`);
       }
       trigger.click();
       await quiet();
       document.body.querySelector<HTMLElement>('.cdk-overlay-backdrop')?.click();
       await quiet();
+    };
+    /** Opens the duty role column's filter menu. */
+    const openDutyRoleMenu = async (): Promise<void> => {
+      await openMenuOf('Duty Role');
     };
     const open = async (options: Partial<ListViewConfigOptions> = {}): Promise<void> => {
       await create(
@@ -720,6 +730,22 @@ describe('ResourceListComponent', () => {
       expect(picks()).toEqual(['Night shift lead', 'Reader', 'Archive keeper', 'Dock master']);
       // The table's rows are the page's still.
       expect(fixture.componentInstance.store.page().rows).toBe(rows);
+    });
+
+    it('asks first for a cell that holds a role where the metadata lists none, then names the role answered', async () => {
+      await open({ listColumns: [{ id: 'name' as FieldName }, { id: 'watchRole' as FieldName }] });
+
+      await openMenuOf('Watch Role');
+
+      // An empty cell sorts first, and is never the answer: the first question asks for a value.
+      expect(questions().map((question) => question.get('filter'))).toEqual([
+        'watchRole:isnotnull',
+        'watchRole:notin:(ArchiveKeeper)',
+        'watchRole:notin:(ArchiveKeeper,DockMaster)',
+        'watchRole:notin:(ArchiveKeeper,DockMaster,NightShiftLead)',
+        'watchRole:notin:(ArchiveKeeper,DockMaster,NightShiftLead,Reader)',
+      ]);
+      expect(picks('watchRole')).toEqual(['Archive keeper', 'Dock master', 'Night shift lead', 'Reader']);
     });
 
     it('stops at a refusal, writing it to the console, and keeps the picks it had', async () => {

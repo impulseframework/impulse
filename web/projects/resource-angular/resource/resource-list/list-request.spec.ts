@@ -323,7 +323,7 @@ describe('rolesQuestion', () => {
       known: ['NightShiftLead', 'Reader'],
       want: 'role:notin:(NightShiftLead,Reader)',
     },
-    { name: 'nothing known, no condition', known: [], want: '' },
+    { name: 'nothing known, the field holds a value', known: [], want: 'role:isnotnull' },
     { name: 'a role is quoted where the grammar needs it', known: ['Odd,Name'], want: 'role:notin:("Odd,Name")' },
   ];
 

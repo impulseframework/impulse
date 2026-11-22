@@ -240,12 +240,13 @@ export function roleQuestionField(
 /**
  * The condition a question about a role column's roles carries: the field holds none of
  * the roles known (`<field>:notin:(...)`, by the library's own serializer), so a row the
- * server answers with holds a role the list did not know of. No condition while nothing
- * is known.
+ * server answers with holds a role the list did not know of. While nothing is known the
+ * condition is that the field holds a value (`<field>:isnotnull`), so an empty cell, which
+ * sorts first, is never the answer.
  */
 export function rolesQuestion(field: string, known: readonly string[]): string {
   if (known.length === 0) {
-    return '';
+    return serializeFilter(where<Record<string, unknown>>(field, 'isnotnull'));
   }
   return serializeFilter(where<Record<string, unknown>>(field, 'notin', [...known]));
 }
