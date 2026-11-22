@@ -243,11 +243,12 @@ DML what a later rule must read.
     since a person is one user whichever way they sign in. The link is made after a
     password confirmation when the user has a password. When the user has none and has
     never signed in, it is the user's first identity, and is made when something vouches
-    for it: at once where the method vouches for the sign-in name, and otherwise once
-    the person enters the code mailed to the address the account holds (see "A first
-    link on a name alone" below). A user with no password who
-    already signs in through an identity is linked no second one on the name, on the
-    same connection or another (see "Never a second identity on a name alone" below).
+    for it: at once where the method vouches for the sign-in name and that name is the
+    account's own, and otherwise once the person enters the code mailed to the address
+    the account holds (see "A first link on a name alone" below). A user with no
+    password who already signs in through an identity is linked no second one on the
+    name, on the same connection or another (see "Never a second identity on a name
+    alone" below).
     An address a user holds unverified is a reservation, not a match.
     The rule asks what the Auth registers. On an Auth with no password method nobody
     can enter a password, so a password a user holds there (one the API set, or one
@@ -324,16 +325,25 @@ DML what a later rule must read.
   deployment registered for itself, and no tenant to vouch for a link. There the link
   is made at once only where the method vouches for the sign-in name: Google names an
   account by its address, and answers for a Gmail address and for a Workspace
-  account's. Any other name is the provider's word alone (a Google account can be made
+  account's. The name must also be the account's own: its username as the library
+  compares two addresses (the case of ASCII letters aside, every other character as
+  written), or the address the account holds confirmed. The stores find a username more
+  widely than that (they fold Unicode's case and normalization), so a name that only
+  reads like the account's is not the account's, and waits for the code as any name the
+  method does not vouch for. Any other name is the provider's word alone (a Google account can be made
   under any address from outside Google, an identity provider's administrators give
   the names they like, and Microsoft Entra ID answers for no address), so the sign-in
   waits for the code mailed to the address the account holds, whether or not its
   person has confirmed it (`PendingMFA`, the email code its one factor, and no other
   address taken). Nothing is linked while it waits, so a sign-in that never finishes
   leaves the account as it was; the person who enters the code is linked and signed
-  in, and the code confirms the address. An account that holds no address has nowhere
-  to mail the code, and an address given at the sign-in would show only that the
-  person reads their own mail: that sign-in is refused (`identity_rejected`,
+  in, and the code confirms the address. The code mailed for an invitation links such an
+  account only where the invitation is the account's own, mailed to its username or to
+  the address it holds: a person who carries any other invitation and enters its code is
+  refused (`invitation_address`), with nothing linked and the invitation standing. An
+  account that holds no address has nowhere to mail the code, and an address given at
+  the sign-in would show only that the person reads their own mail: that sign-in is
+  refused (`identity_rejected`,
   `signin.ErrLinkNeedsAddress`) and nothing is linked, so an account made ahead of
   its person is made with their address (`CreateUserRequest.Email`). The wait is for
   the account it began with, and its code is good only for the address that account
@@ -1254,8 +1264,17 @@ the person reaches.
    invitation and no account's second factor. The wrong code that takes the twenty-fifth place, and every code asked for
    or entered after it, is `401 {"code": "invitation_spent"}`; nothing more is mailed
    for the invitation, and an administrator invites the person again. The right code
-   among the twenty-five accepts. The links, and a code asked for an address a person types at this step, are
-   counted together under another key (`MAIL:`), which anybody who knows an address can
+   among the twenty-five accepts. A code asked for an address a person types at this
+   step is held to a count of the same size, kept under the address
+   (`ADDRESS-GUESS:`). Typing an address shows nothing about who reads it, so the
+   wrong codes entered for one address are counted together, whichever account typed
+   it and in however many sign-ins, and no time resets the count. The wrong code that
+   takes the twenty-fifth place, and every code asked for or entered for that address
+   after it, is `401 {"code": "address_spent"}`; nothing more is mailed to the address
+   from this step. The right code resets the count. A person whose address is spent
+   asks an administrator to put it on their account: the code then goes to the
+   address the account holds, which nobody types. The links, and a code asked for an
+   address a person types at this step, are counted together under another key (`MAIL:`), which anybody who knows an address can
    run up. So nothing a stranger asks for in a person's name, or with a link that was
    mailed to them, holds up the codes that person signs in with. A request takes
    its place under its limit before its code is mailed, counted in the
@@ -1264,12 +1283,12 @@ the person reaches.
    once for one pending sign-in one stands, so there is never a second code to guess
    at with attempts of its own. The code goes to the address the user holds, verified or not:
    an address an operator entered is proven by the code as a link would prove it, and
-   the user holds it verified once the code is entered. A code is good only for the
+   the user holds it verified as the session its code completes starts. A code is good only for the
    address the user holds when it is entered: one mailed to an address the account no
    longer holds is dead (`code_expired`), nothing is written, and the next code goes to
    the address the account holds now. A user who holds no address
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
-   the user verified when its code is entered; an address another account holds is
+   the user verified as the session its code completes starts; an address another account holds is
    answered as sent and told so by mail to that address, as the add-address step does,
    so the screen reveals nothing. An address that an invitation which stands was mailed
    to is treated the same way: no code is made, the mailbox is sent a message that says
@@ -1280,6 +1299,21 @@ the person reaches.
    alone") is given none, since nothing but the name ties it to the account, and is
    answered `409` with the reason. The `AuthAPI` offers the same as `SendEmailCode`,
    `EnrollEmail` and `VerifyEmailCode`.
+
+   The address a code confirms is written in the transaction that starts the session,
+   and only then. A sign-in refused after its code was entered (the password changed
+   while it waited, the user was disabled, the sign-in policy or the tenant's refused
+   it) leaves the account's address as it was, and so does one held for another factor:
+   the person signs in again, and the code is asked for again. A first link that rests
+   on the code is made only while the account still holds the address the code was
+   mailed to. An invitation's acceptance is apart: it is made before the sign-in policy
+   decides, so that the policy sees what the invitation gave, and the invited address is
+   written with it. A sign-in the policy then denies or holds leaves the invitation
+   accepted and that address on the account; one whose user was disabled accepts
+   nothing, and neither does one that carries the proof of a password once that password
+   has changed. Every wait that names its user keeps that proof; the wait for an
+   invitation's code of a sign-in through a directory names none and keeps none (see
+   "Users and the forced password change").
 
 A code mailed to the mailbox of the account that just signed in adds little against a
 stolen password that opens that mailbox too: for a directory, the attestation is the
@@ -1556,16 +1590,20 @@ read under a share lock a password write waits for, on Spanner in the read-write
 transaction, so of a sign-in and a password write asked at once either the session is
 there for the write's ending of the sessions to find, or the sign-in finds the new
 password and inserts nothing. A pending sign-in completes on the proof its row
-carries, whichever step completes it (`CompletePending`, the email code), and a
-sign-in held again is held with it: once the password was changed, reset or removed,
-the old password completes nothing, however long the row had left and whatever address
-the holder gives the code for. A sign-in refused this way is answered as a wrong
-password is, 401 in the same words ("The username or password is wrong. Check what
-you entered and try again") in the same body, and counts as a failed
-attempt where a password was entered (the login, the confirmation); a completion
-refused this way leaves its pending sign-in spent, and the person signs in again. A
-sign-in no password proved (a directory sign-in waiting for its confirmation or its
-factor, a session the application starts) carries no proof and is held to none. A
+carries, whichever step completes it (`CompletePending`, the email code), and a sign-in
+held again in a wait that names its user is held with it: once the password was changed,
+reset or removed, the old password completes nothing, however long the row had left and
+whatever address the holder gives the code for. A sign-in refused this way is answered
+as a wrong password is, 401 in the same words ("The username or password is wrong. Check
+what you entered and try again") in the same body, and counts as a failed attempt where
+a password was entered (the login, the confirmation); a completion refused this way
+leaves its pending sign-in spent, and the person signs in again. A sign-in no password
+proved (a directory sign-in waiting for its confirmation or its factor, a session the
+application starts) carries no proof and is held to none. A wait that names no user
+carries none either: the wait for an invitation's code of a sign-in through a directory,
+also where the account's password has just confirmed that sign-in's link. The link was
+made on the proof, and the wait is held without it, as the person's next sign-in through
+the directory is. A
 pending sign-ins table made before the proof takes the column from the auth set's
 `SessionPasswordProofs` migration.
 
@@ -1778,10 +1816,12 @@ How an address gets onto a user:
   an administrator's change and entered after it is dead and writes nothing back; the
   code for an address the person then gives at the step writes it. A change that lands
   while a code is being entered ends that code as well: the address a code confirms is
-  written only while the account still holds what it held before the code was used,
-  and a completion that finds it changed, or finds that another account took the
-  address, is refused (`code_expired`) with nothing written and nobody linked or
-  signed in. Nothing writes an address onto an account unconfirmed after its creation.
+  written in the transaction that starts the session, only while the account still holds
+  what it held when the code was checked, and a completion that finds it changed, or
+  finds that another account took the address, is refused (`code_expired`) with nothing
+  written and nobody signed in; a first link that rests on the code is made only while
+  the account still holds the address the code was mailed to. Nothing writes an address
+  onto an account unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the
@@ -2058,7 +2098,13 @@ one it sends.
   waits for the code the same way (`pending=mfa`, the one factor `email-code`), the
   wait naming the account: an account with no address is mailed the invitation's code
   at the invited address, with no address asked for, and one that holds the invited
-  address unconfirmed is mailed its own sign-in code there. Until the code is entered
+  address unconfirmed is mailed its own sign-in code there. An account that names itself
+  and holds another address, confirmed or not, accepts nothing: a password sign-in is
+  refused before anything is read, as said above, and every such acceptance reads the
+  account again in its own transaction and refuses it there (`invitation_address`), with
+  nothing written. So a session the application starts for such an account is held for
+  no code, and an address put on an account after its sign-in began is never written
+  over by the invited one. Until the code is entered
   the invitation stands, nothing is granted and the account takes no address; entering
   it accepts the invitation and writes the address on the account, confirmed. The
   invitation's code is held to its invitation here as well: it puts the invited address
@@ -3118,6 +3164,7 @@ table is the wire contract:
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. It is also the answer to a sign-in code mailed for an invitation, and to the sign-in that entered it, once that invitation was used, withdrawn or ran out: the code accepts nothing. |
 | `invitation_spent` | `RefusedInvitationSpent` | Auth: a sign-in code asked for, or entered, to accept an invitation that takes no more codes: twenty-five were entered for it and none accepted it. The count is the invitation's, across every sign-in that carried it, and never starts again, so nothing more is mailed for it and no code is compared. The person asks whoever invited them for a new invitation (see "The second factor"). |
+| `address_spent` | `RefusedAddressSpent` | Auth: a sign-in code asked for, or entered, for an address a person typed at the code step, once twenty-five wrong codes were entered for that address. The count is the address's, across every account and sign-in that typed it; no time resets it, only the right code does. Nothing more is mailed to the address from this step and no code is compared. The person asks an administrator to put the address on their account (see "The second factor"). |
 | `invitation_not_open` | `RefusedInvitationNotOpen` | Auth: a sign-in code mailed for an invitation, entered in a browser that carries no invitation or another one. The code is not compared, nothing is written, and it takes its place in the invitation's count. The person opens the invitation's link again and enters the code. |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it answers for (the one the method verified, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, or one its method did not verify, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that names itself and has not confirmed the invited address is not refused at a sign-in, which waits for the code mailed to the invited address; its acceptance by hand, where nothing can wait, is refused with this code and a sentence that says to sign in again from the invitation's link. The login page names the invited address and asks for a sign-in with that account. |
 | `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |

@@ -18,8 +18,10 @@ import (
 // holds no confirmed one, waits for the code the library mails, whatever the sign-in
 // rule asks, and no session starts. Neither the directory's attestation to a second
 // factor nor a remembered browser stands in for it, since neither says anything of the
-// address. The sign-in that carries the code's event goes on, and so does every sign-in
-// of an account that holds a confirmed address. A directory that vouches for the address
+// address. The sign-in that completes the wait with the account's own code carries the
+// address the code confirms (Rules.CodeAddress) and goes on, and so does every sign-in
+// of an account that holds a confirmed address; one that carries the code's event and no
+// such address is held for the code again. A directory that vouches for the address
 // is not held, nor is a password sign-in, nor any sign-in where the Auth does not ask
 // for it (the registration is the deployment's own provider).
 func TestSignIn_anUnconfirmedAddressIsConfirmedFirst(t *testing.T) {
@@ -44,6 +46,7 @@ func TestSignIn_anUnconfirmedAddressIsConfirmedFirst(t *testing.T) {
 		trusted   bool
 		reason    sessioninfo.NewSessionReason
 		events    []sessioninfo.AuthEvent
+		claim     *dbtype.CodeAddress
 		// wantHeld says the sign-in waits for the code, and no session starts.
 		wantHeld bool
 	}{
@@ -57,6 +60,11 @@ func TestSignIn_anUnconfirmedAddressIsConfirmedFirst(t *testing.T) {
 		{
 			name: "the code the person entered completes the sign-in", identity: microsoft, policy: asksNobody, reason: sessioninfo.ReasonStepUp,
 			events: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure}, {Method: sessioninfo.MethodEmailCode}},
+			claim:  &dbtype.CodeAddress{Email: "pat@lakeside.edu"},
+		},
+		{
+			name: "the code's event without the address it confirms is held for the code again", identity: microsoft, policy: asksNobody, reason: sessioninfo.ReasonStepUp,
+			events: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure}, {Method: sessioninfo.MethodEmailCode}}, wantHeld: true,
 		},
 		{name: "an account that holds a confirmed address is not held", identity: microsoft, confirmed: true, policy: asksNobody},
 		{name: "a directory that vouches for the address is not held: the address is written as the session starts", identity: google, policy: asksNobody},
@@ -72,7 +80,7 @@ func TestSignIn_anUnconfirmedAddressIsConfirmedFirst(t *testing.T) {
 			store.links[linkKey(tt.identity.Method, tt.identity.Connection, tt.identity.Subject)] = userID
 			d := &memDriver{store: store}
 			rules := Rules[*memTx]{
-				Policy: tt.policy, ConfirmAddress: !tt.off,
+				Policy: tt.policy, ConfirmAddress: !tt.off, CodeAddress: tt.claim,
 				TrustedDevice: func(context.Context, impulse.UUID) (bool, error) { return tt.trusted, nil },
 			}
 			reason := tt.reason

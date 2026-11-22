@@ -239,6 +239,9 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   invitation_address: 'This invitation is for another account. Sign in with the account it was sent to.',
   // Twenty-five codes were entered for the invitation and none accepted it: it takes no more and mails none.
   invitation_spent: "This invitation can't be used any more. Ask the person who invited you to send a new one.",
+  // Twenty-five wrong codes were entered for an address typed at the code step: it takes no more and is mailed none.
+  address_spent:
+    "This email address can't be confirmed with a code any more. Ask an administrator to add it to your account.",
   // A code mailed for an invitation, entered where that invitation's link is not open: the step stays, and the code works once the link is opened again.
   invitation_not_open:
     'This code belongs to an invitation that is not open in this browser. Open the link in your invitation again, then enter the code.',

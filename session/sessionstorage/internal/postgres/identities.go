@@ -48,7 +48,7 @@ func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context
 }
 
 // SignInConflict classifies a unique violation a sign-in's transaction ended with: the
-// user table's username index, or the identities table's key.
+// user table's username index, its address index, or the identities table's key.
 func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -64,6 +64,8 @@ func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	switch {
 	case pgErr.ConstraintName == s.usernameIndex():
 		return dbtype.UsernameConflict
+	case pgErr.ConstraintName == s.emailIndex():
+		return dbtype.EmailConflict
 	case pgErr.TableName == s.identitiesTableName:
 		return dbtype.IdentityConflict
 	default:

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -464,6 +466,193 @@ func seamEmailCodeAddressTakenOff[Tx any](ctx context.Context, t *testing.T, a *
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": given})
 	if email, verified := b.authenticatedEmail(ctx); email != "pat@lakeside.edu" || !verified {
 		t.Errorf("the session read = email %q verified %v, want pat@lakeside.edu verified by the code for the address the person gave", email, verified)
+	}
+}
+
+// addressSpentSentence is what a person is told of an address typed at the step that
+// takes no more codes.
+const addressSpentSentence = "This email address can't be confirmed with a code any more. Ask an administrator to add it to your account."
+
+// typedAddressGuesses is the count of the wrong codes entered for the address typed at
+// the step, 0 for none.
+func (a *authApp[Tx]) typedAddressGuesses(ctx context.Context, t *testing.T, typed string) int64 {
+	t.Helper()
+
+	record, err := a.signInAttempts(ctx, attempts.OwnKey(attempts.KindAddressGuess, attempts.Normalize(typed)))
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return 0
+		}
+		t.Fatalf("SignInAttempts() of the codes entered for %s error = %v", typed, err)
+	}
+	if record == nil {
+		return 0
+	}
+
+	return record.Failures
+}
+
+// typeAddress has b type the address at the step, which must mail its code there, and
+// returns the code.
+func (a *authApp[Tx]) typeAddress(ctx context.Context, t *testing.T, b *browser, typed string) string {
+	t.Helper()
+
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": typed})
+
+	return a.lastCode(t, typed)
+}
+
+// enterWrongCode has b enter code, which must be refused with 401 and want.
+func enterWrongCode(ctx context.Context, t *testing.T, b *browser, code, want, what string) {
+	t.Helper()
+
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"`+want+`"`) {
+		t.Fatalf("%s = %d %s, want 401 %s", what, status, body, want)
+	}
+}
+
+// seamTypedAddressSpent: pat and sam each hold a password and no address, and type the
+// same address at the step, sam in capitals. Their wrong codes are counted together
+// under the address: the twenty-fifth is answered address_spent. After it, the right
+// code that stands in sam's sign-in is not compared, and neither can have a code mailed
+// to the address. Nobody holds it. Another address pat types is mailed its code.
+func seamTypedAddressSpent[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	const typed = "lee@lakeside.edu"
+	patID, samID := a.seed(ctx, t, "pat"), a.seed(ctx, t, "sam")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	held := func(username string) *browser {
+		b := a.browser(t)
+		b.prime(ctx)
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": username, "password": seedPassword})
+
+		return b
+	}
+	pat, sam := held("pat"), held("sam")
+
+	// Four codes, typed in turn by pat and by sam, and five wrong guesses at each: four
+	// are wrong, the fifth ends its code. Twenty wrong codes for the address.
+	for sent := 1; sent <= 4; sent++ {
+		b, as := pat, typed
+		if sent%2 == 0 {
+			b, as = sam, "Lee@Lakeside.EDU"
+		}
+		wrong := wrongCode(a.typeAddress(ctx, t, b, as))
+		for guess := 1; guess <= 5; guess++ {
+			want := "invalid_code"
+			if guess == 5 {
+				want = "code_expired"
+			}
+			enterWrongCode(ctx, t, b, wrong, want, fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))
+		}
+	}
+	if got := a.typedAddressGuesses(ctx, t, typed); got != 20 {
+		t.Fatalf("the address's count after four codes = %d, want 20: one count for both accounts", got)
+	}
+
+	// Fifteen minutes on, the address may be mailed again: here its count of mail is
+	// cleared, as the time passing would. Each has a code mailed; pat ends theirs with
+	// five wrong guesses, and the fifth is the address's twenty-fifth.
+	if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindMail, attempts.Normalize(typed))); err != nil {
+		t.Fatalf("ClearSignInAttempts() of the address's mail error = %v", err)
+	}
+	right := a.typeAddress(ctx, t, sam, typed)
+	wrong := wrongCode(a.typeAddress(ctx, t, pat, typed))
+	for guess := 1; guess <= 5; guess++ {
+		want := "invalid_code"
+		if guess == 5 {
+			want = "address_spent"
+		}
+		enterWrongCode(ctx, t, pat, wrong, want, fmt.Sprintf("pat's wrong guess #%d at the last code", guess))
+	}
+	if got := a.typedAddressGuesses(ctx, t, typed); got != 25 {
+		t.Errorf("the address's count = %d, want 25", got)
+	}
+
+	// The right code that stands in sam's sign-in is not compared: it is refused in the
+	// words of a spent address, and stands as it did.
+	status, body := sam.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": right})
+	if status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"address_spent"`) || !strings.Contains(string(body), addressSpentSentence) {
+		t.Errorf("the right code of a spent address = %d %s, want 401 address_spent saying %q", status, body, addressSpentSentence)
+	}
+	sam.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if status := sam.pendingStatus(ctx); status.EmailCode == nil || !status.EmailCode.CodeSent {
+		t.Errorf("pending status after the right code of a spent address = %+v, want the code standing: it was not compared", status.EmailCode)
+	}
+
+	// Neither account can have a code mailed to the address, in any spelling of it.
+	mailed := len(a.mail.Messages())
+	for _, b := range []*browser{pat, sam} {
+		status, body := b.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "LEE@lakeside.edu"})
+		if status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"address_spent"`) || !strings.Contains(string(body), addressSpentSentence) {
+			t.Errorf("a code asked for a spent address = %d %s, want 401 address_spent saying %q", status, body, addressSpentSentence)
+		}
+	}
+	if n := len(a.mail.Messages()) - mailed; n != 0 {
+		t.Errorf("%d message(s) mailed for a spent address, want none", n)
+	}
+	for _, id := range []impulse.UUID{patID, samID} {
+		if user, err := a.api.User(ctx, id); err != nil || user.Email != nil {
+			t.Errorf("the account after the address was spent = %+v, %v, want it holding no address", user, err)
+		}
+	}
+
+	// Another address pat types is mailed its code.
+	a.typeAddress(ctx, t, pat, "pat@lakeside.edu")
+}
+
+// seamTypedAddressRightCodeWithinBudget: lee holds a password and no address, and
+// enters twenty-four wrong codes for the address they type. The right code then signs
+// them in and writes the address, confirmed, and the count starts again: once an
+// administrator takes the address off the account and lee types it again, a wrong code
+// is the first of a new count.
+func seamTypedAddressRightCodeWithinBudget[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	const typed = "lee@lakeside.edu"
+	lee := a.seed(ctx, t, "lee")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "lee", "password": seedPassword})
+
+	// Four codes ended by five wrong guesses each, and four wrong guesses at the fifth:
+	// twenty-four wrong codes.
+	var code string
+	for sent := 1; sent <= 5; sent++ {
+		code = a.typeAddress(ctx, t, b, typed)
+		for guess := 1; guess <= 5 && (sent < 5 || guess < 5); guess++ {
+			want := "invalid_code"
+			if guess == 5 {
+				want = "code_expired"
+			}
+			enterWrongCode(ctx, t, b, wrongCode(code), want, fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))
+		}
+	}
+	if got := a.typedAddressGuesses(ctx, t, typed); got != 24 {
+		t.Fatalf("the address's count = %d, want 24", got)
+	}
+
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
+	if email, verified := b.authenticatedEmail(ctx); email != typed || !verified {
+		t.Errorf("the session read = email %q verified %v, want %s verified by the code", email, verified, typed)
+	}
+	if got := a.typedAddressGuesses(ctx, t, typed); got != 0 {
+		t.Errorf("the address's count after its right code = %d, want none", got)
+	}
+
+	// An administrator takes the address off; lee signs in again and types it, and a
+	// wrong code is the first of a new count.
+	if err := a.setEmail(ctx, lee, nil); err != nil {
+		t.Fatalf("SetUserEmail(nil) error = %v", err)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "lee", "password": seedPassword})
+	enterWrongCode(ctx, t, b, wrongCode(a.typeAddress(ctx, t, b, typed)), "invalid_code", "a wrong code for the address typed again")
+	if got := a.typedAddressGuesses(ctx, t, typed); got != 1 {
+		t.Errorf("the address's count once it was typed again = %d, want 1", got)
 	}
 }
 

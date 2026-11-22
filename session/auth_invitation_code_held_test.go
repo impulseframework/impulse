@@ -39,10 +39,12 @@ type namedInvitedWait struct {
 	// address (UserByEmail).
 	user  *sessionstorage.SessionUser
 	links *mailLinks
-	// wrote are the addresses the store was asked to confirm on the account outside a
-	// sign-in, consumed how often the wait was consumed, and signIns the sign-ins that
-	// reached the store, each of which the store refuses.
-	wrote    []string
+	// claims are the addresses a sign-in handed the store to confirm on the account
+	// with its session (SignInRules.CodeAddress), consumed how often the wait was
+	// consumed, and signIns the sign-ins that reached the store, each of which the store
+	// refuses. The store's mock refuses every write of an address it was not told to
+	// expect.
+	claims   []*sessionstorage.CodeAddress
 	consumed int
 	signIns  []*sessioninfo.NewSessionRequest
 }
@@ -73,19 +75,17 @@ func newNamedInvitedWait(t *testing.T) *namedInvitedWait {
 	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "sam"}
 	w.user = user
 	f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
-	f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), user.ID, gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ impulse.UUID, _ *string, email string) error {
-		w.wrote = append(w.wrote, email)
-
-		return nil
-	}).AnyTimes()
 	f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, []byte) error {
 		w.consumed++
 
 		return nil
 	}).AnyTimes()
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, req *sessioninfo.NewSessionRequest, _ sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
+		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
 			w.signIns = append(w.signIns, req)
+			if rules.CodeAddress != nil {
+				w.claims = append(w.claims, rules.CodeAddress)
+			}
 
 			return impulse.NilUUID, errors.New("the store of this test starts no session")
 		}).AnyTimes()
@@ -190,8 +190,8 @@ func TestAuth_invitationCodeIsHeldToItsInvitation(t *testing.T) {
 			if got := w.entered(w.other); got != 0 {
 				t.Errorf("the count of codes entered for the other invitation = %d, want none: the code was not mailed for it", got)
 			}
-			if len(w.wrote) != 0 {
-				t.Errorf("the account was given the address %v confirmed, want nothing written: a code mailed for an invitation writes its address in that invitation's acceptance alone", w.wrote)
+			if len(w.claims) != 0 {
+				t.Errorf("the sign-in handed the store %+v to confirm on the account, want nothing: a code mailed for an invitation writes its address in that invitation's acceptance alone", w.claims)
 			}
 			if w.consumed != 0 || len(w.signIns) != 0 {
 				t.Errorf("the wait was consumed %d time(s) and %d sign-in(s) reached the store, want neither: the code is no second factor of the account", w.consumed, len(w.signIns))
@@ -221,8 +221,8 @@ func TestAuth_invitationCodeWritesNoAddressBeforeTheAcceptance(t *testing.T) {
 	if inv := w.signIns[0].Invitation; inv == nil || inv.ID != w.invited.ID || !inv.AddressProven {
 		t.Errorf("the sign-in carries the invitation %+v, want the one the code was mailed for, its address proven by the code", inv)
 	}
-	if len(w.wrote) != 0 {
-		t.Errorf("the account was given the address %v confirmed before the sign-in, want nothing written: the acceptance writes the invited address in its own transaction, and this one accepted nothing", w.wrote)
+	if len(w.claims) != 0 {
+		t.Errorf("the sign-in handed the store %+v to confirm on the account, want nothing: the acceptance writes the invited address in its own transaction, and the code carries no address of the account's own", w.claims)
 	}
 	if got := w.entered(w.invited); got != 1 || w.consumed != 1 {
 		t.Errorf("the count of codes entered for the invitation = %d and the wait was consumed %d time(s), want one of each", got, w.consumed)
@@ -285,8 +285,8 @@ func TestAuth_invitationCodeIsHeldToTheAccountsAddress(t *testing.T) {
 
 			_, err := w.f.auth.completeWithEmailCode(w.carriesInvited, httptest.NewRecorder(), w.pending, w.code, false)
 
-			if len(w.wrote) != 0 {
-				t.Errorf("the account was given the address %v confirmed, want nothing written: a code mailed for an invitation writes its address in that invitation's acceptance alone", w.wrote)
+			if len(w.claims) != 0 {
+				t.Errorf("the sign-in handed the store %+v to confirm on the account, want nothing: a code mailed for an invitation writes its address in that invitation's acceptance alone", w.claims)
 			}
 			if got := w.entered(w.invited); got != 1 {
 				t.Errorf("the count of codes entered for the invitation = %d, want 1", got)

@@ -2,13 +2,15 @@
 
 // An address that differs from the one an account holds by a letter Unicode folds is
 // another address, through the real sign-in flow on both backends: Google's word for a
-// Workspace address joins nobody to the account that holds the other, and the account
-// that holds it refuses nobody the address.
+// Workspace address joins nobody to the account that holds the other, the account that
+// holds it refuses nobody the address, and Google's word for a name that reads as an
+// account's username links nothing until the code mailed to the account is entered.
 
 package e2e
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"testing"
 
@@ -46,6 +48,10 @@ func runAddressFoldSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "an account made ahead under a Workspace address is signed in to through Google while another account holds an address that reads as it under Unicode's folding, and takes its address confirmed",
 			run:  seamAddressFoldRefusesNobody[Tx],
+		},
+		{
+			name: "a Workspace name Google vouches for that reads as an account's username only under Unicode's folding links nothing until the code mailed to the account's address is entered",
+			run:  seamAddressFoldLookalikeWaits[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -116,6 +122,39 @@ func seamAddressFoldRefusesNobody[Tx any](ctx context.Context, t *testing.T, be 
 	}
 	a.holdsConfirmed(ctx, t, kim, "kim@lakeside.edu")
 	a.holdsConfirmed(ctx, t, vera, kelvinKim)
+}
+
+// seamAddressFoldLookalikeWaits: kim's account was made ahead under kim@lakeside.edu and
+// holds that address, unconfirmed. Somebody signs in through Google as kelvinKim, a
+// Workspace account's name and address Google vouches for.
+func seamAddressFoldLookalikeWaits[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
+	kim := a.createUserAt(ctx, t, "kim@lakeside.edu", "kim@lakeside.edu")
+
+	// The store finds kim's account under the name, as it folds Unicode's case, but
+	// Google vouched for another mailbox: the sign-in waits for the code mailed to the
+	// address kim's account holds, with no session and nothing linked.
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("g-sub-kelvin", kelvinKim)), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, kim.String()); len(links) != 0 {
+		t.Fatalf("identity links while the sign-in waits = %d, want none: the link is written once the code is entered", len(links))
+	}
+	if status := b.pendingStatus(ctx); status.EmailCode == nil || status.EmailCode.EnrollEmail || status.EmailCode.CodeEmail != "k•••@lakeside.edu" {
+		t.Errorf("the step's email code = %+v, want the code offered at the address kim's account holds", status.EmailCode)
+	}
+
+	// Whoever reads kim's mail enters the code: the sign-in is kim's, the Google identity
+	// is linked, and kim's address is confirmed.
+	a.answerAddressCode(ctx, b, "kim@lakeside.edu")
+	if v := signedInAs(ctx, t, b, "kim@lakeside.edu"); v.UserID != kim.String() {
+		t.Errorf("session user = %s, want kim's account, %s", v.UserID, kim)
+	}
+	if links := a.links(ctx, t, kim.String()); len(links) != 1 || links[0].Subject != "g-sub-kelvin" {
+		t.Errorf("identity links after the code = %d, want the one the code admitted", len(links))
+	}
+	a.holdsConfirmed(ctx, t, kim, "kim@lakeside.edu")
 }
 
 // holdsConfirmed fails unless userID's account holds want, confirmed.

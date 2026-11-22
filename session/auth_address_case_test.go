@@ -77,34 +77,6 @@ func TestResettable_foldsOnlyASCIICase(t *testing.T) {
 	}
 }
 
-// TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign holds the rename hook of a store
-// whose usernames are the addresses to the case of ASCII letters alone: a sign-in code
-// that confirms an address written with the Kelvin sign (U+212A) on an account named
-// with the ASCII one renames the user, and the application is told.
-func TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign(t *testing.T) {
-	t.Parallel()
-
-	const named, written = "kim@kirkwood.edu", "\u212Aim@kirkwood.edu"
-	userID := impulse.Must(impulse.NewUUID())
-	f, _, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
-	user := &sessionstorage.SessionUser{ID: userID, Username: named, Email: strPtr(written)}
-	f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil)
-	f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, written).Return(nil)
-	var renamed []string
-	f.auth.SetUserRenamed(func(_ context.Context, _ impulse.UUID, from, to string) error {
-		renamed = append(renamed, from+" -> "+to)
-
-		return nil
-	})
-
-	if err := f.auth.claimCodeAddress(context.Background(), &pendingState{UserID: impulse.NullUUIDFromUUID(userID)}, user, written); err != nil {
-		t.Fatalf("claimCodeAddress() error = %v", err)
-	}
-	if len(renamed) != 1 || renamed[0] != named+" -> "+written {
-		t.Errorf("rename hook calls = %q, want the one rename: the address confirmed is another than the username", renamed)
-	}
-}
-
 // TestAuth_addressChange_foldsOnlyASCIICase holds an administrator's change of an
 // address to the case of ASCII letters alone. An address written with the Kelvin sign
 // (U+212A) is another address than the ASCII one the account holds confirmed: the change

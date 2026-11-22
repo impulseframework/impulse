@@ -443,7 +443,7 @@ the mailed code: the code is mailed at once to the address the account holds, an
 where it went (the address masked, `n•••@fleet.example`) over the code field, a "Remember this
 browser" box, Sign in, and Send a new code, which replaces the code standing. A person whose
 account holds no email address is asked for one first, and it is written on the account,
-confirmed, when its code is entered. A wrong code shows the sentence for `invalid_code` and keeps
+confirmed, as the session its code completes starts. A wrong code shows the sentence for `invalid_code` and keeps
 the form, the code standing with one fewer attempt; a code entered after the one sent expired or
 ran out of attempts shows the sentence for `code_expired`, and a new one is a click away; an
 address sent five codes within fifteen minutes and using none is refused with `too_many_emails`
@@ -451,7 +451,9 @@ and the wait, the send button then standing in the form's place, disabled until 
 passed; a code that is used resets the count, so a person who signs in with each code sent never
 meets the limit. An invitation that twenty-five codes were entered for, none of them accepting it,
 takes no more and mails none: the step shows the sentence for `invitation_spent`, which says to ask
-for a new invitation. A code mailed for an invitation and entered in a browser that carries no
+for a new invitation. The step shows the sentence for `address_spent` when twenty-five wrong codes
+were entered for an address typed at this step: it takes no more, and an administrator adds the
+address to the account. A code mailed for an invitation and entered in a browser that carries no
 invitation or another one shows the sentence for `invitation_not_open`, which says to open the
 invitation's link again, and one entered where its invitation has ended the sentence for
 `invitation_expired`. Send me a link on the sign-up form is held the same way. With the box checked, the server remembers the

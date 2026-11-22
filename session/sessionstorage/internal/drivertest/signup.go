@@ -265,13 +265,13 @@ func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 
 	// A person whose account was created ahead is not signing up: the account is
-	// linked by the sign-in that carries the mailed code's event, and holds what it
-	// was given.
+	// linked by the sign-in that enters the code mailed to the address it holds, and
+	// holds what it was given.
 	const created = "kim@lakeside.edu"
-	kim := createUser(ctx, t, in.Driver, created)
+	kim := createUserHolding(ctx, t, in.Driver, created, created)
 	kimIdentity := entra("oid-kim", created)
-	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity, AuthEvents: codeEntered()}
-	err = signInRequest(ctx, in, kimReq)
+	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity}
+	err = signInByCode(ctx, in, kimReq, kim)
 	assertNewlyLinked(ctx, t, in.Driver, err, kimReq, kimIdentity, kim, "tenant-1")
 	assertNoRoleGiven(ctx, t, h, in, rec, created)
 }
@@ -344,12 +344,13 @@ func testOpenRowOfAnotherAudience(_ context.Context, t *testing.T, h *AuthHarnes
 			assertNoRoleGiven(ctx, t, h, in, rec, name)
 
 			// A person with an account is not signing up: they sign in as ever, the
-			// first time by the sign-in that carries the mailed code's event.
+			// first time by the sign-in that enters the code mailed to the address the
+			// account holds.
 			const created = "kim@lakeside.edu"
-			kim := createUser(ctx, t, in.Driver, created)
+			kim := createUserHolding(ctx, t, in.Driver, created, created)
 			kimIdentity := entra("oid-kim", created)
-			kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity, AuthEvents: codeEntered()}
-			err = signInRequest(ctx, in, kimReq)
+			kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity}
+			err = signInByCode(ctx, in, kimReq, kim)
 			assertNewlyLinked(ctx, t, in.Driver, err, kimReq, kimIdentity, kim, "tenant-1")
 		})
 	}

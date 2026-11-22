@@ -27,6 +27,9 @@ type Addresses interface {
 	UserByVerifiedEmailIn(ctx context.Context, email string) (*dbtype.User, error)
 	// ClaimVerifiedEmailIn claims email for userID and reports whether it wrote.
 	ClaimVerifiedEmailIn(ctx context.Context, userID impulse.UUID, email string) (bool, error)
+	// VerifyUserEmailIfHeldIn writes each of emails for userID in turn while the user
+	// holds held, all in one transaction, and reports whether each wrote.
+	VerifyUserEmailIfHeldIn(ctx context.Context, userID impulse.UUID, held *string, emails ...string) ([]bool, error)
 }
 
 // NewAddresses returns an instance's Addresses over d.
@@ -89,6 +92,26 @@ func (a *addressesIn[Tx]) ClaimVerifiedEmailIn(ctx context.Context, userID impul
 	}
 
 	return claimed, nil
+}
+
+func (a *addressesIn[Tx]) VerifyUserEmailIfHeldIn(ctx context.Context, userID impulse.UUID, held *string, emails ...string) ([]bool, error) {
+	var wrote []bool
+	if err := a.d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+		wrote = make([]bool, 0, len(emails))
+		for _, email := range emails {
+			ok, err := a.d.VerifyUserEmailIfHeldIn(ctx, tx, userID, held, email)
+			if err != nil {
+				return errors.Wrap(err, "signinflow.Driver.VerifyUserEmailIfHeldIn()")
+			}
+			wrote = append(wrote, ok)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "signinflow.Driver.Transact()")
+	}
+
+	return wrote, nil
 }
 
 // foldPairs are the pairs the cases run over, all at lakeside.edu: a stored address,

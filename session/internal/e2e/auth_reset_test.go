@@ -543,4 +543,7 @@ func seamOwnAddressChange[Tx any](ctx context.Context, t *testing.T, be backend[
 	if notice := messages[len(messages)-1]; len(messages) != 2 || notice.To != "pat@lakeside.edu" || notice.Subject != "The email address of your Lakeside account changed" {
 		t.Errorf("mailed messages after the confirmation = %+v, want the notice at the old address", messages)
 	}
+
+	// The link worked once: its token posted again is refused as a used link.
+	b.expect(ctx, http.StatusNotFound, http.MethodPost, "/email/verify", map[string]string{"token": token})
 }
