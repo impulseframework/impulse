@@ -1381,7 +1381,11 @@ each with its proof, a tenant's administrator does none of them. The auth's
 deployment package's test of the first administrator's roles holds it to the role file,
 and the application's own administrator role gains the grants a tenant is made with: the
 record, the invitation that makes one, its withdrawal and the list of the invitations
-that stand. So the application starts, and its served tests run, as it was made. An
+that stand. The role is written after the regeneration, since its grants are cut to what
+that regeneration serves, and the generated metadata lists the roles a field may hold from
+the role file (`@roleOf`), so where the command added the role it runs `go generate ./...`
+once more. So the application starts, its served tests run and `impulse check`'s `regen`
+passes, as it was made. An
 application that names a role held in every tenant already keeps its own, and where the
 command cannot write the role (a foothold or a role file that is not as the skeleton
 writes it) a line under what it could not make says why and gives the step. Which
