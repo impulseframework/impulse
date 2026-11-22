@@ -874,6 +874,8 @@ r.Get("/api/user/methods", auth.Methods(&session.MethodList{ // what the login p
         {Name: "password", Label: "Password", Path: "/api/user/session"},
         {Name: "workos", Label: "Single sign-on", Path: "/api/user/sso/login"},
     },
+    ChangePassword:   "/api/user/password",
+    PasswordStrength: "/api/user/password/strength",
     Pending: session.PendingRoutes{
         Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel",
         SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email",
@@ -895,6 +897,7 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
     r.Post("/api/user/password/remove", password.RemoveUserPassword()) // {"password"}: the person's own password, removed; validates the session itself
+    r.Post("/api/user/password/strength", password.Strength())          // {"password", "username", "name", "email"}: how strong it is, asked while the person types; no session
     r.Get("/api/user/sign-in-means", auth.SignInMeans())        // what the person signs in with: a password or none, the directory sign-ins linked; validates the session itself
     r.Post("/api/user/name", auth.ChangeName())                 // {"name"}: the person's own name; validates the session itself
     r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
@@ -957,6 +960,7 @@ the password method is listed.
   "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel",
               "sendCode": "/api/user/pending/code", "verifyCode": "/api/user/pending/code/verify", "enrollEmail": "/api/user/pending/email"},
   "changePassword": "/api/user/password",
+  "passwordStrength": "/api/user/password/strength",
   "removePassword": "/api/user/password/remove",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
@@ -994,6 +998,8 @@ the password method is listed.
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
   present whenever the password method is listed.
+- `passwordStrength` is the path of the password method's `Strength` handler, where a
+  page that sets a password asks how strong it is.
 - `removePassword` is the path of the password method's `RemoveUserPassword` handler,
   present when the list names it (`MethodList.RemovePassword`, which needs the password
   method listed): where a signed-in person's account page posts `{"password"}` to remove
@@ -1584,6 +1590,21 @@ How hard a password is to guess is an estimate in bits. The password method's
 `MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an
 application that wants longer passwords raises it. A password is judged when it is set: one a
 person already holds still signs them in.
+
+A page asks the same judgment while the person types. `PasswordMethod.Strength()` takes
+`{"password"}` and, when the page has them, the person's `"username"`, `"name"` and
+`"email"`, and answers `{"strongEnough", "strength", "minimum"}`: `strength` is where the
+password stands from 0 to 100 and `minimum` is where the application's minimum sits on the
+same scale, so a page draws a bar and a mark and calculates nothing. `strongEnough` is true
+exactly when `strength` has reached `minimum`. While it is false, `"reason"` is one sentence
+that says why. Route it behind `ValidateXSRFToken`, outside `ValidateSession` (a person at an
+invitation, a sign-up or a reset link has no session), and name its path to `Methods`
+(`MethodList.PasswordStrength`).
+
+The route reads no account: it judges against the details the page sends. The path that sets
+the password judges against the account's own and has the last word. The password is in a
+request body and in no log. A client that asks 3,000 times within five minutes is answered
+429 with the wait.
 
 ### A person's first password
 

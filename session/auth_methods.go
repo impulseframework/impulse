@@ -53,6 +53,7 @@ type methodHandlers struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
 	removeUserPassword http.HandlerFunc
+	strength           http.HandlerFunc
 }
 
 // externalMethod is a registered redirect-based method with the account rule its
@@ -105,6 +106,10 @@ type signInMethods[Tx any] struct {
 	// default limit, and the password method's registration replaces it with one
 	// under its own, so a password check through the API is limited either way.
 	attempts *attempts.Limiter
+	// asks counts the questions each client asks the password strength route, under
+	// strengthAskLimit, apart from attempts, so asking never locks a sign-in. It asks
+	// the store nothing.
+	asks *attempts.Limiter
 	// compare checks a password against a hash with the method's hasher; a test counts
 	// the checks through it.
 	compare func(hash *securehash.Hash, password string) (upgrade bool, err error)
@@ -216,13 +221,15 @@ func (a *Auth[S, U, Tx]) couldAdmitAddress(email string) bool {
 }
 
 // init sets the methods of a new Auth over storage, before any registration: the
-// default hasher, minimum strength and attempt limit, no external methods.
+// default hasher, minimum strength and attempt limit, the ask limit of the password
+// strength route, no external methods.
 func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
 	m.registered = make(map[string]bool)
 	m.hasher = securehash.New(securehash.Argon2())
 	m.autoUpgrade = true
 	m.minimumStrength = sessioncore.DefaultMinimumStrength
 	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)
+	m.asks = attempts.New(strengthAskLimit, storage)
 	m.external = make(map[string]*externalMethod[Tx])
 	m.outlets = make(map[string]bool)
 	m.compare = func(hash *securehash.Hash, password string) (bool, error) {
@@ -366,7 +373,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 
 	return methodHandlers{
 		login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler()),
-		removeUserPassword: a.serving(a.removeUserPasswordHandler()),
+		removeUserPassword: a.serving(a.removeUserPasswordHandler()), strength: a.serving(a.passwordStrengthHandler()),
 	}
 }
 
@@ -431,6 +438,7 @@ type PasswordMethod struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
 	removeUserPassword http.HandlerFunc
+	strength           http.HandlerFunc
 }
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
@@ -460,7 +468,7 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 	}
 	h := registerMethod(auth, reg)
 
-	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword, removeUserPassword: h.removeUserPassword}
+	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword, removeUserPassword: h.removeUserPassword, strength: h.strength}
 }
 
 // Login accepts {"username", "password"}. On success it applies the sign-in policy and
@@ -493,6 +501,24 @@ func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.change
 // for the account page to offer it.
 func (m *PasswordMethod) RemoveUserPassword() http.HandlerFunc {
 	return m.removeUserPassword
+}
+
+// Strength accepts {"password"} and, where the page has them, the person's "username",
+// "name" and "email", and answers how strong the password is while the person types it,
+// before it is set: {"strongEnough", "strength", "minimum"}, with "reason", one sentence
+// that says why, while strongEnough is false. strength is where the password stands from 0
+// to 100 and minimum is where the application's minimum (MinimumPasswordStrength) sits on
+// the same scale, so a page draws a bar and a mark and calculates nothing; strongEnough is
+// true exactly when strength has reached minimum. It is the judgment every path that sets a
+// password holds it to, against the details the request carries: it reads no session,
+// account or link, and the path that sets the password judges against the account's own.
+// The password is in no log line. A client that asks 3,000 times within five minutes, from
+// one address or under one cookie, is answered 429 with too_many_attempts and the wait,
+// counted apart from sign-in attempts. A person at an invitation, a sign-up or a reset
+// link has no session, so route it behind ValidateXSRFToken, outside ValidateSession, and
+// name its path to Methods (MethodList.PasswordStrength).
+func (m *PasswordMethod) Strength() http.HandlerFunc {
+	return m.strength
 }
 
 // frontChannelLogout handles a provider-initiated logout: it ends every live session

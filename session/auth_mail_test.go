@@ -849,8 +849,9 @@ var directoryList = &MethodList{
 		{Name: "google-lakeside", Label: "Lakeside", Path: "/api/user/google-lakeside/login"},
 		{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 	},
-	ChangePassword: "/api/user/password",
-	Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+	ChangePassword:   "/api/user/password",
+	PasswordStrength: "/api/user/password/strength",
+	Invitation:       InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 }
 
 // newDirectoryFixture is a mail fixture whose login page lists two Google
@@ -916,8 +917,9 @@ func authInvitationCase8(t *testing.T) {
 			{Name: "lakeside-entra", Label: "Lakeside staff", Path: "/api/user/lakeside-entra/login"},
 			{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 		},
-		ChangePassword: "/api/user/password",
-		Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+		ChangePassword:   "/api/user/password",
+		PasswordStrength: "/api/user/password/strength",
+		Invitation:       InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 	}
 	f.auth.Methods(list)
 	links.expectAccounts(f)
@@ -1440,9 +1442,10 @@ func authSignUpCase5(t *testing.T) {
 		return []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true, OpenedFor: &audience}}, nil
 	}).AnyTimes()
 	h := f.auth.Methods(&MethodList{
-		Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
-		ChangePassword: "/api/user/password",
-		SignUp:         SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
+		Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+		ChangePassword:   "/api/user/password",
+		PasswordStrength: "/api/user/password/strength",
+		SignUp:           SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
 	})
 
 	rr := f.serve(h, http.MethodGet, "/api/user/methods", nil, nil)

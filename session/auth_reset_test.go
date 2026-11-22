@@ -390,9 +390,10 @@ func authResetCase7(t *testing.T) {
 	on := false
 	resetSetting(f, &on)
 	list := f.auth.Methods(&MethodList{
-		Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
-		ChangePassword: "/password",
-		PasswordReset:  PasswordResetRoutes{Request: "/reset", Open: "/reset/open", Complete: "/reset/complete"},
+		Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
+		ChangePassword:   "/password",
+		PasswordStrength: "/password/strength",
+		PasswordReset:    PasswordResetRoutes{Request: "/reset", Open: "/reset/open", Complete: "/reset/complete"},
 	})
 
 	block := func() map[string]any {
@@ -414,7 +415,7 @@ func authResetCase7(t *testing.T) {
 
 	for name, routes := range map[string]*MethodList{
 		"some of the reset routes": {
-			Methods: []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}}, ChangePassword: "/password",
+			Methods: []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength",
 			PasswordReset: PasswordResetRoutes{Request: "/reset"},
 		},
 	} {

@@ -160,7 +160,6 @@ func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 	}
 }
 
-
 // The sentences a password the judgment refuses is answered with.
 const (
 	tooEasyToGuess  = "This password is too easy to guess. Make it longer, or use several words that do not go together."

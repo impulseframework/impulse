@@ -522,7 +522,7 @@ func TestAuth_Methods_firstPassword(t *testing.T) {
 
 	t.Run("the list names the routes, and the answer carries them", func(t *testing.T) {
 		t.Parallel()
-		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", FirstPassword: routes})
+		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength", FirstPassword: routes})
 		want := map[string]any{"sendCode": "/api/user/password/first/code", "set": "/api/user/password/first"}
 		if diff := cmp.Diff(want, got["firstPassword"]); diff != "" {
 			t.Errorf("Methods() firstPassword mismatch (-want +got):\n%s", diff)
@@ -531,7 +531,7 @@ func TestAuth_Methods_firstPassword(t *testing.T) {
 
 	t.Run("a list that names no routes answers none", func(t *testing.T) {
 		t.Parallel()
-		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change"}); got["firstPassword"] != nil {
+		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength"}); got["firstPassword"] != nil {
 			t.Errorf("Methods() answered firstPassword = %v, want none", got["firstPassword"])
 		}
 	})
@@ -543,12 +543,12 @@ func TestAuth_Methods_firstPassword(t *testing.T) {
 	}{
 		{
 			name: "a route off-site",
-			list: &MethodList{Methods: password, ChangePassword: "/password", FirstPassword: FirstPasswordRoutes{SendCode: "https://evil.example/code", Set: "/password/first"}},
+			list: &MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", FirstPassword: FirstPasswordRoutes{SendCode: "https://evil.example/code", Set: "/password/first"}},
 			want: "name the send-code and set paths together",
 		},
 		{
 			name: "one route without the other",
-			list: &MethodList{Methods: password, ChangePassword: "/password", FirstPassword: FirstPasswordRoutes{Set: "/password/first"}},
+			list: &MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", FirstPassword: FirstPasswordRoutes{Set: "/password/first"}},
 			want: "name the send-code and set paths together",
 		},
 		{

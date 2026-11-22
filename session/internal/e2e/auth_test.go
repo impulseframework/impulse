@@ -466,8 +466,9 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 				Status: "/pending", Confirm: "/pending/confirm", Cancel: "/pending/cancel",
 				SendCode: "/pending/code/send", VerifyCode: "/pending/code/verify", EnrollEmail: "/pending/email",
 			},
-			ChangePassword: "/password",
-			RemovePassword: "/password/remove",
+			ChangePassword:   "/password",
+			PasswordStrength: "/password/strength",
+			RemovePassword:   "/password/remove",
 		}))
 	})
 

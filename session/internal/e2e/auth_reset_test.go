@@ -68,10 +68,11 @@ func newResetApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *res
 		r.With(auth.ValidateXSRFToken, auth.ValidateSession).Post("/email", auth.Email().Add())
 		r.With(auth.ValidateXSRFToken, auth.ValidateSession).Post("/email/verify", auth.Email().Verify())
 		r.Get("/methods", auth.Methods(&session.MethodList{
-			Methods:        []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
-			ChangePassword: "/password",
-			PasswordReset:  session.PasswordResetRoutes{Request: "/reset", Open: "/reset/open", Complete: "/reset/complete"},
-			Email:          session.EmailRoutes{Add: "/email", Verify: "/email/verify", Confirm: "/email/confirm"},
+			Methods:          []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
+			ChangePassword:   "/password",
+			PasswordStrength: "/password/strength",
+			PasswordReset:    session.PasswordResetRoutes{Request: "/reset", Open: "/reset/open", Complete: "/reset/complete"},
+			Email:            session.EmailRoutes{Add: "/email", Verify: "/email/verify", Confirm: "/email/confirm"},
 		}))
 	})
 	server := httptest.NewTLSServer(r)
