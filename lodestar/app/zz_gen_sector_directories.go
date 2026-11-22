@@ -89,6 +89,11 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -166,6 +171,11 @@ func (a *App) SectorDirectory() http.HandlerFunc {
 				if !row.Masked("defaultSeat") {
 					rmap["defaultSeat"] = rec.DefaultSeat
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

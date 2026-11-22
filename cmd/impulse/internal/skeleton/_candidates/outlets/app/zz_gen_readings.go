@@ -90,6 +90,11 @@ func (a *App) Readings() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -167,6 +172,11 @@ func (a *App) Reading() http.HandlerFunc {
 				if !row.Masked("recordedAt") {
 					rmap["recordedAt"] = rec.RecordedAt
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

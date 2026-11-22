@@ -106,6 +106,11 @@ func (a *App) Refits() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -198,6 +203,11 @@ func (a *App) Refit() http.HandlerFunc {
 				if !row.Masked("notes") {
 					rmap["notes"] = rec.Notes
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

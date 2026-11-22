@@ -112,6 +112,19 @@ func ({{ .Resource.Name }}) SearchBranches() []resource.SearchBranch {
 	}
 }
 {{- end }}
+{{- if .Resource.NameFields }}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows and sorts by. A name is looked up in
+// the pointed-to table by the id; it is no column of this resource.
+func ({{ .Resource.Name }}) NameFields() []resource.NameField {
+	return []resource.NameField{
+	{{- range $name := .Resource.NameFields }}
+		{{ $name.GoLiteral }},
+	{{- end }}
+	}
+}
+{{- end }}
 {{- if .Resource.SecretFields }}
 
 // SecretContext names what a secret of the row is bound to: its primary key, column by
@@ -3235,6 +3248,13 @@ import (
 				{{- end }}
 				}
 			}
+			{{- if .Resource.NameFields }}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
+			{{- end }}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -3331,6 +3351,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 				{{- end }}
 				}
 			}
+			{{- if .Resource.NameFields }}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
+			{{- end }}
 			rmap[resource.TenantProperty] = row.Tenant()
 			resp = append(resp, rmap)
 		}
@@ -3411,6 +3438,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 			{{- end }}
 			}
 		}
+		{{- if .Resource.NameFields }}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
+		{{- end }}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}

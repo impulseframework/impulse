@@ -72,6 +72,11 @@ func (a *App) PilotCertifications() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -134,6 +139,11 @@ func (a *App) PilotCertification() http.HandlerFunc {
 				if !row.Masked("certificationId") {
 					rmap["certificationId"] = rec.CertificationID
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

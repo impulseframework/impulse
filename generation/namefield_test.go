@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // nameFixtureTables is the synthetic schema behind the namefixture structs: every table
@@ -25,6 +26,8 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Bases":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain}},
 		"Wings":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CallSign": plain}},
 		"Kits":     {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Label": nullable}},
+		"Bays":     {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "WingId": to("Wings"), "Code": plain}},
+		"Berths":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "BayId": to("Bays")}},
 		"Crates":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "Weight": plain}},
 		"Permits":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "LeadWing": nullable, "KitId": to("Kits"), "CrateId": to("Crates"), "Grade": to("Grades"), "MemberId": plain}},
 		"Ledgers":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "KitId": to("Kits"), "Grade": to("Grades")}},
@@ -38,6 +41,9 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Vaults":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Phrase": plain}},
 		"Drops":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Slip": nullable}},
 		"Folders":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Scan": plain}},
+		"Sorties":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "KitId": to("Kits")}},
+		"Detours":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CrateId": to("Crates")}},
+		"Astrays":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings")}},
 	}
 }
 
@@ -97,7 +103,15 @@ func Test_resolveNameFields(t *testing.T) {
 				`{Field: "LeadWingName", Key: "LeadWing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
 				`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
 				`{Field: "GradeName", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
-				`{Field: "MemberName", Key: "MemberID", Resource: "Members", Tag: "shown", Table: "Members", KeyColumn: "Id", NameColumn: "Shown", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a row that reaches its tenant through another table is held to the tenant by that way",
+			structs:  []string{"Base", "Wing", "Bay", "Berth"},
+			resource: "Berth",
+			want: []string{
+				`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "BayName", Key: "BayID", Resource: "Bays", Tag: "code", Table: "Bays", KeyColumn: "Id", NameColumn: "Code", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "BaseId"}}}`,
 			},
 		},
 		{
@@ -169,6 +183,11 @@ func Test_nameFieldRefusals(t *testing.T) {
 		{name: "a secret", structs: []string{"Vault"}, wantErr: "struct Vault field Phrase: @name on a secret (conditions:\"secret\"); a row's name is shown to everyone who may read the resource's names, and a secret is never returned, so mark a field the resource returns or remove the annotation"},
 		{name: "a write-only field", structs: []string{"Drop"}, wantErr: "struct Drop field Slip: @name on a write-only field (conditions:\"input_only\"); a row's name is shown to everyone who may read the resource's names, and a write-only field is never returned, so mark a field the resource returns or remove the annotation"},
 		{name: "a file's store key", structs: []string{"Folder"}, wantErr: "struct Folder field Scan: @name on a file's store key (@file); a row's name is shown to everyone who may read the resource's names, and a file's store key is never returned, so mark a field the resource returns or remove the annotation"},
+		{name: "an order by the name of a row that has none", structs: []string{"Base", "Crate", "Detour"}, wantErr: "struct Detour: @order names CrateName, which is not a field of Detour: the generator adds a name field beside CrateID only where the row CrateID points to has a name the list can read (@name), and it adds none here; name a field the struct declares in @order, or declare the pointed-to resource's @name"},
+		{name: "an order by a name no field could be given", structs: []string{"Base", "Wing", "Astray"}, wantErr: "SquadName is not a field of Astray"},
+		{name: "two fields", structs: []string{"Twice"}, wantErr: "struct Twice field Second: @name on a second field; field First carries it already, and a row is known by one name"},
+		{name: "the tenant record", structs: []string{"Fort"}, wantErr: "struct Fort field Title: @name on the tenant record; a tenant's name is declared with @tenantName, which names the record's rows wherever @name would, so write @tenantName here in its place"},
+		{name: "an enumeration table", structs: []string{"Grade"}, wantErr: "struct Grade field Description: @name on an enumeration table; its rows are known by their Description column already, so remove the annotation"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -203,6 +222,57 @@ func Test_declareRowName_unservedField(t *testing.T) {
 	}
 	if res.RowNameField != nil {
 		t.Errorf("declareRowName() recorded the name field %s on a refusal", res.RowNameField.Name())
+	}
+}
+
+// Test_orderByNameField pins that a default order (@order) may name a name field the
+// generator adds, on a table and on a view, among the fields the struct declares: the
+// declaration carries it as it carries a declared field.
+func Test_orderByNameField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		structs  []string
+		resource string
+		want     []resource.SortField
+		wantOpt  string
+	}{
+		{
+			name:     "a table ordered by two name fields",
+			structs:  []string{"Base", "Wing", "Kit", "Sortie"},
+			resource: "Sortie",
+			want:     []resource.SortField{{Field: "WingName", Direction: resource.SortAscending}, {Field: "KitName", Direction: resource.SortDescending}},
+			wantOpt:  `WithPaging(resource.Paging{Order: []resource.SortField{{Field: "WingName", Direction: resource.SortAscending}, {Field: "KitName", Direction: resource.SortDescending}}})`,
+		},
+		{
+			name:     "a view ordered by a name field",
+			structs:  []string{"Kit", "Muster"},
+			resource: "Muster",
+			want:     []resource.SortField{{Field: "KitName", Direction: resource.SortAscending}},
+			wantOpt:  `WithPaging(resource.Paging{Order: []resource.SortField{{Field: "KitName", Direction: resource.SortAscending}}})`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := nameFixtureResources(t, tt.structs...)
+			if err != nil {
+				t.Fatalf("nameFixtureResources() error = %v", err)
+			}
+			i := slices.IndexFunc(c.resources, func(res *resourceInfo) bool { return res.Name() == tt.resource })
+			if i < 0 {
+				t.Fatalf("resource %s was not extracted", tt.resource)
+			}
+			res := c.resources[i]
+			if diff := cmp.Diff(tt.want, res.DeclaredOrder); diff != "" {
+				t.Errorf("DeclaredOrder of %s mismatch (-want +got):\n%s", tt.resource, diff)
+			}
+			if got := res.PagingOption(); !strings.HasSuffix(got, tt.wantOpt) {
+				t.Errorf("PagingOption() = %s, want it to end %s", got, tt.wantOpt)
+			}
+		})
 	}
 }
 

@@ -154,6 +154,11 @@ func (a *App) Missions() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -294,6 +299,11 @@ func (a *App) Mission() http.HandlerFunc {
 				if !row.Masked("settlement") {
 					rmap["settlement"] = rec.Settlement
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {
@@ -446,6 +456,11 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 					if !row.Masked("settlement") {
 						rmap["settlement"] = rec.Settlement
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			rmap[resource.TenantProperty] = row.Tenant()

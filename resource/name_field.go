@@ -3,6 +3,7 @@ package resource
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -14,17 +15,21 @@ const nameOfTagKey = "nameof"
 // NameField describes one name field of a resource: the name of the row an id field of
 // the resource points to, which the generator declares beside the id wherever the
 // pointed-to resource says what its rows are known by. A name field is read-only and
-// stored nowhere. It is no column of the resource, so it carries no grant of its own
-// and no statement names it as a column: the name is looked up in the pointed-to
-// table by the id.
+// stored nowhere. It is no column of the resource, so no statement names it as a
+// column: the name is looked up in the pointed-to table by the id. Reading it takes two
+// grants: the request's own grant on the id field, and the List grant on the
+// pointed-to resource's name field (Resource and Tag).
 type NameField struct {
 	// Field is the name field as the generated request types spell it, and Key the id
 	// field it stands beside.
 	Field accesstypes.Field
 	Key   accesstypes.Field
 	// Resource is the pointed-to resource and Tag its name field: reading a name takes
-	// the List grant on that field as well as the grant on the id. Both are empty for
-	// an enumeration table, whose names every page carries already.
+	// the List grant on that field as well as the grant on the id, asked in the
+	// request's tenant where the resource belongs to one (TenantColumn) and globally
+	// where it does not; Tag is empty where the name is the resource's key, whose
+	// grant is the resource's own. Both are empty for an enumeration table, whose
+	// names every page carries already.
 	Resource accesstypes.Resource
 	Tag      accesstypes.Tag
 	// Table is the pointed-to table, KeyColumn the column the id matches there, and
@@ -33,15 +38,31 @@ type NameField struct {
 	KeyColumn  string
 	NameColumn string
 	// TenantColumn is the pointed-to table's tenant column, which a lookup holds to the
-	// request's tenant; empty where the pointed-to resource belongs to no tenant.
+	// request's tenant; empty where the pointed-to resource belongs to no tenant. Where
+	// that resource reaches its tenant through other tables, TenantColumn is the column
+	// its way leaves through and TenantPath the way, each hop as the resource's own
+	// tenant binding walks it.
 	TenantColumn string
+	TenantPath   []BindingHop
 }
 
 // GoLiteral renders the name field as the body of a Go composite literal, the form the
 // generator writes one in.
 func (n *NameField) GoLiteral() string {
-	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q, TenantColumn: %q}",
-		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, n.TenantColumn)
+	var path strings.Builder
+	if len(n.TenantPath) > 0 {
+		path.WriteString(", TenantPath: []resource.BindingHop{")
+		for i, hop := range n.TenantPath {
+			if i > 0 {
+				path.WriteString(", ")
+			}
+			fmt.Fprintf(&path, "{Table: %q, JoinColumn: %q, Column: %q}", hop.Table, hop.JoinColumn, hop.Column)
+		}
+		path.WriteString("}")
+	}
+
+	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q, TenantColumn: %q%s}",
+		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, n.TenantColumn, path.String())
 }
 
 // isNameField reports whether a request type's field is a name field: one the

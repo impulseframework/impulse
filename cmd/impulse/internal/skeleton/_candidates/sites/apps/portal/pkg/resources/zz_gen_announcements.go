@@ -22,6 +22,15 @@ func (Announcement) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows and sorts by. A name is looked up in
+// the pointed-to table by the id; it is no column of this resource.
+func (Announcement) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "TenantName", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // announcementRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; announcementReadSets holds one Set per read operation.
