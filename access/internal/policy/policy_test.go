@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 )
 
@@ -351,5 +352,150 @@ func Test_CompareScopes(t *testing.T) {
 	}
 	if !slices.Equal(scopes, want) {
 		t.Errorf("sorted scopes = %v, want %v", scopes, want)
+	}
+}
+
+// Test_SameRoleName pins the one comparison of role names: the case of ASCII
+// letters alone, never Unicode's folding, so a letter from outside ASCII is
+// the same only as itself.
+func Test_SameRoleName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "the same name", a: "Zed", b: "Zed", want: true},
+		{name: "names that differ in the case of ASCII letters", a: "Zed", b: "zED", want: true},
+		{name: "names of different lengths", a: "Zed", b: "Zeds", want: false},
+		{name: "different names", a: "Zed", b: "Zee", want: false},
+		{name: "the Kelvin sign is not k", a: "Key", b: "Key", want: false},
+		{name: "the long s is not s", a: "ſteward", b: "Steward", want: false},
+		{name: "letters from outside ASCII that differ in case are different names", a: "Été", b: "été", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := SameRoleName(tt.a, tt.b); got != tt.want {
+				t.Errorf("SameRoleName(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+			if got := FoldRoleName(tt.a) == FoldRoleName(tt.b); got != tt.want {
+				t.Errorf("FoldRoleName(%q) == FoldRoleName(%q) is %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_FoldRoleName pins the folded form: ASCII capital letters in lower case,
+// every other byte as written.
+func Test_FoldRoleName(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]string{
+		"TenantAdministrator": "tenantadministrator",
+		"Zed9":                "zed9",
+		"Key":                 "Key",
+		"ÉTE":                 "Éte",
+	} {
+		if got := FoldRoleName(name); got != want {
+			t.Errorf("FoldRoleName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Test_RoleNamesMeet pins where a new role's name is held to a role held:
+// the global partition to itself, one domain to itself and every domain,
+// every domain to itself and any one domain; nothing else.
+func Test_RoleNamesMeet(t *testing.T) {
+	t.Parallel()
+
+	global := accesstypes.GlobalPolicyScope()
+	every := accesstypes.EveryDomainPolicyScope()
+	tenant1 := accesstypes.DomainPolicyScope("tenant1")
+	tenant2 := accesstypes.DomainPolicyScope("tenant2")
+
+	tests := []struct {
+		name        string
+		scope, held accesstypes.PolicyScope
+		want        bool
+	}{
+		{name: "the global partition meets the global partition", scope: global, held: global, want: true},
+		{name: "one domain meets the same domain", scope: tenant1, held: tenant1, want: true},
+		{name: "one domain meets every domain", scope: tenant1, held: every, want: true},
+		{name: "every domain meets every domain", scope: every, held: every, want: true},
+		{name: "every domain meets one domain", scope: every, held: tenant1, want: true},
+		{name: "every domain meets another domain", scope: every, held: tenant2, want: true},
+		{name: "the global partition does not meet a domain", scope: global, held: tenant1, want: false},
+		{name: "the global partition does not meet every domain", scope: global, held: every, want: false},
+		{name: "a domain does not meet the global partition", scope: tenant1, held: global, want: false},
+		{name: "every domain does not meet the global partition", scope: every, held: global, want: false},
+		{name: "two different domains do not meet", scope: tenant1, held: tenant2, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := RoleNamesMeet(tt.scope, tt.held); got != tt.want {
+				t.Errorf("RoleNamesMeet(%s, %s) = %v, want %v", tt.scope, tt.held, got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_CaseTwin pins which held role a new name is a case twin of: one held
+// where the name meets it, spelled otherwise but the same but for case, the
+// first in the order the refusal names.
+func Test_CaseTwin(t *testing.T) {
+	t.Parallel()
+
+	global := accesstypes.GlobalPolicyScope()
+	every := accesstypes.EveryDomainPolicyScope()
+	tenant1 := accesstypes.DomainPolicyScope("tenant1")
+	tenant2 := accesstypes.DomainPolicyScope("tenant2")
+
+	tests := []struct {
+		name     string
+		roles    []Role
+		scope    accesstypes.PolicyScope
+		role     accesstypes.Role
+		want     Role
+		wantTwin bool
+	}{
+		{name: "no twin", roles: []Role{{Scope: tenant1, Name: "Admin"}}, scope: tenant1, role: "Zed"},
+		{name: "the same exact name in a place that meets is no twin", roles: []Role{{Scope: every, Name: "Zed"}, {Scope: tenant1, Name: "Zed"}}, scope: tenant1, role: "Zed"},
+		{name: "a twin in the global partition", roles: []Role{{Scope: global, Name: "ZED"}}, scope: global, role: "Zed", want: Role{Scope: global, Name: "ZED"}, wantTwin: true},
+		{name: "a twin in the same domain", roles: []Role{{Scope: tenant1, Name: "ZED"}}, scope: tenant1, role: "Zed", want: Role{Scope: tenant1, Name: "ZED"}, wantTwin: true},
+		{name: "a twin of one domain's name in every domain", roles: []Role{{Scope: every, Name: "ZED"}}, scope: tenant1, role: "Zed", want: Role{Scope: every, Name: "ZED"}, wantTwin: true},
+		{name: "a twin in every domain", roles: []Role{{Scope: every, Name: "ZED"}}, scope: every, role: "Zed", want: Role{Scope: every, Name: "ZED"}, wantTwin: true},
+		{name: "a twin of every domain's name in one domain", roles: []Role{{Scope: tenant2, Name: "ZED"}}, scope: every, role: "Zed", want: Role{Scope: tenant2, Name: "ZED"}, wantTwin: true},
+		{name: "rows that do not meet the scope are ignored", roles: []Role{{Scope: global, Name: "ZED"}, {Scope: tenant2, Name: "zed"}}, scope: tenant1, role: "Zed"},
+		{name: "the scope's own twin first", roles: []Role{{Scope: every, Name: "ZED"}, {Scope: tenant1, Name: "zed"}}, scope: tenant1, role: "Zed", want: Role{Scope: tenant1, Name: "zed"}, wantTwin: true},
+		{name: "every domain's twin before a domain's", roles: []Role{{Scope: tenant1, Name: "ZED"}, {Scope: tenant2, Name: "zed"}, {Scope: every, Name: "zED"}}, scope: every, role: "Zed", want: Role{Scope: every, Name: "zED"}, wantTwin: true},
+		{name: "then by domain", roles: []Role{{Scope: tenant2, Name: "ZED"}, {Scope: tenant1, Name: "zed"}}, scope: every, role: "Zed", want: Role{Scope: tenant1, Name: "zed"}, wantTwin: true},
+		{name: "then by name", roles: []Role{{Scope: tenant1, Name: "zed"}, {Scope: tenant1, Name: "ZEd"}}, scope: every, role: "Zed", want: Role{Scope: tenant1, Name: "ZEd"}, wantTwin: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, twin := CaseTwin(tt.roles, tt.scope, tt.role)
+			if twin != tt.wantTwin || got != tt.want {
+				t.Errorf("CaseTwin(%v, %s, %q) = (%v, %v), want (%v, %v)", tt.roles, tt.scope, tt.role, got, twin, tt.want, tt.wantTwin)
+			}
+		})
+	}
+}
+
+// Test_CaseTwinError pins the refusal's words and that a wrap keeps it
+// findable.
+func Test_CaseTwinError(t *testing.T) {
+	t.Parallel()
+
+	err := errors.Wrap(&CaseTwinError{Held: Role{Scope: accesstypes.EveryDomainPolicyScope(), Name: "ZED"}}, "insert role")
+	var twin *CaseTwinError
+	if !errors.As(err, &twin) {
+		t.Fatalf("errors.As(%v) found no *CaseTwinError", err)
+	}
+	if got, want := twin.Error(), `the role "ZED" held in scope every domain differs from the name only in case`; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }

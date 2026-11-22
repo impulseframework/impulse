@@ -817,8 +817,8 @@ func TestUnionCollection_groupSetsOfTwoAuths(t *testing.T) {
 			unlistedSets: map[string]string{set: auth},
 		}
 	}
-	readsSet := func(set string) RoleFile {
-		return RoleFile(`{"roles": {"domain": [{"name": "Fitter", "description": "Reads the widgets of their groups.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner IN subject.` + set + `"}]}}]}}`)
+	readsSet := func(auth, set string) RoleFile {
+		return RoleFile(`{"auth": "` + auth + `", "roles": {"domain": [{"name": "Fitter", "description": "Reads the widgets of their groups.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner IN subject.` + set + `"}]}}]}}`)
 	}
 	tests := []struct {
 		name    string
@@ -843,7 +843,7 @@ func TestUnionCollection_groupSetsOfTwoAuths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("UnionCollection() error = %v", err)
 			}
-			client, err := New(newFakeStore(), union, WithDefaultRoles(readsSet(tt.reads), tt.auth))
+			client, err := New(newFakeStore(), union, WithDefaultRoles(readsSet(tt.auth, tt.reads), tt.auth))
 			if client != nil {
 				t.Cleanup(func() {
 					if err := client.Close(); err != nil {

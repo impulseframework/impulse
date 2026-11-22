@@ -216,6 +216,14 @@ func demoUsers(t *testing.T) []demoUser {
 	return identities.Users
 }
 
+// looseRoleFile is a role file read loosely, for a suite that changes a role or a grant
+// of the release's file and hands the file on: the auth it carries and its roles by
+// scope, each role as the JSON says it.
+type looseRoleFile struct {
+	Auth  string                      `json:"auth,omitempty"`
+	Roles map[string][]map[string]any `json:"roles"`
+}
+
 // openEngine opens a real engine over one auth's store prefix with the auth's role file,
 // validated against the generated collection the way the auth packages open theirs.
 func openEngine(db *initiator.SpannerDB, prefix string, roles access.RoleFile) (*access.Client, error) {
@@ -666,7 +674,7 @@ func engineOfARelease(t *testing.T, db *initiator.SpannerDB, collection access.P
 	if err != nil {
 		t.Fatalf("spannerstore.New() error = %v", err)
 	}
-	client, err := access.New(store, collection, access.WithDefaultRoles(access.RoleFile(`{"roles": {}}`), crew.Name))
+	client, err := access.New(store, collection, access.WithDefaultRoles(access.RoleFile(`{"auth": "`+crew.Name+`", "roles": {}}`), crew.Name))
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}

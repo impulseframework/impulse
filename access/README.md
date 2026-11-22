@@ -753,8 +753,9 @@ custom role whose name matches an existing role of the scope without regard to
 case, so a resolution
 is ambiguous only where a pair came about another way: a release that brings a
 default role whose name differs only in case from a custom role a tenant already
-holds, or two such names added at the same moment. `ResolveRole` then answers an
-error that names the roles, until one of them is removed. A role added in every
+holds. `ResolveRole` then answers an error that names the roles, until one of them
+is removed. Two such names added at the same moment do not both land: the store
+refuses the second in the insert's own transaction. A role added in every
 domain is held to the custom roles of each single domain as well, since a name
 asked in one domain is read against both. `AddRole` also holds a custom role's
 name to the one grammar
@@ -843,7 +844,11 @@ Default roles are policy that travels with the release. They are authored as a
 role file, JSON in the `RoleConfig` shape (see JSON Configuration), embedded in
 the application binary and handed to `New` through `WithDefaultRoles`. `New`
 takes one role file: a second `WithDefaultRoles` among its options is refused,
-since an engine holds the roles of one auth. `New` parses the file and
+since an engine holds the roles of one auth. The file says whose roles it holds,
+in its `auth` key, and `New` takes it only under that name: a file handed over
+under another auth's name, a file with no `auth` handed over under a name, and a
+file with one handed over under none are refused, so one auth's roles never open
+another auth's engine. `New` parses the file and
 validates it against the collection the release declares: a file that does not
 parse, names a role outside the grammar, leaves a role without a description,
 declares a role twice or at both scopes, grants what the collection does not
@@ -925,7 +930,8 @@ scope alike.
 The second argument of `WithDefaultRoles`, `auth`, is the name of the auth whose roles the
 file holds, as the auth's package names it (`Name` in a package `impulse add auth`
 renders). It says whose subject sets the file is held to: see `access.UnreadSetWarning`
-below. `ValidateRoles` takes the same name.
+below. `ValidateRoles` takes the same name. The file carries the same name in its `auth`
+key, and `New` and `ValidateRoles` refuse the two when they differ.
 
 An application hands a role file over in the auth's own package, among the options of the
 `access.New` call that opens the auth's engine, where `Roles()` and `Name` are the package's own
@@ -1228,8 +1234,12 @@ client, err := access.New(store, collection, access.WithDefaultRoles(Roles(), Na
 
 ### JSON Configuration
 
+`auth` is the name of the auth whose roles the file holds, as the auth's package names it; a
+file handed over under no name leaves it out.
+
 ```json
 {
+  "auth": "staff",
   "roles": {
     "global": [],
     "domain": [

@@ -103,6 +103,7 @@ func TestNew_oneRoleFile(t *testing.T) {
 	t.Parallel()
 
 	lookouts := RoleFile(`{
+  "auth": "members",
   "roles": {
     "domain": [
       {"name": "Lookout", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name"]}]}}

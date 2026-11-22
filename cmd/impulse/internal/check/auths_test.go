@@ -180,7 +180,9 @@ type Configurer interface {
 	Staff() *staff.Auth
 }
 `
-	rolesJSON = "{\"roles\": {\"global\": [], \"domain\": []}}\n"
+	rolesJSON = "{\"auth\": \"staff\", \"roles\": {\"global\": [], \"domain\": []}}\n"
+	// membersRolesJSON is the members auth's empty role file.
+	membersRolesJSON = "{\"auth\": \"members\", \"roles\": {\"global\": [], \"domain\": []}}\n"
 	// rolesValidation is the roles validation test with the staff row: it parses the
 	// staff auth's role file and runs access.ValidateRoles over the collection.
 	rolesValidation = `package deploy_test
@@ -526,7 +528,7 @@ func TestAuthsWired(t *testing.T) {
 		},
 		{
 			name: "an auth's engine handed another auth's role file beside its own",
-			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", membersRolesJSON),
 				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles(Roles(), Name), access.WithDefaultRoles(members.Roles(), members.Name)"))),
 			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
 			wantDetails: []string{
@@ -541,7 +543,7 @@ func TestAuthsWired(t *testing.T) {
 		},
 		{
 			name: "an auth's engine handed another auth's role file beside its own, with a comment before each option's parenthesis",
-			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", membersRolesJSON),
 				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles /* its own */ (Roles(), Name), access.WithDefaultRoles /* the roles */ (members.Roles(), members.Name)"))),
 			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
 			wantDetails: []string{
@@ -654,7 +656,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "an application-run directory auth assigns roles in the bootstrap",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.DisableRoleSync()"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"cmd/bootstrap/main.go":       membersBootstrap,
@@ -667,7 +669,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "a directory-run auth with a role writer in the bootstrap",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"cmd/bootstrap/main.go":       membersBootstrap,
@@ -679,7 +681,7 @@ func TestAuthsWired(t *testing.T) {
 		},
 		{
 			name:       "two auths leave their cookies at the library defaults",
-			files:      with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+			files:      with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", membersRolesJSON),
 			wantStatus: Fail, wantSummary: "5 auth wiring problem(s)",
 			wantDetails: []string{
 				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
@@ -749,7 +751,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "the program declares a directory method without .SyncsRoles() while the package syncs roles",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,
@@ -768,7 +770,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "the program declares .SyncsRoles() on a directory method the package leaves to the application",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.DisableRoleSync()"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,
@@ -787,7 +789,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "a directory method registered with RoleSync beside the password method is named: it stands alone on its auth",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuthBeside, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,
@@ -806,7 +808,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "the program declares .SyncsRoles() on the directory method the package syncs roles for",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,

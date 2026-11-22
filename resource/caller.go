@@ -55,22 +55,40 @@ func CallerFrom(ctx context.Context) *Caller {
 
 type authKey struct{}
 
+// authRecord is the one record of the auth a request came through, kept under authKey:
+// the auth's name, and whether a group bound it (BindAuth), which holds the request to
+// that auth.
+type authRecord struct {
+	name    string
+	byGroup bool
+}
+
 // WithAuth binds the request to the auth whose sessions its outlet serves, by the auth's
 // name (the auth package's Name). An outlet's generated routes bind it on every request
 // (live.Subscribing), so whatever answers for the request can tell the people of one auth
 // from another's: two auths over one database may each hold a person of the same username,
-// and they are two people.
+// and they are two people. A request its outlet's group bound already (BindAuth) keeps the
+// auth the group gave it: the context is returned as it is, so nothing a route mounts
+// renames a request the router bound. WithAuth cannot refuse a request; the middleware an
+// outlet's generated routes run under (live.Subscribing) does, where the group's auth is
+// not its own.
 func WithAuth(ctx context.Context, auth string) context.Context {
-	return context.WithValue(ctx, authKey{}, auth)
+	if record, ok := ctx.Value(authKey{}).(authRecord); ok && record.byGroup {
+		return ctx
+	}
+
+	return context.WithValue(ctx, authKey{}, authRecord{name: auth})
 }
 
-// AuthFrom returns the name of the auth the request came through, as WithAuth bound it.
-// ok is false when nothing bound one: a request served outside an outlet's generated
-// routes, or a call made outside any request.
+// AuthFrom returns the name of the auth the request came through, as its outlet's group
+// bound it (BindAuth) or, where no group did, as its generated routes did (WithAuth). ok
+// is false when nothing bound one: a route outside every outlet, a route registered by
+// hand under an outlet of an application with one auth, or a call made outside any
+// request.
 func AuthFrom(ctx context.Context) (auth string, ok bool) {
-	auth, ok = ctx.Value(authKey{}).(string)
+	record, ok := ctx.Value(authKey{}).(authRecord)
 
-	return auth, ok
+	return record.name, ok
 }
 
 // IsZero reports whether no frame stamped the caller.

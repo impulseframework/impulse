@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/access/internal/storetest"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/db"
 )
 
@@ -94,5 +96,17 @@ func openTransaction(database *db.PostgresDatabase) storetest.Transaction {
 		}
 
 		f(ctx)
+	}
+}
+
+// roleWriter writes a role row straight to the store's roles table, with no rule
+// (storetest.RoleWriter): the statement the store inserts with, outside InsertRole.
+func roleWriter(database *db.PostgresDatabase, store *Store) storetest.RoleWriter {
+	return func(t *testing.T, scope accesstypes.PolicyScope, role accesstypes.Role, description string) {
+		t.Helper()
+		kind, axis, domain := policy.ScopeColumns(scope)
+		if _, err := database.Exec(t.Context(), store.sqlInsertRole, kind, axis, domain, role, description); err != nil {
+			t.Fatalf("pgxpool.Pool.Exec() insert role %q in scope %s error = %v", role, scope, err)
+		}
 	}
 }

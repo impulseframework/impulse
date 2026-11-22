@@ -14,8 +14,10 @@ import (
 // roleFile is a role file read to be changed and written again: the shape the
 // permission engine reads (access.RoleConfig), keeping the order the file names each
 // role's permissions in, which the engine's own shape, a map, does not. It is written
-// the way every role file the command renders is: two spaces a level, a field a line.
+// the way every role file the command renders is: two spaces a level, a field a line,
+// the name of the auth whose roles the file holds first.
 type roleFile struct {
+	Auth  string     `json:"auth,omitempty"`
 	Roles roleScopes `json:"roles"`
 }
 
