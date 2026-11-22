@@ -170,7 +170,7 @@ func newCodeWindowApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx])
 	t.Cleanup(server.Close)
 	a.authApp = &authApp[Tx]{
 		db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder,
-		verified: window.Auth.VerifyUserEmail, setEmail: window.SetUserEmail,
+		verified: window.VerifyUserEmail, setEmail: window.SetUserEmail,
 	}
 
 	return a

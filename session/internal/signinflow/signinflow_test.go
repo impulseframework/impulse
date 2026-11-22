@@ -96,14 +96,14 @@ func (s *memStore) invite(email, tenant string, roles ...string) *sessioninfo.In
 }
 
 // userNamed finds a committed user by username.
-func (s *memStore) userNamed(username string) (impulse.UUID, *memUser) {
-	for id, user := range s.users {
+func (s *memStore) userNamed(username string) *memUser {
+	for _, user := range s.users {
 		if user.username == username {
-			return id, user
+			return user
 		}
 	}
 
-	return impulse.NilUUID, nil
+	return nil
 }
 
 // memTx is one run of a transaction's closure: the writes it buffered, applied at the
@@ -391,7 +391,7 @@ func (h *roleHooks) signUp(_ context.Context, tx *memTx, _ impulse.UUID, usernam
 }
 
 func (h *roleHooks) userCommitted(username string) bool {
-	_, user := h.store.userNamed(username)
+	user := h.store.userNamed(username)
 
 	return user != nil
 }
@@ -935,7 +935,7 @@ func TestSignIn_theNameOfANewAccount(t *testing.T) {
 				t.Fatalf("SignIn() error = %v", err)
 			}
 
-			_, user := store.userNamed(stranger)
+			user := store.userNamed(stranger)
 			if user == nil {
 				t.Fatal("no account was created")
 			}
@@ -1209,7 +1209,7 @@ func TestSignIn_theMethodsRowDecidesAStranger(t *testing.T) {
 
 				return
 			}
-			if _, user := store.userNamed(stranger); user == nil || store.sessions != 1 {
+			if user := store.userNamed(stranger); user == nil || store.sessions != 1 {
 				t.Errorf("the store holds user %v and %d session(s), want the account made and signed in", user, store.sessions)
 			}
 			want := tt.wantGranted

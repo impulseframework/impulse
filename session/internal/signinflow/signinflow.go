@@ -574,12 +574,13 @@ func acceptedByCode[Tx any](
 		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
 	}
 	holds := holder != nil && holder.ID == user.ID
+	ownCode := holds && claim != nil && sameAddress(claim.Email, inv.Email)
 	switch {
 	case holds && user.EmailConfirmed:
 		return nil, nil
 	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username):
 		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
-	case !inv.AddressProven && !(holds && claim != nil && sameAddress(claim.Email, inv.Email)):
+	case !inv.AddressProven && !ownCode:
 		return wait, nil
 	default:
 		return nil, nil

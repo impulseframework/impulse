@@ -88,7 +88,7 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 			if !inv.Accepted || store.invitations[inv.ID] {
 				t.Errorf("Invitation.Accepted = %v, still live = %v, want it accepted and consumed", inv.Accepted, store.invitations[inv.ID])
 			}
-			_, made := store.userNamed(elsewhere)
+			made := store.userNamed(elsewhere)
 			if made == nil || made.email != invited {
 				t.Fatalf("the account the acceptance made = %+v, want one that holds %s", made, invited)
 			}

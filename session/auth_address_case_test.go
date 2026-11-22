@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
@@ -137,7 +138,8 @@ func TestAuth_codeAddressWritten_tellsARenameByTheKelvinSign(t *testing.T) {
 					return tt.signedIn(userID)
 				})
 			if tt.signedIn != nil {
-				if _, held := tt.signedIn(userID).(*signin.PendingSignInError); held {
+				var held *signin.PendingSignInError
+				if errors.As(tt.signedIn(userID), &held) {
 					f.expectHold(named)
 				}
 			}
