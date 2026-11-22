@@ -2,7 +2,10 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -13,6 +16,8 @@ import (
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	ccclogger "github.com/impulseframework/impulse/logger"
 	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Spanner applies migrations to one Spanner database and keeps one version table. A DDL
@@ -134,11 +139,18 @@ func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error 
 	return s.apply(ctx, held, file, stmts, start)
 }
 
-// resolveOperation fetches the DDL operation a stopped run left in flight and counts its
-// committed statements into Applied: all of them when it succeeded, its commit timestamps
-// when it failed. The operation's statements must be the file's from Applied on; otherwise
-// the file changed in its applied part.
+// resolveOperation settles the DDL operation a stopped run left named on the version row.
+// When the name is one the runner makes, it first sends the group's batch under that name:
+// Spanner accepts it if the stopped run never sent it, and answers that the operation
+// exists if it did, so the batch is sent once either way. It then waits for the operation
+// and counts its committed statements into Applied: all of them when it succeeded, its
+// commit timestamps when it failed. The operation's statements must be the file's from
+// Applied on; otherwise the file changed in its applied part.
 func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Migration, stmts []string) error {
+	if err := s.sendRecorded(ctx, held, file, stmts); err != nil {
+		return err
+	}
+
 	v := *held
 	op := s.admin.UpdateDatabaseDdlOperation(v.Operation)
 	waitErr := op.Wait(ctx)
@@ -169,6 +181,41 @@ func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Mig
 	ccclogger.FromCtx(ctx).Infof("DDL operation %s of %s had finished with %s applied", op.Name(), file.File, plural(n, "statement"))
 
 	return nil
+}
+
+// sendRecorded sends the batch of the DDL group a stopped run named on the version row,
+// under the recorded operation ID, when the name is the runner's own form and the file's
+// next group is DDL. Another name was not made by the runner and is only fetched. A batch
+// Spanner refuses applied nothing: the name comes off the row and the run stops with a
+// DirtyError.
+func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migration, stmts []string) error {
+	id, ok := s.ownOperationID(held.Operation)
+	if !ok {
+		return nil
+	}
+	groups := Groups(stmts, held.Applied)
+	if len(groups) == 0 || groups[0].Kind != DDL {
+		return nil
+	}
+	g := groups[0]
+
+	_, err := s.ddlBatch(ctx, g.Statements, id)
+	switch {
+	case err == nil:
+		ccclogger.FromCtx(ctx).Infof("DDL operation %s of %s was recorded and never sent; it is sent now", held.Operation, file.File)
+
+		return nil
+	case status.Code(err) == codes.AlreadyExists:
+		return nil
+	}
+
+	v := *held
+	v.Operation = ""
+	if _, commitErr := s.Commit(ctx, held, v, nil); commitErr != nil {
+		return commitErr
+	}
+
+	return refused(file, stmts, g, err)
 }
 
 // apply runs a file's statements from index start, group by group, recording progress on
@@ -220,25 +267,32 @@ func (s *Spanner) progress(m *Migration, stmts []string, applied int, operation 
 	}
 }
 
-// applyDDL sends a DDL group as one batch. A synchronous refusal applied nothing. Once the
-// operation is accepted its name goes on the version row, so a run that dies while waiting
-// can be resolved later; on failure the operation's commit timestamps say how many
-// statements applied.
+// applyDDL sends a DDL group as one batch under an operation ID of the run's own, whose
+// name it records on the version row before it sends. Spanner accepts an operation ID once,
+// so a batch whose name is on the row is sent once, whoever sends it. A synchronous refusal
+// applied nothing, and the name comes off the row. A batch another run already sent under
+// the name stops this run (ErrAnotherRun). On failure the operation's commit timestamps say
+// how many statements applied.
 func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stmts []string, g Group) error {
-	op, err := s.ddlBatch(ctx, g.Statements)
+	id, err := newOperationID()
 	if err != nil {
-		return &DirtyError{
-			Version:   m.Version,
-			File:      m.File,
-			Applied:   g.Start,
-			Total:     len(stmts),
-			Statement: g.Statements[0],
-			Cause:     errors.Wrapf(err, "Spanner refused the batch of %s, nothing applied", plural(len(g.Statements), "DDL statement")),
-		}
+		return err
+	}
+	name := s.operationName(id)
+	if _, err := s.Commit(ctx, held, s.progress(m, stmts, g.Start, name), nil); err != nil {
+		return err
 	}
 
-	if _, err := s.Commit(ctx, held, s.progress(m, stmts, g.Start, op.Name()), nil); err != nil {
-		return err
+	op, err := s.ddlBatch(ctx, g.Statements, id)
+	if status.Code(err) == codes.AlreadyExists {
+		return errors.Wrapf(ErrAnotherRun, "DDL operation %s of %s was sent by another run; version table %s", name, m.File, s.table)
+	}
+	if err != nil {
+		if _, commitErr := s.Commit(ctx, held, s.progress(m, stmts, g.Start, ""), nil); commitErr != nil {
+			return commitErr
+		}
+
+		return refused(m, stmts, g, err)
 	}
 
 	waitErr := op.Wait(ctx)
@@ -268,6 +322,19 @@ func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stm
 	_, err = s.Commit(ctx, held, s.progress(m, stmts, g.Start+len(g.Statements), ""), nil)
 
 	return err
+}
+
+// refused is the error of a DDL group's batch Spanner refused when it was sent: nothing of
+// it applied.
+func refused(m *Migration, stmts []string, g Group, err error) *DirtyError {
+	return &DirtyError{
+		Version:   m.Version,
+		File:      m.File,
+		Applied:   g.Start,
+		Total:     len(stmts),
+		Statement: g.Statements[0],
+		Cause:     errors.Wrapf(err, "Spanner refused the batch of %s, nothing applied", plural(len(g.Statements), "DDL statement")),
+	}
 }
 
 // applyDML runs a DML group and records it on the version row in one read-write
@@ -364,7 +431,7 @@ func (s *Spanner) revert(ctx context.Context, held *Version, m *Migration) error
 func (s *Spanner) runGroup(ctx context.Context, held *Version, g Group) error {
 	switch g.Kind {
 	case DDL:
-		op, err := s.ddlBatch(ctx, g.Statements)
+		op, err := s.ddlBatch(ctx, g.Statements, "")
 		if err != nil {
 			return err
 		}
@@ -381,16 +448,53 @@ func (s *Spanner) runGroup(ctx context.Context, held *Version, g Group) error {
 }
 
 // ddlBatch sends DDL statements as one batch and returns the accepted operation.
-func (s *Spanner) ddlBatch(ctx context.Context, stmts []string) (*database.UpdateDatabaseDdlOperation, error) {
+// operationID names the operation; empty leaves the name to Spanner.
+func (s *Spanner) ddlBatch(ctx context.Context, stmts []string, operationID string) (*database.UpdateDatabaseDdlOperation, error) {
 	op, err := s.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   s.database,
-		Statements: stmts,
+		Database:    s.database,
+		Statements:  stmts,
+		OperationId: operationID,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "DatabaseAdminClient.UpdateDatabaseDdl()")
 	}
 
 	return op, nil
+}
+
+// operationIDPrefix begins every operation ID the runner makes. Spanner's own IDs begin
+// with an underscore, and an ID must match [a-z][a-z0-9_]*.
+const operationIDPrefix = "migrate_"
+
+// ownOperationIDPattern is the form of an operation ID the runner makes: the prefix and 32
+// lower-case hex digits.
+var ownOperationIDPattern = regexp.MustCompile(`^` + operationIDPrefix + `[0-9a-f]{32}$`)
+
+// newOperationID makes an operation ID of the runner's own form from 16 random bytes.
+func newOperationID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", errors.Wrap(err, "rand.Read()")
+	}
+
+	return operationIDPrefix + hex.EncodeToString(b), nil
+}
+
+// operationName is the name Spanner gives the operation of a batch sent under id.
+func (s *Spanner) operationName(id string) string {
+	return s.database + "/operations/" + id
+}
+
+// ownOperationID returns the operation ID of a recorded name when the name is one the
+// runner makes for this database. Any other text in the column is not the runner's: a name
+// Spanner made, or whatever a person forced into it.
+func (s *Spanner) ownOperationID(name string) (string, bool) {
+	id, ok := strings.CutPrefix(name, s.operationName(""))
+	if !ok || !ownOperationIDPattern.MatchString(id) {
+		return "", false
+	}
+
+	return id, true
 }
 
 // Commit runs the DML statements, if any, and replaces the version row with next, in one
@@ -506,7 +610,7 @@ func (s *Spanner) ensureTable(ctx context.Context) error {
 		return nil
 	}
 
-	op, err := s.ddlBatch(ctx, ddl)
+	op, err := s.ddlBatch(ctx, ddl, "")
 	if err != nil {
 		return errors.Wrapf(err, "creating the version table %s", s.table)
 	}

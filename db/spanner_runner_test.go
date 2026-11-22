@@ -757,8 +757,10 @@ func testNotCarried(dirty bool) func(ctx context.Context, t *testing.T, containe
 	}
 }
 
-// TestSpannerMigrator_InterruptedRun resolves a DDL operation a dead run left in flight:
-// the test sends the batch itself and writes the row with the operation's name.
+// TestSpannerMigrator_InterruptedRun resolves a DDL operation a dead run left named on the
+// version row: the test sends the batch itself, or leaves it unsent as a run that died
+// between recording the name and sending would, and writes the row with the operation's
+// name.
 func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 	t.Parallel()
 
@@ -769,12 +771,18 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = container.Terminate(ctx) })
 
+	// An operation ID of the runner's own form: migrate_ and 32 lower-case hex digits.
+	const ownID = "migrate_0123456789abcdef0123456789abcdef"
+
 	tests := []struct {
 		name        string
 		seed        [][2]int64
 		batch       []string
 		unknown     bool
+		ownID       bool
+		unsent      bool
 		wantErr     string
+		wantDirty   bool
 		wantApplied int64
 		wantClean   bool
 	}{
@@ -796,6 +804,27 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			unknown: true,
 			wantErr: "cannot be fetched; force the version that matches the database's real state",
 		},
+		{
+			name:      "an operation the run named and never sent is sent by the next run",
+			batch:     []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")},
+			ownID:     true,
+			unsent:    true,
+			wantClean: true,
+		},
+		{
+			name:      "an operation the run named and sent is not sent again",
+			batch:     []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")},
+			ownID:     true,
+			wantClean: true,
+		},
+		{
+			name:      "a named batch Spanner refuses comes off the row",
+			batch:     []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlBadIndex, ";")},
+			ownID:     true,
+			unsent:    true,
+			wantErr:   "nothing applied",
+			wantDirty: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -809,14 +838,23 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			insertT(ctx, t, db.Client, tt.seed...)
 			writeMigration(t, source, "000002_refit.up.sql", strings.Join(tt.batch, ";\n")+";")
 
-			// The batch, as a run that died while waiting would have sent it.
+			// The batch, as a run that died while waiting would have sent it: under a name
+			// Spanner made, or under one of the runner's own.
 			name := db.dbStr + "/operations/00000000-0000-0000-0000-000000000000"
-			if !tt.unknown {
-				op, err := db.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{Database: db.dbStr, Statements: tt.batch})
+			var operationID string
+			if tt.ownID {
+				operationID = ownID
+				name = db.dbStr + "/operations/" + ownID
+			}
+			if !tt.unknown && !tt.unsent {
+				op, err := db.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{Database: db.dbStr, Statements: tt.batch, OperationId: operationID})
 				if err != nil {
 					t.Fatalf("DatabaseAdminClient.UpdateDatabaseDdl() error = %v", err)
 				}
 				_ = op.Wait(ctx)
+				if tt.ownID && op.Name() != name {
+					t.Fatalf("the operation sent under ID %s is named %s, want %s", ownID, op.Name(), name)
+				}
 				name = op.Name()
 			}
 			writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &versionRow{
@@ -842,6 +880,10 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 					}
 
 					return
+				}
+				var dirty *DirtyError
+				if tt.wantDirty && (!errors.As(err, &dirty) || dirty.Applied != 0) {
+					t.Errorf("MigrateUpSchema() error = %v, want a *DirtyError with nothing applied", err)
 				}
 				assertDirty(ctx, t, db.Client, 2, tt.wantApplied)
 
