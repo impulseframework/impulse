@@ -764,11 +764,15 @@ func (u *userManager) RoleHolders(ctx context.Context, scope accesstypes.PolicyS
 }
 
 // RolePermissions returns the permissions role holds in scope, answered from
-// the policy snapshot.
+// the policy snapshot. A scope that names nothing is refused with
+// accesstypes.ErrNoScope before the role is looked for.
 func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "access.RolePermissions()")
+	}
 	roleFound, err := u.roleExists(ctx, scope.PolicyScope(), role)
 	if err != nil {
 		return nil, err
