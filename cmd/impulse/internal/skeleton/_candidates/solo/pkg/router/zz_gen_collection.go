@@ -372,8 +372,9 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"kind", "axis", "domainId", "name"},
 			},
 			{
-				Name:        "StaffRoleGrants",
+				Name:        "StaffListedRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
 					{Name: "axis"},
@@ -384,9 +385,9 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "permission"},
 					{Name: "resourceName"},
 					{Name: "role"},
+					{Name: "skipped", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
-				Order: []accesstypes.Tag{"role"},
 			},
 			{
 				Name:        "StaffRoles",

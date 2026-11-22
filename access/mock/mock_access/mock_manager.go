@@ -911,6 +911,21 @@ func (mr *MockUserManagerMockRecorder) Roles(ctx, scope any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Roles", reflect.TypeOf((*MockUserManager)(nil).Roles), ctx, scope)
 }
 
+// SkippedStoredGrants mocks base method.
+func (m *MockUserManager) SkippedStoredGrants(grants []access.StoredGrant) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SkippedStoredGrants", grants)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SkippedStoredGrants indicates an expected call of SkippedStoredGrants.
+func (mr *MockUserManagerMockRecorder) SkippedStoredGrants(grants any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SkippedStoredGrants", reflect.TypeOf((*MockUserManager)(nil).SkippedStoredGrants), grants)
+}
+
 // TenantsAdministered mocks base method.
 func (m *MockUserManager) TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
 	m.ctrl.T.Helper()

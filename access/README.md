@@ -301,7 +301,11 @@ grant is no foothold where its role is held, no check meets a condition it
 cannot resolve, and its holder's other grants decide as they did. The store
 still holds the row, so `RoleGrants` lists it, marked with the reason
 (`RoleGrant.Skipped`): a page of a role's grants shows it as one the role does
-not hold, with why.
+not hold, with why. A caller that reads the grants table itself, as the
+generated list of the custom roles' grants does, asks the same of the rows it
+read (`SkippedStoredGrants`): the answer for each is the reason, or nothing for
+a grant its role holds, and a row stored under the name of a role the release
+defines is answered as left out too.
 
 A removal is held to nothing: a grant the release no longer declares can
 always be taken away. No client is without

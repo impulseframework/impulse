@@ -166,7 +166,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		}
 		names = append(names, m[1])
 	}
-	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersRoles,MembersRoleGrants,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,FeatureFlags"
+	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersRoles,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,MembersListedRoleGrants,FeatureFlags"
 	if strings.Join(names, ",") != want {
 		t.Errorf("portal resource interfaces = %v, want %s", names, want)
 	}

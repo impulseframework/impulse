@@ -28,7 +28,7 @@ export const Resources = {
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
   MembersListedGroupRoles: 'MembersListedGroupRoles' as Resource,
   MembersListedGroups: 'MembersListedGroups' as Resource,
-  MembersRoleGrants: 'MembersRoleGrants' as Resource,
+  MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
   MembersSessionAuthEvents: 'MembersSessionAuthEvents' as Resource,
   MembersSessionIdentities: 'MembersSessionIdentities' as Resource,
@@ -320,7 +320,7 @@ export namespace MembersListedGroups {
   };
 }
 
-export namespace MembersRoleGrants {
+export namespace MembersListedRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
     condition: 'condition' as FieldName,
@@ -330,18 +330,20 @@ export namespace MembersRoleGrants {
     permission: 'permission' as FieldName,
     resourceName: 'resourceName' as FieldName,
     role: 'role' as FieldName,
+    skipped: 'skipped' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
   };
   export const resourceName = {
-    axis: 'MembersRoleGrants.axis' as Resource,
-    condition: 'MembersRoleGrants.condition' as Resource,
-    domainId: 'MembersRoleGrants.domainId' as Resource,
-    field: 'MembersRoleGrants.field' as Resource,
-    kind: 'MembersRoleGrants.kind' as Resource,
-    permission: 'MembersRoleGrants.permission' as Resource,
-    resourceName: 'MembersRoleGrants.resourceName' as Resource,
-    role: 'MembersRoleGrants.role' as Resource,
-    updatedAt: 'MembersRoleGrants.updatedAt' as Resource,
+    axis: 'MembersListedRoleGrants.axis' as Resource,
+    condition: 'MembersListedRoleGrants.condition' as Resource,
+    domainId: 'MembersListedRoleGrants.domainId' as Resource,
+    field: 'MembersListedRoleGrants.field' as Resource,
+    kind: 'MembersListedRoleGrants.kind' as Resource,
+    permission: 'MembersListedRoleGrants.permission' as Resource,
+    resourceName: 'MembersListedRoleGrants.resourceName' as Resource,
+    role: 'MembersListedRoleGrants.role' as Resource,
+    skipped: 'MembersListedRoleGrants.skipped' as Resource,
+    updatedAt: 'MembersListedRoleGrants.updatedAt' as Resource,
   };
 }
 

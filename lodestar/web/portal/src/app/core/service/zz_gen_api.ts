@@ -3,7 +3,7 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, Resou
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersRoles, MembersRoleGrants, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, FeatureFlags } from './zz_gen_resources';
+import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedRoleGrants, FeatureFlags } from './zz_gen_resources';
 import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
@@ -60,9 +60,6 @@ export type MembersHeldRolesKey = [userId: string, kind: string, axis: string, d
 
 /** The primary key of MembersRoles, in route order. */
 export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
-
-/** The primary key of MembersRoleGrants, in route order. */
-export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of MembersSectorHeldRoles, in route order. */
 export type MembersSectorHeldRolesKey = [userId: string, role: string, groupId: string];
@@ -157,6 +154,9 @@ export type MissionDocumentsKey = [id: string];
 /** The primary key of BriefingTemplates, in route order. */
 export type BriefingTemplatesKey = [id: string];
 
+/** The primary key of MembersListedRoleGrants, in route order. */
+export type MembersListedRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
 /** The primary key of FeatureFlags, in route order. */
 export type FeatureFlagsKey = [name: string];
 
@@ -232,17 +232,6 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: false,
       keys: ['kind', 'axis', 'domainId', 'role'],
-      operations: ['list'],
-      page: { default: 25, max: 200 },
-      order: [{ field: 'role', direction: 'asc' }],
-    },
-    [Resources.MembersRoleGrants]: {
-      resource: Resources.MembersRoleGrants,
-      property: 'membersRoleGrants',
-      route: 'members-role-grants',
-      scope: 'global',
-      consolidated: false,
-      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -426,6 +415,17 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list'],
       page: { default: 50 },
     },
+    [Resources.MembersListedRoleGrants]: {
+      resource: Resources.MembersListedRoleGrants,
+      property: 'membersListedRoleGrants',
+      route: 'members-listed-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
     [Resources.FeatureFlags]: {
       resource: Resources.FeatureFlags,
       property: 'featureFlags',
@@ -489,7 +489,6 @@ export interface GlobalApi {
   clientContacts: ResourceHandle<ClientContacts, ClientContactsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ClientContactsCreate, ClientContactsPatch>;
   membersHeldRoles: ResourceHandle<MembersHeldRoles, MembersHeldRolesKey, 'list'>;
   membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
-  membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
   membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
   membersSessionAuthEvents: ResourceHandle<MembersSessionAuthEvents, MembersSessionAuthEventsKey, 'list'>;
   membersSessionIdentities: ResourceHandle<MembersSessionIdentities, MembersSessionIdentitiesKey, 'list' | 'read'>;
@@ -499,6 +498,7 @@ export interface GlobalApi {
   membersSessionUsers: ResourceHandle<MembersSessionUsers, MembersSessionUsersKey, 'list' | 'read'>;
   membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
+  membersListedRoleGrants: ResourceHandle<MembersListedRoleGrants, MembersListedRoleGrantsKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
   deleteMembersUser: MethodHandle<DeleteMembersUser>;
   disableMembersUser: MethodHandle<DisableMembersUser>;

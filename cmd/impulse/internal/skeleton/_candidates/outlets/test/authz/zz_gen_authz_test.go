@@ -273,19 +273,6 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
-			name:         "MembersRoleGrants (portal) denied",
-			method:       http.MethodGet,
-			target:       "/portal/api/members-role-grants",
-			wantStatuses: []int{http.StatusForbidden},
-		},
-		{
-			name:         "MembersRoleGrants (portal) granted",
-			grants:       grants{accesstypes.List: true},
-			method:       http.MethodGet,
-			target:       "/portal/api/members-role-grants",
-			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
-		},
-		{
 			name:         "MembersSessions (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-sessions",
@@ -910,19 +897,6 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
-			name:         "StaffRoleGrants denied",
-			method:       http.MethodGet,
-			target:       "/console/api/staff-role-grants",
-			wantStatuses: []int{http.StatusForbidden},
-		},
-		{
-			name:         "StaffRoleGrants granted",
-			grants:       grants{accesstypes.List: true},
-			method:       http.MethodGet,
-			target:       "/console/api/staff-role-grants",
-			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
-		},
-		{
 			name:         "StaffSessions denied",
 			method:       http.MethodGet,
 			target:       "/console/api/staff-sessions",
@@ -1443,6 +1417,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersListedRoleGrants (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-listed-role-grants",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersListedRoleGrants (portal) granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-listed-role-grants",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersTakeLengths (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-take-lengths",
@@ -1505,6 +1492,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
 			target:       "/console/api/staff-invited-tenants",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "StaffListedRoleGrants denied",
+			method:       http.MethodGet,
+			target:       "/console/api/staff-listed-role-grants",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffListedRoleGrants granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/staff-listed-role-grants",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

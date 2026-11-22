@@ -26,8 +26,9 @@ type Resourcer interface {
 		crewresources.CrewSessionTrustedDevice | crewresources.CrewSessionUser |
 		crewresources.CrewTakenRole | crewresources.CrewUserGroupRole |
 		crewresources.CrewUserRole | crewidentity.CrewGivableRole |
-		crewidentity.CrewInvitedSector | crewidentity.CrewSectorDirectoryRole |
-		crewidentity.CrewSectorRole | crewidentity.CrewSectorSignInWay |
-		crewidentity.CrewSignInMethod | crewidentity.CrewSignInWay |
-		crewidentity.CrewTakeLength | crewidentity.CrewTakeableRole
+		crewidentity.CrewInvitedSector | crewidentity.CrewListedRoleGrant |
+		crewidentity.CrewSectorDirectoryRole | crewidentity.CrewSectorRole |
+		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInMethod |
+		crewidentity.CrewSignInWay | crewidentity.CrewTakeLength |
+		crewidentity.CrewTakeableRole
 }

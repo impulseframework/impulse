@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -63,4 +64,40 @@ WHERE (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 // Subquery is the query the rows are read from.
 func (StaffGroupUser) Subquery() (query string, params map[string]any) {
 	return staffGroupUserQuery, nil
+}
+
+// staffGroupAdministeredTenantsQuery answers the tenant each group of the
+// Staff auth makes its people administrators of, a row for each, RowKey the group's id
+// and Tenant the tenant: a group kept in a tenant that holds there one of
+// the roles the auth's permission engine names as a tenant's administrator's
+// (@enteringAdministratorRoles), in an assignment that has not ended, one that has
+// not begun included. The methods that put a person in a group and take one out refuse a
+// caller by the same count (the identity package's requireEnteringToChange), and each row
+// of the whole application's groups and of their people reads it (TenantsToEnter).
+const staffGroupAdministeredTenantsQuery = `
+SELECT tr.GroupId AS RowKey, tg.DomainId AS Tenant
+FROM StaffGroupRoles tr
+JOIN StaffGroups tg ON tg.Id = tr.GroupId
+WHERE tg.Kind = 'domain' AND tg.Axis = ''
+  AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// staffGroupTenantsToEnter is what each row of a group of the Staff auth, or
+// of one of its people, answers TenantsToEnter with: the query, the roles it reads, and
+// column, the row's column that holds the group's id.
+func staffGroupTenantsToEnter(column string) resource.TenantsToEnter {
+	// The roles are the people's: the same names, bound under the same parameter.
+	enter := staffSessionUserTenantsToEnter(column)
+	enter.Query = staffGroupAdministeredTenantsQuery
+
+	return enter
+}
+
+// TenantsToEnter names the tenant the group is kept in, where the group holds one
+// of that tenant's administrator roles there: a caller whose session does not
+// enter it is not offered the methods that put a person in the group or take one out.
+func (StaffGroupUser) TenantsToEnter() resource.TenantsToEnter {
+	return staffGroupTenantsToEnter("GroupId")
 }
