@@ -223,3 +223,95 @@ func testTrustedDeviceCount(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Errorf("TrustedDeviceCount() = %d, want 1: the live device, not the revoked or the lapsed one, nor another person's", got)
 	}
 }
+
+// testDestroyOtherOwnSessions pins that signing out everywhere else ends, in one write,
+// every session of the person's own but the one kept, whenever it was last used, and
+// counts the ones used at the cut or later: the ones the list showed. No other person's
+// session, no session someone else established acting as the person, and no session
+// already ended is written.
+func testDestroyOtherOwnSessions(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: true})
+	pat := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	sam := createUser(ctx, t, in.Driver, "sam@lakeside.edu")
+
+	start := func(user *dbtype.SessionUser) impulse.UUID {
+		t.Helper()
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID}
+		id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), req)
+		if err != nil {
+			t.Fatalf("InsertSession() error = %v", err)
+		}
+
+		return id
+	}
+
+	// The session last used before the cut has timed out. The cut lies between its use
+	// and the next session's, both the database's times, so the host's clock decides
+	// nothing.
+	timedOut := start(pat)
+	keep := start(pat)
+	timedOutAt := mustSession(ctx, t, in.Driver, timedOut).UpdatedAt
+	keepAt := mustSession(ctx, t, in.Driver, keep).UpdatedAt
+	if !keepAt.After(timedOutAt) {
+		t.Fatalf("a later session was used at %v, not after the earlier one's %v", keepAt, timedOutAt)
+	}
+	activeSince := timedOutAt.Add(keepAt.Sub(timedOutAt) / 2)
+
+	live := start(pat)
+	ended := start(pat)
+	if err := in.Driver.DestroySession(ctx, ended); err != nil {
+		t.Fatalf("DestroySession() error = %v", err)
+	}
+	sams := start(sam)
+	imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: "admin@lakeside.edu", Principal: accesstypes.UserPrincipal(accesstypes.User(pat.ID.String())), ExpiresAt: time.Now().Add(time.Hour)})
+	impersonated, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(pat.Username),
+		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: pat.Username, UserID: pat.ID}, imp)
+	if err != nil {
+		t.Fatalf("InsertImpersonatedSession() error = %v", err)
+	}
+
+	untouched := map[impulse.UUID]*dbtype.SessionData{}
+	for _, id := range []impulse.UUID{keep, ended, sams, impersonated} {
+		untouched[id] = mustSession(ctx, t, in.Driver, id)
+	}
+
+	count, err := in.Driver.DestroyOtherOwnSessions(ctx, pat.ID, keep, activeSince)
+	if err != nil {
+		t.Fatalf("DestroyOtherOwnSessions() error = %v", err)
+	}
+	if count != 1 {
+		t.Errorf("DestroyOtherOwnSessions() = %d, want 1: the live other alone is counted, not the one that timed out", count)
+	}
+	for _, id := range []impulse.UUID{live, timedOut} {
+		if !mustSession(ctx, t, in.Driver, id).Expired {
+			t.Errorf("Session(%s).Expired after DestroyOtherOwnSessions() = false, want true: every other session of the person's own ends, the live one and the one that timed out", id)
+		}
+	}
+	unchanged := func(when string) {
+		t.Helper()
+		for id, before := range untouched {
+			after := mustSession(ctx, t, in.Driver, id)
+			if after.Expired != before.Expired || !after.UpdatedAt.Equal(before.UpdatedAt) {
+				t.Errorf("%s: Session(%s) is expired %v, last used %v; want as it was, %v and %v", when, id, after.Expired, after.UpdatedAt, before.Expired, before.UpdatedAt)
+			}
+			if before.Impersonation != nil && (after.Impersonation == nil || after.Impersonation.EndedAt != nil) {
+				t.Errorf("%s: the impersonation record of Session(%s) = %+v, want it live as it was", when, id, after.Impersonation)
+			}
+		}
+	}
+	unchanged("after DestroyOtherOwnSessions()")
+
+	count, err = in.Driver.DestroyOtherOwnSessions(ctx, pat.ID, keep, activeSince)
+	if err != nil {
+		t.Fatalf("DestroyOtherOwnSessions() with no other session error = %v", err)
+	}
+	if count != 0 {
+		t.Errorf("DestroyOtherOwnSessions() with no other session = %d, want 0", count)
+	}
+	unchanged("after DestroyOtherOwnSessions() with no other session")
+
+	without := h.New(ctx, t, WithoutAuth, AuthConfig{Impersonation: true})
+	if _, err := without.Driver.DestroyOtherOwnSessions(ctx, pat.ID, keep, time.Time{}); err == nil {
+		t.Error("DestroyOtherOwnSessions() without the auth schema error = nil, want an error naming it")
+	}
+}

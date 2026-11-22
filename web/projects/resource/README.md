@@ -723,9 +723,10 @@ an impersonated session); `usernameFree(username)` resolves whether the person m
 one of this browser first and marked `current`, each with its `browser` name where the server
 recognized it, whether it is a `phone`, `signedInAt` and `lastUsedAt`, and how many browsers the
 second factor remembers for them; `endOwnSession(sessionId)` resolves `ended`, or `gone` for a
-session that ended already; `endOtherSessions()` resolves how many sessions ended; and
-`forgetBrowsers()` resolves once every remembered browser is forgotten, this one included. Each
-reads the list again first, except `usernameFree`, and each throws where the list names no path.
+session that ended already; `endOtherSessions()` resolves how many of the listed sessions ended
+(one that had timed out ends with them, uncounted); and `forgetBrowsers()` resolves once every
+remembered browser is forgotten, this one included. Each reads the list again first, except
+`usernameFree`, and each throws where the list names no path.
 A request may be `quiet`, as `usernameFree` and `passwordStrength` are: a question asked while a
 person types, whose answer that is an error is thrown to the caller and never handed to the
 application's error hook (`onError`), so a notice raised there is not raised once for every

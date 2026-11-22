@@ -443,6 +443,12 @@ type AuthStore[Tx any] interface {
 	// from. A session someone else established acting as the person carries an
 	// impersonation record and is not listed. A person with none has an empty list.
 	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*OwnSession, error)
+	// DestroyOtherOwnSessions signs the person out everywhere else: in one write it
+	// ends every session of userID's own that is not ended, whenever it was last used,
+	// but keep, the request's own. It returns how many of them were used at activeSince
+	// or later, the ones the person's list showed. A session someone else established
+	// acting as the person is not theirs, and stands.
+	DestroyOtherOwnSessions(ctx context.Context, userID, keep impulse.UUID, activeSince time.Time) (int, error)
 	// AcceptInvitation accepts inv for user userID, a person signed in, in one
 	// transaction: the invitation is consumed and accept, the application's hook (nil
 	// for none), gives what the invitation names, handed the transaction; what the
@@ -1098,6 +1104,19 @@ func (a *Auth[Tx]) OwnSessions(ctx context.Context, userID impulse.UUID, activeS
 	}
 
 	return sessions, nil
+}
+
+// DestroyOtherOwnSessions implements AuthStore.
+func (a *Auth[Tx]) DestroyOtherOwnSessions(ctx context.Context, userID, keep impulse.UUID, activeSince time.Time) (int, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	count, err := a.db.DestroyOtherOwnSessions(ctx, userID, keep, activeSince)
+	if err != nil {
+		return 0, errors.Wrap(err, "db.DestroyOtherOwnSessions()")
+	}
+
+	return count, nil
 }
 
 // Users implements AuthStore.

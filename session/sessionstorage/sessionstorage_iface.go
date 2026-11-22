@@ -304,6 +304,9 @@ type db interface {
 	// OwnSessions returns userID's own live sessions used at activeSince or later, newest use first: no session that
 	// carries an impersonation record. Without the auth schema it is an error.
 	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)
+	// DestroyOtherOwnSessions ends, in one transaction, every session OwnSessions returns for userID with no cut but
+	// keep, and returns how many of them were used at activeSince or later. Without the auth schema it is an error.
+	DestroyOtherOwnSessions(ctx context.Context, userID, keep impulse.UUID, activeSince time.Time) (int, error)
 	// SetUsernameIsEmail declares the users table in the shape where the address is the username.
 	SetUsernameIsEmail(same bool)
 	// UsernameIsEmail reports whether the address is the username.

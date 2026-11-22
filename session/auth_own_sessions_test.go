@@ -323,18 +323,30 @@ func TestAuth_EndOwnSession(t *testing.T) {
 }
 
 // TestAuth_EndOtherSessions proves a person signs out of every browser but the one they
-// are using, and is told how many that was.
+// are using, in one call to the store, and is told how many of the listed ones that was.
 func TestAuth_EndOtherSessions(t *testing.T) {
 	t.Parallel()
 
-	t.Run("every listed session but the request's own ends, and the answer counts them", func(t *testing.T) {
+	// endsOthers expects the store to be asked once to end every other session of the
+	// person's own, keeping the request's, with the cut of the session timeout taken while
+	// the request was served, and to answer count.
+	endsOthers := func(c *ownSessionsCase, count int) {
+		earliest := time.Now().Add(-c.f.auth.baseSession.SessionTimeout)
+		c.f.store.EXPECT().DestroyOtherOwnSessions(gomock.Any(), c.userID, c.sessionID, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _, _ impulse.UUID, activeSince time.Time) (int, error) {
+				if latest := time.Now().Add(-c.f.auth.baseSession.SessionTimeout); activeSince.Before(earliest) || activeSince.After(latest) {
+					c.t.Errorf("DestroyOtherOwnSessions() was given the cut %v, want the session timeout before the request, between %v and %v", activeSince, earliest, latest)
+				}
+
+				return count, nil
+			})
+	}
+
+	t.Run("the store ends the others in one call, keeping the request's own, and its count is answered", func(t *testing.T) {
 		t.Parallel()
 		c := newOwnSessionsCase(t)
 		c.signedIn()
-		first, second := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
-		c.unexpired(row(first, "Firefox on Windows", time.Now(), time.Now()), row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(second, "", time.Now(), time.Now()))
-		c.f.store.EXPECT().DestroySession(gomock.Any(), first).Return(nil)
-		c.f.store.EXPECT().DestroySession(gomock.Any(), second).Return(nil)
+		endsOthers(c, 2)
 
 		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
 		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":2}` {
@@ -342,40 +354,11 @@ func TestAuth_EndOtherSessions(t *testing.T) {
 		}
 	})
 
-	t.Run("a session that timed out ends with the live ones, and the live ones alone are counted", func(t *testing.T) {
+	t.Run("a person signed in nowhere else is told none ended", func(t *testing.T) {
 		t.Parallel()
 		c := newOwnSessionsCase(t)
 		c.signedIn()
-		live, idle := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
-		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(live, "Firefox on Windows", time.Now(), time.Now()), row(idle, "Safari on iPhone", c.timedOut(), c.timedOut()))
-		c.f.store.EXPECT().DestroySession(gomock.Any(), live).Return(nil)
-		c.f.store.EXPECT().DestroySession(gomock.Any(), idle).Return(nil)
-
-		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
-		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":1}` {
-			t.Errorf("EndOtherSessions() = %d %s, want 200 {\"ended\":1}", rr.Code, rr.Body.String())
-		}
-	})
-
-	t.Run("others that all timed out end, and none is counted", func(t *testing.T) {
-		t.Parallel()
-		c := newOwnSessionsCase(t)
-		c.signedIn()
-		idle := impulse.Must(impulse.NewUUID())
-		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(idle, "Safari on iPhone", c.timedOut(), c.timedOut()))
-		c.f.store.EXPECT().DestroySession(gomock.Any(), idle).Return(nil)
-
-		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
-		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":0}` {
-			t.Errorf("EndOtherSessions() = %d %s, want 200 {\"ended\":0}", rr.Code, rr.Body.String())
-		}
-	})
-
-	t.Run("a person signed in nowhere else ends nothing", func(t *testing.T) {
-		t.Parallel()
-		c := newOwnSessionsCase(t)
-		c.signedIn()
-		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()))
+		endsOthers(c, 0)
 
 		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
 		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":0}` {

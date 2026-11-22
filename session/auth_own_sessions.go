@@ -131,8 +131,9 @@ func (a *Auth[S, U, Tx]) EndOwnSession() http.HandlerFunc {
 // every browser but the one they are using with: every session OwnSessions lists but
 // the request's own ends, and the answer is {"ended"}, how many of the listed ones did.
 // A session of theirs that timed out, and so is no longer listed, ends too and is not
-// counted, so nothing can bring it back. A session someone else established acting as
-// the person is not theirs, and stands. No mail is sent.
+// counted, so nothing can bring it back. They end together, in one write to the store,
+// however many there are. A session someone else established acting as the person is
+// not theirs, and stands. No mail is sent.
 //
 // The handler validates the session itself, as OwnSessions does, and refuses an
 // impersonated session.
@@ -149,23 +150,10 @@ func (a *Auth[S, U, Tx]) EndOtherSessions() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		own, err := a.unexpiredOwnSessions(ctx, sessioninfo.UserFromCtx(ctx).ID)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-		current := sessioninfo.IDFromCtx(ctx)
 		activeSince := time.Now().Add(-a.baseSession.SessionTimeout)
-		ended := 0
-		for _, s := range own {
-			if s.ID == current {
-				continue
-			}
-			if err := a.storage.DestroySession(ctx, s.ID); err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroySession()"))
-			}
-			if !s.UpdatedAt.Before(activeSince) {
-				ended++
-			}
+		ended, err := a.storage.DestroyOtherOwnSessions(ctx, sessioninfo.UserFromCtx(ctx).ID, sessioninfo.IDFromCtx(ctx), activeSince)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroyOtherOwnSessions()"))
 		}
 
 		return httpio.NewEncoder(w).Ok(response{Ended: ended})
