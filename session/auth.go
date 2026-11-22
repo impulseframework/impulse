@@ -539,9 +539,10 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignedInHook(hook SignedInHook) {
 // SetOwnTenants sets the hook that answers OwnTenants and LeaveTenant: the application's
 // rules of who belongs where, which the generated identity client's OwnTenants holds.
 // Without it both handlers answer 404 and the methods answer names neither route. Set it
-// after NewAuth and before serving the first request; a hook with no List or no Leave, a
-// second hook, or a hook set once the Auth is in use is a wiring mistake and panics, as
-// SetSignedInHook does.
+// after NewAuth and before the routes are wired: the methods answer is built when Methods
+// is called, so a hook set after it would be served and never told to the page. A hook
+// with no List or no Leave, a hook set once the Auth is in use, one set after Methods was
+// called, or a second hook is a wiring mistake and panics, as SetSignedInHook does.
 func (a *Auth[SessionData, UserData, Tx]) SetOwnTenants(hook OwnTenantsHook) {
 	if hook.List == nil || hook.Leave == nil {
 		panic("session: SetOwnTenants was given a hook with no List or no Leave: pass the identity client's OwnTenants, or set none")
@@ -551,6 +552,9 @@ func (a *Auth[SessionData, UserData, Tx]) SetOwnTenants(hook OwnTenantsHook) {
 
 	if a.methods.inUse.Load() {
 		panic("session: the own-tenants hook was set after the Auth served a request: set it before serving")
+	}
+	if len(a.methods.lists) > 0 {
+		panic("session: the own-tenants hook was set after Methods was called, so the methods answer names no tenants paths: set it before the routes are wired")
 	}
 	if a.ownTenants != nil {
 		panic("session: the own-tenants hook was set twice: one Auth has one")

@@ -1060,6 +1060,7 @@ the password method is listed.
   where the list names them (`MethodList.OwnTenants`, both or neither) and the Auth holds the
   hook that answers them (`SetOwnTenants`): where a signed-in person's account page lists their
   tenants and leaves one. An Auth with no hook serves neither, and its answer names neither.
+  Set the hook before the routes are wired: one set after `Methods` is called panics.
 - `forgetBrowsers` is the path of the `ForgetBrowsers` handler, present when the list
   names it (`MethodList.ForgetBrowsers`): where a signed-in person's account page
   forgets every browser the second factor remembered for them.

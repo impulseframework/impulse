@@ -272,6 +272,19 @@ func TestAuth_SetOwnTenants_Refused(t *testing.T) {
 			hook: whole,
 			want: "session: the own-tenants hook was set after the Auth served a request: set it before serving",
 		},
+		{
+			name: "a hook set after Methods was called, before any request",
+			prepare: func(f *authFixture) {
+				f.auth.Methods(&MethodList{
+					Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
+					Pending:          PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+					ChangePassword:   "/api/user/password",
+					PasswordStrength: "/api/user/password/strength",
+				})
+			},
+			hook: whole,
+			want: "session: the own-tenants hook was set after Methods was called, so the methods answer names no tenants paths: set it before the routes are wired",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
