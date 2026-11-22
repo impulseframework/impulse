@@ -460,7 +460,7 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 	if len(account) == 0 {
 		t.Fatal("no field found in identityUsersTemplate: the pattern no longer reads the template")
 	}
-	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally", "OutsideDirectory", "CannotEnter")
+	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally", "OutsideDirectory", "CannotEnter", "AdministratorWithPassword")
 	if diff := cmp.Diff(account, listed); diff != "" {
 		t.Errorf("the people's list against the users declaration (-declaration +list):\n%s", diff)
 	}

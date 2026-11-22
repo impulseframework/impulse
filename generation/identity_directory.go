@@ -100,6 +100,20 @@ func (d *identitySourceData) ListsDirectoryOutsiders() bool {
 	return d.listsDirectoryOutsiders()
 }
 
+// listsDirectoryInvitations reports whether the instance's client answers which
+// invitations not yet accepted would make another of a tenant's administrators who
+// enters a directory-only tenant with a password: the client answers who the switch
+// keeps out (listsDirectoryOutsiders), the auth declares the password method, and the
+// instance carries the tenant's list of its invitations.
+func (i *identityInstance) listsDirectoryInvitations() bool {
+	return i.listsDirectoryOutsiders() && i.password && i.hasList(listInvitationsSuffix)
+}
+
+// ListsDirectoryInvitations is listsDirectoryInvitations for the client's template.
+func (d *identitySourceData) ListsDirectoryInvitations() bool {
+	return d.listsDirectoryInvitations()
+}
+
 // The annotations the reading before the load looks for on a field, each at the start
 // of a line of the field's comment, as the extraction reads a field's annotations.
 var (

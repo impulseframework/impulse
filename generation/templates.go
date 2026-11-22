@@ -2337,7 +2337,12 @@ import (
 // a code sent to their email. Everyone else is counted, and
 // a person is named only to a caller who may list them: one who holds List on the
 // {{ .Word }}'s list of that auth's people and, on no condition, on the fields of it that name
-// a person.
+// a person. Where an auth has a password method, the client also reads the {{ .Word }}'s
+// administrators who have a password (DirectoryAdministrators) and the invitations not
+// yet accepted that give a role that administers a {{ .Word }} (DirectoryInvitations), and the
+// warning carries a note that counts each, naming the administrators to the same caller
+// and the invitations to one who may list the {{ .Word }}'s invitations and the fields of
+// them that name one.
 {{- else }}
 // The program generates no auth's management, so the warning counts and names no person,
 // and says who will lose access without a number: the application's own lists say who
@@ -2428,7 +2433,7 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 			if asksWarning {
 				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
 					{{- range $people := .People }}
-					resource.DirectoryPeople{List: {{ printf "%q" $people.List }}, Fields: []accesstypes.Tag{ {{- range $i, $field := $people.Fields }}{{ if $i }}, {{ end }}{{ printf "%q" $field }}{{ end -}} }, Outsiders: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryOutsiders, AdministratorsEnter: {{ $.ReceiverName }}.{{ $people.Accessor }}().AdministratorsEnterWithPassword()},
+					resource.DirectoryPeople{List: {{ printf "%q" $people.List }}, Fields: []accesstypes.Tag{ {{- range $i, $field := $people.Fields }}{{ if $i }}, {{ end }}{{ printf "%q" $field }}{{ end -}} }, Outsiders: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryOutsiders, AdministratorsEnter: {{ $.ReceiverName }}.{{ $people.Accessor }}().AdministratorsEnterWithPassword(){{ if $people.Administrators }}, Administrators: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryAdministrators{{ end }}{{ if $people.InvitationList }}, InvitationList: {{ printf "%q" $people.InvitationList }}, InvitationFields: []accesstypes.Tag{ {{- range $i, $field := $people.InvitationFields }}{{ if $i }}, {{ end }}{{ printf "%q" $field }}{{ end -}} }, Invitations: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryInvitations{{ end }}},
 					{{- end }}
 				)
 				if err != nil {
