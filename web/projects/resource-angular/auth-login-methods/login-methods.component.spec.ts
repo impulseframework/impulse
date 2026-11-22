@@ -3269,6 +3269,36 @@ describe('LoginMethodsComponent confirms an email address', () => {
     expect(page.component.landed()).toBeUndefined();
   });
 
+  it('entered with #verify= signed out, says that signing in confirms the address, and the sentence goes once the address is confirmed', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
+    expect(page.element.querySelector('.impulse-login-verify-note')?.textContent?.trim()).toBe(
+      'Sign in to confirm your email address.',
+    );
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    page.component.username = 'pax';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-landed-note')?.textContent?.trim()).toBe(
+      'pax@fleet.example is confirmed as your email address.',
+    );
+  });
+
+  it('entered with #verify= signed out by a person who must change their password, the sentence goes while the change form shows', async () => {
+    const page = await pageOver(server({ methods: mailingList, passwordChangeRequired: true }), { verify: 'tok-v' });
+    expect(page.element.querySelector('.impulse-login-verify-note')?.textContent?.trim()).toBe(
+      'Sign in to confirm your email address.',
+    );
+    page.component.username = 'pax';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.component.changing()).toBe(true);
+    expect(page.element.querySelector('.impulse-login-change-note')).not.toBeNull();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
+  });
+
   it('entered with #verify= signed in, posts the token at once', async () => {
     const page = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { verify: 'tok-v' });
     expect(stepsOf(page)).toEqual([
@@ -3281,6 +3311,7 @@ describe('LoginMethodsComponent confirms an email address', () => {
     ]);
     expect(page.component.verified()).toBe('pax@fleet.example');
     expect(page.component.landed()).toEqual({ url: '/', load: false });
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
   });
 
   it("a dead or another account's link shows the server's words with Continue, the session standing", async () => {
@@ -3288,6 +3319,7 @@ describe('LoginMethodsComponent confirms an email address', () => {
       verify: 'tok-v',
     });
     expect(page.component.verified()).toBeUndefined();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
     expect(messageOf(page)).toBe(dead.body.message);
     expect(page.element.querySelector('.impulse-login-continue')).not.toBeNull();
     page.component.proceed();
@@ -3391,6 +3423,7 @@ describe('LoginMethodsComponent takes a mailed link out of the address', () => {
   it('an address that carries no link is left alone', async () => {
     const page = await pageOver(server(), { code: 'identity_rejected', returnUrl: '/missions' });
     expect(page.dropped).toBe(0);
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
   });
 
   it("reads no link from the query: a parameter of a link's name there is sent nowhere, the address is left as it came, and the card is the list with no refusal", async () => {
@@ -3688,6 +3721,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.element.querySelector('input[name="password"]')).toBeNull();
     expect(page.element.querySelector('input[name="username"]')).toBeNull();
     expect(page.element.querySelector('form')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
     expect(buttonsOf(page)).toEqual([]);
     held.answer();
     await page.settle();

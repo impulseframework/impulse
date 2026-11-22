@@ -54,9 +54,10 @@ import (
 // address. The code of such a wait counts for that invitation's acceptance, and the
 // codes sent for it are counted under the invitation and no address
 // (invitationCodeLimitKey). An administrator's reset (AuthAPI.ResetFactors) forgets the person's trusted
-// devices and tells the person; with the email code there is nothing else to reset, and
-// a lost mailbox is answered by an administrator asking for the address to be changed,
-// which the new address confirms (AuthAPI.RequestAddressChange).
+// devices and tells the person; the email code has nothing for it to reset (the count
+// of the wrong codes entered for an account is cleared by its row, as a name's lock
+// is), and a lost mailbox is answered by an administrator asking for the address to be
+// changed, which the new address confirms (AuthAPI.RequestAddressChange).
 // See "The second factor" in the README.
 
 // factorSettings are the settings of the library's second factor.
@@ -416,7 +417,7 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 	}
 
 	return a.sendEmailCode(ctx, p, email, impulse.NullUUID{}, m.codeMessage, func(ctx context.Context) error {
-		return a.limitCode(ctx, email)
+		return a.limitCode(ctx, p.UserID.UUID, email)
 	})
 }
 
@@ -565,6 +566,12 @@ func errCodeExpired() error {
 // answered, as every code after it is, with address_spent. The right code is accepted
 // whichever place it took.
 //
+// The code mailed to the address an account holds, the account's own, takes its place
+// in the account's count of codes entered before it is judged (countCodeGuess), in
+// every sign-in that waits on it: twenty-five wrong codes are judged between two proofs
+// of the mailbox, and the wrong one that took the last place is answered, as every code
+// after it is, with codes_spent.
+//
 // A guess takes its attempt before it is judged: the store counts it on the code's row
 // in one statement and answers which attempt it was, and a guess past the limit is not
 // compared with the code at all, nor does it touch the code. Guesses made at once are
@@ -585,9 +592,14 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(
 	if err != nil {
 		return nil, err
 	}
-	var lastOfAddress bool
+	var lastOfAddress, lastOfAccount bool
 	if typedAddressCode(before, standing) {
 		if lastOfAddress, err = a.countAddressGuess(ctx, standing.Email); err != nil {
+			return nil, err
+		}
+	}
+	if ownCode(before, standing) {
+		if lastOfAccount, err = a.countCodeGuess(ctx, before.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -598,6 +610,8 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(
 				return nil, errInvitationSpent()
 			case lastOfAddress:
 				return nil, errAddressSpent()
+			case lastOfAccount:
+				return nil, errCodesSpent()
 			}
 		}
 
@@ -613,6 +627,15 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(
 // nil) types none.
 func typedAddressCode(before *sessionstorage.SessionUser, code *sessionstorage.FactorCode) bool {
 	return before != nil && before.Email == nil && code != nil && !code.InvitationID.Valid
+}
+
+// ownCode reports whether code is the account's own: it names no invitation, and the
+// account of the wait, as it was read before the code was judged (before), holds an
+// address, confirmed or not. Its wrong guesses are counted under the account
+// (countCodeGuess), whatever address the code was mailed to. A wait that names no
+// account (before is nil) has none.
+func ownCode(before *sessionstorage.SessionUser, code *sessionstorage.FactorCode) bool {
+	return before != nil && before.Email != nil && code != nil && !code.InvitationID.Valid
 }
 
 // judgeEmailCode compares code with standing, the code standing for p (nil for none),
@@ -687,8 +710,8 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 		return nil, err
 	}
 	email := entered.Email
-	// The code reached the person: the counts it was sent under are reset, and so is
-	// the count of the codes entered for an address they typed.
+	// The code reached the person: the counts it was sent under are reset, and so is the
+	// count of the wrong codes entered for the address where they typed it.
 	a.clearCodeLimit(ctx, email)
 	a.clearMailLimit(ctx, email)
 	a.clearInvitationCodeOf(ctx, email)
@@ -699,6 +722,14 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 	at, err := a.attemptWithCode(ctx, p, before, entered)
 	if err != nil {
 		return nil, err
+	}
+	// The code was mailed to the address the account holds, and was right: the mailbox the
+	// account's codes go to has shown its reader, and the account's count of wrong codes
+	// starts again. A right code that was mailed elsewhere, to an address the account held
+	// before or one its person typed while it held none, is dead (codeHolder) and starts
+	// nothing again.
+	if ownCode(before, entered) {
+		a.clearCodeGuesses(ctx, before.ID)
 	}
 	outcome, err := a.signIn(ctx, w, at)
 	if err != nil {
@@ -1115,10 +1146,12 @@ func (a *Auth[S, U, Tx]) pendingVerifyCode() http.HandlerFunc {
 
 // SendEmailCode mails the pending identity's user a one-time code for the second
 // factor, to the address the user holds, replacing a code standing, and returns the
-// masked address and when the code stops being accepted. The pending identity must
-// wait for MFA and the policy accept the email code (Conflict otherwise), and the user
-// must hold an address (Conflict: EnrollEmail takes one). It reads the pending
-// identity StartSession found.
+// masked address and when the code stops being accepted. The pending identity must wait
+// for MFA and the policy accept the email code (Conflict otherwise), and the user must
+// hold an address (Conflict: EnrollEmail takes one). An account for which twenty-five
+// wrong codes were entered is refused with a *sessioninfo.LoginRefusal carrying
+// RefusedCodesSpent, and nothing is mailed. It reads the pending identity StartSession
+// found.
 func (p *AuthAPI[S, U, Tx]) SendEmailCode(ctx context.Context) (codeEmail string, expiresAt time.Time, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -1162,16 +1195,17 @@ func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error
 // VerifyEmailCode completes the pending identity when code is the one sent, recording
 // the email-code event itself (CompletePending takes no such event from an
 // application), and returns the session's id; with rememberDevice the browser is
-// remembered as a trusted device of the user. A refusal is a
-// *sessioninfo.LoginRefusal. A wrong code carries RefusedInvalidCode and leaves the
-// code standing with one fewer attempt. A code that expired, was used, took its last
-// attempt or was mailed to an address the account no longer holds, or one entered
-// before any was sent, carries RefusedCodeExpired. A code mailed for an invitation
-// carries RefusedInvitationSpent once twenty-five codes were entered for that
-// invitation, RefusedInvitationNotOpen in a browser that carries no invitation or
-// another one, and RefusedInvitationExpired where the invitation was used, withdrawn
-// or ran out. A code mailed to an address typed at this step carries
-// RefusedAddressSpent once twenty-five wrong codes were entered for that address,
+// remembered as a trusted device of the user. A refusal is a *sessioninfo.LoginRefusal.
+// A wrong code carries RefusedInvalidCode and leaves the code standing with one fewer
+// attempt. A code that expired, was used, took its last attempt or was mailed to an
+// address the account no longer holds, or one entered before any was sent, carries
+// RefusedCodeExpired. A code mailed for an invitation carries RefusedInvitationSpent
+// once twenty-five codes were entered for that invitation, RefusedInvitationNotOpen in
+// a browser that carries no invitation or another one, and RefusedInvitationExpired
+// where the invitation was used, withdrawn or ran out. A code mailed to an address
+// typed at this step carries RefusedAddressSpent once twenty-five wrong codes were
+// entered for that address, and is then compared with nothing. The account's own code
+// carries RefusedCodesSpent once twenty-five wrong codes were entered for the account,
 // and is then compared with nothing. If the sign-in must wait again, the error is a
 // *signin.PendingSignInError.
 func (p *AuthAPI[S, U, Tx]) VerifyEmailCode(ctx context.Context, w http.ResponseWriter, code string, rememberDevice bool) (impulse.UUID, error) {
@@ -1193,12 +1227,15 @@ func (p *AuthAPI[S, U, Tx]) VerifyEmailCode(ctx context.Context, w http.Response
 	return outcome.sessionID, nil
 }
 
-// ResetFactors is an administrator's reset of a user's second factor: every browser
-// the person asked to be remembered is forgotten, so their next sign-in from any of
-// them asks for the factor, and the person is told by mail (NoticeFactorReset). The
-// email code itself has nothing to reset: a person who lost their mailbox is given a
-// new address by an administrator's request, which the new address confirms
-// (RequestAddressChange). Live sessions are not touched; DestroyUserSessions ends them.
+// ResetFactors is an administrator's reset of a user's second factor: every browser the
+// person asked to be remembered is forgotten, so their next sign-in from any of them
+// asks for the factor, and the person is told by mail (NoticeFactorReset). The email
+// code itself has nothing to reset here: the wrong codes counted against an account
+// (codeGuessLimit) are forgiven by the right code, by a password chosen at a reset
+// link, or by an administrator who clears the count's row, and a person who lost their
+// mailbox is given a new address by an administrator's request, which the new address
+// confirms (RequestAddressChange). Live sessions are not touched; DestroyUserSessions
+// ends them.
 func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

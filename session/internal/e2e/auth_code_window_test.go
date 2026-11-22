@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
@@ -207,6 +208,10 @@ func runCodeWindowSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "an address an administrator takes off the account right after a password sign-in's code is consumed is not written back: the code is dead, and nobody is signed in",
 			run:  seamCodeWindowTakenOffAfterTheConsume[Tx],
+		},
+		{
+			name: "two sign-ins of one account that enter their codes at the same instant are both signed in, and the address is confirmed once",
+			run:  seamTwoCompletionsAtOnce[Tx],
 		},
 	}
 	// The sign-ins refused after their code was entered, for an account that holds no
@@ -505,5 +510,84 @@ func seamDirectoryOnlyAfterTheCode[Tx any](holding bool) func(ctx context.Contex
 
 		refusedTheRightCode(ctx, t, b, code, "directory_only")
 		a.holds(ctx, t, id, before)
+	}
+}
+
+// meetsAnother is a sign-in policy that answers as requireEmailCode does, once a second
+// call has come in or wait has passed since the call came in: the transactions of two
+// completions that call it together have each read the user before either writes the
+// user row. A call after the second answers at once.
+func meetsAnother(wait time.Duration) func(*sessioninfo.NewSessionRequest) *signin.Decision {
+	var (
+		mu     sync.Mutex
+		inside int
+	)
+	met := make(chan struct{})
+
+	return func(req *sessioninfo.NewSessionRequest) *signin.Decision {
+		mu.Lock()
+		inside++
+		if inside == 2 {
+			close(met)
+		}
+		mu.Unlock()
+		select {
+		case <-met:
+		case <-time.After(wait):
+		}
+
+		return requireEmailCode(req)
+	}
+}
+
+// seamTwoCompletionsAtOnce: pat has a password and holds an address nobody confirmed,
+// and two sign-ins of pat, in two browsers, each wait for the code mailed to them. Once
+// both wait, the sign-in policy holds each call until another comes in or two seconds
+// have passed (meetsAnother), so the two transactions that complete the sign-ins have
+// each read the user before either writes the address on it; the two codes are then
+// entered at the same instant. Both are signed in, and the account holds the address
+// confirmed. On PostgreSQL the two transactions deadlock on the user row, the database
+// ends one of them after its deadlock timeout, and that one runs once more and finds
+// the address the other wrote.
+func seamTwoCompletionsAtOnce[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newCodeWindowApp(ctx, t, be)
+	const address = "pat@lakeside.edu"
+	pat := a.seedWithEmail(ctx, t, "pat", address)
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+
+	browsers := []*browser{a.browser(t), a.browser(t)}
+	codes := make([]string, len(browsers))
+	for i, b := range browsers {
+		codes[i] = a.heldForTheCode(ctx, t, b, "pat", address, true)
+	}
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = meetsAnother(2 * time.Second) })
+
+	statuses, bodies, failed := make([]int, len(browsers)), make([][]byte, len(browsers)), make([]error, len(browsers))
+	var wg sync.WaitGroup
+	for i, b := range browsers {
+		wg.Go(func() {
+			statuses[i], bodies[i], failed[i] = b.send(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": codes[i]})
+		})
+	}
+	wg.Wait()
+	for i, b := range browsers {
+		if failed[i] != nil {
+			t.Fatalf("the code of sign-in %d: %v", i+1, failed[i])
+		}
+		if statuses[i] != http.StatusOK {
+			t.Errorf("verify of sign-in %d's code = %d %s, want 200", i+1, statuses[i], bodies[i])
+
+			continue
+		}
+		if v := signedInAs(ctx, t, b, "pat"); v.UserID != pat.String() {
+			t.Errorf("sign-in %d's session is user %s's, want pat's (%s)", i+1, v.UserID, pat)
+		}
+	}
+	user, err := a.api.User(ctx, pat)
+	if err != nil {
+		t.Fatalf("User(pat) error = %v", err)
+	}
+	if user.Email == nil || *user.Email != address || !user.EmailVerified() {
+		t.Errorf("pat holds %v (confirmed %t), want %q confirmed", user.Email, user.EmailVerified(), address)
 	}
 }

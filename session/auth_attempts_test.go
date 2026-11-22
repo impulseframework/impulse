@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -923,10 +924,11 @@ func TestSignInAttemptName(t *testing.T) {
 }
 
 // TestAccountAttemptKeys holds the rows named as one account's to the keys the library
-// itself counts under: the username's failed sign-ins, the mail and the reset links the
-// address is sent, and the guesses at the code of the first password. A count the
-// library adds for an account joins the list, or a caller that asks whether a row is an
-// account's misses it.
+// itself counts under: the username's failed sign-ins, the wrong sign-in codes entered
+// for the account and the guesses at the code of its first password, both kept under
+// the account's id, and the mail, the sign-in codes and the reset links the address is
+// sent. A count the library adds for an account joins the list, or a caller that asks
+// whether a row is an account's misses it.
 func TestAccountAttemptKeys(t *testing.T) {
 	t.Parallel()
 
@@ -942,9 +944,13 @@ func TestAccountAttemptKeys(t *testing.T) {
 		{
 			name:  "an account with an address",
 			email: "Pat@Example.com",
-			want:  []string{"pat", firstPasswordKey(id), mailLimitKey("pat@example.com"), resetLimitKey("pat@example.com")},
+			want:  []string{"pat", firstPasswordKey(id), codeGuessKey(id), mailLimitKey("pat@example.com"), codeLimitKey("pat@example.com"), resetLimitKey("pat@example.com")},
 		},
-		{name: "an account with no address has no mail to count", email: " ", want: []string{"pat", firstPasswordKey(id)}},
+		{
+			name:  "an account with no address has no mail to count, and the counts kept under the account stay its own",
+			email: " ",
+			want:  []string{"pat", firstPasswordKey(id), codeGuessKey(id)},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -961,11 +967,16 @@ func TestAccountAttemptKeys(t *testing.T) {
 					t.Errorf("SignInAttemptKey(%q) = %q: the key of a listed row is not itself", key, SignInAttemptKey(key))
 				}
 			}
+			// The wrong sign-in codes entered for the account are among them, under its id
+			// as the table keeps the row.
+			if row := "CODE-GUESS:" + id.String(); !slices.Contains(got, row) {
+				t.Errorf("AccountAttemptKeys() = %v, want %q among them", got, row)
+			}
 		})
 	}
 	// Every kind of count the library keeps beside the names is one of an account's.
 	all := strings.Join(AccountAttemptKeys(id, "pat", "pat@example.com"), "\n")
-	for _, kind := range []string{attempts.KindMail, attempts.KindReset, attempts.KindFirstPassword} {
+	for _, kind := range []string{attempts.KindMail, attempts.KindCode, attempts.KindReset, attempts.KindCodeGuess, attempts.KindFirstPassword} {
 		if !strings.Contains(all, kind+":") {
 			t.Errorf("AccountAttemptKeys() names no row of the kind %s", kind)
 		}
