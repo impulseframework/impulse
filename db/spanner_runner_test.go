@@ -1065,6 +1065,8 @@ func TestSpannerMigrator_DDLSendAnswers(t *testing.T) {
 		name string
 		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
 	}{
+		{name: "a batch taken while its answer was lost is waited for", run: testSendAnswerLost},
+		{name: "a batch another run sent under the name with other statements stops the run", run: testSendOtherStatements},
 		{name: "an answer that does not say whether the batch was taken keeps the name", run: testSendAnswerUnknown},
 	}
 	for _, tt := range tests {
@@ -1080,7 +1082,7 @@ func TestSpannerMigrator_DDLSendAnswers(t *testing.T) {
 // of its own and hands the first of them to first, which sends it (send) and may answer in
 // place of Spanner. The version table's creation sends no operation ID and passes untouched.
 type namedSends struct {
-	first func(ctx context.Context, req *databasepb.UpdateDatabaseDdlRequest, send func() error) error
+	first func(req *databasepb.UpdateDatabaseDdlRequest, send func() error) error
 	mu    sync.Mutex
 	ids   []string
 }
@@ -1101,7 +1103,7 @@ func (n *namedSends) intercept(ctx context.Context, method string, req, reply an
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
 	if first {
-		return n.first(ctx, r, send)
+		return n.first(r, send)
 	}
 
 	return send()
@@ -1137,13 +1139,75 @@ func assertTablesAB(ctx context.Context, t *testing.T, db *SpannerDB, want bool)
 	}
 }
 
+// testSendAnswerLost: Spanner takes the batch and its answer is lost on the way back; the
+// client sends the batch again by itself, and Spanner answers that the operation exists. The
+// run waits for the operation as for one it sent.
+func testSendAnswerLost(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	sends := &namedSends{first: func(_ *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
+		if err := send(); err != nil {
+			return err
+		}
+
+		return status.Error(codes.Unavailable, "the answer was lost")
+	}}
+	db, migrator, source := migrateAB(ctx, t, container, sends)
+
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema() error = %v", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
+	assertTablesAB(ctx, t, db, true)
+	if ids := sends.sent(); len(ids) != 2 || ids[0] != ids[1] {
+		t.Errorf("named sends = %v, want two under one operation ID", ids)
+	}
+}
+
+// testSendOtherStatements: another run sent a batch with other statements under the run's
+// operation ID before the run's own send arrived. The run stops with ErrAnotherRun and writes
+// nothing: the row keeps the name, and the file's tables are not made.
+func testSendOtherStatements(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	sends := &namedSends{first: func(req *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
+		op, err := container.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+			Database:    req.GetDatabase(),
+			Statements:  []string{strings.TrimSuffix(sqlCreateC, ";")},
+			OperationId: req.GetOperationId(),
+		})
+		if err != nil {
+			t.Errorf("DatabaseAdminClient.UpdateDatabaseDdl() of the other batch error = %v", err)
+		} else if err := op.Wait(ctx); err != nil {
+			t.Errorf("UpdateDatabaseDdlOperation.Wait() of the other batch error = %v", err)
+		}
+
+		return send()
+	}}
+	db, migrator, source := migrateAB(ctx, t, container, sends)
+
+	err := migrator.MigrateUpSchema(ctx, source)
+	if !errors.Is(err, ErrAnotherRun) || !strings.Contains(err.Error(), "other statements") {
+		t.Fatalf("MigrateUpSchema() error = %v, want ErrAnotherRun that names other statements", err)
+	}
+	ids := sends.sent()
+	if len(ids) == 0 {
+		t.Fatal("the interceptor saw no named DDL batch")
+	}
+	row, ok := readVersionRow(ctx, t, db.Client, "SchemaMigrations")
+	if name := db.dbStr + "/operations/" + ids[0]; !ok || row.version != 1 || !row.dirty || row.operation.StringVal != name {
+		t.Errorf("SchemaMigrations = %+v, want dirty at version 1 with %s on it", row, name)
+	}
+	assertTablesAB(ctx, t, db, false)
+}
+
 // testSendAnswerUnknown: Spanner takes the batch and the answer that comes back is one the
 // gRPC framework makes itself. The name stays on the row, and the next run resolves it
 // without sending the batch twice.
 func testSendAnswerUnknown(ctx context.Context, t *testing.T, container *SpannerContainer) {
 	t.Helper()
 
-	sends := &namedSends{first: func(_ context.Context, _ *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
+	sends := &namedSends{first: func(_ *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
 		if err := send(); err != nil {
 			return err
 		}

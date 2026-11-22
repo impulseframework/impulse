@@ -277,11 +277,14 @@ func (s *Spanner) progress(m *Migration, stmts []string, applied int, operation 
 
 // applyDDL sends a DDL group as one batch under an operation ID of the run's own, whose
 // name it records on the version row before it sends. Spanner accepts an operation ID once,
-// so a batch whose name is on the row is sent once, whoever sends it. A refusal of Spanner's
-// own applied nothing, and the name comes off the row. Any other failure of the send does not
-// say whether Spanner took the batch: the name stays on the row and the next run resolves it.
-// A batch another run already sent under the name stops this run (ErrAnotherRun). On failure
-// the operation's commit timestamps say how many statements applied.
+// so a batch whose name is on the row is sent once, whoever sends it. When Spanner answers
+// that the operation exists, the batch was taken before: by this call's own earlier attempt
+// whose answer was lost, or by a run that took this file up. The run waits for that
+// operation as for one it sent, and stops (ErrAnotherRun) only when it carries other
+// statements. A refusal of Spanner's own applied nothing, and the name comes off the row. Any
+// other failure of the send does not say whether Spanner took the batch: the name stays on
+// the row and the next run resolves it. When the operation fails, its commit timestamps say
+// how many statements applied.
 func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stmts []string, g Group) error {
 	id, err := newOperationID()
 	if err != nil {
@@ -293,9 +296,10 @@ func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stm
 	}
 
 	op, err := s.ddlBatch(ctx, g.Statements, id)
+	taken := status.Code(err) == codes.AlreadyExists
 	switch {
-	case status.Code(err) == codes.AlreadyExists:
-		return errors.Wrapf(ErrAnotherRun, "DDL operation %s of %s was sent by another run; version table %s", name, m.File, s.table)
+	case taken:
+		op = s.admin.UpdateDatabaseDdlOperation(name)
 	case spannerRefused(err):
 		if _, commitErr := s.Commit(ctx, held, s.progress(m, stmts, g.Start, ""), nil); commitErr != nil {
 			return commitErr
@@ -309,6 +313,15 @@ func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stm
 	waitErr := op.Wait(ctx)
 	if !op.Done() {
 		return errors.Wrapf(waitErr, "waiting for DDL operation %s of %s; the next run resolves it", op.Name(), m.File)
+	}
+	if taken {
+		md, err := op.Metadata()
+		if err != nil {
+			return errors.Wrapf(err, "metadata of DDL operation %s", op.Name())
+		}
+		if !slices.Equal(md.GetStatements(), g.Statements) {
+			return errors.Wrapf(ErrAnotherRun, "DDL operation %s of %s was sent by another run with other statements; version table %s", name, m.File, s.table)
+		}
 	}
 	if waitErr != nil {
 		md, err := op.Metadata()
