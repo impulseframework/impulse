@@ -306,7 +306,7 @@ func (r *renderReport) write(w io.Writer) {
 // through and who a development run answers it as (signIn).
 func (r *renderReport) signInNotes(note func(format string, args ...any), lead, where string) {
 	if r.signIn == nil {
-		note("%sthen sign in%s as admin with the password \"password\".", lead, where)
+		note("%sthen sign in%s as admin with the password \"open-the-console-first\".", lead, where)
 
 		return
 	}

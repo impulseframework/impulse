@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -16,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/passwordstrength"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -816,32 +816,45 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeLimit(ctx context.Context, inv *sess
 	}
 }
 
-// minPasswordLength is the shortest password any path sets.
-const minPasswordLength = 8
-
-// acceptedPassword is the one rule for a password's shape: it refuses a password
-// shorter than eight characters, counted as characters and not as the bytes that
-// encode them. Every path that sets a password is held to it, since
-// each hashes the password through hashToSet: a sign-up and an invitation's acceptance,
-// a person's first password, their own change, the password a reset link ends in, one
-// set at the end of a flow of the application's own, and an account created with one.
-// A path that judges the password before other work calls it first as well, so a
-// refused password costs nothing. The rules beyond the length are the application's,
-// on its page.
-func acceptedPassword(password string) error {
-	if utf8.RuneCountInString(password) < minPasswordLength {
-		return httpio.NewBadRequestMessagef("the password is at least %d characters", minPasswordLength)
+// strongEnough is the one judgment of a password's strength (passwordstrength.Judge),
+// under the password method's minimum and against who, the person the password is for:
+// it refuses a password too easy to guess, one built on the person's own name, username
+// or address, and one on the list of passwords found in breaches, each with the sentence
+// that says why (400). Every path that sets a password is held to it, since each hashes
+// the password through hashToSet: a sign-up and an invitation's acceptance, a person's
+// first password, their own change, the password a reset link ends in, one set at the
+// end of a flow of the application's own, and an account created with one. A path that
+// judges the password before other work calls it first as well, so a refused password
+// costs nothing. The password is in no error and no log line.
+func (a *Auth[S, U, Tx]) strongEnough(password string, who passwordstrength.Details) error {
+	judgment := passwordstrength.Judge(password, who, a.registered().minimumStrength)
+	if !judgment.StrongEnough {
+		return httpio.NewBadRequestMessage(judgment.Reason.Sentence())
 	}
 
 	return nil
 }
 
-// hashToSet hashes a password a path is about to set, once it is one any path may set
-// (acceptedPassword). It is the one way a new password's hash is made, so no path sets
-// a password the rule would refuse. The hash a sign-in upgrades is of the password the
-// person already has, and is not made here (upgradePasswordHash).
-func (a *Auth[S, U, Tx]) hashToSet(password string) (*securehash.Hash, error) {
-	if err := acceptedPassword(password); err != nil {
+// detailsOf are the details of user a password of theirs is judged against: the
+// username, the name and the address, "" for one the user holds none of.
+func detailsOf(user *sessionstorage.SessionUser) passwordstrength.Details {
+	who := passwordstrength.Details{Username: user.Username}
+	if user.Name != nil {
+		who.Name = *user.Name
+	}
+	if user.Email != nil {
+		who.Email = *user.Email
+	}
+
+	return who
+}
+
+// hashToSet hashes a password a path is about to set for who, once it is one any path
+// may set (strongEnough). It is the one way a new password's hash is made, so no path
+// sets a password the judgment would refuse. The hash a sign-in upgrades is of the
+// password the person already has, and is not made here (upgradePasswordHash).
+func (a *Auth[S, U, Tx]) hashToSet(password string, who passwordstrength.Details) (*securehash.Hash, error) {
+	if err := a.strongEnough(password, who); err != nil {
 		return nil, err
 	}
 	hash, err := a.registered().hasher.Hash(password)

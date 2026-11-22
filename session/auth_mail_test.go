@@ -849,8 +849,9 @@ var directoryList = &MethodList{
 		{Name: "google-lakeside", Label: "Lakeside", Path: "/api/user/google-lakeside/login"},
 		{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 	},
-	ChangePassword: "/api/user/password",
-	Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+	ChangePassword:   "/api/user/password",
+	PasswordStrength: "/api/user/password/strength",
+	Invitation:       InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 }
 
 // newDirectoryFixture is a mail fixture whose login page lists two Google
@@ -916,8 +917,9 @@ func authInvitationCase8(t *testing.T) {
 			{Name: "lakeside-entra", Label: "Lakeside staff", Path: "/api/user/lakeside-entra/login"},
 			{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 		},
-		ChangePassword: "/api/user/password",
-		Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+		ChangePassword:   "/api/user/password",
+		PasswordStrength: "/api/user/password/strength",
+		Invitation:       InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 	}
 	f.auth.Methods(list)
 	links.expectAccounts(f)
@@ -1102,8 +1104,8 @@ func authInvitationCase4(t *testing.T) {
 		want    int
 	}{
 		{name: "short password", body: map[string]string{"password": "short", "username": "patl"}, cookies: cookies, want: http.StatusBadRequest},
-		{name: "no username", body: map[string]string{"password": "correct horse"}, cookies: cookies, want: http.StatusBadRequest},
-		{name: "no invitation", body: map[string]string{"password": "correct horse", "username": "patl"}, want: http.StatusNotFound},
+		{name: "no username", body: map[string]string{"password": "correct horse battery staple"}, cookies: cookies, want: http.StatusBadRequest},
+		{name: "no invitation", body: map[string]string{"password": "correct horse battery staple", "username": "patl"}, want: http.StatusNotFound},
 	} {
 		if rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", tt.body, tt.cookies); rr.Code != tt.want {
 			t.Errorf("SignUp() with %s = %d %s, want %d", tt.name, rr.Code, rr.Body.String(), tt.want)
@@ -1322,7 +1324,7 @@ func authSignUpCase1(t *testing.T) {
 			t.Errorf("SignIn() given the identity %+v, want the address the sign-up verified", req.Identity)
 		}
 	}, nil)
-	rr = f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
+	rr = f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse battery staple", "username": "newbie"}, nil)
 	if rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("Complete() = %d %s, want a session", rr.Code, rr.Body.String())
 	}
@@ -1415,7 +1417,7 @@ func authSignUpCase4(t *testing.T) {
 	// and refuses: the handler asks nobody else, creates no user and signs nobody in.
 	f.store.EXPECT().SignUp(gomock.Any(), "password", passwordAudience().Key(), gomock.Any(), links.last(t).ID, gomock.Any()).Return(impulse.NilUUID, signinflow.SignUpClosed())
 
-	rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
+	rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse battery staple", "username": "newbie"}, nil)
 
 	// The mocked store refuses a call it was not told of: no sign-in follows.
 	if rr.Code != http.StatusNotFound {
@@ -1440,9 +1442,10 @@ func authSignUpCase5(t *testing.T) {
 		return []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true, OpenedFor: &audience}}, nil
 	}).AnyTimes()
 	h := f.auth.Methods(&MethodList{
-		Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
-		ChangePassword: "/api/user/password",
-		SignUp:         SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
+		Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+		ChangePassword:   "/api/user/password",
+		PasswordStrength: "/api/user/password/strength",
+		SignUp:           SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
 	})
 
 	rr := f.serve(h, http.MethodGet, "/api/user/methods", nil, nil)

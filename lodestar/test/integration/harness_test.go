@@ -74,7 +74,7 @@ const (
 	droidsAPIKey = "integration-droids-key"
 
 	// Every persona's password.
-	personaPassword = "lodestar"
+	personaPassword = "follow-the-lodestar-home"
 
 	// The portal's client: a member of the members auth who signs in through the
 	// simulated directory; its roles are the groups the directory names (APP_ROLES).

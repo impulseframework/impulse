@@ -82,6 +82,7 @@ linters:
           - github.com/aws
           - github.com/bits-and-blooms/bloom/v3
           - github.com/casbin
+          - github.com/ccojocar/zxcvbn-go
           - github.com/cenkalti
           - github.com/cloudspannerecosystem/memefish
           - github.com/coreos/go-oidc

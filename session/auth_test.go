@@ -824,7 +824,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a method registered after the Auth hashed a password through its API",
 			before: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				pw := "a password"
+				pw := "a password of the seed's own"
 				store, ok := a.storage.(*mockstore.AuthStore[mockTx])
 				if !ok {
 					panic("the Auth's storage is not the mock")
@@ -3068,7 +3068,7 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 		})
 
 		rr := httptest.NewRecorder()
-		f.password.ChangeUserPassword().ServeHTTP(rr, request(http.MethodPost, map[string]string{"oldPassword": "temporary", "newPassword": "chosen well"}))
+		f.password.ChangeUserPassword().ServeHTTP(rr, request(http.MethodPost, map[string]string{"oldPassword": "temporary", "newPassword": "chosen well and kept"}))
 		if rr.Code != http.StatusOK {
 			t.Errorf("ChangeUserPassword() = %d %s, want 200", rr.Code, rr.Body.String())
 		}
@@ -3076,7 +3076,7 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 
 	t.Run("a wrong old password or the same password changes nothing", func(t *testing.T) {
 		t.Parallel()
-		for _, body := range []map[string]string{{"oldPassword": "nope", "newPassword": "chosen well"}, {"oldPassword": "temporary", "newPassword": "temporary"}} {
+		for _, body := range []map[string]string{{"oldPassword": "nope", "newPassword": "chosen well and kept"}, {"oldPassword": "temporary", "newPassword": "temporary"}} {
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
 			f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
@@ -3132,7 +3132,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 			}),
 		)
 
-		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password"}); err != nil {
+		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
 		}
 	})
@@ -3145,7 +3145,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		// The mock refuses a call it was not told of: nothing follows the failed write.
 		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(errors.New("the database is away"))
 
-		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password"})
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"})
 		if err == nil || httpio.HasConflict(err) {
 			t.Errorf("ChangeSessionUserPassword() error = %v, want the store's failure", err)
 		}
@@ -3166,7 +3166,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).
 			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
 
-		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password"})
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"})
 		want := "Your password has changed since you entered it, so this change was not made: try again with your current password"
 		if !errors.Is(err, sessionstorage.ErrPasswordChanged) || !httpio.HasConflict(err) || httpio.Message(err) != want {
 			t.Errorf("ChangeSessionUserPassword() error = %v (message %q), want ErrPasswordChanged as a Conflict saying %q", err, httpio.Message(err), want)
@@ -3184,7 +3184,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old")}, nil)
 
-		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "nope", NewPassword: "a new password"})
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "nope", NewPassword: "a new password, chosen with care"})
 		if !httpio.HasBadRequest(err) {
 			t.Errorf("ChangeSessionUserPassword() error = %v, want BadRequest", err)
 		}

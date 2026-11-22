@@ -68,7 +68,8 @@ func TestAuthAPI_SignInMethods_providerSaidByItsLabel(t *testing.T) {
 			{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 			{Name: "sso", Label: "Acme sign-in", Path: "/api/user/sso/login"},
 		},
-		ChangePassword: "/api/user/password",
+		ChangePassword:   "/api/user/password",
+		PasswordStrength: "/api/user/password/strength",
 	})
 
 	said := map[string]signin.Audience{}

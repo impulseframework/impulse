@@ -114,6 +114,15 @@ func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
 	return sessioncore.AttemptLimit(failures, window, lock)
 }
 
+// MinimumPasswordStrength sets how strong a password must be to be set, in bits of the
+// library's estimate of how hard it is to guess: a password under it is refused on every
+// path that sets one, and the strength route answers against it. A password on the list
+// of passwords found in breaches is refused whatever the minimum. (default: 30) See
+// "Password strength" in the README.
+func MinimumPasswordStrength(bits int) PasswordOption {
+	return sessioncore.MinimumPasswordStrength(bits)
+}
+
 // UsernameIsEmail declares, on the password method, that the username is the user's
 // email address: one value, which the users table derives from the username (see the
 // README's "Users and their email address" for the DDL). The login page asks for the

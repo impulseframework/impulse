@@ -334,7 +334,7 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
 
 That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
 roles, the logins `admin` — every tenant — `member` and `client` — North only — with
-password `password`), and serves the console site on :8094 and the portal site on :8095.
+password `open-the-console-first`), and serves the console site on :8094 and the portal site on :8095.
 The first run compiles and bootstraps before it listens; wait for "Starting Server" in
 the console pane, then the portal pane.
 

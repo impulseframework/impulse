@@ -91,7 +91,8 @@ func TestAuthAPI_DirectoryName(t *testing.T) {
 					{Name: "workos", Label: "Single sign-on", Path: "/api/user/workos/login"},
 					{Name: "sso", Label: "Acme sign-in", Path: "/api/user/sso/login"},
 				},
-				ChangePassword: "/api/user/password/change",
+				ChangePassword:   "/api/user/password/change",
+				PasswordStrength: "/api/user/password/strength",
 			})
 
 			name, label := a.API().DirectoryName(tt.method, tt.connection)
