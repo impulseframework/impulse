@@ -20,6 +20,7 @@ import (
 
 	"github.com/impulseframework/impulse/cloud"
 	"github.com/impulseframework/impulse/internal/apptree"
+	"github.com/impulseframework/impulse/internal/gocomments"
 )
 
 // The rules a reading of the application's tree goes by (which directories a walk leaves
@@ -633,11 +634,12 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 	}
 
 	if bytes.Contains(data, []byte("@"+manualAddResourceKeyword)) || bytes.Contains(data, []byte("@"+manualAddPermissionKeyword)) {
-		annotations, err := parseConstantAnnotations(rel, data)
+		annotations, loose, err := parseConstantAnnotations(rel, data)
 		if err != nil {
 			return err
 		}
 		a.ConstantAnnotations = append(a.ConstantAnnotations, annotations...)
+		a.LooseAnnotations = append(a.LooseAnnotations, loose...)
 	}
 
 	if bytes.Contains(data, []byte(rosterConstructorSuffix)) {
@@ -1302,13 +1304,15 @@ func parseStructDocs(rel string, src []byte) ([]structDoc, error) {
 // constant, the one at the end of its line, and the one above its const declaration,
 // grouped or not, so a group's comment counts for every constant of the group. One
 // record for each constant and keyword, keywords in the order the comments first name
-// them. A comment of anything but a constant (a function's, which may be prose that
-// starts a line with the annotation) is not read.
-func parseConstantAnnotations(rel string, src []byte) ([]ConstantAnnotation, error) {
+// them. It returns as well each such line in a comment that belongs to no declaration
+// (gocomments.Loose, the definition generation goes by), one record for each line. A
+// declaration's own comment where the declaration is not a constant (a function's, which
+// may be prose that starts a line with the annotation) is not read.
+func parseConstantAnnotations(rel string, src []byte) ([]ConstantAnnotation, []LooseAnnotation, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
-		return nil, errors.Wrap(err, "parser.ParseFile()")
+		return nil, nil, errors.Wrap(err, "parser.ParseFile()")
 	}
 
 	var annotations []ConstantAnnotation
@@ -1338,7 +1342,16 @@ func parseConstantAnnotations(rel string, src []byte) ([]ConstantAnnotation, err
 		}
 	}
 
-	return annotations, nil
+	var loose []LooseAnnotation
+	for _, group := range gocomments.Loose(f) {
+		for line := range strings.Lines(group.Text()) {
+			if m := constantAnnotationRE.FindStringSubmatch(line); m != nil {
+				loose = append(loose, LooseAnnotation{File: rel, Line: fset.Position(group.Pos()).Line, Keyword: m[1], Text: strings.TrimSpace(line)})
+			}
+		}
+	}
+
+	return annotations, loose, nil
 }
 
 // StructColumns reads the structs of the Go package in a root-relative directory, test

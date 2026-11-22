@@ -30,14 +30,19 @@ func main() {
 }
 `
 	const (
-		resources  = "package resources\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Read)\nconst Ledgers accesstypes.Resource = \"Ledgers\"\n\n// @manualAddPermission\nconst Override accesstypes.Permission = \"Override\"\n"
-		rpcMethod  = "package rpc\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Execute)\nconst PingBeacon accesstypes.Resource = \"PingBeacon\"\n"
-		route      = "package app\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddPermission\nconst Release accesstypes.Permission = \"Release\"\n"
-		registers  = "pkg/rpc/beacon.go:6: constant PingBeacon carries @manualAddResource, which generation reads only on a constant of the resources package (pkg/resources), so here it registers nothing: declare the constant there"
-		declares   = "app/routes.go:6: constant Release carries @manualAddPermission, which generation reads only on a constant of the resources package (pkg/resources), so here it declares nothing: declare the constant there"
-		failing    = " annotation(s) on a constant outside the resources package"
-		passing    = "no @manualAddResource or @manualAddPermission on a constant outside the resources package"
-		proseInApp = "package app\n\n// shipsLog serves the log by hand. Its resource is declared in the resources package:\n// @manualAddResource(Read) stands on that constant.\nfunc shipsLog() {}\n"
+		resources      = "package resources\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Read)\nconst Ledgers accesstypes.Resource = \"Ledgers\"\n\n// @manualAddPermission\nconst Override accesstypes.Permission = \"Override\"\n"
+		rpcMethod      = "package rpc\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Execute)\nconst PingBeacon accesstypes.Resource = \"PingBeacon\"\n"
+		route          = "package app\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddPermission\nconst Release accesstypes.Permission = \"Release\"\n"
+		registers      = "pkg/rpc/beacon.go:6: constant PingBeacon carries @manualAddResource, which generation reads only on a constant of the resources package (pkg/resources), so here it registers nothing: declare the constant there"
+		declares       = "app/routes.go:6: constant Release carries @manualAddPermission, which generation reads only on a constant of the resources package (pkg/resources), so here it declares nothing: declare the constant there"
+		failing        = " annotation(s) outside the resources package, read by nothing"
+		passing        = "no @manualAddResource or @manualAddPermission outside the resources package, on a constant or in a comment of no declaration"
+		looseRPC       = "package rpc\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Execute)\n\nconst Relight accesstypes.Resource = \"Relight\"\n"
+		looseRoute     = "package app\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\nconst Recall accesstypes.Permission = \"Recall\"\n\n// Recall is checked by hand.\n//\n// @manualAddPermission\n"
+		looseRes       = "package resources\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Read)\n\nconst Ledgers accesstypes.Resource = \"Ledgers\"\n"
+		looseRegisters = "pkg/rpc/relight.go:5: the comment holds the line \"@manualAddResource(Execute)\" and is no declaration's, and generation reads @manualAddResource only from the comment directly above a constant of the resources package (pkg/resources), so here it registers nothing: write it there, above its constant, or, if the line is prose, start it with another word"
+		looseDeclares  = "app/recall.go:7: the comment holds the line \"@manualAddPermission\" and is no declaration's, and generation reads @manualAddPermission only from the comment directly above a constant of the resources package (pkg/resources), so here it declares nothing: write it there, above its constant, or, if the line is prose, start it with another word"
+		proseInApp     = "package app\n\n// shipsLog serves the log by hand. Its resource is declared in the resources package:\n// @manualAddResource(Read) stands on that constant.\nfunc shipsLog() {}\n"
 	)
 
 	tests := []struct {
@@ -69,6 +74,26 @@ func main() {
 		{
 			name:  "a function's comment of prose passes",
 			files: map[string]string{"app/log.go": proseInApp},
+			want:  Result{Name: constantAnnotations{}.Name(), Status: Pass, Summary: passing},
+		},
+		{
+			name:  "a registration in a comment of no declaration beside an RPC method fails",
+			files: map[string]string{"pkg/rpc/relight.go": looseRPC},
+			want:  Result{Name: constantAnnotations{}.Name(), Status: Fail, Summary: "1" + failing, Details: []string{looseRegisters}},
+		},
+		{
+			name:  "a declaration in a comment of no declaration beside a hand-written route fails",
+			files: map[string]string{"app/recall.go": looseRoute},
+			want:  Result{Name: constantAnnotations{}.Name(), Status: Fail, Summary: "1" + failing, Details: []string{looseDeclares}},
+		},
+		{
+			name:  "a constant's and a loose comment's at once are counted, the constant's first",
+			files: map[string]string{"pkg/rpc/relight.go": looseRPC, "pkg/rpc/beacon.go": rpcMethod},
+			want:  Result{Name: constantAnnotations{}.Name(), Status: Fail, Summary: "2" + failing, Details: []string{registers, looseRegisters}},
+		},
+		{
+			name:  "a comment of no declaration in the resources package is generation's and passes",
+			files: map[string]string{"pkg/resources/ledgers.go": looseRes},
 			want:  Result{Name: constantAnnotations{}.Name(), Status: Pass, Summary: passing},
 		},
 		{

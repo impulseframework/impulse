@@ -58,6 +58,11 @@ type App struct {
 	// each constant and keyword: generation reads the two on the resources package's
 	// constants alone, so one anywhere else is read by nothing.
 	ConstantAnnotations []ConstantAnnotation
+	// LooseAnnotations are the lines that start with @manualAddResource or
+	// @manualAddPermission in a comment of the application's own code that belongs to no
+	// declaration (gocomments.Loose), one for each line: an annotation is read from the
+	// comment of what it stands above, so one there is read by nothing.
+	LooseAnnotations []LooseAnnotation
 	// TenantDirectories are the structs the application's own code annotates
 	// @tenantDirectory: each resource package's directories record, the tenant-scoped
 	// resource whose rows are the directories a tenant admits its people through.
@@ -390,6 +395,17 @@ type ConstantAnnotation struct {
 	Line     int
 	Constant string
 	Keyword  string
+}
+
+// LooseAnnotation is one line that starts with @manualAddResource or @manualAddPermission
+// in a comment that belongs to no declaration (one a blank line parts from the constant
+// below it, or one no declaration follows): the file, the line the comment starts on, the
+// keyword, manualAddResource or manualAddPermission, and the line, trimmed.
+type LooseAnnotation struct {
+	File    string
+	Line    int
+	Keyword string
+	Text    string
 }
 
 // DirectoryRecord is one struct annotated @tenantDirectory: the directories record, the
