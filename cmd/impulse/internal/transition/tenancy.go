@@ -223,15 +223,8 @@ func (tn Tenancy) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Ch
 	if err := tn.pruneRoles(a, g, served, ch); err != nil {
 		return nil, err
 	}
-	added, err := tn.writeRoles(a, ch)
-	if err != nil {
+	if err := tn.giveRoles(ctx, a, exec, ch); err != nil {
 		return nil, err
-	}
-	if added {
-		role := tn.AdministratorRole()
-		if err := generate(ctx, a, exec, ch, fmt.Sprintf("go generate ./... failed once the role file held %s, so the generated metadata does not list the role yet; fix the cause and run it:", role), fmt.Sprintf("ran go generate ./... again once the role file held %s, since the generated metadata lists the roles a field may hold from the role file", role)); err != nil {
-			return nil, err
-		}
 	}
 
 	return ch, nil
@@ -275,6 +268,20 @@ func (tn Tenancy) pruneRoles(a *app.App, g *app.Generator, served map[string]map
 	}
 
 	return nil
+}
+
+// giveRoles writes the role a tenant's administrator holds (writeRoles) and, where that
+// added the role to the role file, runs the regeneration once more: the generated
+// metadata lists the roles a field may hold from the role file, and the role is written
+// after the regeneration that serves the tenant record.
+func (tn Tenancy) giveRoles(ctx context.Context, a *app.App, exec check.Execer, ch *Change) error {
+	added, err := tn.writeRoles(a, ch)
+	if err != nil || !added {
+		return err
+	}
+	role := tn.AdministratorRole()
+
+	return generate(ctx, a, exec, ch, fmt.Sprintf("go generate ./... failed once the role file held %s, so the generated metadata does not list the role yet; fix the cause and run it:", role), fmt.Sprintf("ran go generate ./... again once the role file held %s, since the generated metadata lists the roles a field may hold from the role file", role))
 }
 
 // baseSuites are the integration tests an application without tenants starts with that
