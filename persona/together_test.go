@@ -1,8 +1,8 @@
 package persona_test
 
-// Requests that arrive at the same moment: two exchanges of one code. A gate in front of the
-// store holds the callers until all have arrived, so they reach the store's decision
-// together. Nothing here prints a code, a token or a key: only statuses, the OAuth error
+// Requests that arrive at the same moment: two exchanges of one code, two instances that
+// start together on an empty store. A gate in front of the store holds the callers until all
+// have arrived, so they reach the store's decision together. Nothing here prints a code, a token or a key: only statuses, the OAuth error
 // names and counts.
 
 import (
@@ -57,12 +57,13 @@ func (g *gate) wait() {
 	}
 }
 
-// gatedStore is the Spanner store with a gate in front of DeleteRequest, so its callers
-// reach the decision together.
+// gatedStore is the Spanner store with a gate in front of DeleteRequest and
+// AddFirstSigningKey, so their callers reach the decision together.
 type gatedStore struct {
 	*spannerstore.Store
-	deleteGate atomic.Pointer[gate]
-	deletes    atomic.Int32
+	deleteGate   atomic.Pointer[gate]
+	firstKeyGate atomic.Pointer[gate]
+	deletes      atomic.Int32
 }
 
 func (s *gatedStore) DeleteRequest(ctx context.Context, id string) error {
@@ -72,6 +73,14 @@ func (s *gatedStore) DeleteRequest(ctx context.Context, id string) error {
 	}
 
 	return s.Store.DeleteRequest(ctx, id)
+}
+
+func (s *gatedStore) AddFirstSigningKey(ctx context.Context, key *persona.SigningKey) error {
+	if g := s.firstKeyGate.Load(); g != nil {
+		g.wait()
+	}
+
+	return s.Store.AddFirstSigningKey(ctx, key)
 }
 
 // newDatabase makes a database with the persona schema; it goes with the test.
@@ -234,6 +243,24 @@ func keyID(token string) string {
 	return h.Kid
 }
 
+// count is the number a query that counts rows returns.
+func count(ctx context.Context, t *testing.T, client *spanner.Client, sql string) int64 {
+	t.Helper()
+
+	iter := client.Single().Query(ctx, spanner.Statement{SQL: sql})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("spanner.RowIterator.Next() error = %v", err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("spanner.Row.Columns() error = %v", err)
+	}
+
+	return n
+}
+
 // winners sorts outcomes into exchanges that got both tokens, refusals with invalid_grant and
 // no token, and anything else.
 func winners(outs []outcome) (won, refused int, other []outcome) {
@@ -323,5 +350,71 @@ func TestSignIn_ownFailuresKeepTheCode(t *testing.T) {
 	}
 	if o := exchange(ctx, th, g, nil); o.status != http.StatusOK || !o.accessToken || !o.idToken {
 		t.Errorf("the good exchange after the refusals = %+v, want both tokens", o)
+	}
+}
+
+// TestSignIn_firstKeyOnce starts two instances on one empty store, each held at
+// AddFirstSigningKey until both have arrived: the store keeps one key, and both instances
+// publish it and sign with it. A round shows a broken rule only when both instances look
+// before either inserts, which the gate makes likely and cannot make certain, so there are
+// three.
+func TestSignIn_firstKeyOnce(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	for range 3 {
+		t.Run("round", func(t *testing.T) {
+			t.Parallel()
+
+			client := newDatabase(ctx, t)
+			gt := newGate(2)
+			stores := []*gatedStore{{Store: spannerstore.New(client)}, {Store: spannerstore.New(client)}}
+			for _, s := range stores {
+				s.firstKeyGate.Store(gt)
+			}
+			hosts := make([]*testHost, 2)
+			var wg sync.WaitGroup
+			for i := range hosts {
+				wg.Go(func() { hosts[i] = newHostOn(ctx, t, client, stores[i]) })
+			}
+			wg.Wait()
+			if t.Failed() {
+				t.FailNow()
+			}
+
+			if n := gt.timeout.Load(); n != 0 {
+				t.Errorf("%d of the two instances did not reach AddFirstSigningKey together", n)
+			}
+			if n := count(ctx, t, client, "SELECT COUNT(*) FROM PersonaKeys"); n != 1 {
+				t.Errorf("the store holds %d keys, want 1", n)
+			}
+			hosts[0].mustRegister(ctx, t)
+			kids := make([]string, len(hosts))
+			for i, th := range hosts {
+				if n := th.keyCount(ctx, t); n != 1 {
+					t.Errorf("instance %d publishes %d keys, want 1", i, n)
+				}
+				b := th.browser(t)
+				b.signInToHost(ctx, th, "u-pat")
+				o := exchange(ctx, th, getCode(ctx, t, th, b), nil)
+				if o.status != http.StatusOK || !o.idToken {
+					t.Fatalf("the exchange at instance %d = %+v, want tokens", i, o)
+				}
+				kids[i] = o.kid
+			}
+			if kids[0] == "" || kids[0] != kids[1] {
+				t.Errorf("the two instances' ID tokens carry different key IDs")
+			}
+
+			if err := hosts[1].svc.RotateSigningKey(ctx); err != nil {
+				t.Fatalf("Service.RotateSigningKey() error = %v", err)
+			}
+			if n := count(ctx, t, client, "SELECT COUNT(*) FROM PersonaKeys"); n != 2 {
+				t.Errorf("the store holds %d keys after a rotation, want 2", n)
+			}
+			if n := hosts[1].keyCount(ctx, t); n != 2 {
+				t.Errorf("the rotating instance publishes %d keys, want 2", n)
+			}
+		})
 	}
 }
