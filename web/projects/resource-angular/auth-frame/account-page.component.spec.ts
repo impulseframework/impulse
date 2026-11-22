@@ -14,8 +14,9 @@ import { notNamedFor, passwordMethods, provideFrameTesting, SpecServer, specTran
 // the name, the email address, a password where they hold one or may choose one, and the
 // directories they sign in through. Each line the person may change carries an icon that
 // opens it as a form in place, one line at a time; what the server serves and what the
-// person signs in with decide which lines carry one. An impersonated session changes
-// nothing.
+// person signs in with decide which lines carry one. Under the lines, where the person is
+// signed in, each browser signed out of or forgotten at once. An impersonated session
+// changes nothing.
 
 /** Where the spec's server serves the email address routes. */
 const emailRoutes = { add: '/api/user/email', verify: '/api/user/email/verify' };
@@ -43,6 +44,45 @@ const gale: Record<string, unknown> = {
   email: 'gale@lakeside.edu',
   emailVerified: true,
 };
+/** One of the person's sessions as the server answers it. */
+interface SessionBody {
+  readonly id: string;
+  readonly browser?: string;
+  readonly phone?: boolean;
+  readonly signedInAt: string;
+  readonly lastUsedAt: string;
+  readonly current?: boolean;
+}
+/**
+ * A moment of November 2026, the day, hour and minute in the zone the spec runs in, so the
+ * page writes it as the spec reads it in any zone.
+ */
+const at = (day: number, hour: number, minute: number): string => new Date(2026, 10, day, hour, minute).toISOString();
+/** The session of this browser. */
+const here: SessionBody = {
+  id: 's-here',
+  browser: 'Firefox on Linux',
+  signedInAt: at(3, 9, 5),
+  lastUsedAt: at(22, 11, 40),
+  current: true,
+};
+/** Another browser of the person's, a laptop's. */
+const laptop: SessionBody = {
+  id: 's-laptop',
+  browser: 'Chrome on macOS',
+  signedInAt: at(10, 14, 30),
+  lastUsedAt: at(21, 8, 0),
+};
+/** Another, a phone's. */
+const phone: SessionBody = {
+  id: 's-phone',
+  browser: 'Safari on iPhone',
+  phone: true,
+  signedInAt: at(1, 7, 15),
+  lastUsedAt: at(20, 19, 45),
+};
+/** Another, of a browser the server did not recognize. */
+const unnamed: SessionBody = { id: 's-unnamed', signedInAt: at(2, 12, 0), lastUsedAt: at(2, 12, 30) };
 /** The record of a session that acts for the person. */
 const impersonation = { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' };
 
@@ -91,6 +131,10 @@ interface Setup {
   hold?: string[];
   /** What the server answers a question about a new password's strength with; unset, strong enough. */
   strength?: TransportResponse;
+  /** The person's live sessions, as the server lists them; unset, this browser's alone. */
+  sessions?: SessionBody[];
+  /** How many browsers the server remembers for the person; unset, none. */
+  rememberedBrowsers?: number;
 }
 
 /** A request the spec's server holds until the spec answers it. */
@@ -141,8 +185,12 @@ describe('AccountPageComponent', () => {
     failing = [],
     hold = [],
     strength = strong,
+    sessions = [here],
+    rememberedBrowsers = 0,
   }: Setup = {}): Promise<void> => {
     let meansNow = meansAnswer;
+    let sessionsNow = [...sessions];
+    let rememberedNow = rememberedBrowsers;
     strengthAnswer = strength;
     held = [];
     const server: SpecServer = {
@@ -194,6 +242,43 @@ describe('AccountPageComponent', () => {
         const username = (body?.['username'] ?? '').trim();
         server.session = { ...server.session, username };
         return Promise.resolve({ status: 200, body: { username } });
+      }
+      const sessionRoutes = passwordMethods.ownSessions;
+      // Where the person is signed in, and what each act on it changes on the server.
+      if (!answers[path]) {
+        if (path === sessionRoutes.list) {
+          void inner(request);
+          return Promise.resolve({
+            status: 200,
+            body: { sessions: [...sessionsNow], rememberedBrowsers: rememberedNow },
+          });
+        }
+        if (path === sessionRoutes.end) {
+          void inner(request);
+          const ended = sessionsNow.some((session) => session.id === body?.['sessionId']);
+          sessionsNow = sessionsNow.filter((session) => session.id !== body?.['sessionId']);
+          return Promise.resolve(
+            ended ? { status: 200, body: null } : { status: 404, body: { message: 'That session is gone.' } },
+          );
+        }
+        if (path === sessionRoutes.endOthers) {
+          void inner(request);
+          const ended = sessionsNow.filter((session) => !session.current).length;
+          sessionsNow = sessionsNow.filter((session) => session.current);
+          return Promise.resolve({ status: 200, body: { ended } });
+        }
+        if (path === passwordMethods.changePassword) {
+          // A change of the password signs the person out of every other browser.
+          sessionsNow = sessionsNow.filter((session) => session.current);
+        }
+        if (path === passwordMethods.forgetBrowser) {
+          rememberedNow = Math.max(0, rememberedNow - 1);
+          server.session = { ...server.session, browserRemembered: false };
+        }
+        if (path === passwordMethods.forgetBrowsers) {
+          rememberedNow = 0;
+          server.session = { ...server.session, browserRemembered: false };
+        }
       }
       const nameAnswer = answers[passwordMethods.changeName];
       if (path === passwordMethods.changeName && nameAnswer?.status === 200) {
@@ -254,6 +339,19 @@ describe('AccountPageComponent', () => {
   const box = (name: string): HTMLInputElement | null =>
     element().querySelector<HTMLInputElement>(`input[name="${name}"]`);
   const label = (key: LineKey): string | undefined => text(`.impulse-account-page-${key} mat-label`);
+  /** The lines of the list of where the person is signed in, in order. */
+  const sessionItems = (): HTMLElement[] =>
+    Array.from(element().querySelectorAll<HTMLElement>('li.impulse-account-page-session'));
+  const ofSession = (item: HTMLElement | undefined, part: string): string | undefined =>
+    item?.querySelector(`.impulse-account-page-${part}`)?.textContent?.replace(/\s+/g, ' ').trim();
+  /** The browsers' names in the list, the chip of this browser's with it. */
+  const sessionNames = (): (string | undefined)[] => sessionItems().map((item) => ofSession(item, 'session-name'));
+  const sectionButton = (part: string): HTMLButtonElement | null =>
+    element().querySelector<HTMLButtonElement>(`.impulse-account-page-signed-in button.impulse-account-page-${part}`);
+  const signOutOf = (label: string): HTMLButtonElement | null =>
+    element().querySelector<HTMLButtonElement>(`button.impulse-account-page-sign-out[aria-label="${label}"]`);
+  const sessionsSaid = (): string | undefined => text('.impulse-account-page-sessions-said');
+  const listReads = (): number => transport.requests.filter((r) => r.url === passwordMethods.ownSessions.list).length;
 
   describe('the lines', () => {
     it('shows a person who chose their username their four lines, each with its value, its hint and its icon', async () => {
@@ -386,7 +484,14 @@ describe('AccountPageComponent', () => {
     });
 
     it("names every element for the account page, with each line open in turn: an application's rule for its own .name or .hint lands on none", async () => {
-      await open({ means: means(true, ['Lakeside Google']) });
+      await open({
+        means: means(true, ['Lakeside Google']),
+        session: { ...gale, browserRemembered: true },
+        sessions: [here, laptop, unnamed],
+        rememberedBrowsers: 2,
+      });
+      expect(sectionButton('forget')).not.toBeNull();
+      expect(sectionButton('forget-all')).not.toBeNull();
       expect(element().querySelector('section.impulse-account-page-content')).not.toBeNull();
       expect(notNamedFor('impulse-account-page-', element())).toEqual([]);
       for (const key of ['username', 'name', 'email', 'password'] as const) {
@@ -1023,26 +1128,239 @@ describe('AccountPageComponent', () => {
     expect(strengthAsked().at(-1)).toEqual(asked);
   });
 
-  // The part stays as it was until the list of where the person is signed in takes it.
-  describe('This browser', () => {
-    it('is not drawn where the browser is not remembered', async () => {
-      await open({ session: { ...gale, browserRemembered: false } });
-      expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
+  describe('Where you are signed in', () => {
+    it('lists where the person is signed in, this browser first with its chip, each with its icon, its name and its times', async () => {
+      await open({ sessions: [here, laptop, phone, unnamed] });
+      expect(text('.impulse-account-page-signed-in h2')).toBe('Where you are signed in');
+      expect(sessionNames()).toEqual([
+        'Firefox on Linux This browser',
+        'Chrome on macOS',
+        'Safari on iPhone',
+        'Unknown browser',
+      ]);
+      expect(sessionItems().map((item) => item.classList.contains('impulse-account-page-session-current'))).toEqual([
+        true,
+        false,
+        false,
+        false,
+      ]);
+      expect(sessionItems().map((item) => item.querySelector('mat-icon')?.textContent?.trim())).toEqual([
+        'computer',
+        'computer',
+        'smartphone',
+        'computer',
+      ]);
+      expect(sessionItems().map((item) => item.querySelector('mat-icon')?.getAttribute('aria-hidden'))).toEqual([
+        'true',
+        'true',
+        'true',
+        'true',
+      ]);
+      expect(sessionItems().map((item) => ofSession(item, 'session-when'))).toEqual([
+        'Signed in Nov 3, 2026, 9:05 AM.',
+        'Signed in Nov 10, 2026, 2:30 PM. Last used Nov 21, 2026, 8:00 AM.',
+        'Signed in Nov 1, 2026, 7:15 AM. Last used Nov 20, 2026, 7:45 PM.',
+        'Signed in Nov 2, 2026, 12:00 PM. Last used Nov 2, 2026, 12:30 PM.',
+      ]);
+      // This browser's line carries no button where it is not remembered; another's signs out of it.
+      expect(sessionItems()[0]?.querySelector('button')).toBeNull();
+      expect(
+        sessionItems()
+          .slice(1)
+          .map((item) => [
+            item.querySelector('button.impulse-account-page-sign-out')?.textContent?.trim(),
+            item.querySelector('button.impulse-account-page-sign-out')?.getAttribute('aria-label'),
+          ]),
+      ).toEqual([
+        ['Sign out', 'Sign out of Chrome on macOS'],
+        ['Sign out', 'Sign out of Safari on iPhone'],
+        ['Sign out', 'Sign out of that browser'],
+      ]);
+      expect(sectionButton('sign-out-others')?.textContent?.trim()).toBe('Sign out everywhere else');
+      expect(sectionButton('sign-out-others')?.disabled).toBe(false);
+      expect(sectionButton('forget-all')).toBeNull();
+      expect(sessionsSaid()).toBeUndefined();
     });
 
-    it('forgets a remembered browser at the path the server names, and says what comes next', async () => {
-      await open({ session: { ...gale, browserRemembered: true } });
-      expect(text('.impulse-account-page-browser p')).toBe(
-        'This browser is remembered for you, so signing in here skips the emailed code.',
+    it('draws the section once the list has answered', async () => {
+      await open({ hold: [passwordMethods.ownSessions.list], sessions: [here, laptop] });
+      expect(lines()).toEqual(['username', 'name', 'email', 'password']);
+      expect(element().querySelector('.impulse-account-page-signed-in')).toBeNull();
+      held[0]?.answer({ status: 200, body: { sessions: [here, laptop], rememberedBrowsers: 0 } });
+      await drain();
+      expect(sessionNames()).toEqual(['Firefox on Linux This browser', 'Chrome on macOS']);
+    });
+
+    it('says it could not read the list where the read fails', async () => {
+      await open({
+        sessions: [here, laptop],
+        answers: { [passwordMethods.ownSessions.list]: { status: 500, body: { message: 'the read failed' } } },
+      });
+      expect(text('.impulse-account-page-signed-in h2')).toBe('Where you are signed in');
+      expect(text('.impulse-account-page-sessions-failed')).toBe(
+        'We could not read where you are signed in. Reload the page to try again.',
       );
-      const reads = sessionReads();
-      await press(element().querySelector<HTMLButtonElement>('button.impulse-account-page-forget'));
+      expect(element().querySelector('.impulse-account-page-sessions')).toBeNull();
+      expect(sectionButton('sign-out-others')).toBeNull();
+    });
+
+    it('draws no section in an impersonated session, nor where the server names no list', async () => {
+      await open({ session: { ...gale, impersonation }, sessions: [here, laptop] });
+      expect(element().querySelector('.impulse-account-page-signed-in')).toBeNull();
+      expect(listReads()).toBe(0);
+      TestBed.resetTestingModule();
+      await open({ methods: { ...everything, ownSessions: undefined }, sessions: [here, laptop] });
+      expect(element().querySelector('.impulse-account-page-signed-in')).toBeNull();
+      expect(listReads()).toBe(0);
+    });
+
+    it("signs out of another browser at once, posting that line's id alone, and reads the list again", async () => {
+      await open({ sessions: [here, laptop, phone] });
+      const reads = listReads();
+      await press(signOutOf('Sign out of Chrome on macOS'));
+      expect(postedTo(passwordMethods.ownSessions.end)).toEqual([{ sessionId: 's-laptop' }]);
+      expect(listReads()).toBe(reads + 1);
+      expect(sessionNames()).toEqual(['Firefox on Linux This browser', 'Safari on iPhone']);
+      expect(sessionsSaid()).toBe('Signed out of Chrome on macOS.');
+    });
+
+    it('says a browser that was signed out already is signed out, and one without a name as that browser', async () => {
+      await open({
+        sessions: [here, unnamed],
+        answers: { [passwordMethods.ownSessions.end]: { status: 404, body: { message: 'That session is gone.' } } },
+      });
+      await press(signOutOf('Sign out of that browser'));
+      expect(postedTo(passwordMethods.ownSessions.end)).toEqual([{ sessionId: 's-unnamed' }]);
+      expect(sessionsSaid()).toBe('Signed out of that browser.');
+    });
+
+    it('disables the buttons of the list while a request is out', async () => {
+      await open({ sessions: [here, laptop, phone], hold: [passwordMethods.ownSessions.end] });
+      signOutOf('Sign out of Chrome on macOS')?.click();
+      await drain();
+      const buttons = Array.from(
+        element().querySelectorAll<HTMLButtonElement>('.impulse-account-page-signed-in button'),
+      );
+      expect(buttons.length).toBeGreaterThan(0);
+      expect(buttons.every((button) => button.disabled)).toBe(true);
+      held[0]?.answer({ status: 200, body: null });
+      await settle();
+      expect(signOutOf('Sign out of Safari on iPhone')?.disabled).toBe(false);
+    });
+
+    for (const tt of [
+      { name: 'two', sessions: [here, laptop, phone], ended: undefined, want: 'Signed out of 2 other browsers.' },
+      { name: 'one', sessions: [here, laptop], ended: undefined, want: 'Signed out of 1 other browser.' },
+      { name: 'none', sessions: [here, laptop], ended: 0, want: undefined },
+    ]) {
+      it(`signs out everywhere else and says how many browsers it signed out: ${tt.name}`, async () => {
+        await open({
+          sessions: tt.sessions,
+          answers:
+            tt.ended === undefined
+              ? {}
+              : { [passwordMethods.ownSessions.endOthers]: { status: 200, body: { ended: tt.ended } } },
+        });
+        const reads = listReads();
+        await press(sectionButton('sign-out-others'));
+        expect(postedTo(passwordMethods.ownSessions.endOthers)).toHaveLength(1);
+        expect(listReads()).toBe(reads + 1);
+        expect(sessionsSaid()).toBe(tt.want);
+      });
+    }
+
+    it('reads "You are signed in nowhere else", disabled, where the list holds this browser alone', async () => {
+      await open({ sessions: [here, laptop] });
+      await press(sectionButton('sign-out-others'));
+      expect(sessionNames()).toEqual(['Firefox on Linux This browser']);
+      expect(sectionButton('sign-out-others')?.textContent?.trim()).toBe('You are signed in nowhere else');
+      expect(sectionButton('sign-out-others')?.disabled).toBe(true);
+    });
+
+    it("offers Forget on this browser's line where it is remembered, forgets it at once and says what comes next", async () => {
+      await open({ session: { ...gale, browserRemembered: true }, sessions: [here, laptop], rememberedBrowsers: 1 });
+      expect(ofSession(sessionItems()[0], 'session-when')).toBe(
+        'Signed in Nov 3, 2026, 9:05 AM. Remembered, so signing in here skips the emailed code.',
+      );
+      const forget = sessionItems()[0]?.querySelector<HTMLButtonElement>('button.impulse-account-page-forget') ?? null;
+      expect(forget?.textContent?.trim()).toBe('Forget');
+      expect(forget?.getAttribute('aria-label')).toBe('Forget this browser');
+      expect(sessionItems()[1]?.querySelector('button.impulse-account-page-forget')).toBeNull();
+      const reads = { session: sessionReads(), list: listReads() };
+      await press(forget);
       expect(postedTo(passwordMethods.forgetBrowser)).toHaveLength(1);
-      expect(sessionReads()).toBe(reads + 1);
-      expect(text('.impulse-account-page-browser .impulse-account-page-message')).toBe(
-        'This browser will ask for the emailed code the next time you sign in here.',
-      );
-      expect(element().querySelector('button.impulse-account-page-forget')).toBeNull();
+      expect(sessionReads()).toBe(reads.session + 1);
+      expect(listReads()).toBe(reads.list + 1);
+      expect(sessionsSaid()).toBe('This browser will ask for the emailed code the next time you sign in here.');
+      expect(sectionButton('forget')).toBeNull();
+      expect(ofSession(sessionItems()[0], 'session-when')).toBe('Signed in Nov 3, 2026, 9:05 AM.');
+    });
+
+    it('offers no Forget where this browser is not remembered, nor where the server serves no forgetting', async () => {
+      await open({ session: { ...gale, browserRemembered: false }, rememberedBrowsers: 1 });
+      expect(sectionButton('forget')).toBeNull();
+      TestBed.resetTestingModule();
+      await open({
+        methods: { ...everything, forgetBrowser: undefined },
+        session: { ...gale, browserRemembered: true },
+        rememberedBrowsers: 1,
+      });
+      expect(sectionButton('forget')).toBeNull();
+      expect(ofSession(sessionItems()[0], 'session-when')).toBe('Signed in Nov 3, 2026, 9:05 AM.');
+    });
+
+    it('forgets every remembered browser at once where one is remembered, and says what comes next', async () => {
+      await open({ session: { ...gale, browserRemembered: true }, sessions: [here, laptop], rememberedBrowsers: 2 });
+      expect(sectionButton('forget-all')?.textContent?.trim()).toBe('Forget all remembered browsers');
+      const reads = { session: sessionReads(), list: listReads() };
+      await press(sectionButton('forget-all'));
+      expect(postedTo(passwordMethods.forgetBrowsers)).toHaveLength(1);
+      expect(sessionReads()).toBe(reads.session + 1);
+      expect(listReads()).toBe(reads.list + 1);
+      expect(sessionsSaid()).toBe('Every browser will ask for the emailed code the next time you sign in there.');
+      expect(sectionButton('forget-all')).toBeNull();
+      expect(sectionButton('forget')).toBeNull();
+    });
+
+    it('offers no Forget all where none is remembered, nor where the server names no path', async () => {
+      await open({ rememberedBrowsers: 0 });
+      expect(element().querySelector('.impulse-account-page-signed-in')).not.toBeNull();
+      expect(sectionButton('forget-all')).toBeNull();
+      TestBed.resetTestingModule();
+      await open({ methods: { ...everything, forgetBrowsers: undefined }, rememberedBrowsers: 2 });
+      expect(element().querySelector('.impulse-account-page-signed-in')).not.toBeNull();
+      expect(sectionButton('forget-all')).toBeNull();
+    });
+
+    for (const tt of [
+      { name: 'none', sessions: [here], want: 'Your password is changed.' },
+      { name: 'one', sessions: [here, laptop], want: 'Your password is changed. 1 other browser was signed out.' },
+      {
+        name: 'two',
+        sessions: [here, laptop, phone],
+        want: 'Your password is changed. 2 other browsers were signed out.',
+      },
+    ]) {
+      it(`says how many other browsers a change of the password signed out, and reads the list again: ${tt.name}`, async () => {
+        await open({ sessions: tt.sessions });
+        await openLine('password');
+        type('oldPassword', 'old harbor');
+        type('newPassword', 'a harbor of my own');
+        await settle();
+        const reads = listReads();
+        await page().changePassword();
+        await settle();
+        expect(inLine('password', 'said')).toBe(tt.want);
+        expect(listReads()).toBe(reads + 1);
+        expect(sessionNames()).toEqual(['Firefox on Linux This browser']);
+      });
+    }
+
+    it('draws no part "This browser" of its own: the list carries it', async () => {
+      await open({ session: { ...gale, browserRemembered: true }, rememberedBrowsers: 1 });
+      expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
+      expect(element().textContent).not.toContain('This browser is remembered for you');
+      expect(element().querySelectorAll('button.impulse-account-page-forget')).toHaveLength(1);
     });
   });
 

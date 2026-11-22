@@ -1,3 +1,4 @@
+import { formatDate } from '@angular/common';
 import {
   afterNextRender,
   ChangeDetectionStrategy,
@@ -7,7 +8,9 @@ import {
   ElementRef,
   inject,
   Injector,
+  LOCALE_ID,
   PendingTasks,
+  resource,
   signal,
   untracked,
   viewChild,
@@ -17,7 +20,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { SignInRefusal } from '@impulseframework/resource';
+import { OwnSession, OwnSessions, SignInRefusal } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { NewPasswordComponent } from '@impulseframework/resource-angular/auth-new-password';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
@@ -61,6 +64,17 @@ interface UsernameAnswer {
   readonly failed: boolean;
 }
 
+/** How the page writes a moment of a session: "Nov 3, 2026, 9:05 AM". */
+const momentFormat = 'MMM d, y, h:mm a';
+
+/** What a change of the password says of the other browsers it signed out. */
+function othersSignedOut(count: number): string {
+  if (count === 0) {
+    return '';
+  }
+  return count === 1 ? ' 1 other browser was signed out.' : ` ${count} other browsers were signed out.`;
+}
+
 /** What a change on a line came to, said on that line once it closes. */
 interface Said {
   readonly line: Line;
@@ -87,8 +101,12 @@ interface Said {
  * in through); a person who holds none chooses a first one with a code the server mails
  * to the address their account holds confirmed.
  *
- * Under the lines, a browser remembered for the person is forgotten, so their next sign-in
- * here asks for the emailed code again.
+ * Under the lines, where the person is signed in: each browser by its name, with when it
+ * was signed in and last used, this browser first. Each act on the list happens at once,
+ * with no question first: signing out of one other browser or of every other, forgetting
+ * this browser where it is remembered, so the next sign-in here asks for the emailed code
+ * again, and forgetting every remembered browser. The list is read again after each, and
+ * after a change of the password, which says how many other browsers it signed out.
  */
 @Component({
   selector: 'impulse-account-page',
@@ -106,6 +124,8 @@ export class AccountPageComponent {
   private pendingTasks = inject(PendingTasks);
   private host = inject<ElementRef<HTMLElement>>(ElementRef);
   private injector = inject(Injector);
+  /** The application's locale, in which the moments of a session are written. */
+  private locale = inject(LOCALE_ID);
 
   readonly nameMaxLength = nameMaxLength;
   readonly usernameMaxLength = usernameMaxLength;
@@ -184,8 +204,34 @@ export class AccountPageComponent {
   readonly refusal = signal<string | undefined>(undefined);
   /** A request is out; the icons, Cancel and the form's buttons are disabled meanwhile. */
   readonly busy = signal(false);
-  /** The browser was forgotten on this page. */
-  readonly forgotten = signal(false);
+
+  /**
+   * Where the person is signed in, read when the page opens, where the server serves the
+   * list and the session is the person's own, and again after each act on it and after a
+   * change of the password. While it is read again, it is what the last read said.
+   */
+  private readonly signedIn = resource({
+    params: () => (this.account.sessions() ? true : undefined),
+    loader: (): Promise<OwnSessions> => this.client.auth.ownSessions(),
+  });
+  /** The section is drawn: the list has answered, or its read failed. */
+  readonly signedInRead = computed(
+    () => this.account.sessions() && (this.signedIn.hasValue() || this.signedIn.status() === 'error'),
+  );
+  /** The read of the list failed, and nothing was read before it. */
+  readonly signedInFailed = computed(() => !this.signedIn.hasValue() && this.signedIn.status() === 'error');
+  /** The person's live sessions, this browser's first, as the server lists them. */
+  readonly sessions = computed<readonly OwnSession[]>(() =>
+    this.signedIn.hasValue() ? this.signedIn.value().sessions : [],
+  );
+  /** How many browsers the second factor remembers for the person. */
+  readonly rememberedBrowsers = computed(() =>
+    this.signedIn.hasValue() ? this.signedIn.value().rememberedBrowsers : 0,
+  );
+  /** How many of the sessions are other browsers'. */
+  readonly otherSessions = computed(() => this.sessions().filter((session) => !session.current).length);
+  /** What the last act on the list came to; undefined before one, and after one that came to nothing to say. */
+  readonly sessionsSaid = signal<string | undefined>(undefined);
 
   /** The Username box. */
   readonly usernameText = signal('');
@@ -364,9 +410,12 @@ export class AccountPageComponent {
         this.refusal.set(result.message);
         return;
       }
-      this.done('password', 'Your password is changed.');
-      // The server regenerated the session: read it again.
+      // The change signs the person out of every other browser: as many as the list held.
+      const others = this.signedIn.hasValue() ? this.otherSessions() : 0;
+      this.done('password', `Your password is changed.${othersSignedOut(others)}`);
+      // The server regenerated the session: read it again, and the list.
       await firstValueFrom(this.auth.checkUserSession());
+      this.signedIn.reload();
     });
   }
 
@@ -443,19 +492,75 @@ export class AccountPageComponent {
     });
   }
 
-  /** Forgets this browser for the person, then reads the session again, which no longer says it is remembered. */
-  async forgetBrowser(): Promise<void> {
+  /** The name of a session's browser, as its line and the sentences about it name it. */
+  browserName(session: OwnSession): string {
+    return session.browser ?? 'Unknown browser';
+  }
+
+  /**
+   * When a session was signed in and, for another browser's, last used; for this browser's,
+   * that signing in here skips the emailed code, where it is remembered.
+   */
+  sessionWhen(session: OwnSession): string {
+    const signedIn = `Signed in ${this.moment(session.signedInAt)}.`;
+    if (!session.current) {
+      return `${signedIn} Last used ${this.moment(session.lastUsedAt)}.`;
+    }
+    return this.account.browser() ? `${signedIn} Remembered, so signing in here skips the emailed code.` : signedIn;
+  }
+
+  /** Signs the person out of one other browser, at once; one signed out already is said as signed out. */
+  signOut(session: OwnSession): Promise<void> {
     if (this.busy()) {
-      return;
+      return Promise.resolve();
     }
-    this.busy.set(true);
-    try {
+    return this.act(async () => {
+      await this.client.auth.endOwnSession(session.id);
+      this.sessionsSaid.set(
+        session.browser === undefined ? 'Signed out of that browser.' : `Signed out of ${session.browser}.`,
+      );
+    });
+  }
+
+  /** Signs the person out of every browser but this one, at once, and says how many. */
+  signOutOthers(): Promise<void> {
+    if (this.busy()) {
+      return Promise.resolve();
+    }
+    return this.act(async () => {
+      const ended = await this.client.auth.endOtherSessions();
+      this.sessionsSaid.set(
+        ended === 0
+          ? undefined
+          : ended === 1
+            ? 'Signed out of 1 other browser.'
+            : `Signed out of ${ended} other browsers.`,
+      );
+    });
+  }
+
+  /** Forgets this browser for the person, at once, then reads the session again, which no longer says it is remembered. */
+  forgetBrowser(): Promise<void> {
+    if (this.busy()) {
+      return Promise.resolve();
+    }
+    return this.act(async () => {
       await this.client.auth.forgetBrowser();
-      this.forgotten.set(true);
       await firstValueFrom(this.auth.checkUserSession());
-    } finally {
-      this.busy.set(false);
+      this.sessionsSaid.set('This browser will ask for the emailed code the next time you sign in here.');
+    });
+  }
+
+  /** Forgets every browser remembered for the person, at once, this one included, then reads the session again. */
+  forgetAllBrowsers(): Promise<void> {
+    if (this.busy()) {
+      return Promise.resolve();
     }
+    return this.act(async () => {
+      await this.client.auth.forgetBrowsers();
+      await firstValueFrom(this.auth.checkUserSession());
+      this.sessionsSaid.set('Every browser will ask for the emailed code the next time you sign in there.');
+    });
   }
 
   /**
@@ -491,9 +596,18 @@ export class AccountPageComponent {
   }
 
   /** Runs one request of the open form: the controls are disabled, and what an earlier one came to is not said of it. */
-  private async request(work: () => Promise<void>): Promise<void> {
+  /** An act on the list: a request like any other, after which the list is read again. */
+  private async act(work: () => Promise<void>): Promise<void> {
+    await this.request(work, false);
+    this.signedIn.reload();
+  }
+
+  /** Sends a request, as pending work of the application, with every button disabled meanwhile; a form's request drops the form's last refusal. */
+  private async request(work: () => Promise<void>, ofForm = true): Promise<void> {
     this.busy.set(true);
-    this.refusal.set(undefined);
+    if (ofForm) {
+      this.refusal.set(undefined);
+    }
     const release = this.pendingTasks.add();
     try {
       await work();
@@ -542,6 +656,12 @@ export class AccountPageComponent {
       },
       { injector: this.injector },
     );
+  }
+
+  /** A moment of a session as the page writes it, in the application's locale; one the page cannot read, as the server wrote it. */
+  private moment(value: string): string {
+    const time = Date.parse(value);
+    return Number.isNaN(time) ? value : formatDate(time, momentFormat, this.locale);
   }
 
   /** The sentence for a refusal: the one the application holds for its code, with the wait the server named, else the server's words. */

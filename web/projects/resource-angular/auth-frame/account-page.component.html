@@ -386,23 +386,76 @@
     </div>
   }
 
-  @if (account.browser() || forgotten()) {
-    <section class="impulse-account-page-browser">
-      <h2>This browser</h2>
-      @if (forgotten()) {
-        <p class="impulse-account-page-message" role="status">
-          This browser will ask for the emailed code the next time you sign in here.
+  @if (signedInRead()) {
+    <section class="impulse-account-page-signed-in">
+      <h2>Where you are signed in</h2>
+      @if (signedInFailed()) {
+        <p class="impulse-account-page-sessions-failed" role="alert">
+          We could not read where you are signed in. Reload the page to try again.
         </p>
       } @else {
-        <p>This browser is remembered for you, so signing in here skips the emailed code.</p>
-        <button
-          mat-stroked-button
-          type="button"
-          class="impulse-account-page-forget"
-          [disabled]="busy()"
-          (click)="forgetBrowser()">
-          Forget this browser
-        </button>
+        <ul class="impulse-account-page-sessions">
+          @for (session of sessions(); track session.id) {
+            <li class="impulse-account-page-session" [class.impulse-account-page-session-current]="session.current">
+              <mat-icon aria-hidden="true">{{ session.phone ? 'smartphone' : 'computer' }}</mat-icon>
+              <div class="impulse-account-page-session-what">
+                <span class="impulse-account-page-session-name">
+                  {{ browserName(session) }}
+                  @if (session.current) {
+                    <span class="impulse-account-page-chip">This browser</span>
+                  }
+                </span>
+                <span class="impulse-account-page-session-when">{{ sessionWhen(session) }}</span>
+              </div>
+              @if (!session.current) {
+                <button
+                  mat-button
+                  type="button"
+                  class="impulse-account-page-sign-out"
+                  [attr.aria-label]="
+                    session.browser === undefined ? 'Sign out of that browser' : 'Sign out of ' + session.browser
+                  "
+                  [disabled]="busy()"
+                  (click)="signOut(session)">
+                  Sign out
+                </button>
+              } @else if (account.browser()) {
+                <button
+                  mat-button
+                  type="button"
+                  class="impulse-account-page-forget"
+                  aria-label="Forget this browser"
+                  [disabled]="busy()"
+                  (click)="forgetBrowser()">
+                  Forget
+                </button>
+              }
+            </li>
+          }
+        </ul>
+        <div class="impulse-account-page-acts">
+          <button
+            mat-stroked-button
+            type="button"
+            class="impulse-account-page-sign-out-others"
+            [disabled]="busy() || otherSessions() === 0"
+            (click)="signOutOthers()">
+            {{ otherSessions() === 0 ? 'You are signed in nowhere else' : 'Sign out everywhere else' }}
+          </button>
+          @if (account.forgetBrowsers() && rememberedBrowsers() > 0) {
+            <button
+              mat-stroked-button
+              type="button"
+              class="impulse-account-page-forget-all"
+              [disabled]="busy()"
+              (click)="forgetAllBrowsers()">
+              Forget all remembered browsers
+            </button>
+          }
+        </div>
+        @if (sessionsSaid()) {
+          <p class="impulse-account-page-sessions-said" role="status">{{ sessionsSaid() }}</p>
+        }
       }
     </section>
   }

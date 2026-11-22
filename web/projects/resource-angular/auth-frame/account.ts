@@ -12,8 +12,10 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
  * the email address where it serves its routes and the address is not a directory's, the
  * password change where the person's auth has the password method, the removal of the
  * password where the server serves it, a first password where the person has none and the
- * server serves one, and forgetting this browser where it is remembered for them. An
- * impersonated session changes nothing of the person it acts as.
+ * server serves one, and forgetting this browser where it is remembered for them. Under the
+ * lines, where the person is signed in, where the server serves the list, and forgetting
+ * every browser remembered for them, where it serves that. An impersonated session changes
+ * nothing of the person it acts as, and is shown none of their sessions.
  *
  * The password follows what the server says the person signs in with (`signInMeans`):
  * neither the change nor the removal is offered to a person who holds no password, and the
@@ -152,6 +154,17 @@ export class Account {
    */
   readonly otherSignIns = computed<string[]>(
     () => this.signInMeans()?.directories.map((directory) => directory.label) ?? [],
+  );
+  /**
+   * The server serves the list of where the person is signed in, with signing out of one
+   * other browser and of every other, and the session is the person's own.
+   */
+  readonly sessions = computed(
+    () => this.own() && this.methods.hasValue() && this.methods.value().ownSessions !== undefined,
+  );
+  /** The server serves forgetting every browser remembered for the person, and the session is the person's own. */
+  readonly forgetBrowsers = computed(
+    () => this.own() && this.methods.hasValue() && this.methods.value().forgetBrowsers !== undefined,
   );
   /** This browser is remembered for the person, and the server serves forgetting it. */
   readonly browser = computed(
