@@ -55,7 +55,7 @@ export const appConfig: ApplicationConfig = {
     // The frame every signed-in page sits in, drawn by the library: the portal's name, the
     // sector the page is in with the way to the client's other sectors, Help, and the
     // person's own menu (Your account, Appearance and Sign out; the client signs in through
-    // their company's directory, so the account page says there is nothing to change). The
+    // their company's directory, so the account page shows their account with nothing to change). The
     // portal has no menus of its own. The sector the URL names is the tenant the library's pages work in.
     provideFrame({ name: 'Lodestar Client Portal', home: 'tracker', menus: [] }),
     provideRouter(routes, withComponentInputBinding(), withRouterConfig({ paramsInheritanceStrategy: 'always' })),

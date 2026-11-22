@@ -1,24 +1,62 @@
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
+import { TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { SignInMeans, TransportResponse } from '@impulseframework/resource';
-import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
+import { DEFAULT_LOGIN_MESSAGES } from '@impulseframework/resource-angular/types';
 import { ScriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
 import { AccountPageComponent, passwordRemovalConsequence } from './account-page.component';
 import { notNamedFor, passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 
-// The person's account page holds a section only where their sign-in offers it: their name
-// where the server serves its change and the session is their own, the password change
-// where the auth has the password method, the removal of the password where the server
-// serves it and the session is their own, forgetting this browser where it is remembered
-// for them and the server serves forgetting it. A person who holds no password chooses a
-// first one where the server serves it and the session is their own. A server that offers
-// none of them leaves the page saying there is nothing to change.
+// The person's account page shows their lines: the username where it is not the address,
+// the name, the email address, a password where they hold one or may choose one, and the
+// directories they sign in through. Each line the person may change carries an icon that
+// opens it as a form in place, one line at a time; what the server serves and what the
+// person signs in with decide which lines carry one. An impersonated session changes
+// nothing.
 
+/** Where the spec's server serves the email address routes. */
+const emailRoutes = { add: '/api/user/email', verify: '/api/user/email/verify' };
 /** Where the spec's server serves the choice of a first password. */
 const firstPasswordRoutes = { sendCode: '/api/user/first-password/code', set: '/api/user/first-password' };
+/** Everything the spec's server serves for a person's own account. */
+const everything: Record<string, unknown> = {
+  ...passwordMethods,
+  email: emailRoutes,
+  firstPassword: firstPasswordRoutes,
+};
+/** What the server serves a person who signs in through a directory alone: no password method. */
+const directoryMethods: Record<string, unknown> = {
+  changeUsername: passwordMethods.changeUsername,
+  usernameFree: passwordMethods.usernameFree,
+  changeName: passwordMethods.changeName,
+  signInMeans: passwordMethods.signInMeans,
+  email: emailRoutes,
+};
+/** A person who chose their username, holds a confirmed address and a password. */
+const gale: Record<string, unknown> = {
+  authenticated: true,
+  username: 'gale',
+  name: 'Gale Reyes',
+  email: 'gale@lakeside.edu',
+  emailVerified: true,
+};
+/** The record of a session that acts for the person. */
+const impersonation = { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' };
+
+/** What the server says the person signs in with: a password or none, the directories linked by their words, and whether the address is a directory's. */
+function means(password: boolean, labels: string[] = [], directoryAddress = false): TransportResponse {
+  return {
+    status: 200,
+    body: {
+      password,
+      directories: labels.map((label, i) => ({ name: `directory-${i}`, label })),
+      directoryAddress,
+    },
+  };
+}
 
 /** The server's answer about a password it calls strong enough, as it answers by default. */
 const strong: TransportResponse = { status: 200, body: { strongEnough: true, strength: 80, minimum: 50 } };
@@ -27,110 +65,154 @@ const weak: TransportResponse = {
   status: 200,
   body: { strongEnough: false, strength: 20, minimum: 50, reason: 'Add another word or two.' },
 };
+/** A refusal of mail to an address that was sent too many links, with the wait. */
+const tooManyEmails: TransportResponse = {
+  status: 429,
+  body: { message: 'Too many emails to this address', code: 'too_many_emails', retryAfter: 120 },
+};
+
+const lineKeys = ['username', 'name', 'email', 'password', 'sign-in'] as const;
+type LineKey = (typeof lineKeys)[number];
 
 interface Setup {
+  /** The methods list; unset, everything. */
   methods?: Record<string, unknown>;
-  remembered?: boolean;
-  /** More of the session read's answer: the person's name, an impersonation record. */
+  /** The session read's answer; unset, gale's. */
   session?: Record<string, unknown>;
-  /** What the server answers the change of the name with. */
-  nameAnswer?: TransportResponse;
-  /** What the server answers the removal of the password with; unset, it removes it. */
-  removeAnswer?: TransportResponse;
-  /**
-   * What the server answers the read of what the person signs in with; unset, it answers
-   * nothing the page can read, as a server that serves no such read. A removal the server
-   * makes is answered from then on: the person holds no password.
-   */
+  /** What the server answers the read of what the person signs in with; unset, a password and no directory. */
   means?: TransportResponse;
-  /** What the server answers a request for the code of a first password with; unset, it mails one. */
-  firstPasswordCode?: TransportResponse;
-  /**
-   * What the server answers the first password with; unset, it sets it, and the read of
-   * what the person signs in with answers a password from then on.
-   */
-  firstPasswordSet?: TransportResponse;
-  /** What the server answers a question about a new password's strength with; unset, strong enough. A test changes it with `strengthAnswer`. */
+  /** What the server answers a post to a path with, by path; unset paths are served as a server serves them. */
+  answers?: Record<string, TransportResponse>;
+  /** The usernames someone else holds; unset, rey. */
+  taken?: string[];
+  /** The usernames whose question fails. */
+  failing?: string[];
+  /** The paths whose requests wait until the spec answers them (`held`). */
+  hold?: string[];
+  /** What the server answers a question about a new password's strength with; unset, strong enough. */
   strength?: TransportResponse;
+}
+
+/** A request the spec's server holds until the spec answers it. */
+interface Held {
+  readonly path: string;
+  readonly body: unknown;
+  answer(response: TransportResponse): void;
 }
 
 describe('AccountPageComponent', () => {
   let fixture: ComponentFixture<AccountPageComponent>;
   let transport: ScriptedTransport;
+  let held: Held[];
+  let strengthAnswer: TransportResponse;
 
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
+  const page = (): AccountPageComponent => fixture.componentInstance;
   const text = (selector: string): string | undefined =>
     element().querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim();
   const posted = (): string[] => transport.requests.filter((r) => r.method === 'POST').map((r) => r.url);
+  const postedTo = (path: string): unknown[] =>
+    transport.requests.filter((r) => r.method === 'POST' && r.url === path).map((r) => r.body);
+  const sessionReads = (): number => transport.requests.filter((r) => r.url === '/api/user/session').length;
   /** The bodies of the questions about a new password's strength, in order. */
   const strengthAsked = (): unknown[] =>
     transport.requests.filter((r) => r.url === passwordMethods.passwordStrength).map((r) => r.body);
-  /** What the spec's server answers a question about a new password's strength with, from now on. */
-  let strengthAnswer: TransportResponse = strong;
   // A form box takes its model's value a moment after the view is drawn: settle waits it out.
   const settle = async (): Promise<void> => {
     await TestBed.inject(ApplicationRef).whenStable();
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
   };
+  // While the server holds a request, the application is not stable: drain lets every
+  // answer that is in arrive, and draws the page, without waiting for the held ones.
+  const drain = async (): Promise<void> => {
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve));
+      fixture.detectChanges();
+    }
+  };
 
   const open = async ({
-    methods = {},
-    remembered = false,
-    session = {},
-    nameAnswer,
-    removeAnswer,
-    means,
-    firstPasswordCode,
-    firstPasswordSet,
+    methods = everything,
+    session = gale,
+    means: meansAnswer = means(true),
+    answers = {},
+    taken = ['rey'],
+    failing = [],
+    hold = [],
     strength = strong,
-  }: Setup): Promise<void> => {
-    let meansNow = means;
+  }: Setup = {}): Promise<void> => {
+    let meansNow = meansAnswer;
     strengthAnswer = strength;
-    // The session the spec's server answers: a saved name is answered from then on, in an
-    // answer of its own, as a server's every read is.
+    held = [];
     const server: SpecServer = {
-      // The question about a new password's strength is served wherever the page could ask it.
-      methods: { methods: [], passwordStrength: passwordMethods.passwordStrength, ...methods },
-      session: { authenticated: true, username: 'gale', browserRemembered: remembered, ...session },
+      methods: { methods: [], ...methods },
+      session: { ...session },
       other: (url) => {
-        if (url.pathname === passwordMethods.changeName && nameAnswer) {
-          if (nameAnswer.status === 200) {
-            server.session = { ...server.session, name: (nameAnswer.body as { name?: string } | null)?.name ?? null };
-          }
-          return nameAnswer;
-        }
-        if (url.pathname === passwordMethods.removePassword) {
-          if (removeAnswer) {
-            return removeAnswer;
-          }
-          if (meansNow?.status === 200) {
-            meansNow = { status: 200, body: { ...(meansNow.body as object), password: false } };
-          }
-          return { status: 200, body: null };
-        }
-        if (url.pathname === firstPasswordRoutes.sendCode) {
-          return firstPasswordCode ?? { status: 200, body: { codeEmail: 'g•••@lakeside.edu' } };
-        }
-        if (url.pathname === firstPasswordRoutes.set) {
-          if (firstPasswordSet) {
-            return firstPasswordSet;
-          }
-          if (meansNow?.status === 200) {
-            meansNow = { status: 200, body: { ...(meansNow.body as object), password: true } };
-          }
-          return { status: 200, body: {} };
-        }
-        if (url.pathname === passwordMethods.signInMeans && meansNow) {
+        const path = url.pathname;
+        const given = answers[path];
+        if (path === passwordMethods.signInMeans) {
           return meansNow;
         }
-        if (url.pathname === passwordMethods.passwordStrength) {
+        if (path === passwordMethods.passwordStrength) {
           return strengthAnswer;
         }
-        return url.pathname.startsWith('/api/user/') ? { status: 200, body: null } : undefined;
+        if (given) {
+          return given;
+        }
+        if (path === firstPasswordRoutes.sendCode) {
+          return { status: 200, body: { codeEmail: 'g•••@lakeside.edu' } };
+        }
+        if (path === firstPasswordRoutes.set) {
+          meansNow = { status: 200, body: { ...(meansNow.body as object), password: true } };
+          return { status: 200, body: {} };
+        }
+        if (path === passwordMethods.removePassword) {
+          meansNow = { status: 200, body: { ...(meansNow.body as object), password: false } };
+          return { status: 200, body: null };
+        }
+        return path.startsWith('/api/user/') ? { status: 200, body: null } : undefined;
       },
     };
-    transport = specTransport(server);
+    const inner = specTransport(server);
+    // The answers that change what the server holds, and the questions whether a name is
+    // free, which read the body.
+    const respond = (request: TransportRequest): Promise<TransportResponse> => {
+      const path = new URL(request.url, 'http://spec.test').pathname;
+      const body = request.body as Record<string, string> | undefined;
+      if (path === passwordMethods.usernameFree && !answers[path]) {
+        void inner(request);
+        const name = body?.['username'] ?? '';
+        return Promise.resolve(
+          failing.includes(name)
+            ? { status: 500, body: { message: 'the question failed' } }
+            : { status: 200, body: { free: !taken.includes(name) } },
+        );
+      }
+      if (path === passwordMethods.changeUsername && !answers[path]) {
+        void inner(request);
+        const username = (body?.['username'] ?? '').trim();
+        server.session = { ...server.session, username };
+        return Promise.resolve({ status: 200, body: { username } });
+      }
+      const nameAnswer = answers[passwordMethods.changeName];
+      if (path === passwordMethods.changeName && nameAnswer?.status === 200) {
+        server.session = { ...server.session, name: (nameAnswer.body as { name?: string } | null)?.name ?? null };
+      }
+      return inner(request);
+    };
+    transport = Object.assign(
+      (request: TransportRequest): Promise<TransportResponse> => {
+        const path = new URL(request.url, 'http://spec.test').pathname;
+        if (!hold.includes(path)) {
+          return respond(request);
+        }
+        // The request is recorded, and what it changes on the server is done, at once; its answer waits for the spec.
+        void respond(request);
+        return new Promise<TransportResponse>((resolve) => held.push({ path, body: request.body, answer: resolve }));
+      },
+      { requests: inner.requests },
+    );
     await TestBed.configureTestingModule({
       imports: [AccountPageComponent],
       providers: [provideFrameTesting(transport)],
@@ -138,544 +220,830 @@ describe('AccountPageComponent', () => {
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     fixture = TestBed.createComponent(AccountPageComponent);
     fixture.detectChanges();
-    await settle();
+    if (hold.length === 0) {
+      await settle();
+    } else {
+      await drain();
+    }
   };
 
+  /** The keys of the lines drawn, in order. */
+  const lines = (): string[] =>
+    Array.from(element().querySelectorAll('.impulse-account-page-line')).map(
+      (line) => lineKeys.find((key) => line.classList.contains(`impulse-account-page-${key}`)) ?? '(none)',
+    );
+  const line = (key: LineKey): HTMLElement | null =>
+    element().querySelector<HTMLElement>(`.impulse-account-page-line.impulse-account-page-${key}`);
+  const inLine = (key: LineKey, part: string): string | undefined =>
+    line(key)?.querySelector(`.impulse-account-page-${part}`)?.textContent?.replace(/\s+/g, ' ').trim();
+  const buttonIn = (key: LineKey, part: string): HTMLButtonElement | null =>
+    line(key)?.querySelector<HTMLButtonElement>(`button.impulse-account-page-${part}`) ?? null;
+  const icon = (key: LineKey): HTMLButtonElement | null => buttonIn(key, 'edit');
+  const press = async (button: HTMLButtonElement | null): Promise<void> => {
+    if (!button) throw new Error('no such button');
+    button.click();
+    await settle();
+  };
+  const openLine = async (key: LineKey): Promise<void> => press(icon(key));
   const type = (name: string, value: string): void => {
     const input = element().querySelector<HTMLInputElement>(`input[name="${name}"]`);
     if (!input) throw new Error(`no ${name} field`);
     input.value = value;
     input.dispatchEvent(new Event('input'));
   };
-
   const box = (name: string): HTMLInputElement | null =>
     element().querySelector<HTMLInputElement>(`input[name="${name}"]`);
+  const label = (key: LineKey): string | undefined => text(`.impulse-account-page-${key} mat-label`);
 
-  it("offers the person's name where the server serves its change, the box holding the name they have", async () => {
-    await open({ methods: { changeName: passwordMethods.changeName }, session: { name: 'Gale Reyes' } });
-    expect(text('.impulse-account-page-name h2')).toBe('Your name');
-    expect(text('.impulse-account-page-name p')).toBe(
-      'Shown for you in place of your username, gale, which you still sign in with.',
-    );
-    expect(box('personName')?.value).toBe('Gale Reyes');
-    expect(box('personName')?.getAttribute('maxlength')).toBe('200');
-    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
-    expect(TestBed.inject(Account).any()).toBe(true);
-  });
+  describe('the lines', () => {
+    it('shows a person who chose their username their four lines, each with its value, its hint and its icon', async () => {
+      await open();
+      expect(text('h1')).toBe('Your account');
+      expect(lines()).toEqual(['username', 'name', 'email', 'password']);
 
-  it("names every element for the account page: an application's rule for its own .name, .none or .message lands on none", async () => {
-    await open({
-      methods: {
-        changeName: passwordMethods.changeName,
-        changePassword: passwordMethods.changePassword,
-        forgetBrowser: passwordMethods.forgetBrowser,
-      },
-      remembered: true,
-      session: { name: 'Gale Reyes' },
+      expect(inLine('username', 'key')).toBe('Username');
+      expect(inLine('username', 'value')).toBe('gale');
+      expect(inLine('username', 'hint')).toBe('You sign in with this.');
+      expect(icon('username')?.getAttribute('aria-label')).toBe('Change your username');
+
+      expect(inLine('name', 'key')).toBe('Name');
+      expect(inLine('name', 'value')).toBe('Gale Reyes');
+      expect(inLine('name', 'hint')).toBe('Shown to other people in place of your username.');
+      expect(icon('name')?.getAttribute('aria-label')).toBe('Change your name');
+
+      expect(inLine('email', 'key')).toBe('Email');
+      expect(inLine('email', 'value')).toBe('gale@lakeside.edu Confirmed');
+      expect(inLine('email', 'chip')).toBe('Confirmed');
+      expect(inLine('email', 'hint')).toBe('Sign-in codes and notices go here.');
+      expect(icon('email')?.getAttribute('aria-label')).toBe('Change your email address');
+
+      expect(inLine('password', 'key')).toBe('Password');
+      expect(inLine('password', 'value')).toBe('••••••••••');
+      expect(line('password')?.querySelector('.impulse-account-page-value')?.getAttribute('aria-label')).toBe('Hidden');
+      expect(inLine('password', 'hint')).toBeUndefined();
+      expect(icon('password')?.getAttribute('aria-label')).toBe('Change your password');
+
+      expect(element().querySelector('.impulse-account-page-acting')).toBeNull();
+      expect(element().querySelectorAll('.impulse-account-page-said')).toHaveLength(0);
     });
 
-    expect(notNamedFor('impulse-account-page-', element())).toEqual([]);
-    expect(element().querySelector('section.impulse-account-page-content')).not.toBeNull();
-    expect(text('.impulse-account-page-browser button.impulse-account-page-forget')).toBe('Forget this browser');
-  });
-
-  it('starts the box empty for a person without a name', async () => {
-    await open({ methods: { changeName: passwordMethods.changeName } });
-    expect(box('personName')?.value).toBe('');
-  });
-
-  it('saves the name at the path the server names, says so, and shows the name the server kept', async () => {
-    await open({
-      methods: { changeName: passwordMethods.changeName },
-      nameAnswer: { status: 200, body: { name: 'Gale R.' } },
+    it('shows no Username line where the username is the address, and says the address is what they sign in with', async () => {
+      await open({
+        methods: { ...everything, usernameIsEmail: true },
+        session: { ...gale, username: 'gale@lakeside.edu' },
+      });
+      expect(lines()).toEqual(['name', 'email', 'password']);
+      expect(inLine('email', 'hint')).toBe('You sign in with this address.');
+      expect(TestBed.inject(Account).usernameLine()).toBe(false);
     });
-    type('personName', '  Gale R. ');
-    await fixture.componentInstance.changeName();
-    await settle();
-    expect(posted()).toEqual([passwordMethods.changeName]);
-    expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ name: '  Gale R. ' });
-    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe('Your name is saved.');
-    // The session was read again: it carries the name, and the box follows it.
-    expect(TestBed.inject(AuthService).sessionInfo().name).toBe('Gale R.');
-    expect(box('personName')?.value).toBe('Gale R.');
-  });
 
-  it('takes the name off with an empty box, and says what is shown instead', async () => {
-    await open({
-      methods: { changeName: passwordMethods.changeName },
-      session: { name: 'Gale Reyes' },
-      nameAnswer: { status: 200, body: {} },
+    it("shows a directory person their address as the directory's, unchanged here, and the directory they sign in through", async () => {
+      await open({ methods: directoryMethods, means: means(false, ['Lakeside Google'], true) });
+      expect(lines()).toEqual(['username', 'name', 'email', 'sign-in']);
+      expect(inLine('username', 'hint')).toBeUndefined();
+      expect(inLine('email', 'hint')).toBe("From your organization's directory, so it is not changed here.");
+      expect(icon('email')).toBeNull();
+      expect(inLine('sign-in', 'key')).toBe('Sign-in');
+      expect(inLine('sign-in', 'value')).toBe('Through Lakeside Google');
+      expect(inLine('sign-in', 'hint')).toBe('Your password is kept there, so there is none to change here.');
+      expect(icon('sign-in')).toBeNull();
+      expect(TestBed.inject(Account).directoryAddress()).toBe(true);
+      expect(TestBed.inject(Account).email()).toBe(false);
     });
-    type('personName', '');
-    await fixture.componentInstance.changeName();
-    await settle();
-    expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ name: '' });
-    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe(
-      'Your name is removed. Your username is shown instead.',
-    );
-    expect(TestBed.inject(AuthService).sessionInfo().name ?? undefined).toBeUndefined();
-  });
 
-  it("shows the server's words when it refuses the name, and keeps what was typed", async () => {
-    await open({
-      methods: { changeName: passwordMethods.changeName },
-      session: { name: 'Gale Reyes' },
-      nameAnswer: { status: 400, body: { message: 'a name is at most 200 characters' } },
+    it('shows a person with no password who may choose one "None", the icon to choose one, and their only way in', async () => {
+      await open({ means: means(false, ['Lakeside Google']) });
+      expect(lines()).toEqual(['username', 'name', 'email', 'password', 'sign-in']);
+      expect(inLine('password', 'value')).toBe('None');
+      expect(line('password')?.querySelector('.impulse-account-page-value.impulse-account-page-unset')).not.toBeNull();
+      expect(inLine('password', 'hint')).toBe('You can choose one.');
+      expect(icon('password')?.getAttribute('aria-label')).toBe('Choose a password');
+      expect(inLine('username', 'hint')).toBeUndefined();
+      expect(inLine('sign-in', 'hint')).toBe('It is your only way in. A password of your own would be a second.');
     });
-    type('personName', 'Gale Reyes the Second');
-    await fixture.componentInstance.changeName();
-    await settle();
-    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe('a name is at most 200 characters');
-    expect(box('personName')?.value).toBe('Gale Reyes the Second');
-    expect(TestBed.inject(AuthService).sessionInfo().name).toBe('Gale Reyes');
-  });
 
-  it('leaves what the person is typing when the session is read again and answers the same name', async () => {
-    await open({ methods: { changeName: passwordMethods.changeName }, session: { name: 'Gale Reyes' } });
-    type('personName', 'Gale Reyes the Second');
-    // The keepalive reads the session while the person is still typing.
-    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
-    await settle();
-    expect(box('personName')?.value).toBe('Gale Reyes the Second');
-  });
-
-  it('says nothing of an earlier change once a later one fails without an answer', async () => {
-    const nameAnswer: TransportResponse = { status: 200, body: { name: 'Gale R.' } };
-    await open({ methods: { changeName: passwordMethods.changeName }, nameAnswer });
-    type('personName', 'Gale R.');
-    await fixture.componentInstance.changeName();
-    await settle();
-    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe('Your name is saved.');
-    Object.assign(nameAnswer, { status: 500, body: { message: 'the server failed' } });
-    type('personName', 'Gale Reyes');
-    await expect(fixture.componentInstance.changeName()).rejects.toThrow();
-    await settle();
-    expect(element().querySelector('.impulse-account-page-name .impulse-account-page-message')).toBeNull();
-    expect(fixture.componentInstance.busy()).toBe(false);
-  });
-
-  it('offers no change of the name in a session that acts for someone else', async () => {
-    await open({
-      methods: { changeName: passwordMethods.changeName },
-      session: {
-        name: 'Gale Reyes',
-        impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
-      },
+    it('shows a person with a password and directories each directory, and that the password is another way in', async () => {
+      await open({ means: means(true, ['Lakeside Google', 'Lakeside Entra']) });
+      expect(lines()).toEqual(['username', 'name', 'email', 'password', 'sign-in']);
+      expect(inLine('password', 'value')).toBe('••••••••••');
+      expect(inLine('sign-in', 'value')).toBe('Through Lakeside Google or Lakeside Entra');
+      expect(inLine('sign-in', 'hint')).toBe('You can also sign in with your password.');
+      expect(inLine('username', 'hint')).toBe('You sign in with this.');
     });
-    expect(element().querySelector('.impulse-account-page-name')).toBeNull();
-    expect(TestBed.inject(Account).name()).toBe(false);
-    expect(text('.impulse-account-page-none')).toBe(
-      'Your sign-in is managed by your organization, so there is nothing to change here.',
-    );
-  });
 
-  it('offers the password change to a person whose auth has the password method', async () => {
-    await open({ methods: { changePassword: passwordMethods.changePassword } });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
-    expect(TestBed.inject(Account).any()).toBe(true);
-  });
-
-  it('says there is nothing to change for a sign-in through the organization', async () => {
-    await open({});
-    expect(text('.impulse-account-page-none')).toBe(
-      'Your sign-in is managed by your organization, so there is nothing to change here.',
-    );
-    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
-    expect(TestBed.inject(Account).any()).toBe(false);
-  });
-
-  it('changes the password at the path the server names, and says so', async () => {
-    await open({ methods: { changePassword: passwordMethods.changePassword } });
-    type('oldPassword', 'old');
-    type('newPassword', 'new one');
-    await settle();
-    await fixture.componentInstance.changePassword();
-    fixture.detectChanges();
-    // The box asks about the empty password once it is drawn, to learn where its mark sits, then about what was typed.
-    expect(posted()).toEqual([
-      passwordMethods.passwordStrength,
-      passwordMethods.passwordStrength,
-      passwordMethods.changePassword,
-    ]);
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe('Your password is changed.');
-  });
-
-  // A sign-in that offers the password and one directory, serves the password's removal
-  // and says what the person signs in with: here a password, and Lakeside linked to them.
-  const lakeside = {
-    name: 'lakeside',
-    method: 'workos',
-    kind: 'redirect',
-    label: 'Lakeside',
-    path: '/api/user/lakeside/login',
-  };
-  const removal = {
-    methods: [lakeside],
-    changePassword: passwordMethods.changePassword,
-    removePassword: passwordMethods.removePassword,
-    signInMeans: passwordMethods.signInMeans,
-  };
-  const linkedToLakeside: TransportResponse = {
-    status: 200,
-    body: { password: true, directories: [{ name: 'lakeside', label: 'Lakeside' }] },
-  };
-
-  it('offers the removal of the password where the server serves it, under the change', async () => {
-    await open({ methods: removal, means: linkedToLakeside });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(text('.impulse-account-page-remove-password h2')).toBe('Remove your password');
-    expect(text('.impulse-account-page-remove-password p')).toBe(
-      'If you also sign in another way, you can do without a password.',
-    );
-    expect(text('.impulse-account-page-remove-password button.impulse-account-page-remove-submit')).toBe(
-      'Remove password',
-    );
-    expect(TestBed.inject(Account).removePassword()).toBe(true);
-  });
-
-  it('offers no removal where the server serves none', async () => {
-    await open({
-      methods: {
-        methods: [lakeside],
-        changePassword: passwordMethods.changePassword,
-        signInMeans: passwordMethods.signInMeans,
-      },
-      means: linkedToLakeside,
+    it('joins three directories as a list', async () => {
+      await open({ means: means(true, ['Google', 'Entra', 'Okta']) });
+      expect(inLine('sign-in', 'value')).toBe('Through Google, Entra or Okta');
     });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-  });
 
-  it('offers no removal in a session that acts for someone else', async () => {
-    await open({
-      methods: removal,
-      means: linkedToLakeside,
-      session: {
-        impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
-      },
+    it('says "Not set" for a name and an address the person does not hold, and offers to add an address', async () => {
+      await open({ session: { authenticated: true, username: 'gale' } });
+      expect(inLine('name', 'value')).toBe('Not set');
+      expect(line('name')?.querySelector('.impulse-account-page-value.impulse-account-page-unset')).not.toBeNull();
+      expect(inLine('email', 'value')).toBe('Not set');
+      expect(line('email')?.querySelector('.impulse-account-page-value.impulse-account-page-unset')).not.toBeNull();
+      expect(icon('email')?.getAttribute('aria-label')).toBe('Add an email address');
     });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-  });
 
-  it('asks before it removes, saying what is left to sign in through, and asks the server nothing when the person keeps the password', async () => {
-    await open({ methods: removal, means: linkedToLakeside });
-    // The change's box asked about the empty password when it was drawn, to learn where its mark sits.
-    type('removalPassword', 'old');
-    (element().querySelector('button.impulse-account-page-remove-submit') as HTMLButtonElement).click();
-    await settle();
-    expect(text('.impulse-account-page-remove-password .impulse-account-page-question')).toBe(
-      'Remove your password? You will sign in through Lakeside only.',
-    );
-    expect(text('.impulse-account-page-remove-password button.impulse-account-page-remove-confirm')).toBe(
-      'Remove password',
-    );
-    expect(posted()).toEqual([passwordMethods.passwordStrength]);
-    (element().querySelector('button.impulse-account-page-remove-keep') as HTMLButtonElement).click();
-    await settle();
-    expect(element().querySelector('.impulse-account-page-remove-password .impulse-account-page-question')).toBeNull();
-    expect(box('removalPassword')).not.toBeNull();
-    expect(posted()).toEqual([passwordMethods.passwordStrength]);
-  });
-
-  it('removes the password at the path the server names, with the password as proof, and says what is left', async () => {
-    await open({ methods: removal, means: linkedToLakeside });
-    type('removalPassword', 'old');
-    fixture.componentInstance.askToRemovePassword();
-    await fixture.componentInstance.removePassword();
-    await settle();
-    // The change's box asked about the empty password when it was drawn.
-    expect(posted()).toEqual([passwordMethods.passwordStrength, passwordMethods.removePassword]);
-    expect(transport.requests.find((r) => r.url === passwordMethods.removePassword)?.body).toEqual({ password: 'old' });
-    expect(text('.impulse-account-page-password h2')).toBe('Your password');
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
-      'Your password is removed. You will sign in through Lakeside only.',
-    );
-    // Nothing is left to change or to remove.
-    expect(box('oldPassword')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-  });
-
-  it("shows the server's words when it refuses the removal, and leaves the password where it was", async () => {
-    const onlyWay = 'Your password is your only way to sign in: sign in through your directory first';
-    await open({
-      methods: removal,
-      means: linkedToLakeside,
-      removeAnswer: { status: 409, body: { message: onlyWay } },
+    it('takes a name that is no address for no address, and says an unconfirmed one is not confirmed', async () => {
+      await open({ session: { ...gale, email: 'gale', emailVerified: false } });
+      expect(inLine('email', 'value')).toBe('Not set');
+      TestBed.resetTestingModule();
+      await open({ session: { ...gale, emailVerified: false } });
+      expect(inLine('email', 'value')).toBe('gale@lakeside.edu Not confirmed');
+      expect(icon('email')?.getAttribute('aria-label')).toBe('Change your email address');
     });
-    type('removalPassword', 'old');
-    fixture.componentInstance.askToRemovePassword();
-    await fixture.componentInstance.removePassword();
-    await settle();
-    expect(posted()).toEqual([passwordMethods.passwordStrength, passwordMethods.removePassword]);
-    expect(text('.impulse-account-page-remove-password .impulse-account-page-message')).toBe(onlyWay);
-    expect(element().querySelector('.impulse-account-page-remove-password .impulse-account-page-question')).toBeNull();
-    expect(box('removalPassword')).not.toBeNull();
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(fixture.componentInstance.passwordRemoved()).toBe(false);
-  });
 
-  // The server says what the person signs in with: the login page offers Lakeside and
-  // Fleet Google, and the person is linked to Fleet Google alone.
-  const fleetGoogle = {
-    name: 'google',
-    method: 'google',
-    kind: 'redirect',
-    label: 'Fleet Google',
-    path: '/api/user/google/login',
-  };
-  const told = { ...removal, methods: [lakeside, fleetGoogle], signInMeans: passwordMethods.signInMeans };
-  const signsInWith = (password: boolean, linked: boolean): TransportResponse => ({
-    status: 200,
-    body: { password, directories: linked ? [{ name: 'google', label: 'Fleet Google' }] : [] },
-  });
-
-  it('offers the change and the removal to a person who holds a password and a linked directory, and names that directory alone', async () => {
-    await open({ methods: told, means: signsInWith(true, true) });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(text('.impulse-account-page-remove-password h2')).toBe('Remove your password');
-    type('removalPassword', 'old');
-    (element().querySelector('button.impulse-account-page-remove-submit') as HTMLButtonElement).click();
-    await settle();
-    expect(text('.impulse-account-page-remove-password .impulse-account-page-question')).toBe(
-      'Remove your password? You will sign in through Fleet Google only.',
-    );
-  });
-
-  it('offers the change and no removal to a person who holds a password and no linked directory', async () => {
-    await open({ methods: told, means: signsInWith(true, false) });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-  });
-
-  it('offers neither the change nor the removal to a person who holds no password', async () => {
-    await open({ methods: told, means: signsInWith(false, true) });
-    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(TestBed.inject(Account).password()).toBe(false);
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-    expect(text('.impulse-account-page-none')).toBe(
-      'Your sign-in is managed by your organization, so there is nothing to change here.',
-    );
-  });
-
-  it('holds no password section for a person whose auth registers no password method, beside the sections it does offer', async () => {
-    // What the methods route of such an auth answers: its directory methods, the change of
-    // the person's name and the read of what they sign in with, and none of the password
-    // method's routes, which the server names only where the method is registered.
-    await open({
-      methods: {
-        methods: [lakeside, fleetGoogle],
-        changeName: passwordMethods.changeName,
-        signInMeans: passwordMethods.signInMeans,
-      },
-      means: signsInWith(false, true),
+    it('says the person acts for someone else in an impersonated session, and offers no icon on any line', async () => {
+      await open({ session: { ...gale, impersonation }, means: means(true, ['Lakeside Google']) });
+      expect(text('.impulse-account-page-acting')).toBe(
+        'You are acting as this person, so nothing here can be changed.',
+      );
+      expect(lines()).toEqual(['username', 'name', 'email', 'password', 'sign-in']);
+      expect(element().querySelectorAll('.impulse-account-page-edit')).toHaveLength(0);
     });
-    expect(text('.impulse-account-page-name h2')).toBe('Your name');
-    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-first-password')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(element().querySelector('input[type="password"]')).toBeNull();
-    expect(TestBed.inject(Account).password()).toBe(false);
-    expect(TestBed.inject(Account).firstPassword()).toBe(false);
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
+
+    it('draws every line of a person whose sign-in offers nothing to change, with no icon and no sentence about acting', async () => {
+      await open({ methods: {} });
+      expect(lines()).toEqual(['username', 'name', 'email']);
+      expect(element().querySelectorAll('.impulse-account-page-edit')).toHaveLength(0);
+      expect(element().querySelector('.impulse-account-page-acting')).toBeNull();
+    });
+
+    it('draws no line until what the person signs in with has answered, so none is drawn and then taken away', async () => {
+      await open({ methods: directoryMethods, hold: [passwordMethods.signInMeans] });
+      expect(element().querySelector('.impulse-account-page-lines')).toBeNull();
+      held[0]?.answer(means(false, ['Lakeside Google'], true));
+      await settle();
+      expect(lines()).toEqual(['username', 'name', 'email', 'sign-in']);
+      expect(icon('email')).toBeNull();
+    });
+
+    it('draws the lines where the read of what the person signs in with fails', async () => {
+      await open({ means: { status: 500, body: { message: 'the read failed' } } });
+      expect(lines()).toEqual(['username', 'name', 'email', 'password']);
+      expect(inLine('password', 'value')).toBe('••••••••••');
+    });
+
+    it("names every element for the account page, with each line open in turn: an application's rule for its own .name or .hint lands on none", async () => {
+      await open({ means: means(true, ['Lakeside Google']) });
+      expect(element().querySelector('section.impulse-account-page-content')).not.toBeNull();
+      expect(notNamedFor('impulse-account-page-', element())).toEqual([]);
+      for (const key of ['username', 'name', 'email', 'password'] as const) {
+        await openLine(key);
+        expect(line(key)?.querySelector('.impulse-account-page-form')).not.toBeNull();
+        expect(notNamedFor('impulse-account-page-', element())).toEqual([]);
+      }
+    });
   });
 
-  // The server serves the choice of a first password, as one whose auth has the password
-  // method does.
-  const choosing = { ...told, firstPassword: firstPasswordRoutes };
-  const click = (selector: string): void => {
-    const button = element().querySelector<HTMLButtonElement>(selector);
-    if (!button) throw new Error(`no ${selector} button`);
-    button.click();
-  };
+  describe('one line at a time', () => {
+    it('opens a line in place of its value, closes any other and drops what was typed there, and changes no address', async () => {
+      await open();
+      const router = TestBed.inject(Router);
+      const url = router.url;
+      const href = window.location.href;
+      await openLine('name');
+      expect(line('name')?.querySelector('.impulse-account-page-form')).not.toBeNull();
+      expect(line('name')?.querySelector('.impulse-account-page-value')).toBeNull();
+      expect(icon('name')).toBeNull();
+      type('personName', 'Somebody Else');
+      await settle();
+      await openLine('username');
+      expect(line('name')?.querySelector('.impulse-account-page-form')).toBeNull();
+      expect(inLine('name', 'value')).toBe('Gale Reyes');
+      expect(line('username')?.querySelector('.impulse-account-page-form')).not.toBeNull();
+      await openLine('name');
+      expect(line('username')?.querySelector('.impulse-account-page-form')).toBeNull();
+      expect(box('personName')?.value).toBe('Gale Reyes');
+      expect(router.url).toBe(url);
+      expect(window.location.href).toBe(href);
+    });
 
-  it('offers a person who holds no password the choice of one where the server serves it, asking for the code first', async () => {
-    await open({ methods: choosing, means: signsInWith(false, true) });
-    expect(text('.impulse-account-page-first-password h2')).toBe('Choose a password');
-    expect(text('.impulse-account-page-first-password p')).toBe(
-      'You have no password here. To choose one, ask for a code first: we email it to the address on your account.',
-    );
-    expect(text('button.impulse-account-page-first-code')).toBe('Email me a code');
-    // Nothing is typed until a code is on its way.
-    expect(box('firstPasswordCode')).toBeNull();
-    expect(box('newPassword')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
-    expect(TestBed.inject(Account).any()).toBe(true);
-    expect(posted()).toEqual([]);
+    it('closes the line on Cancel and shows its value again', async () => {
+      await open();
+      await openLine('email');
+      await press(buttonIn('email', 'cancel'));
+      expect(line('email')?.querySelector('.impulse-account-page-form')).toBeNull();
+      expect(inLine('email', 'value')).toBe('gale@lakeside.edu Confirmed');
+      expect(posted()).toEqual([]);
+    });
+
+    it('disables the icons, Cancel and the buttons of the form while a request is out', async () => {
+      await open({
+        hold: [passwordMethods.changeName],
+        answers: { [passwordMethods.changeName]: { status: 200, body: { name: 'Gale R.' } } },
+      });
+      await openLine('name');
+      type('personName', 'Gale R.');
+      fixture.detectChanges();
+      const saving = page().saveName();
+      await drain();
+      expect(held).toHaveLength(1);
+      expect(buttonIn('name', 'save')?.disabled).toBe(true);
+      expect(buttonIn('name', 'cancel')?.disabled).toBe(true);
+      for (const key of ['username', 'email', 'password'] as const) {
+        expect(icon(key)?.disabled).toBe(true);
+      }
+      held[0]?.answer({ status: 200, body: { name: 'Gale R.' } });
+      await saving;
+      await settle();
+      expect(icon('name')?.disabled).toBe(false);
+    });
+
+    it('keeps what a change said until a line is opened', async () => {
+      await open({ answers: { [passwordMethods.changeName]: { status: 200, body: { name: 'Gale R.' } } } });
+      await openLine('name');
+      type('personName', 'Gale R.');
+      await settle();
+      await page().saveName();
+      await settle();
+      expect(inLine('name', 'said')).toBe('Your name is saved.');
+      expect(line('name')?.querySelector('.impulse-account-page-said')?.getAttribute('role')).toBe('status');
+      await openLine('email');
+      expect(element().querySelector('.impulse-account-page-said')).toBeNull();
+    });
   });
 
-  for (const tt of [
-    {
-      name: 'a person who holds a password, who changes it',
-      setup: { methods: choosing, means: signsInWith(true, true) },
-    },
-    {
-      name: 'a session that acts for someone else',
-      setup: {
-        methods: choosing,
-        means: signsInWith(false, true),
-        session: {
-          impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
+  describe('Username', () => {
+    const say = (): string | undefined => inLine('username', 'say');
+    const save = (): HTMLButtonElement | null => buttonIn('username', 'save');
+
+    it('opens with the username in a box that takes a username, and says it is the username now', async () => {
+      await open();
+      await openLine('username');
+      const input = box('username');
+      expect(input?.value).toBe('gale');
+      expect(label('username')).toBe('Username');
+      expect(input?.getAttribute('autocomplete')).toBe('username');
+      expect(input?.getAttribute('autocapitalize')).toBe('none');
+      expect(input?.getAttribute('spellcheck')).toBe('false');
+      expect(input?.getAttribute('maxlength')).toBe('200');
+      expect(say()).toBe('This is your username now.');
+      expect(line('username')?.querySelector('.impulse-account-page-say')?.getAttribute('role')).toBe('status');
+      expect(save()?.disabled).toBe(true);
+      expect(postedTo(passwordMethods.usernameFree)).toEqual([]);
+    });
+
+    it('says what the server answers of each name, for the name without the space around it, and unlocks Save only for a free one', async () => {
+      await open({ failing: ['harbor'] });
+      await openLine('username');
+
+      type('username', '   ');
+      await settle();
+      expect(say()).toBe('');
+      expect(save()?.disabled).toBe(true);
+
+      type('username', ' gale ');
+      await settle();
+      expect(say()).toBe('This is your username now.');
+      expect(save()?.disabled).toBe(true);
+
+      type('username', '  rey ');
+      await settle();
+      expect(say()).toBe('Someone else has that username.');
+      expect(save()?.disabled).toBe(true);
+
+      type('username', 'gale.r');
+      await settle();
+      expect(say()).toBe('That username is free.');
+      expect(save()?.disabled).toBe(false);
+
+      type('username', 'harbor');
+      await settle();
+      expect(say()).toBe('We could not check that name. Change it to try again.');
+      expect(save()?.disabled).toBe(true);
+
+      expect(postedTo(passwordMethods.usernameFree)).toEqual([
+        { username: 'rey' },
+        { username: 'gale.r' },
+        { username: 'harbor' },
+      ]);
+    });
+
+    it('asks no second question while one is out, draws no answer for an older text, and asks again for the text the box holds', async () => {
+      await open({ hold: [passwordMethods.usernameFree] });
+      await openLine('username');
+      type('username', 'rey');
+      await drain();
+      expect(held.map((h) => h.body)).toEqual([{ username: 'rey' }]);
+      expect(say()).toBe('Checking…');
+      expect(save()?.disabled).toBe(true);
+
+      type('username', 'gale.r');
+      await drain();
+      expect(held).toHaveLength(1);
+      expect(say()).toBe('Checking…');
+
+      held[0]?.answer({ status: 200, body: { free: false } });
+      await drain();
+      expect(held.map((h) => h.body)).toEqual([{ username: 'rey' }, { username: 'gale.r' }]);
+      expect(say()).toBe('Checking…');
+      expect(save()?.disabled).toBe(true);
+
+      held[1]?.answer({ status: 200, body: { free: true } });
+      await drain();
+      expect(say()).toBe('That username is free.');
+      expect(save()?.disabled).toBe(false);
+
+      // The name last answered is not asked again, whatever space is around it; any other is.
+      type('username', ' gale.r  ');
+      await drain();
+      expect(say()).toBe('That username is free.');
+      expect(held).toHaveLength(2);
+      type('username', 'rey');
+      await drain();
+      expect(held.map((h) => h.body)).toEqual([{ username: 'rey' }, { username: 'gale.r' }, { username: 'rey' }]);
+      expect(say()).toBe('Checking…');
+      held[2]?.answer({ status: 200, body: { free: false } });
+      await drain();
+      expect(say()).toBe('Someone else has that username.');
+    });
+
+    it('saves the name without the space around it, reads the session again, and says to sign in with it', async () => {
+      await open();
+      await openLine('username');
+      type('username', ' gale.r ');
+      await settle();
+      const reads = sessionReads();
+      await page().saveUsername();
+      await settle();
+      expect(postedTo(passwordMethods.changeUsername)).toEqual([{ username: 'gale.r' }]);
+      expect(sessionReads()).toBe(reads + 1);
+      expect(TestBed.inject(AuthService).sessionInfo().username).toBe('gale.r');
+      expect(line('username')?.querySelector('.impulse-account-page-form')).toBeNull();
+      expect(inLine('username', 'value')).toBe('gale.r');
+      expect(inLine('username', 'said')).toBe('Your username is gale.r. Sign in with it from now on.');
+    });
+
+    it('says only the new username to a person who holds no password', async () => {
+      await open({ means: means(false, ['Lakeside Google']) });
+      await openLine('username');
+      type('username', 'gale.r');
+      await settle();
+      await page().saveUsername();
+      await settle();
+      expect(inLine('username', 'said')).toBe('Your username is gale.r.');
+    });
+
+    it("shows the server's words when it refuses the name, and keeps the line open", async () => {
+      await open({
+        answers: {
+          [passwordMethods.changeUsername]: { status: 409, body: { message: 'Someone else holds that username.' } },
         },
-      },
-    },
-    {
-      name: 'a read of what the person signs in with that fails: no answer is no offer',
-      setup: { methods: choosing, means: { status: 500, body: { message: 'the database is away' } } },
-    },
-    { name: 'a server that serves no first password', setup: { methods: told, means: signsInWith(false, true) } },
-  ]) {
-    it(`offers no choice of a first password to ${tt.name}`, async () => {
-      await open(tt.setup);
-      expect(element().querySelector('.impulse-account-page-first-password')).toBeNull();
-      expect(TestBed.inject(Account).firstPassword()).toBe(false);
+      });
+      await openLine('username');
+      type('username', 'gale.r');
+      await settle();
+      await page().saveUsername();
+      await settle();
+      expect(inLine('username', 'refusal')).toBe('Someone else holds that username.');
+      expect(line('username')?.querySelector('.impulse-account-page-refusal')?.getAttribute('role')).toBe('alert');
+      expect(box('username')?.value).toBe('gale.r');
+      expect(inLine('username', 'said')).toBeUndefined();
     });
-  }
 
-  it('mails the code at the path the server names and says where it went, then sets the password with the code and says so', async () => {
-    await open({ methods: choosing, means: signsInWith(false, true) });
-    click('button.impulse-account-page-first-code');
-    await settle();
-    // The password's box, drawn with the code's, asks about the empty password to learn where its mark sits.
-    expect(posted()).toEqual([firstPasswordRoutes.sendCode, passwordMethods.passwordStrength]);
-    expect(text('.impulse-account-page-first-password .impulse-account-page-sent')).toBe(
-      'We sent a code to g•••@lakeside.edu. Enter it with your password.',
-    );
-    expect(text('button.impulse-account-page-first-code')).toBe('Email me a new code');
-    expect(text('button.impulse-account-page-first-submit')).toBe('Set the password');
+    it('offers no change of the username where the server serves no question whether a name is free', async () => {
+      await open({ methods: { ...everything, usernameFree: undefined } });
+      expect(lines()[0]).toBe('username');
+      expect(icon('username')).toBeNull();
+    });
+  });
 
-    type('firstPasswordCode', '483920');
+  describe('Name', () => {
+    it('opens with the name in a box that takes a name, and saves it as typed, says so and reads the session again', async () => {
+      await open({ answers: { [passwordMethods.changeName]: { status: 200, body: { name: 'Gale R.' } } } });
+      await openLine('name');
+      expect(label('name')).toBe('Name');
+      expect(box('personName')?.value).toBe('Gale Reyes');
+      expect(box('personName')?.getAttribute('autocomplete')).toBe('name');
+      expect(box('personName')?.getAttribute('maxlength')).toBe('200');
+      type('personName', '  Gale R. ');
+      await settle();
+      await page().saveName();
+      await settle();
+      expect(postedTo(passwordMethods.changeName)).toEqual([{ name: '  Gale R. ' }]);
+      expect(inLine('name', 'said')).toBe('Your name is saved.');
+      expect(TestBed.inject(AuthService).sessionInfo().name).toBe('Gale R.');
+      expect(inLine('name', 'value')).toBe('Gale R.');
+    });
+
+    it('takes the name off with an empty box, and says what is shown instead', async () => {
+      await open({ answers: { [passwordMethods.changeName]: { status: 200, body: {} } } });
+      await openLine('name');
+      type('personName', '');
+      await settle();
+      await page().saveName();
+      await settle();
+      expect(postedTo(passwordMethods.changeName)).toEqual([{ name: '' }]);
+      expect(inLine('name', 'said')).toBe('Your name is removed. Your username is shown instead.');
+      expect(inLine('name', 'value')).toBe('Not set');
+    });
+
+    it("shows the server's words when it refuses the name, and keeps what was typed", async () => {
+      await open({
+        answers: {
+          [passwordMethods.changeName]: { status: 400, body: { message: 'A name is at most 200 characters.' } },
+        },
+      });
+      await openLine('name');
+      type('personName', 'Gale the Long');
+      await settle();
+      await page().saveName();
+      await settle();
+      expect(inLine('name', 'refusal')).toBe('A name is at most 200 characters.');
+      expect(box('personName')?.value).toBe('Gale the Long');
+    });
+  });
+
+  describe('Email', () => {
+    it('asks for a new address where a confirmed one is held, mails the link, and says it waits for it to be opened', async () => {
+      await open();
+      await openLine('email');
+      expect(label('email')).toBe('New email address');
+      const input = box('email');
+      expect(input?.value).toBe('');
+      expect(input?.getAttribute('type')).toBe('email');
+      expect(input?.getAttribute('autocomplete')).toBe('email');
+      expect(input?.required).toBe(true);
+      expect(inLine('email', 'hint')).toBe('We mail a link to the new address. Nothing changes until you open it.');
+      expect(text('.impulse-account-page-email button.impulse-account-page-save')).toBe('Send the link');
+      type('email', 'gale@harbor.example');
+      await settle();
+      await page().sendLink();
+      await settle();
+      expect(postedTo(emailRoutes.add)).toEqual([{ email: 'gale@harbor.example' }]);
+      expect(line('email')?.querySelector('.impulse-account-page-form')).toBeNull();
+      expect(inLine('email', 'said')).toBe('Waiting for you to open the link we mailed to gale@harbor.example.');
+    });
+
+    it('starts with the unconfirmed address, else with the address a directory asserted', async () => {
+      await open({ session: { ...gale, emailVerified: false } });
+      await openLine('email');
+      expect(label('email')).toBe('Email address');
+      expect(box('email')?.value).toBe('gale@lakeside.edu');
+      TestBed.resetTestingModule();
+      await open({ session: { authenticated: true, username: 'gale', emailHint: 'gale@lakeside.edu' } });
+      await openLine('email');
+      expect(label('email')).toBe('Email address');
+      expect(box('email')?.value).toBe('gale@lakeside.edu');
+    });
+
+    it('says the new address is what the person signs in with where the username is the address', async () => {
+      await open({
+        methods: { ...everything, usernameIsEmail: true },
+        session: { ...gale, username: 'gale@lakeside.edu' },
+      });
+      await openLine('email');
+      expect(inLine('email', 'hint')).toBe(
+        'We mail a link to the new address. When you open it, you sign in with the new address from then on.',
+      );
+    });
+
+    it("says the application's sentence with the wait for a mailbox sent too many links, and holds the button for the wait", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        await open({ answers: { [emailRoutes.add]: tooManyEmails } });
+        await openLine('email');
+        type('email', 'gale@harbor.example');
+        await settle();
+        await page().sendLink();
+        await settle();
+        expect(inLine('email', 'refusal')).toBe(`${DEFAULT_LOGIN_MESSAGES['too_many_emails']} Try again in 2 minutes.`);
+        expect(buttonIn('email', 'save')?.disabled).toBe(true);
+        vi.advanceTimersByTime(120_000);
+        await settle();
+        expect(buttonIn('email', 'save')?.disabled).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows the server's words for any other refusal", async () => {
+      await open({ answers: { [emailRoutes.add]: { status: 400, body: { message: 'not an email address' } } } });
+      await openLine('email');
+      type('email', 'gale');
+      await settle();
+      await page().sendLink();
+      await settle();
+      expect(inLine('email', 'refusal')).toBe('not an email address');
+      expect(buttonIn('email', 'save')?.disabled).toBe(false);
+    });
+  });
+
+  describe('Password', () => {
+    const changeButton = (): HTMLButtonElement | null => buttonIn('password', 'save');
+
+    it('asks for the current password beside one box for the new one, each with its show control, and says what a change does', async () => {
+      await open();
+      await openLine('password');
+      expect(element().querySelectorAll('impulse-new-password')).toHaveLength(1);
+      expect(element().querySelectorAll('input[name="newPassword"]')).toHaveLength(1);
+      expect(label('password')).toContain('Current password');
+      expect(box('oldPassword')?.getAttribute('autocomplete')).toBe('current-password');
+      expect(box('oldPassword')?.type).toBe('password');
+      const show = buttonIn('password', 'show');
+      expect(show?.getAttribute('aria-label')).toBe('Show the password');
+      expect(show?.getAttribute('aria-pressed')).toBe('false');
+      await press(show);
+      expect(box('oldPassword')?.type).toBe('text');
+      expect(buttonIn('password', 'show')?.getAttribute('aria-label')).toBe('Hide the password');
+      expect(buttonIn('password', 'show')?.getAttribute('aria-pressed')).toBe('true');
+      expect(line('password')?.querySelector('.impulse-new-password-show')).not.toBeNull();
+      expect(inLine('password', 'hint')).toBe('Changing it signs you out of every other browser.');
+      expect(changeButton()?.textContent?.trim()).toBe('Change password');
+    });
+
+    it('keeps Change password locked until the current password is given and the server calls the new one strong enough', async () => {
+      await open({ strength: weak });
+      await openLine('password');
+      type('newPassword', 'harbor');
+      await settle();
+      expect(changeButton()?.disabled).toBe(true);
+      type('oldPassword', 'old harbor');
+      await settle();
+      expect(changeButton()?.disabled).toBe(true);
+      strengthAnswer = strong;
+      type('newPassword', 'a harbor of my own');
+      await settle();
+      expect(changeButton()?.disabled).toBe(false);
+      type('oldPassword', '');
+      await settle();
+      expect(changeButton()?.disabled).toBe(true);
+      await page().changePassword();
+      expect(posted()).not.toContain(passwordMethods.changePassword);
+    });
+
+    it('changes the password, reads the session again and says so', async () => {
+      await open();
+      await openLine('password');
+      type('oldPassword', 'old harbor');
+      type('newPassword', 'a harbor of my own');
+      await settle();
+      const reads = sessionReads();
+      await page().changePassword();
+      await settle();
+      expect(postedTo(passwordMethods.changePassword)).toEqual([
+        { oldPassword: 'old harbor', newPassword: 'a harbor of my own' },
+      ]);
+      expect(sessionReads()).toBe(reads + 1);
+      expect(line('password')?.querySelector('.impulse-account-page-form')).toBeNull();
+      expect(inLine('password', 'said')).toBe('Your password is changed.');
+    });
+
+    it("shows the server's words when it refuses the change, and keeps the line open", async () => {
+      await open({
+        answers: { [passwordMethods.changePassword]: { status: 401, body: { message: 'That is not your password.' } } },
+      });
+      await openLine('password');
+      type('oldPassword', 'wrong');
+      type('newPassword', 'a harbor of my own');
+      await settle();
+      await page().changePassword();
+      await settle();
+      expect(inLine('password', 'refusal')).toBe('That is not your password.');
+      expect(line('password')?.querySelector('.impulse-account-page-form')).not.toBeNull();
+    });
+
+    it('offers the removal under the buttons where the server serves it, locked until the current password is given', async () => {
+      await open({ means: means(true, ['Lakeside Google']) });
+      await openLine('password');
+      expect(text('.impulse-account-page-password .impulse-account-page-form')).toContain(
+        'If you also sign in another way, you can do without a password.',
+      );
+      const remove = (): HTMLButtonElement | null => buttonIn('password', 'remove');
+      expect(remove()?.textContent?.trim()).toBe('Remove your password');
+      expect(remove()?.disabled).toBe(true);
+      type('oldPassword', 'old harbor');
+      await settle();
+      expect(remove()?.disabled).toBe(false);
+    });
+
+    it('offers no removal to a person no directory is linked to, nor where the server serves none', async () => {
+      await open();
+      await openLine('password');
+      expect(buttonIn('password', 'remove')).toBeNull();
+      TestBed.resetTestingModule();
+      await open({ methods: { ...everything, removePassword: undefined }, means: means(true, ['Lakeside Google']) });
+      await openLine('password');
+      expect(buttonIn('password', 'remove')).toBeNull();
+    });
+
+    it('asks before it removes, in place of the buttons, and asks the server nothing when the person keeps the password', async () => {
+      await open({ means: means(true, ['Lakeside Google']) });
+      await openLine('password');
+      type('oldPassword', 'old harbor');
+      await settle();
+      await press(buttonIn('password', 'remove'));
+      expect(inLine('password', 'remove-ask')).toBe(
+        'Remove your password? You will sign in through Lakeside Google only.',
+      );
+      expect(buttonIn('password', 'remove-confirm')?.textContent?.trim()).toBe('Remove password');
+      expect(buttonIn('password', 'remove-keep')?.textContent?.trim()).toBe('Keep password');
+      expect(changeButton()).toBeNull();
+      expect(buttonIn('password', 'cancel')).toBeNull();
+      expect(buttonIn('password', 'remove')).toBeNull();
+      await press(buttonIn('password', 'remove-keep'));
+      expect(inLine('password', 'remove-ask')).toBeUndefined();
+      expect(changeButton()).not.toBeNull();
+      expect(buttonIn('password', 'remove')).not.toBeNull();
+      expect(postedTo(passwordMethods.removePassword)).toEqual([]);
+    });
+
+    it('removes the password with the current password as proof, says what is left, and reads what the person signs in with again', async () => {
+      await open({ means: means(true, ['Lakeside Google']) });
+      await openLine('password');
+      type('oldPassword', 'old harbor');
+      await settle();
+      await press(buttonIn('password', 'remove'));
+      await press(buttonIn('password', 'remove-confirm'));
+      expect(postedTo(passwordMethods.removePassword)).toEqual([{ password: 'old harbor' }]);
+      expect(inLine('password', 'said')).toBe(
+        'Your password is removed. You will sign in through Lakeside Google only.',
+      );
+      // What the person signs in with was read again: no password is held now, and a first one may be chosen.
+      expect(TestBed.inject(Account).holdsPassword()).toBe(false);
+      expect(inLine('password', 'value')).toBe('None');
+      expect(icon('password')?.getAttribute('aria-label')).toBe('Choose a password');
+      expect(inLine('sign-in', 'hint')).toBe('It is your only way in. A password of your own would be a second.');
+    });
+
+    it('goes on saying the password is removed where no first password is offered in its place', async () => {
+      await open({ methods: { ...everything, firstPassword: undefined }, means: means(true, ['Lakeside Google']) });
+      await openLine('password');
+      type('oldPassword', 'old harbor');
+      await settle();
+      await press(buttonIn('password', 'remove'));
+      await press(buttonIn('password', 'remove-confirm'));
+      expect(inLine('password', 'said')).toBe(
+        'Your password is removed. You will sign in through Lakeside Google only.',
+      );
+      expect(icon('password')).toBeNull();
+      await openLine('name');
+      expect(line('password')).toBeNull();
+    });
+
+    it("takes the question away and shows the server's words when it refuses the removal", async () => {
+      await open({
+        means: means(true, ['Lakeside Google']),
+        answers: {
+          [passwordMethods.removePassword]: { status: 403, body: { message: 'Your password is your only way in.' } },
+        },
+      });
+      await openLine('password');
+      type('oldPassword', 'old harbor');
+      await settle();
+      await press(buttonIn('password', 'remove'));
+      await press(buttonIn('password', 'remove-confirm'));
+      expect(inLine('password', 'remove-ask')).toBeUndefined();
+      expect(inLine('password', 'refusal')).toBe('Your password is your only way in.');
+      expect(changeButton()).not.toBeNull();
+      expect(inLine('password', 'value')).toBeUndefined();
+    });
+  });
+
+  describe('a first password', () => {
+    const openFirst = async (setup: Setup = {}): Promise<void> => {
+      await open({ means: means(false, ['Lakeside Google']), ...setup });
+      await openLine('password');
+    };
+    const setButton = (): HTMLButtonElement | null => buttonIn('password', 'save');
+
+    it('says a code comes first, mails it, and asks for the code and one new password', async () => {
+      await openFirst();
+      expect(text('.impulse-account-page-password .impulse-account-page-form')).toContain(
+        'To make sure it is you, we mail a code to the address on your account before you choose a password.',
+      );
+      expect(element().querySelector('impulse-new-password')).toBeNull();
+      expect(buttonIn('password', 'cancel')).not.toBeNull();
+      await press(buttonIn('password', 'first-code'));
+      expect(buttonIn('password', 'first-code')).toBeNull();
+      expect(postedTo(firstPasswordRoutes.sendCode)).toHaveLength(1);
+      expect(inLine('password', 'say')).toBe('We mailed a code to g•••@lakeside.edu.');
+      const code = box('firstPasswordCode');
+      expect(label('password')).toContain('Code from the mail');
+      expect(code?.getAttribute('inputmode')).toBe('numeric');
+      expect(code?.getAttribute('autocomplete')).toBe('one-time-code');
+      expect(code?.getAttribute('maxlength')).toBe('6');
+      expect(element().querySelectorAll('input[name="newPassword"]')).toHaveLength(1);
+      expect(inLine('password', 'hint')).toBe(
+        'You keep signing in through Lakeside Google. The password is a second way in.',
+      );
+      expect(buttonIn('password', 'first-again')?.textContent?.trim()).toBe('Mail me a new code');
+      expect(setButton()?.textContent?.trim()).toBe('Set the password');
+    });
+
+    it('names the organization where no directory is known', async () => {
+      await openFirst({ means: means(false) });
+      await press(buttonIn('password', 'first-code'));
+      expect(inLine('password', 'hint')).toBe(
+        'You keep signing in through your organization. The password is a second way in.',
+      );
+    });
+
+    it('keeps Set the password locked until the code is six digits and the server calls the password strong enough', async () => {
+      await openFirst({ strength: weak });
+      await press(buttonIn('password', 'first-code'));
+      type('firstPasswordCode', '123456');
+      type('newPassword', 'harbor');
+      await settle();
+      expect(setButton()?.disabled).toBe(true);
+      strengthAnswer = strong;
+      type('newPassword', 'a harbor of my own');
+      type('firstPasswordCode', '12345');
+      await settle();
+      expect(setButton()?.disabled).toBe(true);
+      type('firstPasswordCode', '12345a');
+      await settle();
+      expect(setButton()?.disabled).toBe(true);
+      type('firstPasswordCode', '123456');
+      await settle();
+      expect(setButton()?.disabled).toBe(false);
+    });
+
+    it('mails a new code on asking', async () => {
+      await openFirst();
+      await press(buttonIn('password', 'first-code'));
+      await press(buttonIn('password', 'first-again'));
+      expect(postedTo(firstPasswordRoutes.sendCode)).toHaveLength(2);
+    });
+
+    it('sets the password with the code, says so, and shows the password held', async () => {
+      await openFirst();
+      await press(buttonIn('password', 'first-code'));
+      type('firstPasswordCode', '123456');
+      type('newPassword', 'a harbor of my own');
+      await settle();
+      await page().setFirstPassword();
+      await settle();
+      expect(postedTo(firstPasswordRoutes.set)).toEqual([{ code: '123456', password: 'a harbor of my own' }]);
+      expect(inLine('password', 'said')).toBe('Your password is set. You can sign in with it from now on.');
+      expect(inLine('password', 'value')).toBe('••••••••••');
+      expect(icon('password')?.getAttribute('aria-label')).toBe('Change your password');
+      expect(inLine('sign-in', 'hint')).toBe('You can also sign in with your password.');
+    });
+
+    it("shows the server's words when it refuses the code or the password, and keeps the line open", async () => {
+      await openFirst({
+        answers: {
+          [firstPasswordRoutes.sendCode]: { status: 409, body: { message: 'Your account has no confirmed address.' } },
+        },
+      });
+      await press(buttonIn('password', 'first-code'));
+      expect(inLine('password', 'refusal')).toBe('Your account has no confirmed address.');
+      expect(box('firstPasswordCode')).toBeNull();
+      TestBed.resetTestingModule();
+      await openFirst({
+        answers: { [firstPasswordRoutes.set]: { status: 400, body: { message: 'That is not the code we sent.' } } },
+      });
+      await press(buttonIn('password', 'first-code'));
+      type('firstPasswordCode', '654321');
+      type('newPassword', 'a harbor of my own');
+      await settle();
+      await page().setFirstPassword();
+      await settle();
+      expect(inLine('password', 'refusal')).toBe('That is not the code we sent.');
+      expect(box('firstPasswordCode')?.value).toBe('654321');
+    });
+  });
+
+  it("asks about the new password with the session's username, name and address, in either form", async () => {
+    const asked = { password: 'a harbor of my own', username: 'gale', name: 'Gale Reyes', email: 'gale@lakeside.edu' };
+    await open();
+    await openLine('password');
     type('newPassword', 'a harbor of my own');
     await settle();
-    await fixture.componentInstance.setFirstPassword();
-    await settle();
-    expect(posted()).toEqual([
-      firstPasswordRoutes.sendCode,
-      passwordMethods.passwordStrength,
-      passwordMethods.passwordStrength,
-      firstPasswordRoutes.set,
-    ]);
-    expect(transport.requests.filter((r) => r.method === 'POST')[3].body).toEqual({
-      code: '483920',
-      password: 'a harbor of my own',
-    });
-    expect(text('.impulse-account-page-password h2')).toBe('Your password');
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
-      'Your password is set. You can sign in with it from now on.',
-    );
-    // The choice is gone, and nothing says there is nothing to change.
-    expect(element().querySelector('.impulse-account-page-first-password')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
-    // The person holds a password now, wherever else the page is opened.
-    expect(TestBed.inject(Account).firstPassword()).toBe(false);
-    expect(TestBed.inject(Account).password()).toBe(true);
-  });
-
-  it("shows the server's words when it refuses the code, and asks for nothing more", async () => {
-    const noAddress =
-      'Your account has no confirmed email address, and the code to choose a password is sent to one. Add your email address, confirm it from the link we send you, then choose your password';
-    await open({
-      methods: choosing,
-      means: signsInWith(false, true),
-      firstPasswordCode: { status: 409, body: { message: noAddress } },
-    });
-    click('button.impulse-account-page-first-code');
-    await settle();
-    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(noAddress);
-    expect(element().querySelector('.impulse-account-page-first-password .impulse-account-page-sent')).toBeNull();
-    expect(box('firstPasswordCode')).toBeNull();
-    expect(text('button.impulse-account-page-first-code')).toBe('Email me a code');
-  });
-
-  it("shows the server's words when it refuses the password, and keeps the choice open with what was typed", async () => {
-    const wrongCode = 'That is not the code we sent. Check it and try again';
-    await open({
-      methods: choosing,
-      means: signsInWith(false, true),
-      firstPasswordSet: { status: 400, body: { message: wrongCode } },
-    });
-    click('button.impulse-account-page-first-code');
-    await settle();
-    type('firstPasswordCode', '000000');
+    expect(strengthAsked().at(-1)).toEqual(asked);
+    TestBed.resetTestingModule();
+    await open({ means: means(false, ['Lakeside Google']) });
+    await openLine('password');
+    await press(buttonIn('password', 'first-code'));
     type('newPassword', 'a harbor of my own');
     await settle();
-    await fixture.componentInstance.setFirstPassword();
-    await settle();
-    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(wrongCode);
-    expect(box('firstPasswordCode')?.value).toBe('000000');
-    expect(text('.impulse-account-page-first-password h2')).toBe('Choose a password');
-    expect(TestBed.inject(Account).firstPassword()).toBe(true);
+    expect(strengthAsked().at(-1)).toEqual(asked);
   });
 
-  it('offers the change and no removal where the read of what the person signs in with fails: no answer is no offer', async () => {
-    await open({ methods: told, means: { status: 500, body: { message: 'the database is away' } } });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-    // The page names no way in the server did not say is the person's.
-    expect(TestBed.inject(Account).otherSignIns()).toEqual([]);
-  });
-
-  it('offers the change and no removal where the server names no read of what the person signs in with', async () => {
-    await open({
-      methods: {
-        methods: [lakeside, fleetGoogle],
-        changePassword: passwordMethods.changePassword,
-        removePassword: passwordMethods.removePassword,
-      },
+  // The part stays as it was until the list of where the person is signed in takes it.
+  describe('This browser', () => {
+    it('is not drawn where the browser is not remembered', async () => {
+      await open({ session: { ...gale, browserRemembered: false } });
+      expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
     });
-    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(TestBed.inject(Account).removePassword()).toBe(false);
-    expect(TestBed.inject(Account).otherSignIns()).toEqual([]);
-  });
 
-  it('offers no password section while what the person signs in with is still being read, so none is drawn and then taken away', async () => {
-    transport = specTransport({
-      methods: told,
-      session: { authenticated: true, username: 'gale' },
-      other: (url) => (url.pathname.startsWith('/api/user/') ? { status: 200, body: null } : undefined),
+    it('forgets a remembered browser at the path the server names, and says what comes next', async () => {
+      await open({ session: { ...gale, browserRemembered: true } });
+      expect(text('.impulse-account-page-browser p')).toBe(
+        'This browser is remembered for you, so signing in here skips the emailed code.',
+      );
+      const reads = sessionReads();
+      await press(element().querySelector<HTMLButtonElement>('button.impulse-account-page-forget'));
+      expect(postedTo(passwordMethods.forgetBrowser)).toHaveLength(1);
+      expect(sessionReads()).toBe(reads + 1);
+      expect(text('.impulse-account-page-browser .impulse-account-page-message')).toBe(
+        'This browser will ask for the emailed code the next time you sign in here.',
+      );
+      expect(element().querySelector('button.impulse-account-page-forget')).toBeNull();
     });
-    await TestBed.configureTestingModule({ providers: [provideFrameTesting(transport)] }).compileComponents();
-    // The read is held open: the page knows what the sign-in offers and not yet what the person holds.
-    let answer: (means: SignInMeans) => void = () => undefined;
-    const client = TestBed.inject(RESOURCE_CLIENT);
-    client.auth.signInMeans = () => new Promise<SignInMeans>((resolve) => (answer = resolve));
-    const account = TestBed.inject(Account);
-    const turn = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-
-    account.password();
-    await turn();
-    await turn();
-    expect([account.password(), account.removePassword()]).toEqual([false, false]);
-
-    answer({ password: true, directories: [{ name: 'google', label: 'Fleet Google' }], directoryAddress: false });
-    await turn();
-    expect([account.password(), account.removePassword()]).toEqual([true, true]);
-  });
-
-  it('goes on saying what is left once the password is removed, and offers nothing more to change', async () => {
-    await open({ methods: told, means: signsInWith(true, true) });
-    type('removalPassword', 'old');
-    fixture.componentInstance.askToRemovePassword();
-    await fixture.componentInstance.removePassword();
-    await settle();
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
-      'Your password is removed. You will sign in through Fleet Google only.',
-    );
-    expect(box('oldPassword')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
-    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
-    // The page read again what the person signs in with: no password is held now.
-    expect(TestBed.inject(Account).password()).toBe(false);
   });
 
   for (const tt of [
@@ -700,114 +1068,4 @@ describe('AccountPageComponent', () => {
       expect(passwordRemovalConsequence(tt.others)).toBe(tt.want);
     });
   }
-
-  it('offers no forgetting where the browser is not remembered', async () => {
-    await open({ methods: { forgetBrowser: passwordMethods.forgetBrowser }, remembered: false });
-    expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
-  });
-
-  it('forgets a remembered browser at the path the server names, and says what comes next', async () => {
-    await open({ methods: { forgetBrowser: passwordMethods.forgetBrowser }, remembered: true });
-    expect(text('.impulse-account-page-browser button.impulse-account-page-forget')).toBe('Forget this browser');
-    await fixture.componentInstance.forgetBrowser();
-    fixture.detectChanges();
-    expect(posted()).toEqual([passwordMethods.forgetBrowser]);
-    expect(text('.impulse-account-page-browser .impulse-account-page-message')).toBe(
-      'This browser will ask for the emailed code the next time you sign in here.',
-    );
-    expect(element().querySelector('.impulse-account-page-browser button.impulse-account-page-forget')).toBeNull();
-  });
-
-  // Both forms that set a password ask for it once, in the box that asks the server how
-  // strong it is, and keep their button disabled until the server calls it strong enough.
-  const boxesIn = (selector: string): string[] =>
-    Array.from(element().querySelectorAll<HTMLInputElement>(`${selector} input`)).map((input) => input.name);
-  const disabled = (selector: string): boolean | undefined =>
-    element().querySelector<HTMLButtonElement>(selector)?.disabled;
-  /** Opens the choice of a first password with its code mailed, so that its form is drawn. */
-  const openFirstPassword = async (setup: Setup = {}): Promise<void> => {
-    await open({ methods: choosing, means: signsInWith(false, true), ...setup });
-    click('button.impulse-account-page-first-code');
-    await settle();
-  };
-
-  it('asks for the new password once in each form that sets one: the change beside the current password, the first password beside the code', async () => {
-    await open({ methods: { changePassword: passwordMethods.changePassword } });
-    expect(boxesIn('.impulse-account-page-password form')).toEqual(['oldPassword', 'newPassword']);
-    expect(text('.impulse-account-page-password impulse-new-password mat-label')).toBe('New password');
-    TestBed.resetTestingModule();
-    await openFirstPassword();
-    expect(boxesIn('.impulse-account-page-first-password form')).toEqual(['firstPasswordCode', 'newPassword']);
-    expect(text('.impulse-account-page-first-password impulse-new-password mat-label')).toBe('Password');
-  });
-
-  it("keeps the change's button disabled, and the change posts nothing, until the current password is given and the server calls the new one strong enough", async () => {
-    await open({ methods: { changePassword: passwordMethods.changePassword }, strength: weak });
-    const submit = 'button.impulse-account-page-change-submit';
-    expect(disabled(submit)).toBe(true);
-    type('oldPassword', 'old');
-    type('newPassword', 'kestrel');
-    await settle();
-    expect(fixture.componentInstance.strongEnough()).toBe(false);
-    expect(disabled(submit)).toBe(true);
-    await fixture.componentInstance.changePassword();
-    await settle();
-    expect(posted()).not.toContain(passwordMethods.changePassword);
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBeUndefined();
-
-    strengthAnswer = strong;
-    type('newPassword', 'kestrel-vaughn-orbit');
-    type('oldPassword', '');
-    await settle();
-    expect(fixture.componentInstance.strongEnough()).toBe(true);
-    expect(disabled(submit)).toBe(true);
-    await fixture.componentInstance.changePassword();
-    await settle();
-    expect(posted()).not.toContain(passwordMethods.changePassword);
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBeUndefined();
-
-    type('oldPassword', 'old');
-    await settle();
-    expect(disabled(submit)).toBe(false);
-    await fixture.componentInstance.changePassword();
-    await settle();
-    expect(posted()).toContain(passwordMethods.changePassword);
-  });
-
-  it("keeps the first password's button disabled, and posts nothing, until the server calls the password strong enough", async () => {
-    await openFirstPassword({ strength: weak });
-    const submit = 'button.impulse-account-page-first-submit';
-    expect(disabled(submit)).toBe(true);
-    type('firstPasswordCode', '483920');
-    type('newPassword', 'kestrel');
-    await settle();
-    expect(fixture.componentInstance.strongEnough()).toBe(false);
-    expect(disabled(submit)).toBe(true);
-    await fixture.componentInstance.setFirstPassword();
-    await settle();
-    expect(posted()).not.toContain(firstPasswordRoutes.set);
-    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBeUndefined();
-
-    strengthAnswer = strong;
-    type('newPassword', 'kestrel-vaughn-orbit');
-    await settle();
-    expect(disabled(submit)).toBe(false);
-    await fixture.componentInstance.setFirstPassword();
-    await settle();
-    expect(posted()).toContain(firstPasswordRoutes.set);
-  });
-
-  it("asks about the new password with the session's username, name and address, in either form", async () => {
-    const session = { name: 'Gale Reyes', email: 'gale@lakeside.edu' };
-    const asked = { password: 'a harbor of my own', username: 'gale', name: 'Gale Reyes', email: 'gale@lakeside.edu' };
-    await open({ methods: { changePassword: passwordMethods.changePassword }, session });
-    type('newPassword', 'a harbor of my own');
-    await settle();
-    expect(strengthAsked().at(-1)).toEqual(asked);
-    TestBed.resetTestingModule();
-    await openFirstPassword({ session });
-    type('newPassword', 'a harbor of my own');
-    await settle();
-    expect(strengthAsked().at(-1)).toEqual(asked);
-  });
 });

@@ -48,7 +48,8 @@ a tenant's pages read the tenant from the URL (the frame provides `RESOURCE_DOMA
 The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list page over the
 record) and System (the staff's accounts, the Invited tenants page and Feature flags) in
 Configuration, and People and Tenant (Sign-in settings) inside a tenant; the person's own
-menu holds Your account (the email address, Change your password, Forget this browser),
+menu holds Your account (the username, name, email address and password, as lines that
+open in place to change them, and Forget this browser),
 Appearance and Sign out; Help ends with About, a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production). A spec beside
 the menu file fails on a page the routes carry and no menu places (`unplacedPages`).
 
