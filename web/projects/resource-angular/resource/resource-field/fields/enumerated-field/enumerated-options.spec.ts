@@ -3,6 +3,7 @@ import { ApiError, ResourceMeta } from '@impulseframework/resource';
 
 import {
   displayFromOptions,
+  keyDisplay,
   matchOptions,
   narrowedFilter,
   optionColumns,
@@ -61,6 +62,24 @@ describe('optionColumns', () => {
     expect(
       optionColumns({ listDisplay: ['name' as FieldName, 'description' as FieldName], viewDisplay: [] }, [], 'name'),
     ).toEqual(['name', 'description']);
+  });
+});
+
+describe('keyDisplay', () => {
+  it("writes a key in words where the source's key field holds a role's name", () => {
+    expect(keyDisplay('NightShiftLead', new Set(['name']), 'name')).toBe('Night shift lead');
+    expect(keyDisplay('SuperAdministrator', new Set(['id']))).toBe('Super administrator');
+  });
+
+  it("shows a key as it is stored where the source's key field holds no role", () => {
+    expect(keyDisplay('NightShiftLead')).toBe('NightShiftLead');
+    // The source has a role field, and it is not the key field.
+    expect(keyDisplay('NightShiftLead', new Set(['role']), 'name')).toBe('NightShiftLead');
+  });
+
+  it('leaves an empty key empty', () => {
+    expect(keyDisplay('', new Set(['name']), 'name')).toBe('');
+    expect(keyDisplay('')).toBe('');
   });
 });
 
@@ -261,6 +280,16 @@ describe('displayFromOptions', () => {
       expect(displayFromOptions([standard], tt.value)).toEqual(tt.want);
     });
   }
+
+  it("shows a value outside the list in words where the source's key field holds a role's name", () => {
+    const sectorMarshal: PickerOption = { id: 'SectorMarshal', display: 'Sector marshal' };
+    expect(displayFromOptions([sectorMarshal], 'NightShiftLead', new Set(['name']), 'name')).toEqual({
+      id: 'NightShiftLead',
+      display: 'Night shift lead',
+    });
+    // An option the list holds keeps its own display.
+    expect(displayFromOptions([sectorMarshal], 'SectorMarshal', new Set(['name']), 'name')).toEqual(sectorMarshal);
+  });
 });
 
 describe('withChosen', () => {

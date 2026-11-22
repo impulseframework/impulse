@@ -51,6 +51,7 @@ import {
   closedRecordText,
   closedSourceText,
   displayFromOptions,
+  keyDisplay,
   matchOptions,
   narrowedFilter,
   notPermitted,
@@ -553,17 +554,19 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     // Nothing names what is stored where the source is closed to the person: its key shows.
     if (this.closedTo() === 'source') {
-      return value ? String(value) : defaultEmptyFieldValue;
+      return value ? this.bareKey(String(value)) : defaultEmptyFieldValue;
     }
     // A whole source holds every row in its list: the display comes from there, and a
     // value the list does not hold shows as itself.
     if (!this.paged()) {
-      return value ? displayFromOptions(this.allEnumOptions(), value).display : defaultEmptyFieldValue;
+      return value
+        ? displayFromOptions(this.allEnumOptions(), value, this.roleFields(), this.keyField()).display
+        : defaultEmptyFieldValue;
     }
     // A row the person may not read, or one whose read failed, shows as its key, beside
     // what the field says under itself.
     if (this.closedTo() === 'row' || this.chosenRowFailed()) {
-      return value ? String(value) : defaultEmptyFieldValue;
+      return value ? this.bareKey(String(value)) : defaultEmptyFieldValue;
     }
     const record = this.chosenRow();
     if (record === undefined) {
@@ -604,7 +607,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
       });
     }
     const options = this.allEnumOptions();
-    return keys.map((key) => displayFromOptions(options, key));
+    return keys.map((key) => displayFromOptions(options, key, this.roleFields(), this.keyField()));
   });
 
   singleEnumValue = computed((): PickerOption[] | undefined => {
@@ -617,10 +620,10 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     if (!currentValue) return [];
     if (!this.paged()) {
-      return [displayFromOptions(this.allEnumOptions(), String(currentValue))];
+      return [displayFromOptions(this.allEnumOptions(), String(currentValue), this.roleFields(), this.keyField())];
     }
     if (this.closedTo() === 'row' || this.chosenRowFailed()) {
-      return [{ id: String(currentValue), display: String(currentValue) }];
+      return [{ id: String(currentValue), display: this.bareKey(String(currentValue)) }];
     }
     const record = this.chosenRow();
     if (!record || Object.keys(record).length === 0) return [];
@@ -803,7 +806,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (typeof value === 'string') {
       const option = this.availableEnumOptions()?.find((o) => o.id === value);
       // An id with no matching option displays as itself rather than blanking the field.
-      return option ? option.display : value;
+      return option ? option.display : this.bareKey(value);
     }
 
     return value['display'] || this.formatDisplay(value);
@@ -811,6 +814,11 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   private formatDisplay(resource: Record<string, string>): string {
     return this.toEnumerated(resource).display;
+  }
+
+  /** A key the source answered no row for, as the picker shows it (keyDisplay). */
+  private bareKey(key: string): string {
+    return keyDisplay(key, this.roleFields(), this.keyField());
   }
 
   search(value: string): void {

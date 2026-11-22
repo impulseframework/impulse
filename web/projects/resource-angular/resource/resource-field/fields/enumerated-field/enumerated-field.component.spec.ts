@@ -869,6 +869,8 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
   const sectors = 'Sectors' as Resource;
   const roles = 'Roles' as Resource;
   const titles = 'Titles' as Resource;
+  const crewRoles = 'CrewRoles' as Resource;
+  const callsigns = 'Callsigns' as Resource;
   const source = (resource: Resource, route: string, keys: string[]): ApiDescriptor['resources'][string] => ({
     resource,
     property: route,
@@ -880,6 +882,17 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     page: { default: 25, max: 200 },
     order: [{ field: 'name', direction: 'asc' }],
   });
+  /** A source with no maximum page size, read whole in one request. */
+  const wholeSource = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys: ['name'],
+    operations: ['list', 'read'],
+    order: [{ field: 'name', direction: 'asc' }],
+  });
   const descriptor: ApiDescriptor = {
     permissionDigestRoute: 'permission-digest',
     userDomainsRoute: 'user-domains',
@@ -889,6 +902,8 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
       [sectors]: source(sectors, 'sectors', ['id']),
       [roles]: source(roles, 'roles', ['name']),
       [titles]: source(titles, 'titles', ['name']),
+      [crewRoles]: wholeSource(crewRoles, 'crewroles'),
+      [callsigns]: wholeSource(callsigns, 'callsigns'),
     },
   };
   const picker = (fieldName: string, resource: Resource): FieldMeta => ({
@@ -909,7 +924,13 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
   const metas: Record<string, ResourceMeta> = {
     [methods]: {
       route: 'methods',
-      fields: [picker('domain', sectors), picker('role', roles), picker('title', titles)],
+      fields: [
+        picker('domain', sectors),
+        picker('role', roles),
+        picker('title', titles),
+        picker('crewRole', crewRoles),
+        picker('callsign', callsigns),
+      ],
     },
     [sectors]: {
       route: 'sectors',
@@ -939,6 +960,25 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
         { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
       ],
     },
+    [crewRoles]: {
+      route: 'crewroles',
+      fields: [
+        {
+          fieldName: 'name',
+          primaryKey: { ordinalPosition: 0 },
+          displayType: 'string',
+          required: true,
+          isIndex: true,
+          roles: ['Cadet'],
+        },
+      ],
+    },
+    [callsigns]: {
+      route: 'callsigns',
+      fields: [
+        { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
+      ],
+    },
   };
   const anvil = 'a1111111-1111-4111-8111-111111111111';
   const bastion = 'b2222222-2222-4222-8222-222222222222';
@@ -949,6 +989,8 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     ],
     roles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
     titles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
+    crewroles: [{ name: 'Cadet' }],
+    callsigns: [{ name: 'Cadet' }],
   };
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
@@ -1062,6 +1104,41 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
       ['Cadet', 'Cadet'],
       ['SectorMarshal', 'Sector marshal'],
     ]);
+  });
+
+  // A key the source answers no row for is shown by itself. Where the source's key field
+  // holds a role's name it reads in words all the same, so a role reads the same with a row
+  // and without one; over a source that declares nothing it reads as stored.
+  it('over a source read whole whose rows do not hold the chosen role, shows the role in words', async () => {
+    await pickerOver('crewRole', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('Night shift lead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'Night shift lead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('Night shift lead');
+  });
+
+  it('over a paged source whose row of the chosen role cannot be read, shows the role in words', async () => {
+    await pickerOver('role', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('Night shift lead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'Night shift lead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('Night shift lead');
+  });
+
+  it('over a source read whole that declares nothing, shows a key it holds no row for as stored', async () => {
+    await pickerOver('callsign', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('NightShiftLead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'NightShiftLead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('NightShiftLead');
+  });
+
+  it('over a paged source that declares nothing, shows a key whose row cannot be read as stored', async () => {
+    await pickerOver('title', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('NightShiftLead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'NightShiftLead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('NightShiftLead');
   });
 
   it('for a request field that names a role, over a source that declares nothing, shows the key as stored', async () => {
