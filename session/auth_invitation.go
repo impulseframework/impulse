@@ -721,11 +721,15 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 // otherwise. name is the person's name as the invitation carried it, "" for none and
 // for a sign-up, which carries none. The password is judged against the username the
 // account will have, as every later judgment of it is (detailsOf). A username the person
-// chose is held to the rule of a typed one (sessioninfo.UsernameRefusal); an address used
-// as the username is not.
+// chose is kept without the space around it, as their own change of it is, and one of
+// nothing but space is none; it is then held to the rule of a typed one
+// (sessioninfo.UsernameRefusal). An address used as the username is neither cut nor held
+// to that rule.
 func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
 	chosen := !a.registered().usernameIsEmail()
-	if !chosen {
+	if chosen {
+		username = strings.TrimSpace(username)
+	} else {
 		username = email
 	}
 	who := passwordstrength.Details{Username: username, Name: name, Email: email}

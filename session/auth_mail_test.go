@@ -1296,6 +1296,7 @@ func TestAuth_SignUp(t *testing.T) {
 	t.Run("the login page is told the sign-up routes only while the method is open, read as each request arrives", authSignUpCase5)
 	t.Run("a chosen username with a control character in it is refused in words, and no account is made", authSignUpCase6)
 	t.Run("where the usernames are the addresses, an address longer than a typed username may be is not held to that rule", authSignUpCase7)
+	t.Run("a chosen username is kept without the space around it, and one of nothing but space is refused as none", authSignUpCase8)
 }
 
 func authSignUpCase1(t *testing.T) {
@@ -1491,6 +1492,22 @@ func authSignUpCase7(t *testing.T) {
 	}
 	if insert.Username != address {
 		t.Errorf("newAccount() username = %q, want the address", insert.Username)
+	}
+}
+
+func authSignUpCase8(t *testing.T) {
+	t.Parallel()
+	f, _, _ := newMailFixture(t, gomock.NewController(t))
+
+	insert, err := f.auth.newAccount("new@lakeside.edu", "  gale ", "correct horse battery staple", "")
+	if err != nil {
+		t.Fatalf("newAccount() of a username with space around it error = %v, want the account", err)
+	}
+	if insert.Username != "gale" {
+		t.Errorf("newAccount() username = %q, want %q: the space around it is cut", insert.Username, "gale")
+	}
+	if _, err := f.auth.newAccount("new@lakeside.edu", " \t ", "correct horse battery staple", ""); !httpio.HasBadRequest(err) || httpio.Message(err) != "choose a username" {
+		t.Errorf("newAccount() of a username of nothing but space error = %v, want the bad request %q", err, "choose a username")
 	}
 }
 

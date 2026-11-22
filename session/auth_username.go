@@ -31,7 +31,7 @@ const usernameHeldMessage = "Someone else has that username."
 // ChangeUsername is the handler a signed-in person's account page calls to change their
 // own username: it accepts {"username"} and answers {"username"}, the username as it is
 // kept. The one rule is that no other account holds the name, matched as a sign-in
-// matches it: the space around the name is cut, a name of nothing but space is a 400,
+// matches it. The space around the name is cut, a name of nothing but space is a 400,
 // and one someone else holds a 409. The person's own name in another case is theirs to
 // write. The person's live sessions follow the name, so they stay signed in, and they
 // sign in under the new name from then on. Where the usernames are the addresses
