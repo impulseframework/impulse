@@ -908,13 +908,14 @@ func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role access
 // a custom role held in scope, or — for one domain — a custom role held in
 // every domain. The exact spelling wins when it exists; otherwise the one role
 // that matches case-insensitively; two such roles with no exact match is an
-// error, never a guess (AddRole, the store's insert and the role file refuse the
-// pair. A store can hold one all the same: where a release brings a default role
-// whose name differs only in case from a custom role already held, or where the
-// store was written before this rule. The answer is then this error, which names
-// the roles, until one of them is removed). Case is the case of ASCII letters alone: a letter from outside
-// ASCII matches only itself, so a name written with a look-alike letter (the
-// Kelvin sign for k, the long s for s) is no role's.
+// error, never a guess (AddRole, the store's insert and the role file refuse
+// the pair. A store can hold one all the same: where a release brings a
+// default role whose name differs only in case from a custom role already
+// held, or where the store was written before this rule. The answer is then
+// this error, which names the roles, until one of them is removed). Case is
+// the case of ASCII letters alone: a letter from outside ASCII matches only
+// itself, so a name written with a look-alike letter (the Kelvin sign for k,
+// the long s for s) is no role's.
 func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
