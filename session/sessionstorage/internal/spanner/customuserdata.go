@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/grpc/codes"
@@ -84,7 +85,7 @@ func (s *SessionStorageDriver) UpdateCustomUserData(ctx context.Context, userID 
 		return errors.New("custom user data config is not set")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.ReadRow(ctx, s.userDataParentTable(), spanner.Key{userID}, []string{"Id"}); err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
 				return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
@@ -123,7 +124,7 @@ func (s *SessionStorageDriver) UpdateCustomUserData(ctx context.Context, userID 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

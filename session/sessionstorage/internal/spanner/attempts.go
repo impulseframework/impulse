@@ -7,6 +7,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/api/iterator"
@@ -99,7 +100,7 @@ func (s *SessionStorageDriver) RecordSignInFailure(ctx context.Context, name str
 	defer span.End()
 
 	var record *dbtype.SignInAttempts
-	commit, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	commit, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		current, _, err := readAttempts(ctx, txn.Read, s.attemptsTableName, name)
 		if err != nil {
 			return err
@@ -119,7 +120,7 @@ func (s *SessionStorageDriver) RecordSignInFailure(ctx context.Context, name str
 		return nil
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return nil, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 	record.UpdatedAt = commit
 

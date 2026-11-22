@@ -28,11 +28,11 @@ import (
 	"slices"
 
 	"cloud.google.com/go/spanner"
-	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
@@ -126,7 +126,12 @@ func resolveNames(opts []Option) (tableNames, error) {
 	}, nil
 }
 
-// Store implements access.Store over a Spanner client.
+// Store implements access.Store over a Spanner client. Its read-write transactions run at
+// the serializable isolation level (spannertxn.Serializable), whatever level the application
+// chose for its client. Several of them read and then write another row, and rely on Spanner
+// serializing the read with what another transaction writes: a role's insert with its
+// twin's, a role's or a group's deletion with a membership given at the same moment. At
+// repeatable read, which checks only two writes to one row, both would commit.
 type Store struct {
 	client *spanner.Client
 	names  tableNames
@@ -363,20 +368,6 @@ func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wra
 	return nil
 }
 
-// readWrite runs f in a read-write transaction at the serializable isolation level,
-// whatever level the application chose for its client
-// (spanner.ClientConfig.TransactionOptions, which the client applies to a transaction
-// that names none). Several of the store's transactions read and then write another
-// row, and rely on Spanner serializing the read with what another transaction writes: a
-// role's insert with its twin's, a role's or a group's deletion with a membership given
-// at the same moment. At repeatable read, which checks only two writes to one row, both
-// would commit.
-func (s *Store) readWrite(ctx context.Context, f func(context.Context, *spanner.ReadWriteTransaction) error) error {
-	_, err := s.client.ReadWriteTransactionWithOptions(ctx, f, spanner.TransactionOptions{IsolationLevel: sppb.TransactionOptions_SERIALIZABLE})
-
-	return err //nolint:wrapcheck // each caller wraps it with the words that name its transaction
-}
-
 // given is one column an assignment is given beside its period, with the value
 // it is given: a membership's reason.
 type given struct {
@@ -397,7 +388,7 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 		columns = append(columns, g.column)
 		values = append(values, g.value)
 	}
-	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var m *spanner.Mutation
 		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
 		case err == nil:
@@ -432,7 +423,7 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, "spanner.Client.ReadWriteTransactionWithOptions() assign user role",
+		period, "spannertxn.Serializable() assign user role",
 		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 
@@ -561,7 +552,7 @@ func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	m := spanner.Insert(s.names.roles,
 		[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
 		[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
-	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		held, err := meetingRoles(ctx, txn, stmt)
 		if err != nil {
 			return err
@@ -579,7 +570,7 @@ func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() insert role")
+		return errors.Wrap(err, "spannertxn.Serializable() insert role")
 	}
 
 	return nil
@@ -644,7 +635,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	kind, axis, domain := policy.ScopeColumns(scope)
 	params := map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)}
 	var deleted bool
-	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if members, err := anyRow(ctx, txn, spanner.Statement{SQL: s.sqlRoleHasMembers, Params: params}); err != nil {
 			return errors.Wrap(err, "role members")
 		} else if members {
@@ -676,7 +667,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() delete role")
+		return false, errors.Wrap(err, "spannertxn.Serializable() delete role")
 	}
 
 	return deleted, nil
@@ -773,7 +764,7 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 	}
 
 	for chunk := range slices.Chunk(changes, changeGrantsChunk) {
-		err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			keys := make([]spanner.KeySet, 0, len(chunk))
 			for _, c := range chunk {
 				if !c.remove {
@@ -821,7 +812,7 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 			return nil
 		})
 		if err != nil {
-			return errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() change grants")
+			return errors.Wrap(err, "spannertxn.Serializable() change grants")
 		}
 	}
 

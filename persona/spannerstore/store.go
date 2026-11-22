@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/persona"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -31,7 +32,9 @@ var errNotFound = errors.New("spannerstore: no row")
 
 var _ persona.Store = &Store{}
 
-// Store is the persona sign-in's store over a Spanner database.
+// Store is the persona sign-in's store over a Spanner database. Its read-write transactions
+// run at the serializable isolation level (spannertxn.Serializable), as every one the
+// library runs does.
 type Store struct {
 	client *spanner.Client
 }
@@ -219,7 +222,7 @@ func (s *Store) updateRequest(ctx context.Context, id string, columns any) error
 	if err != nil {
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
-	_, err = s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.ReadRow(ctx, requests, spanner.Key{id}, []string{"Id"}); err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
 				return persona.ErrUnknownRequest
@@ -235,7 +238,7 @@ func (s *Store) updateRequest(ctx context.Context, id string, columns any) error
 			return persona.ErrUnknownRequest
 		}
 
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -399,7 +402,7 @@ func (s *Store) readOne(ctx context.Context, stmt spanner.Statement, dest any) e
 // deleteWhere runs a delete statement with one time parameter and returns the count.
 func (s *Store) deleteWhere(ctx context.Context, sql string, before time.Time) (int64, error) {
 	var count int64
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		n, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: map[string]any{"before": before}})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -409,7 +412,7 @@ func (s *Store) deleteWhere(ctx context.Context, sql string, before time.Time) (
 		return nil
 	})
 	if err != nil {
-		return 0, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return 0, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return count, nil

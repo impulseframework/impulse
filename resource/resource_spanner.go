@@ -10,6 +10,7 @@ import (
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 	"google.golang.org/api/iterator"
@@ -64,12 +65,17 @@ func (c *SpannerClient) SpannerReadOnlyTransaction() spxapi.Querier {
 	return c.spanner.Single()
 }
 
-// ExecuteFunc executes a function within a read-write transaction. A commit Spanner
-// refuses for a reason the caller can act on (a referential refusal, a duplicate key or
-// unique value, a violated CHECK constraint, an update of a row that does not exist)
-// answers as a 4xx whose message is composed from the patches the transaction buffered
-// (see translateCommitError); an error the function itself returns, and a commit refused
-// with any other code, pass through unchanged.
+// ExecuteFunc executes a function within a read-write transaction at the serializable
+// isolation level, whatever level the application set for its Spanner client
+// (spannertxn.Serializable). The library decides rules of its own inside the transaction
+// by reading before it writes (the rows counted under a record before its delete, an
+// auth's last super administrator, one tenant per person), and each holds only while
+// Spanner serializes the read with what another transaction writes at the same moment.
+// A commit Spanner refuses for a reason the caller can act on (a referential refusal, a
+// duplicate key or unique value, a violated CHECK constraint, an update of a row that
+// does not exist) answers as a 4xx whose message is composed from the patches the
+// transaction buffered (see translateCommitError); an error the function itself returns,
+// and a commit refused with any other code, pass through unchanged.
 //
 // Before the commit, a delete of a record with rows under it is refused as a 409 that
 // says what is in the way ("This ship has 3 sorties. Delete them first."), from one
@@ -93,7 +99,7 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		committed  = newAfterCommit()
 		funcFailed bool
 	)
-	_, err := c.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, c.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		// A retried transaction runs f again; the records belong to the attempt that commits.
 		buffered = newBufferedPatches()
 		released = newReleasedKeys()
@@ -120,7 +126,7 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		return nil
 	})
 	if err != nil {
-		err = errors.Wrap(err, "c.db.ReadWriteTransaction()")
+		err = errors.Wrap(err, "spannertxn.Serializable()")
 		if funcFailed {
 			return err
 		}
