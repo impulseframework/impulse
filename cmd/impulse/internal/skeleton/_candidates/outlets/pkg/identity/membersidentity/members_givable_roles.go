@@ -62,6 +62,7 @@ import (
 // @suppress(readHandler)
 // @outlet(portal)
 // @order(Name asc)
+// @rowWord(role)
 type MembersGivableRole struct {
 	// @primarykey
 	// @attribute(name)

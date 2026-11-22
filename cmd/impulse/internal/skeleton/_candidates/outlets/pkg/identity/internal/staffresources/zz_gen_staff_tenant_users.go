@@ -26,20 +26,21 @@ func (StaffTenantUser) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffTenantUserReadSets holds one Set per read operation.
 type staffTenantUserRead struct {
-	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	DomainID               string       `json:"domainId"`
-	Username               string       `json:"username"`
-	Name                   *string      `json:"name"`
-	Email                  *string      `json:"email"`
-	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-	Disabled               bool         `json:"disabled"`
-	PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-	CreatedAt              time.Time    `json:"createdAt"`
-	LastSignInAt           *time.Time   `json:"lastSignInAt"`
-	HeldElsewhere          bool         `json:"heldElsewhere"`
-	HeldGlobally           bool         `json:"heldGlobally"`
-	OutsideDirectory       bool         `json:"outsideDirectory"`
-	CannotEnter            *string      `json:"cannotEnter"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	Username                  string       `json:"username"`
+	Name                      *string      `json:"name"`
+	Email                     *string      `json:"email"`
+	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+	Disabled                  bool         `json:"disabled"`
+	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	OutsideDirectory          bool         `json:"outsideDirectory"`
+	CannotEnter               *string      `json:"cannotEnter"`
+	AdministratorWithPassword bool         `json:"administratorWithPassword"`
 }
 
 var staffTenantUserReadSets resource.SetCache[StaffTenantUser, staffTenantUserRead]
@@ -162,6 +163,7 @@ func (c *StaffTenantUserColumns) All() *StaffTenantUserColumns {
 		"HeldGlobally",
 		"OutsideDirectory",
 		"CannotEnter",
+		"AdministratorWithPassword",
 	}
 
 	return c
@@ -251,6 +253,12 @@ func (c *StaffTenantUserColumns) CannotEnter() *StaffTenantUserColumns {
 	return c
 }
 
+func (c *StaffTenantUserColumns) AdministratorWithPassword() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "AdministratorWithPassword")
+
+	return c
+}
+
 type StaffTenantUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -285,6 +293,10 @@ func (p StaffTenantUserQueryPartialClause) HeldGlobally() StaffTenantUserQueryId
 
 func (p StaffTenantUserQueryPartialClause) OutsideDirectory() StaffTenantUserQueryIdent[bool] {
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) AdministratorWithPassword() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("AdministratorWithPassword", p.partialClause, true)}
 }
 
 type StaffTenantUserQueryClause struct {
@@ -407,6 +419,10 @@ func (c *staffTenantUserSort) OutsideDirectory() *StaffTenantUserSort {
 
 func (c *staffTenantUserSort) CannotEnter() *StaffTenantUserSort {
 	return c.addField("CannotEnter")
+}
+
+func (c *staffTenantUserSort) AdministratorWithPassword() *StaffTenantUserSort {
+	return c.addField("AdministratorWithPassword")
 }
 
 type StaffTenantUserSort struct {

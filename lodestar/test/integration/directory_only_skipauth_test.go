@@ -63,8 +63,10 @@ import (
 // address is confirmed, no password without the code, and none for an account that
 // has one), changes it and goes on in a session that is still the one his directory
 // opened, is then told what it would do by the method's warning, the sentence, the
-// people it names and the words for the button, and turns it on; once it is on the
-// warning has nothing to say. The persona sign-in sets a process variable, so it holds
+// people it names and the words for the button, and who keeps a way in: the sector's own
+// marshals who have a password and the invitations not yet accepted that would make
+// another, each in a note of its own; and turns it on; once it is on the warning has
+// nothing to say. The persona sign-in sets a process variable, so it holds
 // the lock the other simulated sign-ins hold.
 //
 // Demonstrates: tenancy.directory-only, tenancy.declaration, auth.persona.
@@ -553,11 +555,17 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("asking what directory only would do to Bastion, signed in through its directory: status %d: %s", status, body)
 	}
-	var would struct {
-		Consequence string   `json:"consequence"`
-		Names       []string `json:"names"`
-		Confirm     string   `json:"confirm"`
+	type warningNote struct {
+		Says  string   `json:"says"`
+		Names []string `json:"names"`
 	}
+	type warningRead struct {
+		Consequence string        `json:"consequence"`
+		Names       []string      `json:"names"`
+		Also        []warningNote `json:"also"`
+		Confirm     string        `json:"confirm"`
+	}
+	var would warningRead
 	if err := json.Unmarshal(body, &would); err != nil {
 		t.Fatalf("the answer is not an object: %v: %s", err, body)
 	}
@@ -597,6 +605,68 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
 		t.Fatalf("Bastion's switch after the warning: status %d %s, want 200 %s: asking writes nothing", status, got, off)
+	}
+
+	// Who keeps a way in is said beside the sentence, in notes of their own. The warden
+	// and the governor have a password and hold the marshal's role in every sector, which
+	// is no way in, so the warning carries no note. Given the marshal's role at Bastion
+	// itself, the warden and Anvil's marshal, who both have a password, are Bastion's own
+	// marshals: the first note counts and names them, the reader among them, and not the
+	// governor, still a marshal in every sector alone. An invitation into Bastion that
+	// gives its marshal's role, sent by Headquarters while the switch is off, is the
+	// second note, which names its address to the warden, who lists Bastion's
+	// invitations; one that gives a pilot's role administers nothing and is not counted,
+	// and once the first is withdrawn the second note is gone. The sentence, its names and
+	// the button stay as they were: a marshal of Bastion itself who has a password never
+	// lost access.
+	if len(would.Also) != 0 {
+		t.Errorf("the warning's notes = %+v, want none: a marshal in every sector is no marshal of Bastion's own", would.Also)
+	}
+	reads := func(what string, want []warningNote) {
+		t.Helper()
+
+		status, body := warns(warden, bastion)
+		if status != http.StatusOK {
+			t.Fatalf("asking for the warning %s: status %d: %s", what, status, body)
+		}
+		var got warningRead
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("the warning %s is not an object: %v: %s", what, err, body)
+		}
+		if got.Consequence != would.Consequence || !slices.Equal(got.Names, would.Names) || got.Confirm != would.Confirm {
+			t.Errorf("the warning %s says %q naming %v with the button %q, want %q naming %v with %q: who keeps a way in never lost access", what, got.Consequence, got.Names, got.Confirm, would.Consequence, would.Names, would.Confirm)
+		}
+		if !slices.EqualFunc(got.Also, want, func(a, b warningNote) bool { return a.Says == b.Says && slices.Equal(a.Names, b.Names) }) {
+			t.Errorf("the warning's notes %s = %+v, want %+v", what, got.Also, want)
+		}
+	}
+	ownMarshals := []string{crewUserID(ctx, t, governor, "warden").String(), crewUserID(ctx, t, governor, "marshal").String()}
+	for _, user := range ownMarshals {
+		atBastion := jsonBody(t, map[string]any{"userId": user, "role": "SectorMarshal", "domain": bastion})
+		if status, body := governor.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", atBastion); status != http.StatusOK && status != http.StatusNoContent {
+			t.Fatalf("giving %s the marshal's role at Bastion as the governor: status %d: %s", user, status, body)
+		}
+	}
+	marshals := warningNote{
+		Says:  "2 administrators of this sector have a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in.",
+		Names: []string{"marshal", "Sector Warden (warden)"},
+	}
+	reads("with two marshals of Bastion's own and no invitation", []warningNote{marshals})
+	successor := inviteCrew(ctx, t, hq, `{"email":"successor@example.com","roles":["SectorMarshal"],"domain":"`+bastion+`"}`)
+	inviteCrew(ctx, t, hq, `{"email":"wingmate@example.com","roles":["Pilot"],"domain":"`+bastion+`"}`)
+	reads("with an invitation in the marshal's role and one in a pilot's", []warningNote{marshals, {
+		Says:  "1 invitation that has not been accepted gives a role that administers this sector. Whoever accepts it can choose a password and enter without the directory. Withdraw it first if it should not stand.",
+		Names: []string{"successor@example.com"},
+	}})
+	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/withdraw-crew-invitation", []byte(`{"invitationId":"`+successor.ID+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("withdrawing the invitation in the marshal's role as Headquarters: status %d: %s", status, body)
+	}
+	reads("once the invitation in the marshal's role is withdrawn", []warningNote{marshals})
+	for _, user := range ownMarshals {
+		atBastion := jsonBody(t, map[string]any{"userId": user, "role": "SectorMarshal", "domain": bastion})
+		if status, body := governor.do(ctx, http.MethodPost, consoleAPI+"/remove-crew-role", atBastion); status != http.StatusOK && status != http.StatusNoContent {
+			t.Fatalf("taking the marshal's role at Bastion back from %s as the governor: status %d: %s", user, status, body)
+		}
 	}
 
 	// He turns it on, with the sector's method. The rigger is kept out again at once,

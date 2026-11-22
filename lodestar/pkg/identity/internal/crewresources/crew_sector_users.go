@@ -46,6 +46,11 @@ type (
 	// with the password and a code mailed to them, so the switch keeps them out of nothing
 	// (SetCrewSectorUserAdministratorRoles names the roles).
 	//
+	// AdministratorWithPassword says the person is one of the sector's own administrators
+	// and has a password, so they enter the sector with it and a code mailed to them while
+	// the sector is directory only: the warning of the method that turns the switch on
+	// counts and names them.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
@@ -68,9 +73,10 @@ type (
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
-		HeldGlobally     bool    `spanner:"HeldGlobally"     index:"true"`
-		OutsideDirectory bool    `spanner:"OutsideDirectory" index:"true"`
-		CannotEnter      *string `spanner:"CannotEnter"`
+		HeldGlobally              bool    `spanner:"HeldGlobally"              index:"true"`
+		OutsideDirectory          bool    `spanner:"OutsideDirectory"          index:"true"`
+		CannotEnter               *string `spanner:"CannotEnter"`
+		AdministratorWithPassword bool    `spanner:"AdministratorWithPassword" index:"true"`
 	}
 )
 
@@ -159,7 +165,23 @@ SELECT
       AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
   ))),
     'Has not signed in through this sector\'s directory, so cannot enter while this sector is directory only',
-    NULL) AS CannotEnter
+    NULL) AS CannotEnter,
+  (u.PasswordHash IS NOT NULL AND (EXISTS (
+    SELECT 1 FROM CrewUserRoles ta
+    WHERE ta.UserId = u.Id AND ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = t.DomainId
+      AND ta.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (ta.StartsAt IS NULL OR ta.StartsAt <= CURRENT_TIMESTAMP()) AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupRoles tr
+    JOIN CrewGroups tg ON tg.Id = tr.GroupId
+    JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId
+    WHERE tm.UserId = u.Id
+      AND tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = t.DomainId
+      AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = t.DomainId
+      AND tr.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
+  ))) AS AdministratorWithPassword
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM CrewUserRoles m

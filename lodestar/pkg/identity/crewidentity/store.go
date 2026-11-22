@@ -802,6 +802,61 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
+// DirectoryAdministrators lists the people of the Crew auth who are the sector's own
+// administrators and have a password: the people who enter the sector with it and a
+// code mailed to them while it is directory only, the one way in beside its directory.
+// It reads the sector's own list of its people (CrewSectorUser, whose
+// AdministratorWithPassword column is the fact), in the caller's transaction. The
+// warning of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Administrators).
+func (c *Client) DirectoryAdministrators(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryAdministrator, error) {
+	query := crewresources.NewCrewSectorUserQuery().
+		AddColumns(crewresources.NewCrewSectorUserColumns().ID().Username().Name()).
+		Where(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(tenant)).And().AdministratorWithPassword().Equal(true))
+	administrators := []resource.DirectoryAdministrator{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSectorUserQuery.List()")
+		}
+		administrators = append(administrators, resource.DirectoryAdministrator{UserID: row.Data.ID, Username: row.Data.Username, Name: row.Data.Name})
+	}
+
+	return administrators, nil
+}
+
+// DirectoryInvitations lists the invitations of the Crew auth into the sector that are
+// not yet accepted and give one of the roles that administer a sector, by the auth's
+// permission engine's own names: each would make another of the sector's administrators,
+// who enters with a password and a code mailed to them while the sector is directory
+// only. It reads the sector's own list of its invitations (CrewSectorInvitation, whose
+// Pending column says the invitation stands), in the caller's transaction. The warning
+// of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Invitations).
+func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryInvitation, error) {
+	administers := map[string]bool{}
+	for _, role := range c.manager.TenantAdministratorRoles() {
+		administers[string(role)] = true
+	}
+	query := crewresources.NewCrewSectorInvitationQuery().
+		AddColumns(crewresources.NewCrewSectorInvitationColumns().ID().Email().Name().RoleNames()).
+		Where(crewresources.NewCrewSectorInvitationQueryClause().DomainID().Equal(string(tenant)).And().Pending().Equal(true))
+	invitations := []resource.DirectoryInvitation{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSectorInvitationQuery.List()")
+		}
+		for _, role := range row.Data.RoleNames {
+			if administers[role] {
+				invitations = append(invitations, resource.DirectoryInvitation{ID: row.Data.ID, Email: row.Data.Email, Name: row.Data.Name})
+
+				break
+			}
+		}
+	}
+
+	return invitations, nil
+}
+
 // groupID answers a group's id as the declarations hold it, from the text the permission
 // store names a group by.
 func groupID(group accesstypes.Group) (impulse.UUID, error) {

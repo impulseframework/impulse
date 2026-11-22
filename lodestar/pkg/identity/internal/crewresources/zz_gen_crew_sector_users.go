@@ -26,20 +26,21 @@ func (CrewSectorUser) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSectorUserReadSets holds one Set per read operation.
 type crewSectorUserRead struct {
-	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	DomainID               string       `json:"domainId"`
-	Username               string       `json:"username"`
-	Name                   *string      `json:"name"`
-	Email                  *string      `json:"email"`
-	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-	Disabled               bool         `json:"disabled"`
-	PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-	CreatedAt              time.Time    `json:"createdAt"`
-	LastSignInAt           *time.Time   `json:"lastSignInAt"`
-	HeldElsewhere          bool         `json:"heldElsewhere"`
-	HeldGlobally           bool         `json:"heldGlobally"`
-	OutsideDirectory       bool         `json:"outsideDirectory"`
-	CannotEnter            *string      `json:"cannotEnter"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	Username                  string       `json:"username"`
+	Name                      *string      `json:"name"`
+	Email                     *string      `json:"email"`
+	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+	Disabled                  bool         `json:"disabled"`
+	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	OutsideDirectory          bool         `json:"outsideDirectory"`
+	CannotEnter               *string      `json:"cannotEnter"`
+	AdministratorWithPassword bool         `json:"administratorWithPassword"`
 }
 
 var crewSectorUserReadSets resource.SetCache[CrewSectorUser, crewSectorUserRead]
@@ -162,6 +163,7 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"HeldGlobally",
 		"OutsideDirectory",
 		"CannotEnter",
+		"AdministratorWithPassword",
 	}
 
 	return c
@@ -251,6 +253,12 @@ func (c *CrewSectorUserColumns) CannotEnter() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) AdministratorWithPassword() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "AdministratorWithPassword")
+
+	return c
+}
+
 type CrewSectorUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -285,6 +293,10 @@ func (p CrewSectorUserQueryPartialClause) HeldGlobally() CrewSectorUserQueryIden
 
 func (p CrewSectorUserQueryPartialClause) OutsideDirectory() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) AdministratorWithPassword() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("AdministratorWithPassword", p.partialClause, true)}
 }
 
 type CrewSectorUserQueryClause struct {
@@ -407,6 +419,10 @@ func (c *crewSectorUserSort) OutsideDirectory() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) CannotEnter() *CrewSectorUserSort {
 	return c.addField("CannotEnter")
+}
+
+func (c *crewSectorUserSort) AdministratorWithPassword() *CrewSectorUserSort {
+	return c.addField("AdministratorWithPassword")
 }
 
 type CrewSectorUserSort struct {
