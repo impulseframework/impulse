@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -167,4 +168,11 @@ LEFT JOIN TenantDirectories td ON td.TenantId = ts.Id
 // Subquery is the query the rows are read from.
 func (MembersTenantUser) Subquery() (query string, params map[string]any) {
 	return membersTenantUserQuery, nil
+}
+
+// TenantsToEnter names the tenants the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (MembersTenantUser) TenantsToEnter() resource.TenantsToEnter {
+	return membersSessionUserTenantsToEnter("Id")
 }

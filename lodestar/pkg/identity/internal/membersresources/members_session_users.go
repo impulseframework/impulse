@@ -4,9 +4,12 @@
 package membersresources
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -34,3 +37,61 @@ type (
 		LastSignInAt           *time.Time   `spanner:"LastSignInAt"`
 	}
 )
+
+// membersSessionUserAdministeredTenantsQuery answers the sectors each person of the Members
+// auth administers, a row for each, RowKey the account's id and Tenant the sector: one of
+// the roles the auth's permission engine names as a sector's administrator's
+// (@enteringAdministratorRoles) held in the sector itself, by a membership of the
+// person's own or through a group kept in that sector, in an assignment that has not ended,
+// one that has not begun included. The methods that change how a person signs in refuse a
+// caller by the same count (the identity package's requireEnteringFor), and each row of
+// the auth's people reads it (TenantsToEnter).
+const membersSessionUserAdministeredTenantsQuery = `
+SELECT ta.UserId AS RowKey, ta.DomainId AS Tenant
+FROM MembersUserRoles ta
+WHERE ta.Kind = 'domain' AND ta.Axis = ''
+  AND ta.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// membersSessionUserAdministrators are the roles whose holders administer a sector, as the
+// Members auth's permission engine names them: what the query reads as
+// @enteringAdministratorRoles. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var membersSessionUserAdministrators atomic.Pointer[[]string]
+
+// SetMembersSessionUserAdministratorRoles tells the lists of the Members auth which roles administer a
+// sector: the ones its permission engine answers who administers a sector by. The
+// auth's generated identity client calls it where it is built, so a row offers the methods
+// that change how a sector's administrator signs in by the names the methods themselves
+// refuse by.
+func SetMembersSessionUserAdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	membersSessionUserAdministrators.Store(&names)
+}
+
+// membersSessionUserTenantsToEnter is what each row of the Members auth's people answers
+// TenantsToEnter with: the query, the roles it reads, and column, the row's column that
+// holds the account's id.
+func membersSessionUserTenantsToEnter(column string) resource.TenantsToEnter {
+	administrators := []string{}
+	if named := membersSessionUserAdministrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return resource.TenantsToEnter{
+		Query:  membersSessionUserAdministeredTenantsQuery,
+		Params: map[string]any{"enteringAdministratorRoles": administrators},
+		Column: column,
+	}
+}
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (MembersSessionUser) TenantsToEnter() resource.TenantsToEnter {
+	return membersSessionUserTenantsToEnter("Id")
+}

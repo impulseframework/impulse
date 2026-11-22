@@ -798,6 +798,67 @@ func TestGeneratedCollection_methodTargets(t *testing.T) {
 	}
 }
 
+// TestGeneratedCollection_methodCallerEnters pins the @callerEnters carriage: a
+// method the builder marks comes back marked from MethodsTargeting, through Data()
+// and a load of that data, beside an unmarked method on the same row that does not;
+// and a load refuses a marked method that names no row.
+func TestGeneratedCollection_methodCallerEnters(t *testing.T) {
+	t.Parallel()
+
+	b := NewCollectionBuilder()
+	if err := b.AddResource(accesstypes.DomainPermissionScope, accesstypes.Read, "Tasks"); err != nil {
+		t.Fatalf("AddResource(Tasks) error = %v", err)
+	}
+	for _, method := range []accesstypes.Resource{"CloseTask", "NudgeTask", "ReopenTask"} {
+		if err := b.AddMethodResource(accesstypes.DomainPermissionScope, accesstypes.Execute, method); err != nil {
+			t.Fatalf("AddMethodResource(%s) error = %v", method, err)
+		}
+	}
+	b.SetMethodTransition(accesstypes.DomainPermissionScope, "CloseTask", TransitionData{Target: "Tasks", From: []string{"open"}, To: "closed"})
+	b.SetMethodTarget(accesstypes.DomainPermissionScope, "NudgeTask", "Tasks")
+	b.SetMethodTarget(accesstypes.DomainPermissionScope, "ReopenTask", "Tasks")
+	b.SetMethodCallerEnters(accesstypes.DomainPermissionScope, "CloseTask")
+	b.SetMethodCallerEnters(accesstypes.DomainPermissionScope, "NudgeTask")
+
+	want := map[accesstypes.Resource]bool{"CloseTask": true, "NudgeTask": true, "ReopenTask": false}
+	marks := func(g *GeneratedCollection) map[accesstypes.Resource]bool {
+		got := map[accesstypes.Resource]bool{}
+		for _, tm := range g.MethodsTargeting("Tasks") {
+			got[tm.Method] = tm.CallerEnters
+		}
+
+		return got
+	}
+
+	data := b.Data()
+	for _, res := range data.Resources {
+		if res.Name == "ReopenTask" && res.CallerEnters {
+			t.Error("Data() marks ReopenTask, which the builder did not mark")
+		}
+	}
+	loaded, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection(Data()) error = %v", err)
+	}
+	if diff := cmp.Diff(want, marks(loaded)); diff != "" {
+		t.Errorf("MethodsTargeting(Tasks) CallerEnters after a load (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(want, marks(b.GeneratedCollection())); diff != "" {
+		t.Errorf("MethodsTargeting(Tasks) CallerEnters on the built collection (-want +got):\n%s", diff)
+	}
+
+	_, err = NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
+		Name:         "RunReport",
+		Scope:        accesstypes.DomainPermissionScope,
+		Permissions:  []accesstypes.Permission{accesstypes.Execute},
+		CallerEnters: true,
+	}}})
+	wantErr := `method resource "RunReport" is offered only to a caller who enters its row's tenants but names no target row`
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("NewGeneratedCollection() of a marked method with no target error = %v, want %q", err, wantErr)
+	}
+}
+
 // TestGeneratedCollection_membersOf pins the workflow-membership surface the
 // create-under-parent affordance rides (§11): MembersOf answers the immediate
 // hop only, sorted, and the Parent field round-trips.
