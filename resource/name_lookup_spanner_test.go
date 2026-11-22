@@ -83,16 +83,27 @@ func lookupSpannerClient(t *testing.T, name string) *SpannerClient {
 	return NewSpannerClient(db.Client)
 }
 
-// lookupCollection binds the hangar passes to their sector by its column.
+// lookupCollection binds the hangar passes and the squadrons to their sector by
+// its column, and declares a squadron's rank, which a condition on the grant of
+// its name reads.
 func lookupCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
-	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
-		Name:        "HangarPasses",
-		Scope:       accesstypes.DomainPermissionScope,
-		Permissions: []accesstypes.Permission{accesstypes.List},
-		Domain:      &DomainBindingData{Column: "SectorId"},
-	}}})
+	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+		{
+			Name:        "HangarPasses",
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.List},
+			Domain:      &DomainBindingData{Column: "SectorId"},
+		},
+		{
+			Name:        "Squadrons",
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.List},
+			Attributes:  []AttributeData{{Name: "rank", Column: "Rank", Type: AttributeTypeNumber}},
+			Domain:      &DomainBindingData{Column: "SectorId"},
+		},
+	}})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
 	}
@@ -190,7 +201,10 @@ func lookupWalk(t *testing.T, client *SpannerClient, decoder *QueryDecoder[looku
 // by the name of a row that reaches its tenant through another table, walked
 // forward and back, and the names of a tenant's row and of an enumeration
 // table's row. An id that points to another tenant's row gives no name, and
-// the other tenant's pass is in no answer.
+// the other tenant's pass is in no answer. A name held under a condition is
+// given and sorted by only where the condition holds for the pointed-to row,
+// and a declared order by a name the person may not list orders as if no row
+// had one.
 func TestNameLookup_onSpanner(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +255,29 @@ func TestNameLookup_onSpanner(t *testing.T) {
 		}
 		if len(links) != 0 {
 			t.Errorf("the whole list names neighboring pages: %v", links)
+		}
+	})
+
+	t.Run("sorted by a squadron's name the person may list only where its rank is 1", func(t *testing.T) {
+		t.Parallel()
+
+		perms := renderStubPermissions{decisions: accesstypes.Decisions{"Squadrons.name": conditionalOn("Squadrons.name", "rank = 1")}}
+		want := [][]string{{"p2 none", "p3 none"}, {"p4 none", "p5 none"}, {"p1 Red"}}
+		pages, _ := lookupWalk(t, client, lookupDecoder(t, Paging{}), "/?columns=id,squadronName&sort=squadronName:asc&limit=2", perms)
+		if diff := cmp.Diff(want, pages); diff != "" {
+			t.Errorf("the walk forward mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a declared order by a squadron's name the person may not list", func(t *testing.T) {
+		t.Parallel()
+
+		perms := renderStubPermissions{decisions: accesstypes.Decisions{"Squadrons.name": accesstypes.Denied()}}
+		decoder := lookupDecoder(t, Paging{Order: []SortField{{Field: "SquadronName", Direction: SortAscending}}})
+		want := [][]string{{"p1", "p2"}, {"p3", "p4"}, {"p5"}}
+		pages, _ := lookupWalk(t, client, decoder, "/?columns=id&limit=2", perms)
+		if diff := cmp.Diff(want, pages); diff != "" {
+			t.Errorf("the walk forward mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

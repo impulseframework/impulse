@@ -15,11 +15,11 @@ import (
 // resource that says what its rows are known by, to a level, an enumeration
 // table, and to a crew, which reaches its tenant through its wing.
 type lookupPass struct {
-	ID         string  `spanner:"Id"`
-	SectorID   string  `spanner:"SectorId"`
-	SquadronID *string `spanner:"SquadronId"`
-	LevelID    string  `spanner:"LevelId"`
-	CrewID     *string `spanner:"CrewId"`
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SectorID   string  `spanner:"SectorId"   postgres:"SectorId"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+	LevelID    string  `spanner:"LevelId"    postgres:"LevelId"`
+	CrewID     *string `spanner:"CrewId"     postgres:"CrewId"`
 }
 
 // Resource names the resource in grants and routes.

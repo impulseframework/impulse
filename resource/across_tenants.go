@@ -381,6 +381,12 @@ func (q *QuerySet[Resource]) decideAcrossTenants(ctx context.Context, dbType DBT
 		return len(a.domains) == 1, nil
 	}
 
+	// A name's own grant is asked once for the list, not once a tenant: it is
+	// held where the pointed-to resource's grants are, and each tenant's copy of
+	// the query carries the decisions.
+	if err := q.checkNameGrants(ctx); err != nil {
+		return false, err
+	}
 	var admitted []*tenantGroup[Resource]
 	for _, domain := range a.candidates {
 		decided, err := q.decideTenant(ctx, dbType, domain)
@@ -399,7 +405,10 @@ func (q *QuerySet[Resource]) decideAcrossTenants(ctx context.Context, dbType DBT
 	switch len(admitted) {
 	case 0:
 	case 1:
+		// The tenant's own checks run next, and ask the names' grants in its
+		// scope.
 		q.scope = accesstypes.DomainScope(domains[0])
+		q.nameGrants = nil
 	default:
 		groups, err := groupTenants(admitted)
 		if err != nil {
@@ -578,8 +587,10 @@ func groupTenants[Resource Resourcer](tenants []*tenantGroup[Resource]) ([]*tena
 // each group's checks came to. With no columns asked, the projection is every
 // field some tenant of the set shows, in declaration order. What the tenant's own
 // list refuses is refused here where every tenant of the set would refuse it: a
-// column, or a sort or filter field, that no grant covers in any of them. A field
-// of the search box, or a @searchAlso branch, that every tenant drops is dropped.
+// column, or a sort or filter field, that no grant covers in any of them, and a
+// name asked for or sorted by whose own grant, asked once for the list, is
+// denied. A field of the search box, or a @searchAlso branch, that every tenant
+// drops is dropped.
 func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenantGroup[Resource]) error {
 	everywhere := func(hides func(*tenantGroup[Resource]) bool) bool {
 		return !slices.ContainsFunc(groups, func(g *tenantGroup[Resource]) bool { return !hides(g) })
@@ -594,8 +605,9 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 				q.AddField(field)
 			}
 		}
-		// As on a tenant's own list, the name beside every id returned; a row
-		// whose tenant hides the id gives none (nameConditionsAcrossTenants).
+		// As on a tenant's own list, the name beside every id returned, less the
+		// names the person may not list; a row whose tenant hides the id gives
+		// none (nameConditionsAcrossTenants).
 		q.showNamesOf(q.fields)
 	} else {
 		// A name asked for is refused where its id would be: no tenant of the
@@ -610,6 +622,9 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 				)
 			}
 		}
+		if err := q.refuseNamedColumns(refusedAnywhere); err != nil {
+			return err
+		}
 	}
 
 	for _, field := range q.queryFields() {
@@ -621,6 +636,9 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 				mayNotAskBy(bySortOrFilter, denied, refusedAnywhere),
 			)
 		}
+	}
+	if err := q.refuseSortedName(refusedAnywhere); err != nil {
+		return err
 	}
 
 	for _, field := range q.searchFields {

@@ -41,7 +41,7 @@ func gradedRoles(grade accesstypes.Decision) *acrossPermissions {
 
 // renderGraded decodes a graded crates list asked across tenants, runs its read
 // checks and renders its statement for the database.
-func renderGraded(t *testing.T, dbType DBType, target string, perms UserPermissions) (*QuerySet[gradedCrate], string) {
+func renderGraded(t *testing.T, dbType DBType, target string, perms UserPermissions) (qSet *QuerySet[gradedCrate], sql string) {
 	t.Helper()
 
 	decoder := acrossDecoder[gradedCrate, gradedCrateRequest](t, Paging{Order: []SortField{{Field: "Label", Direction: SortAscending}}, DefaultLimit: 3})
@@ -49,7 +49,7 @@ func renderGraded(t *testing.T, dbType DBType, target string, perms UserPermissi
 	if err != nil {
 		t.Fatalf("QueryDecoder.DecodeAcrossTenants() error = %v", err)
 	}
-	if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+	if err = qSet.checkPermissions(t.Context(), dbType); err != nil {
 		t.Fatalf("QuerySet.checkPermissions(%s) error = %v", dbType, err)
 	}
 	stmt, err := qSet.stmt(dbType)

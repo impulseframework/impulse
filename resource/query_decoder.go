@@ -71,7 +71,8 @@ type QueryDecoder[Resource Resourcer, Request any] struct {
 	keyFields []accesstypes.Field
 	// names are the request type's name fields (the fields marked nameof), each
 	// with the lookup the resource describes for it. A request may ask for one as
-	// a column and order by one; it is read under the grant on its id field.
+	// a column and order by one; it is read under the grant on its id field and
+	// the List grant on the pointed-to resource's name field.
 	names []requestName
 	// paging is the resource's declared paging contract (WithPaging); the zero
 	// value is the generator-wide default.

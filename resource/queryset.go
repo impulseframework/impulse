@@ -26,9 +26,12 @@ type QuerySet[Resource Resourcer] struct {
 	// hidden): beside an id field, the name of the row it points to, which the
 	// statement looks up (name_lookup.go). shownNames are those the query
 	// returns: the ones the request's columns named, or the name beside every
-	// id a request that named no columns returns.
+	// id a request that named no columns returns. nameGrants are the decisions
+	// on the grant each name in play takes beside its id's (checkNameGrants),
+	// by name field; nil until they are asked.
 	names      []requestName
 	shownNames []accesstypes.Field
+	nameGrants map[accesstypes.Field]accesstypes.Decision
 
 	keys                   *fieldSet
 	fields                 []accesstypes.Field
@@ -344,7 +347,13 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 		}
 		q.carryConditionalDecisions(decisions)
 
+		if err := q.checkNameGrants(ctx); err != nil {
+			return err
+		}
 		if err := q.checkQueryFieldsReadable(ctx, q.resourceSet, q.userPermissions); err != nil {
+			return err
+		}
+		if err := q.refuseSortedName(refusedHere); err != nil {
 			return err
 		}
 		if err := q.checkSearchFieldsReadable(ctx); err != nil {
@@ -361,7 +370,8 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 	if q.resourceSet != nil {
 		resources := make([]accesstypes.Resource, 0, len(fields)+1)
 
-		// A name asked for as a column is read under the grant on its id field.
+		// A name asked for as a column is read under the grant on its id field,
+		// and under its own (refuseNamedColumns).
 		for _, fieldName := range append(slices.Clone(fields), q.shownNameKeys()...) {
 			if q.resourceSet.PermissionRequired(fieldName, q.requiredPermission) {
 				resources = append(resources, q.resourceSet.Resource(fieldName))
@@ -379,6 +389,8 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 		}
 		q.carryConditionalDecisions(decisions)
+
+		return q.refuseNamedColumns(refusedHere)
 	}
 
 	return nil

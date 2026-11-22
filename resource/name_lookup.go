@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"slices"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // nameColumnPrefix opens the alias a statement selects a looked-up name under,
@@ -88,15 +91,184 @@ func (q *QuerySet[Resource]) requestName(field accesstypes.Field) (*requestName,
 	return nil, false
 }
 
-// grantField is the field whose grant covers a field the request names: a name
-// field is read under the grant on the id field it stands beside, and every
-// other field under its own.
+// grantField is the field of the resource whose grant covers a field the
+// request names: a name field is read under the grant on the id field it stands
+// beside (and under its own grant besides, nameGrant), and every other field
+// under its own.
 func (q *QuerySet[Resource]) grantField(field accesstypes.Field) accesstypes.Field {
 	if name, ok := q.requestName(field); ok {
 		return name.Key
 	}
 
 	return field
+}
+
+// grantResource is the grant reading a name takes beside the grant on its id:
+// List on the pointed-to resource's name field, or on the resource itself where
+// its name is its key (Tag is empty). It is "" for an enumeration table's name,
+// which takes none.
+func (n *NameField) grantResource() accesstypes.Resource {
+	switch {
+	case n.Resource == "":
+		return ""
+	case n.Tag == "":
+		return n.Resource
+	default:
+		return n.Resource.ResourceWithTag(n.Tag)
+	}
+}
+
+// nameGrantScope is the scope a name's grant is asked in, where the pointed-to
+// resource's grants are held: the request's scope where that resource belongs
+// to a tenant, the global scope where it does not.
+func (q *QuerySet[Resource]) nameGrantScope(name *NameField) accesstypes.Scope {
+	if name.TenantColumn == "" {
+		return accesstypes.GlobalScope()
+	}
+
+	return q.scope
+}
+
+// namesInPlay returns the name fields a request brings into play, each once:
+// those its columns named, those it orders by (its sort, or the declared order),
+// and, where it named no columns, every name it may name.
+func (q *QuerySet[Resource]) namesInPlay() []accesstypes.Field {
+	fields := slices.Clone(q.shownNames)
+	for _, field := range q.orderedNames() {
+		if !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+	if len(q.fields) == 0 && len(q.shownNames) == 0 && q.returnAccessibleFields {
+		for i := range q.names {
+			if !slices.Contains(fields, q.names[i].Field) {
+				fields = append(fields, q.names[i].Field)
+			}
+		}
+	}
+
+	return fields
+}
+
+// checkNameGrants asks the grants of the names in play that take one
+// (grantResource), once a request and on a set that enforces grants: List, in
+// one Check for each scope among them (nameGrantScope), whatever the request's
+// own permission, so a name a person sees on a list they see on the row's page.
+// A request with no such name in play asks nothing.
+func (q *QuerySet[Resource]) checkNameGrants(ctx context.Context) error {
+	if q.resourceSet == nil || q.nameGrants != nil {
+		return nil
+	}
+
+	type pending struct {
+		field accesstypes.Field
+		res   accesstypes.Resource
+		scope accesstypes.Scope
+	}
+	var asks []pending
+	var scopes []accesstypes.Scope
+	resources := make(map[accesstypes.Scope][]accesstypes.Resource)
+	for _, field := range q.namesInPlay() {
+		name, ok := q.requestName(field)
+		if !ok {
+			return errors.Newf("name field %s is not a name field of %s", field, q.Resource())
+		}
+		res := name.grantResource()
+		if res == "" {
+			continue
+		}
+		scope := q.nameGrantScope(&name.NameField)
+		if _, seen := resources[scope]; !seen {
+			scopes = append(scopes, scope)
+		}
+		if !slices.Contains(resources[scope], res) {
+			resources[scope] = append(resources[scope], res)
+		}
+		asks = append(asks, pending{field: field, res: res, scope: scope})
+	}
+
+	answers := make(map[accesstypes.Scope]accesstypes.Decisions, len(scopes))
+	for _, scope := range scopes {
+		decisions, err := q.userPermissions.Check(ctx, q.env, scope, accesstypes.List, resources[scope]...)
+		if err != nil {
+			return errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+		answers[scope] = decisions
+	}
+	grants := make(map[accesstypes.Field]accesstypes.Decision, len(asks))
+	for _, ask := range asks {
+		grants[ask.field] = answers[ask.scope][ask.res]
+	}
+	q.nameGrants = grants
+
+	return nil
+}
+
+// nameGrant is the decision on a name's grant: Granted on a set that does not
+// enforce grants and for a name that takes none, otherwise the decision Check
+// returned. A name that takes a grant and was never asked about is Denied.
+func (q *QuerySet[Resource]) nameGrant(field accesstypes.Field) accesstypes.Decision {
+	if q.resourceSet == nil {
+		return accesstypes.Granted()
+	}
+	name, ok := q.requestName(field)
+	if !ok {
+		return accesstypes.Denied()
+	}
+	if name.grantResource() == "" {
+		return accesstypes.Granted()
+	}
+
+	return q.nameGrants[field]
+}
+
+// nameResource is a name field as a refusal names it: the list's own resource
+// with the name's wire name as its tag (HangarPasses.squadronName), so the
+// sentence speaks of the field the person asked for.
+func (q *QuerySet[Resource]) nameResource(name *requestName) accesstypes.Resource {
+	return q.Resource().ResourceWithTag(accesstypes.Tag(name.jsonName))
+}
+
+// refuseSortedName refuses a request that sorts by a name the person may not
+// list, naming the first such name in the sort's order, in the place where. A
+// declared order by such a name is not refused (withNameLookups).
+func (q *QuerySet[Resource]) refuseSortedName(where string) error {
+	for _, sf := range q.sortFields {
+		name, ok := q.requestName(accesstypes.Field(sf.Field))
+		if !ok || !q.nameGrant(name.Field).IsDenied() {
+			continue
+		}
+
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("scope (%s), user (%s) cannot sort or filter on %s: (%s) on %s is denied", q.nameGrantScope(&name.NameField), q.userPermissions.User(), name.jsonName, accesstypes.List, name.grantResource()),
+			mayNotAskBy(bySortOrFilter, q.nameResource(name), where),
+		)
+	}
+
+	return nil
+}
+
+// refuseNamedColumns refuses a request whose columns name a name the person may
+// not list: every such name in one refusal, in the place where, the cause naming
+// the first.
+func (q *QuerySet[Resource]) refuseNamedColumns(where string) error {
+	var denied []accesstypes.Resource
+	var cause error
+	for _, field := range q.shownNames {
+		name, ok := q.requestName(field)
+		if !ok || !q.nameGrant(field).IsDenied() {
+			continue
+		}
+		if cause == nil {
+			cause = errors.Newf("scope (%s), user (%s) cannot read the name %s: (%s) on %s is denied", q.nameGrantScope(&name.NameField), q.userPermissions.User(), name.jsonName, accesstypes.List, name.grantResource())
+		}
+		denied = append(denied, q.nameResource(name))
+	}
+	if len(denied) == 0 {
+		return nil
+	}
+
+	return httpio.NewForbiddenMessageWithError(cause, mayNot(q.requiredPermission, denied, where))
 }
 
 // showName has the query return a name field, once.
@@ -107,10 +279,10 @@ func (q *QuerySet[Resource]) showName(field accesstypes.Field) {
 }
 
 // showNamesOf has a request that named no columns return the name beside every
-// id field it returns.
+// id field it returns, less the names the person may not list.
 func (q *QuerySet[Resource]) showNamesOf(fields []accesstypes.Field) {
 	for i := range q.names {
-		if slices.Contains(fields, q.names[i].Key) {
+		if slices.Contains(fields, q.names[i].Key) && !q.nameGrant(q.names[i].Field).IsDenied() {
 			q.showName(q.names[i].Field)
 		}
 	}
@@ -215,8 +387,13 @@ func (q *QuerySet[Resource]) readNames() []accesstypes.Field {
 // is one scalar subquery: the name column of the pointed-to table's row whose
 // key is this row's id, held to the request's tenant where the pointed-to
 // table belongs to one, so a row of another tenant never gives its name. No row
-// is NULL. Where the id's cells are shown under a condition, the lookup sits
-// inside it, so a masked id gives no name either.
+// is NULL. A name is read under two grants. Where the id's cells are shown under
+// a condition, the lookup sits inside it, so a masked id gives no name either.
+// Where the name's own grant (nameGrant) is held under a condition, the
+// condition on the pointed-to row joins the lookup's WHERE last. Where it is
+// denied, which only a name the declared order names reaches, there is no
+// lookup: the name is NULL on every row (noName), so the list comes in the order
+// of the order's other terms.
 func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedReadConditions, registry *paramRegistry) (*renderedReadConditions, error) {
 	fields := slices.Clone(q.shownNames)
 	for _, field := range q.orderedNames() {
@@ -242,6 +419,16 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 		if !ok {
 			return nil, errors.Newf("name field %s is not a name field of %s", field, q.Resource())
 		}
+		grant := q.nameGrant(field)
+		if grant.IsDenied() {
+			none, err := noName(dbType)
+			if err != nil {
+				return nil, err
+			}
+			rendered.nameLookups[field] = none
+
+			continue
+		}
 		key, ok := dbFields[name.Key]
 		if !ok {
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
@@ -256,6 +443,11 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 		if tenant := nameTenantTest(&name.NameField, alias, registry); tenant != nil {
 			where = &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: tenant}
 		}
+		if grant.IsConditional() {
+			if where, err = q.nameGrantCondition(name, grant, alias, where, registry); err != nil {
+				return nil, err
+			}
+		}
 		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, alias: alias, column: name.NameColumn, where: where})
 		sql, err := gen.generateLoweredComparand(&lookup, registry)
 		if err != nil {
@@ -268,6 +460,49 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	}
 
 	return rendered, nil
+}
+
+// nameGrantCondition joins the condition a name's grant is held under to the
+// lookup's WHERE, last and in parentheses: lowered against the pointed-to table
+// read under alias, in that resource's own vocabulary, as a search branch's
+// child field is (searchBranchGrants). A condition that comes to true adds
+// nothing.
+func (q *QuerySet[Resource]) nameGrantCondition(name *requestName, decision accesstypes.Decision, alias string, where ExpressionNode, registry *paramRegistry) (ExpressionNode, error) {
+	res := name.grantResource()
+	expr, err := conditionalExpr(res, decision)
+	if err != nil {
+		return nil, err
+	}
+	expr = condition.WithoutPostImage(expr)
+	if t, ok := expr.(condition.Truth); ok && t.Value {
+		return where, nil
+	}
+	if q.collection == nil {
+		return nil, errors.Newf("resource %s carries a conditional decision on the name %s but no generated collection is wired to render it", q.Resource(), name.Field)
+	}
+	bindings, _ := q.collection.Bindings(q.collection.Scope(name.Resource), name.Resource)
+	_, partitioned := q.nameGrantScope(&name.NameField).Domain()
+	lctx := &loweringContext{outer: alias, bindings: bindings, collection: q.collection, partitioned: partitioned}
+	held, err := lowerRowCondition(expr, lctx, registry)
+	if err != nil {
+		return nil, errors.Wrapf(err, "lowering the condition on %s for the name %s", res, name.Field)
+	}
+
+	return &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: &GroupNode{Expression: held}}, nil
+}
+
+// noName is what a statement reads in place of a name the person may not list:
+// NULL, typed as the name is, so the select item and the cursor read it as a
+// name no row carries.
+func noName(dbType DBType) (string, error) {
+	switch dbType {
+	case SpannerDBType:
+		return "CAST(NULL AS STRING)", nil
+	case PostgresDBType:
+		return "CAST(NULL AS TEXT)", nil
+	default:
+		return "", errors.Newf("unsupported dbType: %s", dbType)
+	}
 }
 
 // nameLookup returns the lookup the statement reads a name field through, ""
@@ -333,7 +568,8 @@ func (q *QuerySet[Resource]) selectListWithNames(dbType DBType, rendered *render
 // Name returns the name the row carries for a name field the query returns
 // (QuerySet.Names): the name of the row the id beside it points to. It is nil
 // where the id points to no row, where that row is not the request's tenant's,
-// and where the id's cell is masked on this row.
+// where the id's cell is masked on this row, and where the person's grant on
+// the name holds under a condition that row does not meet.
 func (r Row[Resource]) Name(field accesstypes.Field) *string {
 	copied, ok := r.cursorValues[field]
 	if !ok {

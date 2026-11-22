@@ -15,17 +15,21 @@ const nameOfTagKey = "nameof"
 // NameField describes one name field of a resource: the name of the row an id field of
 // the resource points to, which the generator declares beside the id wherever the
 // pointed-to resource says what its rows are known by. A name field is read-only and
-// stored nowhere. It is no column of the resource, so it carries no grant of its own
-// and no statement names it as a column: the name is looked up in the pointed-to
-// table by the id.
+// stored nowhere. It is no column of the resource, so no statement names it as a
+// column: the name is looked up in the pointed-to table by the id. Reading it takes two
+// grants: the request's own grant on the id field, and the List grant on the
+// pointed-to resource's name field (Resource and Tag).
 type NameField struct {
 	// Field is the name field as the generated request types spell it, and Key the id
 	// field it stands beside.
 	Field accesstypes.Field
 	Key   accesstypes.Field
 	// Resource is the pointed-to resource and Tag its name field: reading a name takes
-	// the List grant on that field as well as the grant on the id. Both are empty for
-	// an enumeration table, whose names every page carries already.
+	// the List grant on that field as well as the grant on the id, asked in the
+	// request's tenant where the resource belongs to one (TenantColumn) and globally
+	// where it does not; Tag is empty where the name is the resource's key, whose
+	// grant is the resource's own. Both are empty for an enumeration table, whose
+	// names every page carries already.
 	Resource accesstypes.Resource
 	Tag      accesstypes.Tag
 	// Table is the pointed-to table, KeyColumn the column the id matches there, and
