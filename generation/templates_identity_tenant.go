@@ -85,6 +85,32 @@ const (
 // does not enter one of them is not offered the methods that change how the person signs
 // in or whether their account stands.`
 
+	// identityGroupCallerEntersNote is the paragraph the whole application's methods that
+	// put a person in a group and take one out add to their comment, after
+	// identityJudgedNote, where their row offers them only to a caller who enters the
+	// tenant the group administers (OffersToEntering): the methods the identity package's
+	// requireEnteringToChange refuses on a group's row. A tenant's own group is changed
+	// under the tenant's address, which a caller has entered, so its methods say nothing.
+	identityGroupCallerEntersNote = `
+{{- if and .OffersToEntering (not .ForTenant) }}
+//
+// Where the group is kept in a {{ .TenantWord }} and holds one of that {{ .TenantWord }}'s
+// administrator roles there, a row offers it only to a caller whose session enters the
+// {{ .TenantWord }} (@callerEnters); the method refuses anyone else.
+{{- end }}`
+
+	// identityGroupCallerEnters is the annotation of such a method, after the scope's line.
+	identityGroupCallerEnters = `
+{{- if and .OffersToEntering (not .ForTenant) }}
+// @callerEnters
+{{- end }}`
+
+	// identityGroupTenantsToEnterDoc is the comment of TenantsToEnter on each struct of the
+	// whole application whose row is a group or one of its people (OffersToEntering).
+	identityGroupTenantsToEnterDoc = `// TenantsToEnter names the {{ .TenantWord }} the group is kept in, where the group holds one
+// of that {{ .TenantWord }}'s administrator roles there: a caller whose session does not
+// enter it is not offered the methods that put a person in the group or take one out.`
+
 	// identityTenantGuard opens the body of a tenant's method that hands the identity
 	// package nothing of the tenant: the frame has located the row within the tenant,
 	// and the method still runs for a request under the tenant's address alone.
