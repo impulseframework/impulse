@@ -51,7 +51,8 @@ const (
 // PersonTenant is one tenant a person holds something in, as their own account page
 // lists it: the tenant's key, the roles they hold there in words (words.RoleInWords),
 // sorted and each once, why they cannot leave it where they cannot (empty where they
-// can), and whether leaving it deletes their account.
+// can), and whether leaving it deletes their account, which it does when the person then
+// holds nothing that has not ended.
 type PersonTenant struct {
 	Domain         accesstypes.Domain
 	Roles          []string
@@ -61,12 +62,16 @@ type PersonTenant struct {
 
 // leaving is the judgment of a person's leaving one tenant, which the list and the act
 // both read, so the two cannot disagree: the rows that go, why the person may not leave
-// (empty where they may), and whether the account goes with the rows.
+// (empty where they may), and whether the account goes with the rows. memberships and
+// places are the rows in the tenant; endedMemberships and endedPlaces the rows outside
+// it, all of them ended, that go with the account, and none where the account stays.
 type leaving struct {
-	memberships    []access.MembershipKey
-	places         []access.GroupMemberKey
-	refusal        string
-	deletesAccount bool
+	memberships      []access.MembershipKey
+	places           []access.GroupMemberKey
+	endedMemberships []access.MembershipKey
+	endedPlaces      []access.GroupMemberKey
+	refusal          string
+	deletesAccount   bool
 }
 
 // PersonTenants answers the tenants the person holds something in, in the tenant
@@ -122,10 +127,13 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 //     so nobody's account goes having agreed to less and nobody keeps one they were told
 //     goes.
 //
-// The account goes when nothing else keeps it (keeps), with its sign-in identities and
-// every session, in the same transaction. No notice is mailed: the person left
-// themselves. The rule that keeps a directory-only tenant's administrators to callers who
-// enter it is not asked: giving up one's own roles makes nobody an administrator.
+// The account goes when the person, after the leaving, holds nothing that has not
+// ended, with its sign-in identities and every session, in the same transaction: a row
+// held anywhere else that has not ended keeps it, one whose period has not begun among
+// them, and a row that has ended elsewhere keeps nothing against the person's own leaving
+// and goes with the account. No notice is mailed: the person left themselves. The rule
+// that keeps a directory-only tenant's administrators to callers who enter it is not
+// asked: giving up one's own roles makes nobody an administrator.
 //
 // What the person holds is read as committed: a second leaving in one transaction does
 // not see the first. Leave one tenant per transaction.
@@ -161,6 +169,10 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 	}
 	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own and %d place(s) in its groups are removed",
 		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.places))
+	if len(judged.endedMemberships)+len(judged.endedPlaces) > 0 {
+		logger.FromCtx(ctx).Infof("identity: %s holds nothing that has not ended after leaving, so %d role(s) and %d place(s) that had ended elsewhere go with the account",
+			User(userID), len(judged.endedMemberships), len(judged.endedPlaces))
+	}
 	if err := m.policyChangesAtCommit(txn); err != nil {
 		return false, err
 	}
@@ -213,21 +225,25 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 
 // applyLeaving buffers what a judged leaving takes: the account first where it goes
 // (deleteLeftWithNothing), read while it is still there, then each membership and each
-// place.
+// place in the tenant, then each that had ended elsewhere and goes with the account.
 func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, judged *leaving) error {
 	if judged.deletesAccount {
 		if err := m.deleteLeftWithNothing(ctx, txn, userID, "they left the last "+m.tenantWord+" they were in"); err != nil {
 			return err
 		}
 	}
-	for i := range judged.memberships {
-		if err := m.store.DeleteMembership(ctx, txn, &judged.memberships[i]); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteMembership()")
+	for _, memberships := range [][]access.MembershipKey{judged.memberships, judged.endedMemberships} {
+		for i := range memberships {
+			if err := m.store.DeleteMembership(ctx, txn, &memberships[i]); err != nil {
+				return errors.Wrap(err, "identity.Store.DeleteMembership()")
+			}
 		}
 	}
-	for i := range judged.places {
-		if err := m.store.DeleteGroupMember(ctx, txn, &judged.places[i]); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+	for _, places := range [][]access.GroupMemberKey{judged.places, judged.endedPlaces} {
+		for i := range places {
+			if err := m.store.DeleteGroupMember(ctx, txn, &places[i]); err != nil {
+				return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+			}
 		}
 	}
 
@@ -291,8 +307,9 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 // judgeLeaving judges the person's leaving of the tenant: the rows that go, every
 // membership of their own held in the tenant and every place of theirs in a group kept
 // in it, whatever their periods; why they may not leave (leavingRefusal); and whether
-// the account goes, which it does when everything that keeps it (keeps) is in the
-// tenant.
+// the account goes, which it does when everything the person holds that has not ended
+// (holds) is in the tenant. Where it goes, every row of theirs outside the tenant, all
+// of them ended, goes with it.
 func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain) (*leaving, error) {
 	own, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
@@ -318,15 +335,29 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 	if err != nil {
 		return nil, err
 	}
-	kept, err := m.keeps(ctx, txn, userID)
+	held, err := m.holds(ctx, txn, userID)
 	if err != nil {
 		return nil, err
 	}
-	deletesAccount := !slices.ContainsFunc(kept, func(key access.MembershipKey) bool {
+	judged := &leaving{memberships: memberships, places: gone, refusal: refusal}
+	judged.deletesAccount = !slices.ContainsFunc(held, func(key access.MembershipKey) bool {
 		return !heldIn(key.Kind, key.Axis, key.Domain, domain)
 	})
+	if !judged.deletesAccount {
+		return judged, nil
+	}
+	for _, key := range own {
+		if !heldIn(key.Kind, key.Axis, key.Domain, domain) {
+			judged.endedMemberships = append(judged.endedMemberships, key)
+		}
+	}
+	for _, place := range places {
+		if !heldIn(place.Kind, place.Axis, place.Domain, domain) {
+			judged.endedPlaces = append(judged.endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)})
+		}
+	}
 
-	return &leaving{memberships: memberships, places: gone, refusal: refusal, deletesAccount: deletesAccount}, nil
+	return judged, nil
 }
 
 // leavingRefusal answers why the person may not leave the tenant, empty where they may.

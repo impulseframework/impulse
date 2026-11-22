@@ -36,8 +36,8 @@ var (
 	danaBetaReader  = access.NewMembershipKey(betaScope, dana, "Reader")
 	danaEvery       = access.NewMembershipKey(everyScope, dana, "Reader")
 	danaGlobal      = access.NewMembershipKey(globalScope, dana, "Steward")
-	galeAlphaWarden = access.NewMembershipKey(alphaScope, erin, "Warden")
-	galeEveryWarden = access.NewMembershipKey(everyScope, erin, "Warden")
+	erinAlphaWarden = access.NewMembershipKey(alphaScope, erin, "Warden")
+	erinEveryWarden = access.NewMembershipKey(everyScope, erin, "Warden")
 	nightWarden     = access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Warden")
 	nightWriter     = access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Writer")
 	nightReader     = access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
@@ -223,7 +223,7 @@ func TestManager_LeaveTenant_rows(t *testing.T) {
 	t.Parallel()
 
 	store := leavingStore()
-	for _, key := range []access.MembershipKey{danaAlphaReader, danaAlphaLead, danaBetaReader, danaEvery, danaGlobal, galeAlphaWarden} {
+	for _, key := range []access.MembershipKey{danaAlphaReader, danaAlphaLead, danaBetaReader, danaEvery, danaGlobal, erinAlphaWarden} {
 		store.memberships[key] = true
 	}
 	store.membershipPeriods[danaAlphaLead] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
@@ -286,16 +286,16 @@ func TestManager_LeaveTenant_lastAdministrator(t *testing.T) {
 			held: func(store *fakeStore) { byMembership(store); throughGroup(store) }, other: func(*fakeStore) {}, wantSays: lastAdministratorSays,
 		},
 		"another administrator who can sign in: the person leaves": {
-			held: byMembership, other: func(store *fakeStore) { store.memberships[galeAlphaWarden] = true },
+			held: byMembership, other: func(store *fakeStore) { store.memberships[erinAlphaWarden] = true },
 		},
 		"another administrator through the group: the person leaves": {
 			held: throughGroup, other: func(store *fakeStore) { store.groupMembers[memberKey(nightID, otherUser)] = true },
 		},
 		"the other administrator is disabled: refused": {
-			held: byMembership, other: func(store *fakeStore) { store.memberships[galeAlphaWarden] = true }, disabled: true, wantSays: lastAdministratorSays,
+			held: byMembership, other: func(store *fakeStore) { store.memberships[erinAlphaWarden] = true }, disabled: true, wantSays: lastAdministratorSays,
 		},
 		"the other holds the role in every tenant only: refused": {
-			held: byMembership, other: func(store *fakeStore) { store.memberships[galeEveryWarden] = true }, wantSays: lastAdministratorSays,
+			held: byMembership, other: func(store *fakeStore) { store.memberships[erinEveryWarden] = true }, wantSays: lastAdministratorSays,
 		},
 		"the other holds the role through a group kept for the whole application: refused": {
 			held: byMembership,
@@ -369,16 +369,22 @@ func TestManager_LeaveTenant_noAdministratorRoles(t *testing.T) {
 	}
 }
 
-// TestManager_LeaveTenant_account pins when the account goes with the leaving: when
-// nothing else keeps it, with its sign-in identities and sessions, in the same
-// transaction; it stays for anything held anywhere else, ended or not. The list's
-// DeletesAccount says the same in each case, and no notice is mailed either way.
+// TestManager_LeaveTenant_account pins when the account goes with the leaving: when the
+// person then holds nothing that has not ended, with its sign-in identities and sessions,
+// in the same transaction. Anything held anywhere else that has not ended keeps it, one
+// whose period has not begun among them, and nothing elsewhere is touched; a row that has
+// ended elsewhere keeps nothing and goes with the account. The list's DeletesAccount says
+// the same in each case, and no notice is mailed either way.
 func TestManager_LeaveTenant_account(t *testing.T) {
 	t.Parallel()
 
+	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	notBegun := accesstypes.Period{Start: time.Now().Add(time.Hour)}
 	for name, tt := range map[string]struct {
 		elsewhere   func(store *fakeStore)
 		wantDeleted bool
+		// wantGone are the rows outside the tenant that go with the account.
+		wantGone []string
 	}{
 		"nothing else: the account goes": {
 			elsewhere: func(*fakeStore) {}, wantDeleted: true,
@@ -392,17 +398,55 @@ func TestManager_LeaveTenant_account(t *testing.T) {
 		"a role in another tenant keeps it": {
 			elsewhere: func(store *fakeStore) { store.memberships[danaBetaReader] = true },
 		},
-		"an ended row in another tenant keeps it": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader] = true
-				store.membershipPeriods[danaBetaReader] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
-			},
-		},
 		"a place in a whole-application group keeps it": {
 			elsewhere: func(store *fakeStore) { store.groupMembers[memberKey(staffID, userID)] = true },
 		},
 		"a place in another tenant's group keeps it": {
 			elsewhere: func(store *fakeStore) { store.groupMembers[memberKey(dayID, userID)] = true },
+		},
+		"a role in another tenant that has not begun keeps it": {
+			elsewhere: func(store *fakeStore) {
+				store.memberships[danaBetaReader] = true
+				store.membershipPeriods[danaBetaReader] = notBegun
+			},
+		},
+		"a place in another tenant's group that has not begun keeps it": {
+			elsewhere: func(store *fakeStore) {
+				store.groupMembers[memberKey(dayID, userID)] = true
+				store.placePeriods[memberKey(dayID, userID)] = notBegun
+			},
+		},
+		"a role in another tenant that has ended goes with the account": {
+			elsewhere: func(store *fakeStore) {
+				store.memberships[danaBetaReader] = true
+				store.membershipPeriods[danaBetaReader] = ended
+			},
+			wantDeleted: true,
+			wantGone:    []string{"delete membership " + membershipText(&danaBetaReader)},
+		},
+		"a role for the whole application that has ended goes with the account": {
+			elsewhere: func(store *fakeStore) {
+				store.memberships[danaGlobal] = true
+				store.membershipPeriods[danaGlobal] = ended
+			},
+			wantDeleted: true,
+			wantGone:    []string{"delete membership " + membershipText(&danaGlobal)},
+		},
+		"a place in another tenant's group that has ended goes with the account": {
+			elsewhere: func(store *fakeStore) {
+				store.groupMembers[memberKey(dayID, userID)] = true
+				store.placePeriods[memberKey(dayID, userID)] = ended
+			},
+			wantDeleted: true,
+			wantGone:    []string{"delete group member " + dayID.String() + " " + string(dana)},
+		},
+		"a place in a whole-application group that has ended goes with the account": {
+			elsewhere: func(store *fakeStore) {
+				store.groupMembers[memberKey(staffID, userID)] = true
+				store.placePeriods[memberKey(staffID, userID)] = ended
+			},
+			wantDeleted: true,
+			wantGone:    []string{"delete group member " + staffID.String() + " " + string(dana)},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -426,12 +470,12 @@ func TestManager_LeaveTenant_account(t *testing.T) {
 			}
 			want := []string{"delete membership " + membershipText(&danaAlphaReader)}
 			if tt.wantDeleted {
-				want = []string{
+				want = append([]string{
 					"end session " + danaSession.String(),
 					"delete identity " + identityA.String(),
 					"delete user " + userID.String(),
 					"delete membership " + membershipText(&danaAlphaReader),
-				}
+				}, tt.wantGone...)
 			}
 			if diff := cmp.Diff(want, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
@@ -453,11 +497,16 @@ func TestManager_LeaveTenant_toldOtherwise(t *testing.T) {
 	t.Parallel()
 
 	for name, tt := range map[string]struct {
-		held           []access.MembershipKey
+		held []access.MembershipKey
+		// ended are the rows of held whose period has ended since the page was drawn.
+		ended          []access.MembershipKey
 		deletesAccount bool
 	}{
 		"told the account stays, where it would go":  {held: []access.MembershipKey{danaAlphaReader}, deletesAccount: false},
 		"told the account goes, where it would stay": {held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, deletesAccount: true},
+		"told the account stays, where the role in the other tenant has since ended": {
+			held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, ended: []access.MembershipKey{danaBetaReader}, deletesAccount: false,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -465,6 +514,9 @@ func TestManager_LeaveTenant_toldOtherwise(t *testing.T) {
 			store := leavingStore()
 			for _, key := range tt.held {
 				store.memberships[key] = true
+			}
+			for _, key := range tt.ended {
+				store.membershipPeriods[key] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
 			}
 			m, engine, _ := leavingManager(t, store, false)
 

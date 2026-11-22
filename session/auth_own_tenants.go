@@ -23,7 +23,7 @@ const noOwnTenantsMessage = "This application does not serve a person's tenants.
 // OwnTenant is one tenant a person holds something in, as the application's own-tenants
 // hook lists it: the tenant's key, the roles the person holds there in words, why they
 // cannot leave it ("" where they can), and whether leaving it deletes their account
-// (it is the last thing the account holds).
+// (the person then holds nothing still in force anywhere).
 type OwnTenant struct {
 	Domain         accesstypes.Domain
 	Roles          []string

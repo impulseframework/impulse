@@ -2062,13 +2062,15 @@ is known) with the roles they hold there in words, why they cannot leave it wher
 (`refusal`, absent where they can), and whether leaving it deletes their account.
 `Auth.LeaveTenant()` accepts `{"domain", "deletesAccount"}` and answers `{"accountDeleted"}`:
 everything the person holds in the tenant goes, and the account goes with it, and every
-session of theirs, when the tenant was the last thing the account held. `deletesAccount` is
-what the page told the person; where it is no longer true the request is refused (409) and
-nothing changes, so nobody deletes their account having agreed to less. Who belongs where is
-the application's to say: both handlers answer through the hook the auth's package sets
-(`SetOwnTenants`, the generated identity client's `OwnTenants`), which holds the rules: a
-tenant's last administrator does not leave it. Both validate the session themselves and
-refuse an impersonated session and a request a token authenticated. No mail is sent.
+session of theirs, when the person then holds nothing still in force anywhere: a role or a
+place whose time has ended keeps no account against its person's own leaving, and goes with
+it. `deletesAccount` is what the page told the person; where it is no longer true the request
+is refused (409) and nothing changes, so nobody deletes their account having agreed to less.
+Who belongs where is the application's to say: both handlers answer through the hook the
+auth's package sets (`SetOwnTenants`, the generated identity client's `OwnTenants`), which
+holds the rules: a tenant's last administrator does not leave it. Both validate the session
+themselves and refuse an impersonated session and a request a token authenticated. No mail is
+sent.
 
 ### The look a person chose
 

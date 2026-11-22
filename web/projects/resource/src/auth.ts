@@ -542,7 +542,7 @@ export interface OwnSession {
  * One of the tenants a signed-in person holds something in, as the server answers it: its
  * key (`domain`), its name (the key where the server knows none), the roles the person
  * holds there in words, why they cannot leave it (absent where they can), and whether
- * leaving it deletes their account, the last thing the account holds.
+ * leaving it deletes their account (the person then holds nothing still in force anywhere).
  */
 export interface OwnTenant {
   readonly domain: string;
