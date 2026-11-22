@@ -497,6 +497,51 @@ func Test_newSnapshot_findings_dottedResource(t *testing.T) {
 	}
 }
 
+// Test_newSnapshot_findings_fieldColumn pins that a stored grant no write could
+// have made by its field column is skipped and reported whatever the collection
+// lists: a field with no resource is not the grant on every resource, and a
+// field that holds a dot names no field.
+func Test_newSnapshot_findings_fieldColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource string
+		field    string
+		want     string
+		// deniedName, when set, is a name the member's check is denied on.
+		deniedName accesstypes.Resource
+	}{
+		{name: "a field with no resource", resource: "", field: "name", want: "names the field name and no resource", deniedName: ".name"},
+		{name: "all fields with no resource", resource: "", field: "*", want: "names the field * and no resource"},
+		{name: "a field with a dot", resource: "Widgets", field: "name.first", want: "the row's field name.first holds a dot"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snap, findings := compileWithDefaults(t, compileDefaults(t, readerRunnerFile()), &policy.Records{
+				Roles: []policy.Role{{Scope: tenant1Policy, Name: "Chief"}},
+				Grants: []policy.Grant{
+					{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: tt.resource, Field: tt.field},
+				},
+				Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("dana"), Role: "Chief"}},
+			})
+
+			var skipped *SkippedGrant
+			if len(findings) != 1 || !errors.As(error(findings[0]), &skipped) || !strings.Contains(skipped.Error(), tt.want) {
+				t.Errorf("findings = %v, want one skipped grant whose reason holds %q", findings, tt.want)
+			}
+			if tt.deniedName == "" {
+				return
+			}
+			if got := snap.decideUserResources("dana", tenant1Scope, "Read", tt.deniedName); decisionText(got[0]) != "denied" {
+				t.Errorf("decide(dana, Read, %s) = %s, want denied", tt.deniedName, decisionText(got[0]))
+			}
+		})
+	}
+}
+
 // Test_newSnapshot_findings_defaultRoleGrants pins that a stored grant under a
 // default role's name gives nothing whether or not the store holds a row for
 // the role: the grant is skipped, the role is reported as shadowed once for
