@@ -66,7 +66,9 @@ type Client struct {
 // accesstypes.PolicyScope; neither is ever a distinguished value.
 //
 // New fails when the role file does not parse or does not validate against
-// the collection: a release whose default roles are wrong does not start.
+// the collection: a release whose default roles are wrong does not start. A
+// refusal of New's own does not name New: the caller that wraps its error
+// names it.
 func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
 	if IsNilCollection(collection) {
 		return nil, errors.New("the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)")
@@ -95,18 +97,18 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
 	} else if err := validateEngineAuth(collection); err != nil {
-		return nil, errors.Wrap(err, "access.New()")
+		return nil, err
 	}
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,
 	// before the file's grants are compiled.
 	if _, err := superAdministratorRole(collection, options.superMethods); err != nil {
-		return nil, errors.Wrap(err, "access.New()")
+		return nil, err
 	}
 	defaults, err := compileDefaultRoles(collection, config, options.superMethods, options.auth)
 	if err != nil {
 		if !options.roleFileSet {
-			return nil, errors.Wrap(err, "access.New()")
+			return nil, err
 		}
 
 		return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file does not validate")
