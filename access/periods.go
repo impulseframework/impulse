@@ -42,7 +42,7 @@ func ValidatePeriod(role accesstypes.Role, period accesstypes.Period) error {
 		return httpio.NewBadRequestMessage(err.Error())
 	}
 	if role == accesstypes.SuperAdministrator && !period.IsZero() {
-		return httpio.NewBadRequestMessagef("the %s role takes no end and no start: there is always a super administrator, and a period could leave none. Give the role with no period, and remove it when it is no longer wanted", string(role))
+		return httpio.NewBadRequestMessagef("the %s role takes no end and no start: there is always a super administrator, and a period could leave none. Give the role with no period, and remove it when it is no longer wanted", roleInWords(role))
 	}
 
 	return nil

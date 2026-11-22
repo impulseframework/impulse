@@ -356,7 +356,7 @@ func Test_userManager_AssignUserRole_superAdministrator(t *testing.T) {
 		"a start and an end": {Start: in, End: in.Add(time.Hour)},
 	} {
 		err := manager.AssignUserRole(ctx, globalPolicy, "root", accesstypes.SuperAdministrator, period, "")
-		if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "takes no end") {
+		if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "the Super administrator role takes no end and no start") {
 			t.Errorf("AssignUserRole() of the Super Administrator role with %s: error = %v, want a bad request saying the role takes no end", name, err)
 		}
 	}

@@ -116,7 +116,7 @@ func TestSuperAdministrator_definedInEveryClient(t *testing.T) {
 func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 	t.Parallel()
 
-	const rule = "is held for the whole application alone, never in a tenant or in every tenant"
+	const rule = "the Super administrator role is held for the whole application alone, never in a tenant or in every tenant"
 	writes := map[string]func(ctx context.Context, m UserManager, store *fakeStore, scope accesstypes.PolicyScope) error{
 		"AddUserRoles": func(ctx context.Context, m UserManager, _ *fakeStore, scope accesstypes.PolicyScope) error {
 			return m.AddUserRoles(ctx, scope, "dana", accesstypes.SuperAdministrator)
@@ -141,7 +141,7 @@ func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 			for _, scope := range []accesstypes.PolicyScope{tenant1Policy, everyDomainPolicy} {
 				err := write(ctx, client.UserManager(), store, scope)
 				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(httpio.Message(err), rule) {
-					t.Errorf("%s(%s) error = %v, want a bad request saying the role %s", name, scope, err, rule)
+					t.Errorf("%s(%s) error = %v, want a bad request saying %q", name, scope, err, rule)
 				}
 			}
 			if held, err := client.UserManager().UserRoles(ctx, "dana"); err != nil || len(held) != 0 {
