@@ -1040,7 +1040,9 @@ the password method is listed.
   (`MethodList.ForgetBrowser`, `MethodList.ChangeName`, `MethodList.ChangeLook`): where
   a signed-in person's account page forgets this browser and writes the person's own
   name, and where their pages keep the look they chose (see "The second factor", "A
-  person's name" and "The look a person chose").
+  person's name" and "The look a person chose"). The account page offers
+  `forgetBrowser` on this browser's line of where the person is signed in, so it shows
+  only where the list's paths (`OwnSessions`, `ownSessions`) are named too.
 - `changeUsername` and `usernameFree` are the paths of the `ChangeUsername` and
   `UsernameFree` handlers, present when the list names them (`MethodList.ChangeUsername`
   and `MethodList.UsernameFree`, both or neither) and the password method's usernames

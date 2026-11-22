@@ -598,11 +598,18 @@ export class AccountPageComponent {
     }
   }
 
-  /** Runs one request of the open form: the controls are disabled, and what an earlier one came to is not said of it. */
-  /** An act on the list: a request like any other, after which the list is read again. */
+  /**
+   * An act on the list: a request like any other, after which the list is read again,
+   * whether it answered or failed. One that failed is said under the list, and not thrown on.
+   */
   private async act(work: () => Promise<void>): Promise<void> {
-    await this.request(work, false);
-    this.signedIn.reload();
+    try {
+      await this.request(work, false);
+    } catch {
+      this.sessionsSaid.set('That did not work. Try again in a moment.');
+    } finally {
+      this.signedIn.reload();
+    }
   }
 
   /** Sends a request, as pending work of the application, with every button disabled meanwhile; a form's request drops the form's last refusal. */

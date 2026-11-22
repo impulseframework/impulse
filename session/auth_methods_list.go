@@ -51,7 +51,9 @@ type MethodList struct {
 	// ForgetBrowser is the path of the Auth's ForgetBrowser handler, where a signed-in
 	// person's account page forgets the browser the second factor remembered for them,
 	// or none. The page shows the action only where the session says the browser is
-	// remembered for the person.
+	// remembered for the person. The account page offers it on this browser's line of
+	// where the person is signed in, so it shows only where the list's paths
+	// (OwnSessions, ownSessions) are named too.
 	ForgetBrowser string
 	// ChangeName is the path of the Auth's ChangeName handler, where a signed-in
 	// person's account page writes their own name, or none.

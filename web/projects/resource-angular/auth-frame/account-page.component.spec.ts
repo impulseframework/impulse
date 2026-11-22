@@ -1270,6 +1270,52 @@ describe('AccountPageComponent', () => {
     });
 
     for (const tt of [
+      {
+        name: 'a sign-out of one browser',
+        path: passwordMethods.ownSessions.end,
+        act: (p: AccountPageComponent) => {
+          const other = p.sessions().find((session) => session.id === laptop.id);
+          return other ? p.signOut(other) : Promise.reject(new Error('the list holds no laptop'));
+        },
+      },
+      {
+        name: 'a sign-out everywhere else',
+        path: passwordMethods.ownSessions.endOthers,
+        act: (p: AccountPageComponent) => p.signOutOthers(),
+      },
+      {
+        name: 'a forget of this browser',
+        path: passwordMethods.forgetBrowser,
+        act: (p: AccountPageComponent) => p.forgetBrowser(),
+      },
+      {
+        name: 'a forget of every browser',
+        path: passwordMethods.forgetBrowsers,
+        act: (p: AccountPageComponent) => p.forgetAllBrowsers(),
+      },
+    ]) {
+      it(`says under the list that an act the server fails did not work, reads the list again and enables the buttons: ${tt.name}`, async () => {
+        await open({
+          session: { ...gale, browserRemembered: true },
+          sessions: [here, laptop, phone],
+          rememberedBrowsers: 2,
+          answers: { [tt.path]: { status: 500, body: { message: 'the server failed' } } },
+        });
+        const reads = listReads();
+        await expect(tt.act(page())).resolves.toBeUndefined();
+        await settle();
+        expect(postedTo(tt.path)).toHaveLength(1);
+        expect(sessionsSaid()).toBe('That did not work. Try again in a moment.');
+        expect(listReads()).toBe(reads + 1);
+        const buttons = Array.from(
+          element().querySelectorAll<HTMLButtonElement>('.impulse-account-page-signed-in button'),
+        );
+        expect(buttons.length).toBeGreaterThan(0);
+        expect(buttons.every((button) => !button.disabled)).toBe(true);
+      });
+    }
+
+    for (const tt of [
       { name: 'two', sessions: [here, laptop, phone], ended: undefined, want: 'Signed out of 2 other browsers.' },
       { name: 'one', sessions: [here, laptop], ended: undefined, want: 'Signed out of 1 other browser.' },
       { name: 'none', sessions: [here, laptop], ended: 0, want: undefined },
