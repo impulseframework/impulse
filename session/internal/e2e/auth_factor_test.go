@@ -660,17 +660,17 @@ func seamTypedAddressRightCodeWithinBudget[Tx any](ctx context.Context, t *testi
 // more codes.
 const codesSpentSentence = "Too many wrong codes were entered for this account. Reset your password, or ask an administrator to unlock your sign-in."
 
-// ownCodeGuesses is the count of the wrong codes entered for the address an account
-// holds, 0 for none.
-func (a *authApp[Tx]) ownCodeGuesses(ctx context.Context, t *testing.T, email string) int64 {
+// ownCodeGuesses is the count of the wrong codes entered for the account with id, 0 for
+// none.
+func (a *authApp[Tx]) ownCodeGuesses(ctx context.Context, t *testing.T, id impulse.UUID) int64 {
 	t.Helper()
 
-	record, err := a.signInAttempts(ctx, attempts.OwnKey(attempts.KindCodeGuess, attempts.Normalize(email)))
+	record, err := a.signInAttempts(ctx, attempts.OwnKey(attempts.KindCodeGuess, id.String()))
 	if err != nil {
 		if httpio.HasNotFound(err) {
 			return 0
 		}
-		t.Fatalf("SignInAttempts() of the codes entered for %s error = %v", email, err)
+		t.Fatalf("SignInAttempts() of the codes entered for the account %s error = %v", id, err)
 	}
 	if record == nil {
 		return 0
@@ -701,7 +701,7 @@ func (a *authApp[Tx]) sendOwnCode(ctx context.Context, t *testing.T, b *browser,
 }
 
 // assertCodesSpentAnswer fails unless status and body are the refusal of an account
-// whose address takes no more codes: 401 codes_spent, in its words.
+// that takes no more codes: 401 codes_spent, in its words.
 func assertCodesSpentAnswer(t *testing.T, status int, body []byte, what string) {
 	t.Helper()
 
@@ -712,7 +712,7 @@ func assertCodesSpentAnswer(t *testing.T, status int, body []byte, what string) 
 
 // seamOwnCodeSpent: pat holds a password and an address nobody has confirmed, and signs
 // in in two browsers, each held for the code mailed to that address. The wrong codes
-// entered in the two are counted together under the address: the twenty-fifth is
+// entered in the two are counted together under the account: the twenty-fifth is
 // answered codes_spent. After it, the right code that stands in the other browser is
 // not compared, and neither browser can have a code mailed; neither has a session. Once
 // the count's row is cleared, as an administrator's unlock clears it, a code is mailed
@@ -726,7 +726,7 @@ func seamOwnCodeSpent[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx],
 	first, second := a.heldForOwnCode(ctx, t, "pat"), a.heldForOwnCode(ctx, t, "pat")
 
 	// Four codes, in turn in the two browsers, and five wrong guesses at each: four are
-	// wrong, the fifth ends its code. Twenty wrong codes for the address.
+	// wrong, the fifth ends its code. Twenty wrong codes for the account.
 	for sent := 1; sent <= 4; sent++ {
 		b := first
 		if sent%2 == 0 {
@@ -741,13 +741,13 @@ func seamOwnCodeSpent[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx],
 			enterWrongCode(ctx, t, b, wrong, want, fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))
 		}
 	}
-	if got := a.ownCodeGuesses(ctx, t, address); got != 20 {
-		t.Fatalf("the address's count after four codes = %d, want 20: one count for both browsers", got)
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 20 {
+		t.Fatalf("the account's count after four codes = %d, want 20: one count for both browsers", got)
 	}
 
 	// Fifteen minutes on, the address may be sent codes again: here its count of codes
 	// sent is cleared, as the time passing would. Each browser has a code mailed; the
-	// first ends its own with five wrong guesses, and the fifth is the address's
+	// first ends its own with five wrong guesses, and the fifth is the account's
 	// twenty-fifth.
 	if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, attempts.Normalize(address))); err != nil {
 		t.Fatalf("ClearSignInAttempts() of the address's sign-in codes error = %v", err)
@@ -759,8 +759,8 @@ func seamOwnCodeSpent[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx],
 	}
 	status, body := first.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": wrong})
 	assertCodesSpentAnswer(t, status, body, "the twenty-fifth wrong code")
-	if got := a.ownCodeGuesses(ctx, t, address); got != 25 {
-		t.Errorf("the address's count = %d, want 25", got)
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 25 {
+		t.Errorf("the account's count = %d, want 25", got)
 	}
 
 	// The right code that stands in the second browser is not compared: it is refused
@@ -784,7 +784,7 @@ func seamOwnCodeSpent[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx],
 
 	// An administrator clears the count's row, named as the list of sign-in attempts
 	// shows it: a code is mailed, and the right code signs pat in.
-	if err := a.clearSignInAttempts(ctx, session.SignInAttemptKey("CODE-GUESS:"+address)); err != nil {
+	if err := a.clearSignInAttempts(ctx, session.SignInAttemptKey("CODE-GUESS:"+pat.String())); err != nil {
 		t.Fatalf("ClearSignInAttempts() of the count's row error = %v", err)
 	}
 	second.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.sendOwnCode(ctx, t, second, address)})
@@ -800,7 +800,7 @@ func seamOwnCodeCountStartsAgain[Tx any](ctx context.Context, t *testing.T, a *a
 	t.Helper()
 
 	const address = "pat@lakeside.edu"
-	a.seedWithEmail(ctx, t, "pat", address)
+	pat := a.seedWithEmail(ctx, t, "pat", address)
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
 	b := a.heldForOwnCode(ctx, t, "pat")
 
@@ -817,22 +817,80 @@ func seamOwnCodeCountStartsAgain[Tx any](ctx context.Context, t *testing.T, a *a
 			enterWrongCode(ctx, t, b, wrongCode(code), want, fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))
 		}
 	}
-	if got := a.ownCodeGuesses(ctx, t, address); got != 24 {
-		t.Fatalf("the address's count = %d, want 24", got)
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 24 {
+		t.Fatalf("the account's count = %d, want 24", got)
 	}
 
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
 	signedInAs(ctx, t, b, "pat")
-	if got := a.ownCodeGuesses(ctx, t, address); got != 0 {
-		t.Errorf("the address's count after its right code = %d, want none", got)
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 0 {
+		t.Errorf("the account's count after its right code = %d, want none", got)
 	}
 
 	// The next sign-in's wrong code is the first of a new count.
 	next := a.heldForOwnCode(ctx, t, "pat")
 	enterWrongCode(ctx, t, next, wrongCode(a.sendOwnCode(ctx, t, next, address)), "invalid_code", "a wrong code in the next sign-in")
-	if got := a.ownCodeGuesses(ctx, t, address); got != 1 {
-		t.Errorf("the address's count after a wrong code in the next sign-in = %d, want 1", got)
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 1 {
+		t.Errorf("the account's count after a wrong code in the next sign-in = %d, want 1", got)
 	}
+}
+
+// seamOwnCodeCountIsTheAccounts: pat holds pat@glass.example and sam pat@glaß.example,
+// two addresses the users table takes for two and the mail counts' fold for one, both
+// with a password. pat's twenty-five are spent as seamOwnCodeSpent spends them. sam then
+// signs in, is mailed a code at sam's address and is signed in by it: pat's spent count
+// is not sam's, and sam's right code does not start pat's again. The two addresses share
+// the count of codes sent (CODE: under the mail counts' fold), so the seam clears that
+// row between pat's fourth and fifth code, as seamOwnCodeSpent does.
+func seamOwnCodeCountIsTheAccounts[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	const patAddress, samAddress = "pat@glass.example", "pat@glaß.example"
+	if attempts.Normalize(patAddress) != attempts.Normalize(samAddress) {
+		t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", patAddress, samAddress)
+	}
+	pat, sam := a.seedWithEmail(ctx, t, "pat", patAddress), a.seedWithEmail(ctx, t, "sam", samAddress)
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.heldForOwnCode(ctx, t, "pat")
+
+	// Five codes, and five wrong guesses at each: four are wrong, the fifth ends its
+	// code, and the last is pat's twenty-fifth.
+	for sent := 1; sent <= 5; sent++ {
+		if sent == 5 {
+			if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, attempts.Normalize(patAddress))); err != nil {
+				t.Fatalf("ClearSignInAttempts() of the address's sign-in codes error = %v", err)
+			}
+		}
+		wrong := wrongCode(a.sendOwnCode(ctx, t, b, patAddress))
+		for guess := 1; guess <= 4; guess++ {
+			enterWrongCode(ctx, t, b, wrong, "invalid_code", fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))
+		}
+		want := "code_expired"
+		if sent == 5 {
+			want = "codes_spent"
+		}
+		enterWrongCode(ctx, t, b, wrong, want, fmt.Sprintf("wrong guess #5 at code #%d", sent))
+	}
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 25 {
+		t.Fatalf("pat's count = %d, want 25", got)
+	}
+
+	// sam is mailed a code at sam's address and signed in by it.
+	other := a.heldForOwnCode(ctx, t, "sam")
+	other.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.sendOwnCode(ctx, t, other, samAddress)})
+	if v := signedInAs(ctx, t, other, "sam"); v.UserID != sam.String() {
+		t.Errorf("the session's user = %s, want sam %s", v.UserID, sam)
+	}
+	if got := a.ownCodeGuesses(ctx, t, sam); got != 0 {
+		t.Errorf("sam's count = %d, want none", got)
+	}
+	if got := a.ownCodeGuesses(ctx, t, pat); got != 25 {
+		t.Errorf("pat's count after sam's right code = %d, want 25", got)
+	}
+
+	// pat is still refused a code.
+	status, body := b.do(ctx, http.MethodPost, "/pending/code/send", nil)
+	assertCodesSpentAnswer(t, status, body, "a code asked for pat after sam signed in")
 }
 
 // seamEmailCodeUsedResetsLimit: a person who signs in with each code they are sent

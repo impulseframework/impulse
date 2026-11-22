@@ -417,9 +417,9 @@ func seamResetLimit[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 }
 
 // seamResetAfterCodesSpent: pat holds a password and a confirmed address, and
-// twenty-five wrong codes spend the count of the codes entered for it: no code is
-// mailed any more. pat asks for a reset link and chooses a password there; the sign-in
-// with it is mailed a code, and the right code signs pat in.
+// twenty-five wrong codes spend the count of the codes entered for the account: no code
+// is mailed any more. pat asks for a reset link and chooses a password there; the
+// sign-in with it is mailed a code, and the right code signs pat in.
 func seamResetAfterCodesSpent[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	t.Helper()
 

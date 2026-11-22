@@ -572,32 +572,47 @@ func TestManager_ownAccount_withoutACaller(t *testing.T) {
 // TestManager_UnlockSignIn_impersonatorsOwnCounts pins every row of the sign-in attempts
 // table the person who impersonates may not clear: the count under their username,
 // however it is spelled, and the library's own counts for their account, the mail and
-// the reset links their confirmed address is sent and the guesses at the code of their
-// first password. Another person's rows are cleared.
+// the reset links their confirmed address is sent, the wrong sign-in codes entered for
+// their account and the guesses at the code of their first password. The two kept under
+// the account are refused whether or not the store knows a confirmed address for them.
+// Another person's rows are cleared.
 func TestManager_UnlockSignIn_impersonatorsOwnCounts(t *testing.T) {
 	t.Parallel()
 
 	// The rows are written out as the table keeps them, so the test does not take the
 	// session library's word for which rows are an account's.
-	own := []string{"dana", "Dana", "DANA", "MAIL:dana@example.com", "RESET:dana@example.com", "FIRST-PASSWORD:" + userID.String()}
+	own := []string{
+		"dana", "Dana", "DANA", "MAIL:dana@example.com", "RESET:dana@example.com", "CODE-GUESS:" + userID.String(), "FIRST-PASSWORD:" + userID.String(),
+	}
+	refused := func(t *testing.T, store *fakeStore, name string) {
+		t.Helper()
+
+		m, _ := impersonatorManager(t, store)
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return m.UnlockSignIn(viewedBy(asErin(ctx, managedAuth, false), userID), txn, name)
+		})
+		if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+"unlock your own sign-in.") {
+			t.Fatalf("UnlockSignIn(%q) error = %v, want the refusal of the rule on the person who impersonates", name, err)
+		}
+		if len(store.writes) != 0 {
+			t.Errorf("buffered writes = %v, want none", store.writes)
+		}
+	}
 	for _, name := range own {
 		t.Run("her own: "+name, func(t *testing.T) {
 			t.Parallel()
 
-			store := impersonatorStore()
-			m, _ := impersonatorManager(t, store)
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.UnlockSignIn(viewedBy(asErin(ctx, managedAuth, false), userID), txn, name)
-			})
-			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+"unlock your own sign-in.") {
-				t.Fatalf("UnlockSignIn(%q) error = %v, want the refusal of the rule on the person who impersonates", name, err)
-			}
-			if len(store.writes) != 0 {
-				t.Errorf("buffered writes = %v, want none", store.writes)
-			}
+			refused(t, impersonatorStore(), name)
 		})
 	}
-	for _, name := range []string{"frank", "MAIL:frank@example.com", "RESET:frank@example.com", "FIRST-PASSWORD:" + frankID.String()} {
+	t.Run("her own, with no confirmed address: the wrong sign-in codes entered for her account", func(t *testing.T) {
+		t.Parallel()
+
+		store := impersonatorStore()
+		delete(store.emails, "dana@example.com")
+		refused(t, store, "CODE-GUESS:"+userID.String())
+	})
+	for _, name := range []string{"frank", "MAIL:frank@example.com", "RESET:frank@example.com", "CODE-GUESS:" + frankID.String(), "FIRST-PASSWORD:" + frankID.String()} {
 		t.Run("another person's: "+name, func(t *testing.T) {
 			t.Parallel()
 

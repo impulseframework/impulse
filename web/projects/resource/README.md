@@ -635,10 +635,10 @@ after it, with `invitation_spent`, a code mailed for an invitation and entered i
 carries no invitation or another one with `invitation_not_open`, and one entered where its
 invitation has ended with `invitation_expired`. `enrollEmail(email)` and `verifyCode` answer
 `address_spent` when twenty-five wrong codes were entered for an address typed at this step: it
-takes no more, and an administrator adds the address to the account. `sendCode()` and
-`verifyCode` answer `codes_spent` when twenty-five wrong codes were entered for the address an
-account holds: it takes no more until the person has reset their password or an administrator
-has unlocked the sign-in. With `rememberDevice` the server remembers the browser, and this person's
+takes no more, and an administrator adds the address to the account. `sendCode()` and `verifyCode`
+answer `codes_spent` when twenty-five wrong codes were entered for an account's own code: the
+account takes no more until the person has reset their password or an administrator has unlocked the
+sign-in. With `rememberDevice` the server remembers the browser, and this person's
 next sign-ins from it skip the code for as long as the server keeps a remembered browser. A
 server whose pending routes name none of the three does not route them, and they throw saying so.
 

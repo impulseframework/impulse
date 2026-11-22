@@ -372,13 +372,13 @@ const (
 	// to the address from this step and no code is compared. The person asks an
 	// administrator to put the address on their account.
 	RefusedAddressSpent LoginRefusalCode = "address_spent"
-	// RefusedCodesSpent is the code for a sign-in code asked for or entered for an
-	// account that holds an address, once twenty-five wrong codes were entered for that
-	// address. The count is the address's, across every sign-in that waited on the
-	// account's own code, and no time resets it; the right code does, while the count is
-	// not spent. Once it is, nothing more is mailed to the address from this step and no
-	// code is compared, until the person chooses a password at a reset link or an
-	// administrator clears the count's row.
+	// RefusedCodesSpent is the code for a sign-in code asked for or entered for an account
+	// that holds an address, once twenty-five wrong codes were entered for the account.
+	// The count is the account's, across every sign-in that waited on its own code, and no
+	// time resets it; the right code does, while the count is not spent. Once it is,
+	// nothing more is mailed to the account from this step and no code is compared, until
+	// the person chooses a password at a reset link or an administrator clears the count's
+	// row.
 	RefusedCodesSpent LoginRefusalCode = "codes_spent"
 	// RefusedInvitationNotOpen is the code for a sign-in code mailed for an invitation
 	// and entered in a browser that does not have that invitation open: it carries no

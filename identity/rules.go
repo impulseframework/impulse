@@ -270,12 +270,12 @@ func (m *Manager) refuseImpersonatorsSession(ctx context.Context, txn resource.R
 
 // refuseImpersonatorsName is refuseImpersonatorAsSubject for a row of the sign-in
 // attempts table named as the list shows it: the count kept under the real person's own
-// username, and the library's own counts for their account, the mail and the reset
-// links their confirmed address is sent, the wrong sign-in codes entered for it and the
-// guesses at the code of their first password (session.AccountAttemptKeys), are not
-// cleared from a session that acts as someone else. A count kept under an address the
-// account holds and has not confirmed is not known here: the store answers the
-// confirmed address alone.
+// username, and the library's own counts for their account, the wrong sign-in codes
+// entered for it and the guesses at the code of their first password, which are kept
+// under the account, and the mail and the reset links their confirmed address is sent
+// (session.AccountAttemptKeys), are not cleared from a session that acts as someone
+// else. A count kept under an address the account holds and has not confirmed is not
+// known here: the store answers the confirmed address alone.
 func (m *Manager) refuseImpersonatorsName(ctx context.Context, txn resource.ReadWriteTransaction, name string) error {
 	actor, acting := m.impersonator(ctx)
 	if !acting {

@@ -453,9 +453,10 @@ meets the limit. An invitation that twenty-five codes were entered for, none of 
 takes no more and mails none: the step shows the sentence for `invitation_spent`, which says to ask
 for a new invitation. The step shows the sentence for `address_spent` when twenty-five wrong codes
 were entered for an address typed at this step: it takes no more, and an administrator adds the
-address to the account. The step shows the sentence for `codes_spent` when twenty-five wrong
-codes were entered for the address an account holds: it takes no more until the person has reset
-their password or an administrator has unlocked the sign-in. A code mailed for an invitation and entered in a browser that carries no
+address to the account. The step shows the sentence for `codes_spent` when twenty-five wrong codes
+were entered for an account's own code: the account takes no more until the person has reset their
+password or an administrator has unlocked the sign-in. A code mailed for an invitation and entered
+in a browser that carries no
 invitation or another one shows the sentence for `invitation_not_open`, which says to open the
 invitation's link again, and one entered where its invitation has ended the sentence for
 `invitation_expired`. Send me a link on the sign-up form is held the same way. With the box checked, the server remembers the

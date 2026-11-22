@@ -1274,7 +1274,9 @@ the person reaches.
    from this step. The right code resets the count. A person whose address is spent
    asks an administrator to put it on their account: the code then goes to the address
    the account holds, which nobody types. The code mailed to the address an account
-   holds is held to a count of that size too, kept under the address (`CODE-GUESS:`). A
+   holds is held to a count of that size too, kept under the account (`CODE-GUESS:` and
+   the account's id), so no other account's codes are in it, however alike two accounts'
+   addresses read, and an address the account is given later does not start it again. A
    person who knows an account's password and does not read its mail could otherwise
    have a new code mailed every few minutes and guess for as long as they liked, and so
    could a first sign-in under the account's name that nothing vouches for. The wrong
@@ -1282,7 +1284,7 @@ the person reaches.
    together, in however many sign-ins, and no time resets the count. The wrong code
    that takes the twenty-fifth place, and every code asked for or entered for that
    account after it, is `401 {"code": "codes_spent"}`; nothing more is mailed to the
-   address from this step. The right code resets the count, and so does a password
+   account from this step. The right code resets the count, and so does a password
    chosen at a reset link, which shows the mailbox's reader as the code does and ends
    the password the codes were guessed behind. An administrator resets it by clearing
    the count's row, as a name's lock is cleared. The links, and a code asked for an
@@ -1297,7 +1299,7 @@ the person reaches.
    application whose tenants have no directories, waits for the account's own code with
    nothing linked. The codes it asks for are the account's own (`CODE:`), so it can
    hold up that account's codes for a quarter of an hour at a time, and the wrong codes
-   it enters take places in the address's twenty-five (`CODE-GUESS:`), which it can
+   it enters take places in the account's twenty-five (`CODE-GUESS:`), which it can
    spend; the account's person then waits for an administrator to clear the count's row
    before the code can link them. An account that has a password is asked for it before
    any code, and one that already signs in through an identity is never linked a second
@@ -2451,8 +2453,9 @@ codes an address is sent, the codes sent to accept one invitation, the reset lin
 address is sent, and the guesses at the code of an account's first password, under
 `MAIL:`, `CODE:`, `INVITATION:`, `RESET:` and `FIRST-PASSWORD:` and what each counts. The
 wrong codes entered at the sign-in code's step are counted there too: for one invitation
-(`INVITATION-GUESS:`), for an address a person typed (`ADDRESS-GUESS:`) and for the
-address an account holds (`CODE-GUESS:`). A name is counted
+(`INVITATION-GUESS:`), for an address a person typed (`ADDRESS-GUESS:`) and for an
+account's own code (`CODE-GUESS:`, kept under the account's id as `FIRST-PASSWORD:` is).
+A name is counted
 under its case-folded form, which holds no capital, so nothing a person types into the
 username field is ever one of those keys: failing to sign in under the text of one
 counts against a name nobody holds, and closes no address to its mail. A caller that
@@ -3192,7 +3195,7 @@ table is the wire contract:
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. It is also the answer to a sign-in code mailed for an invitation, and to the sign-in that entered it, once that invitation was used, withdrawn or ran out: the code accepts nothing. |
 | `invitation_spent` | `RefusedInvitationSpent` | Auth: a sign-in code asked for, or entered, to accept an invitation that takes no more codes: twenty-five were entered for it and none accepted it. The count is the invitation's, across every sign-in that carried it, and never starts again, so nothing more is mailed for it and no code is compared. The person asks whoever invited them for a new invitation (see "The second factor"). |
 | `address_spent` | `RefusedAddressSpent` | Auth: a sign-in code asked for, or entered, for an address a person typed at the code step, once twenty-five wrong codes were entered for that address. The count is the address's, across every account and sign-in that typed it; no time resets it, only the right code does. Nothing more is mailed to the address from this step and no code is compared. The person asks an administrator to put the address on their account (see "The second factor"). |
-| `codes_spent` | `RefusedCodesSpent` | Auth: a sign-in code asked for, or entered, for an account that holds an address, once twenty-five wrong codes were entered for that address. The count is the address's, across every sign-in that waited on the account's own code; no time resets it. Nothing more is mailed to the address from this step and no code is compared. The right code resets the count while it is not spent; after that a password chosen at a reset link does, or an administrator who clears the count's row (see "The second factor"). |
+| `codes_spent` | `RefusedCodesSpent` | Auth: a sign-in code asked for, or entered, for an account that holds an address, once twenty-five wrong codes were entered for the account. The count is the account's, across every sign-in that waited on the account's own code; no other account's codes are in it, and no time resets it. Nothing more is mailed to the account from this step and no code is compared. The right code resets the count while it is not spent; after that a password chosen at a reset link does, or an administrator who clears the count's row (see "The second factor"). |
 | `invitation_not_open` | `RefusedInvitationNotOpen` | Auth: a sign-in code mailed for an invitation, entered in a browser that carries no invitation or another one. The code is not compared, nothing is written, and it takes its place in the invitation's count. The person opens the invitation's link again and enters the code. |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it answers for (the one the method verified, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, or one its method did not verify, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that names itself and has not confirmed the invited address is not refused at a sign-in, which waits for the code mailed to the invited address; its acceptance by hand, where nothing can wait, is refused with this code and a sentence that says to sign in again from the invitation's link. The login page names the invited address and asks for a sign-in with that account. |
 | `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |

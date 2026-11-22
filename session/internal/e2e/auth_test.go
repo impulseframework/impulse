@@ -835,6 +835,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamOwnCodeCountStartsAgain[Tx],
 		},
 		{
+			name: "two accounts whose addresses read alike have a count each: the twenty-five wrong codes of one leave the other mailed its code and signed in by it, and the other's right code leaves the first spent",
+			run:  seamOwnCodeCountIsTheAccounts[Tx],
+		},
+		{
 			name: "five wrong codes kill the code sent, a new one is sent in its place, an address sent five codes it did not use is refused a sixth with too_many_emails, and a code is refused where the policy accepts another factor",
 			run:  seamEmailCodeLimits[Tx],
 		},
