@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -58,6 +59,7 @@ func TestAuth_PasswordReset(t *testing.T) {
 	t.Run("a person's request is answered before the account is looked up, so the answer's time says nothing of whether there is one", authResetCase9)
 	t.Run("self-service reset is turned on and off without touching what else the password method's row says, and every spelling of an address is counted as the one mailbox", authResetCase10)
 	t.Run("a password changed while the person was choosing a new one stands: the link is spent, nothing is written and the answer is 409 in words", authResetCase11)
+	t.Run("the link opens to the account's username, name and address, the name and the address left out when the account holds none", authResetCase12)
 }
 
 func authResetCase1(t *testing.T) {
@@ -289,8 +291,13 @@ func authResetCase5(t *testing.T) {
 	// followed, and ends the sessions with it, in its one transaction.
 	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil())).Return(nil)
 	rr = f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": first, "password": chosenPassword}, nil)
-	if rr.Code != http.StatusOK || decoded(t, rr)["username"] != "pat" {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("Complete() = %d %s, want 200 and the username", rr.Code, rr.Body.String())
+	}
+	// Complete answers the username alone: the name and the address are for the page
+	// that asks how strong a password is, which the person has left by now.
+	if diff := cmp.Diff(map[string]any{"username": "pat"}, decoded(t, rr)); diff != "" {
+		t.Errorf("Complete() answer mismatch (-want +got):\n%s", diff)
 	}
 	// The person is not signed in: the mocked store expects no sign-in and no session,
 	// so one started here fails the test.
@@ -310,6 +317,36 @@ func authResetCase5(t *testing.T) {
 		}
 		if rr := f.serve(f.auth.PasswordReset().Open(), http.MethodPost, "/reset/open", map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
 			t.Errorf("Open() of %s = %d, want 404", name, rr.Code)
+		}
+	}
+}
+
+func authResetCase12(t *testing.T) {
+	t.Parallel()
+	named, unnamed := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+	f, recorder, _ := newMailFixture(t, gomock.NewController(t))
+	withName := passwordPerson(t, named)
+	withName.Name = strPtr("Pat Reyes")
+	f.store.EXPECT().User(gomock.Any(), named).Return(withName, nil).AnyTimes()
+	f.store.EXPECT().User(gomock.Any(), unnamed).Return(passwordPerson(t, unnamed), nil).AnyTimes()
+
+	// The page sends what the link opens to with the password it asks the server about,
+	// so the bar is judged against what the reset itself is judged against.
+	for _, tt := range []struct {
+		name   string
+		userID impulse.UUID
+		want   map[string]any
+	}{
+		{name: "an account with a name and an address", userID: named, want: map[string]any{"username": "pat", "name": "Pat Reyes", "email": "pat@lakeside.edu"}},
+		{name: "an account with no name", userID: unnamed, want: map[string]any{"username": "pat", "email": "pat@lakeside.edu"}},
+	} {
+		token := mailedReset(t, f, recorder, tt.userID)
+		rr := f.serve(f.auth.PasswordReset().Open(), http.MethodPost, "/reset/open", map[string]string{"token": token}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: Open() = %d %s, want 200", tt.name, rr.Code, rr.Body.String())
+		}
+		if diff := cmp.Diff(tt.want, decoded(t, rr)); diff != "" {
+			t.Errorf("%s: Open() answer mismatch (-want +got):\n%s", tt.name, diff)
 		}
 	}
 }

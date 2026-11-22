@@ -17,27 +17,19 @@
           autocomplete="current-password"
           required />
       </mat-form-field>
-      <mat-form-field appearance="outline" class="impulse-login-field">
-        <mat-label>New password</mat-label>
-        <input
-          matInput
-          name="newPassword"
-          type="password"
-          [(ngModel)]="newPassword"
-          autocomplete="new-password"
-          required />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="impulse-login-field">
-        <mat-label>New password again</mat-label>
-        <input
-          matInput
-          name="newPasswordAgain"
-          type="password"
-          [(ngModel)]="newPasswordAgain"
-          autocomplete="new-password"
-          required />
-      </mat-form-field>
-      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Change password</button>
+      <impulse-new-password
+        label="New password"
+        [username]="sessionDetails().username"
+        [personName]="sessionDetails().name"
+        [email]="sessionDetails().email"
+        [(password)]="newPassword" />
+      <button
+        mat-flat-button
+        type="submit"
+        class="impulse-login-submit"
+        [disabled]="busy() || oldPassword === '' || !strongEnough()">
+        Change password
+      </button>
     </form>
     <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="cancelChange()">
       Cancel
@@ -150,27 +142,15 @@
           <input matInput name="accountUsername" [(ngModel)]="accountUsername" autocomplete="username" required />
         </mat-form-field>
       }
-      <mat-form-field appearance="outline" class="impulse-login-field">
-        <mat-label>Password</mat-label>
-        <input
-          matInput
-          name="accountPassword"
-          type="password"
-          [(ngModel)]="accountPassword"
-          autocomplete="new-password"
-          required />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="impulse-login-field">
-        <mat-label>Password again</mat-label>
-        <input
-          matInput
-          name="accountPasswordAgain"
-          type="password"
-          [(ngModel)]="accountPasswordAgain"
-          autocomplete="new-password"
-          required />
-      </mat-form-field>
-      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Create account</button>
+      <impulse-new-password
+        label="Password"
+        [username]="form.usernameIsEmail ? form.email : accountUsername"
+        [personName]="form.name"
+        [email]="form.email"
+        [(password)]="accountPassword" />
+      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || !strongEnough()">
+        Create account
+      </button>
     </form>
     @if (form.source === 'invitation' && invitationPaths()?.existing) {
       <button
@@ -199,27 +179,15 @@
   <div class="impulse-login-resetting">
     <p class="impulse-login-reset-note">Choose a new password for {{ link.username }}.</p>
     <form class="impulse-login-form" (ngSubmit)="completeReset()">
-      <mat-form-field appearance="outline" class="impulse-login-field">
-        <mat-label>New password</mat-label>
-        <input
-          matInput
-          name="resetPassword"
-          type="password"
-          [(ngModel)]="resetPassword"
-          autocomplete="new-password"
-          required />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="impulse-login-field">
-        <mat-label>New password again</mat-label>
-        <input
-          matInput
-          name="resetPasswordAgain"
-          type="password"
-          [(ngModel)]="resetPasswordAgain"
-          autocomplete="new-password"
-          required />
-      </mat-form-field>
-      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Change my password</button>
+      <impulse-new-password
+        label="New password"
+        [username]="link.username"
+        [personName]="link.name"
+        [email]="link.email"
+        [(password)]="resetPassword" />
+      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || !strongEnough()">
+        Change my password
+      </button>
     </form>
     <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">
       Cancel

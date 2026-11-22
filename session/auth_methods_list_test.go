@@ -315,6 +315,20 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 		}
 	})
 
+	t.Run("the standing invitation carries the name the inviter gave, as Open() does", func(t *testing.T) {
+		t.Parallel()
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Name: "Pat Reyes", TenantID: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+			t.Fatalf("Invite() error = %v", err)
+		}
+		cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+
+		standing, _ := invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+		if standing["name"] != "Pat Reyes" {
+			t.Errorf("standing invitation = %v, want the name Pat Reyes", standing)
+		}
+	})
+
 	t.Run("the standing invitation says whether an account holds the address and whether it signs in with a password", func(t *testing.T) {
 		t.Parallel()
 		f, _, links := newMailFixture(t, gomock.NewController(t))

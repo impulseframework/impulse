@@ -322,7 +322,7 @@ A page's list route asks List and its row route asks Read, each of its own route
 
 The word for a tenant, one and many, is the generated description's (`domainRoute.word`), the name of the application's tenant record, so the browser and the server use the same word. A description without one takes it from the segment (`tenants` is Tenant and Tenants).
 
-**The person's menu** is headed by the person's name where they hold one, with the username under it and the email address under that, and by the username where they hold no name; an address is shown once, so the username is left out where it is the email address, and the email address where it already heads the menu; the bar shows the same name beside their initials, in a circle that also heads the menu: the first character of the first word and of the last word of that name ("RG" for Rey Gale, "MS" for Mary Jo Smith), and one character where the name is one word, as a username is; on a phone the circle stands alone. It holds what is the person's rather than the application's: Your account, for everyone: where a person's sign-in leaves nothing to change, the page says so; Your API keys, where the application issues tokens; the application's own entries; Appearance (Light, Dark or Match my device, and the colors where there is more than one palette); and Sign out. **The library's pages** are every place's, so `frameRoutes()` goes in the children of both places: the account page (Your name where the server serves its change and the session is the person's own, the email address where the server serves its routes, Change your password where the person's auth has the password method, with Remove your password under it where the server serves the removal and the session is the person's own (the person gives the password as proof, is asked once with what that leaves them to sign in through, and reads the server's words where it refuses: a person no directory sign-in is linked to keeps the password; where the server says what the person signs in with, the methods list's `signInMeans`, the page offers neither the change nor the removal to a person who holds no password, offers the removal only to a person a directory sign-in is linked to, and names that directory by the words its sign-in button carries: "You will sign in through Fleet Google only."), Choose a password where the server says the person holds none, the server serves a first password (the methods list's `firstPassword`) and the session is the person's own (the person asks for a code, which the server emails to the address their account holds confirmed, and sets the password with the code; the server's words are shown where it refuses, among them that the account has no confirmed address yet), and Forget this browser where the browser is remembered for them; a page that holds none of them says there is nothing to change) and the API keys page (the tokens component under the heading the menu names). **About** is no page but a pop-up (`openAboutDialog(dialog)`, which the Help menu's last entry runs), so the address does not change: the application's name, the release the server runs (with the build the tab runs where the two differ), and, wherever the server names one, the environment (`client.serverEnvironment`, from the `X-Environment` header the server sets everywhere but production, so production shows no such line). Its Copy button puts the three on the clipboard as one line for a problem report ("Lodestar, release v0.3.1, environment tst"); where the browser offers no clipboard, or refuses, the line is shown selected, to copy by hand.
+**The person's menu** is headed by the person's name where they hold one, with the username under it and the email address under that, and by the username where they hold no name; an address is shown once, so the username is left out where it is the email address, and the email address where it already heads the menu; the bar shows the same name beside their initials, in a circle that also heads the menu: the first character of the first word and of the last word of that name ("RG" for Rey Gale, "MS" for Mary Jo Smith), and one character where the name is one word, as a username is; on a phone the circle stands alone. It holds what is the person's rather than the application's: Your account, for everyone: where a person's sign-in leaves nothing to change, the page says so; Your API keys, where the application issues tokens; the application's own entries; Appearance (Light, Dark or Match my device, and the colors where there is more than one palette); and Sign out. **The library's pages** are every place's, so `frameRoutes()` goes in the children of both places: the account page (Your name where the server serves its change and the session is the person's own, the email address where the server serves its routes, Change your password where the person's auth has the password method, with Remove your password under it where the server serves the removal and the session is the person's own (the person gives the password as proof, is asked once with what that leaves them to sign in through, and reads the server's words where it refuses: a person no directory sign-in is linked to keeps the password; where the server says what the person signs in with, the methods list's `signInMeans`, the page offers neither the change nor the removal to a person who holds no password, offers the removal only to a person a directory sign-in is linked to, and names that directory by the words its sign-in button carries: "You will sign in through Fleet Google only."), Choose a password where the server says the person holds none, the server serves a first password (the methods list's `firstPassword`) and the session is the person's own (the person asks for a code, which the server emails to the address their account holds confirmed, and sets the password with the code; the server's words are shown where it refuses, among them that the account has no confirmed address yet), and Forget this browser where the browser is remembered for them; a page that holds none of them says there is nothing to change) and the API keys page (the tokens component under the heading the menu names). Both forms that set a password here, the change and the choice of a first one, ask for the new password once, in `<impulse-new-password>` ("A new password", below): the button stays disabled until the server calls the password strong enough, and for the change until the current password is given. **About** is no page but a pop-up (`openAboutDialog(dialog)`, which the Help menu's last entry runs), so the address does not change: the application's name, the release the server runs (with the build the tab runs where the two differ), and, wherever the server names one, the environment (`client.serverEnvironment`, from the `X-Environment` header the server sets everywhere but production, so production shows no such line). Its Copy button puts the three on the clipboard as one line for a problem report ("Lodestar, release v0.3.1, environment tst"); where the browser offers no clipboard, or refuses, the line is shown selected, to copy by hand.
 
 ## The login page
 
@@ -474,7 +474,10 @@ new password of the person, and
 the server serves nothing but the password change, the session read and the logout until the person
 chooses one, refusing everything else with a 403 and the code
 `password_change_required`. The component renders the change form in the list's place, with the
-sentence the application holds for that code over it, posts the old and the new password through the
+sentence the application holds for that code over it. The form asks for the current password
+and for the new one once, in `<impulse-new-password>` ("A new password", below), and its
+button stays disabled until the current password is given and the server calls the new one
+strong enough. It posts the old and the new password through the
 client (`api.auth.changePassword`) to the change path the methods list names, checks the session
 again and only then emits `signedIn` with the page recorded at the sign-in; a refusal is rendered in
 place, and a cancel ends the session and shows the list again. `AuthService.checkUserSession` loads
@@ -505,8 +508,9 @@ admit the address is a "Continue with <label> as <address>" button, which sends 
 provider as its login hint, so the provider takes that account and skips its chooser; the password
 form shows when an account with a password holds the address ("Sign in with your password to
 accept it."); and where no account holds the address and the server offers a password method, the
-person may create an account with a password: the account form asks for a username (unless the
-username is the address) and the password twice, and the code step follows it: the server mails a
+person may create an account with a password: the account form asks for a username (unless the username is
+the address) and for a password once, in `<impulse-new-password>`, its button disabled until
+the server calls the password strong enough, and the code step follows it: the server mails a
 code to the invited address, and entering it creates the account, signs the person in and accepts
 the invitation. It opens by itself where it is the one way to accept, and stands behind a
 "Create an account with a password" button under the directory buttons where a directory could
@@ -561,8 +565,9 @@ address sent too many reset links is refused with the wait and Send me a link st
 it has passed; the server counts reset links apart from sign-in codes, and so does the page, which
 holds the reset form alone. Where an administrator turned resetting off after the page was drawn,
 the form says so and to ask an administrator for a link. A
-reset link (`#reset=<token>`), the person's own or one an administrator sent, opens a form for the
-new password in the list's place; once it is set the component says the person is signed out
+reset link (`#reset=<token>`), the person's own or one an administrator sent, opens a
+form for the new password in the list's place, one `<impulse-new-password>` whose button stays
+disabled until the server calls the password strong enough; once it is set the component says the person is signed out
 everywhere and shows the list again with the username filled in, and nobody is signed in by it; a
 password that changed while the person was choosing shows the server's sentence, the form staying. A
 link to an address an administrator set (`#address=<token>`) shows a question first and posts
@@ -618,6 +623,33 @@ where a directory would have given an address.
 
 ```html
 <impulse-email-address />
+```
+
+## A new password
+
+`<impulse-new-password>` (`@impulseframework/resource-angular/auth-new-password`) is the one box
+a person chooses a password in, on every page that sets one: the account page, and the login
+page's password change, account form and reset link. It asks the server how strong the
+password is while the person types (`api.auth.passwordStrength`) and draws the answer: a bar
+that fills to where the password stands, a mark where the application's minimum sits, and
+under them the server's sentence while the password falls short. It calculates nothing itself.
+A control in the box shows what was typed, so there is no second box to type it again.
+`strongEnough()` is true only while the server's last answer is about the text now in the box
+and calls it strong enough: a page keeps its button disabled until then, and the server judges
+the password again when it is set. One question is in flight at a time. Where the server holds
+a browser that asked too often (429 with the wait), the component shows the server's sentence
+and asks nothing until the wait has passed.
+
+`username`, `personName` and `email` are what the page knows of the person. The server counts
+them against the password, as it will when the password is set.
+
+```html
+<impulse-new-password
+  label="New password"
+  [username]="username"
+  [personName]="name"
+  [email]="email"
+  [(password)]="newPassword" />
 ```
 
 ## The release

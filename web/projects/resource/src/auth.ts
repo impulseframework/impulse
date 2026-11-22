@@ -90,6 +90,8 @@ export interface InvitationRoutes {
 export interface StandingInvitation {
   /** The address the invitation was mailed to. */
   readonly email: string;
+  /** The person's name as the inviter gave it, as `OpenedInvitation.name`; empty for none. */
+  readonly name: string;
   /** The id of the tenant the invitation seats the person in; empty for the application's global surface. Never shown: the person reads `tenantName`. */
   readonly tenantId: string;
   /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
@@ -165,6 +167,12 @@ export interface LoginMethods {
    */
   readonly changePassword?: string;
   /**
+   * The path where a page asks how strong a password is while the person types it
+   * (`passwordStrength()`), with or without a session. Absent on a server with no password
+   * method.
+   */
+  readonly passwordStrength?: string;
+  /**
    * The path where a signed-in person removes their own password (`removePassword()`),
    * posting `{ password }` as proof: the server refuses a person no directory sign-in is
    * linked to, since the password is their only way in. Absent on a server that does not
@@ -232,6 +240,12 @@ export interface OpenedInvitation {
    * to the address, and the account then holds it, verified.
    */
   readonly email: string;
+  /**
+   * The person's name as the inviter gave it; empty for none. The page sends it with the
+   * password it asks about (`passwordStrength()`), as the server judges the password the
+   * acceptance sets against it.
+   */
+  readonly name: string;
   /** The id of the tenant the invitation seats the person in; empty for the application's global surface. Never shown: the person reads `tenantName`. */
   readonly tenantId: string;
   /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
@@ -300,8 +314,14 @@ export type EmailVerifyResult = { readonly outcome: 'verified'; readonly email: 
 /** How confirming an address an administrator set went: `confirmed` with the address the account now holds, or the refusal. */
 export type EmailConfirmResult = { readonly outcome: 'confirmed'; readonly email: string } | SignInRefusal;
 
-/** How opening a password reset link went: `opened` with the username whose password it resets, or the refusal. */
-export type PasswordResetOpenResult = { readonly outcome: 'opened'; readonly username: string } | SignInRefusal;
+/**
+ * How opening a password reset link went: `opened` with the username whose password it
+ * resets and the account's name and address, each empty where the account holds none, for
+ * the page to send with `passwordStrength()`; or the refusal.
+ */
+export type PasswordResetOpenResult =
+  | { readonly outcome: 'opened'; readonly username: string; readonly name: string; readonly email: string }
+  | SignInRefusal;
 
 /** How completing a password reset went: `reset` with the username to sign in under, or the refusal. */
 export type PasswordResetResult = { readonly outcome: 'reset'; readonly username: string } | SignInRefusal;
@@ -332,6 +352,36 @@ export interface NewAccount {
  * old one or fails the server's rule, or the session is an impersonation.
  */
 export type PasswordChangeResult = { readonly outcome: 'changed' } | SignInRefusal;
+
+/**
+ * What the page knows of the person a password is for: the server counts each against the
+ * password, as it does when the password is set. An empty or absent detail is not sent.
+ */
+export interface PasswordDetails {
+  readonly username?: string;
+  readonly name?: string;
+  readonly email?: string;
+}
+
+/**
+ * The server's judgment of a password: whether it is strong enough for the application,
+ * where it stands (`strength`) and where the application's minimum sits (`minimum`), both
+ * on the server's scale from 0 to 100, and, while it falls short, the server's sentence
+ * (`reason`).
+ */
+export interface PasswordStrength {
+  readonly outcome: 'judged';
+  readonly strongEnough: boolean;
+  readonly strength: number;
+  readonly minimum: number;
+  readonly reason?: string;
+}
+
+/**
+ * What a password strength question answers: the judgment, or the refusal of a browser
+ * that asked too often (429, `too_many_attempts`, and the wait in `retryAfter`).
+ */
+export type PasswordStrengthResult = PasswordStrength | SignInRefusal;
 
 /**
  * What a removal of the person's own password answers: `removed`, after which the
@@ -554,6 +604,8 @@ const statusRefusals: readonly number[] = [401, 403];
 const changeRefusals: readonly number[] = [400, 401, 403, 409];
 /** A change or a removal of the person's own password: as a change, and 429 for a name whose failed proofs reached the server's limit. */
 const proofRefusals: readonly number[] = [...changeRefusals, 429];
+/** A password strength question: 429 for a browser that asked too often. */
+const strengthRefusals: readonly number[] = [429];
 /** A mailed link's token posted back: 404 for a link that is dead, 400 for a body that carries none. */
 const linkRefusals: readonly number[] = [400, 404];
 /** A new password posted with a reset link's token: as a link, and 409 for a password that changed while the reader was choosing. */
@@ -588,11 +640,20 @@ export function refusedForPasswordChange(refusal: { status: number; body: unknow
   return (refusal.body as RefusalAnswer).code === passwordChangeRequiredCode;
 }
 
+/** The shape the password strength route answers, before it is checked. */
+interface StrengthAnswer {
+  strongEnough?: unknown;
+  strength?: unknown;
+  minimum?: unknown;
+  reason?: unknown;
+}
+
 /** The shape the methods route answers, before it is checked. */
 interface MethodsAnswer {
   methods?: Partial<LoginMethod>[] | null;
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
+  passwordStrength?: string | null;
   removePassword?: string | null;
   firstPassword?: Partial<FirstPasswordRoutes> | null;
   signInMeans?: string | null;
@@ -978,6 +1039,47 @@ export class AuthClient {
   }
 
   /**
+   * Asks the server how strong a password is, for a page to draw while the person types.
+   * Posts the password, and each detail of the person that is not empty, to the strength
+   * path of the list the client last read, reading the list only when none was read: a
+   * question never reads the list again. The answer is the server's judgment as it gives
+   * it; nothing is calculated from the password here. A browser that asked too often
+   * resolves `refused` with 429, `too_many_attempts` and the wait (`retryAfter`), during
+   * which a question extends the hold. A server whose list names no strength path offers
+   * no password method, and the call throws saying so.
+   */
+  async passwordStrength(password: string, details: PasswordDetails = {}): Promise<PasswordStrengthResult> {
+    const list = this.snapshot.get() ?? (await this.methods());
+    if (!list.passwordStrength) {
+      throw new Error('this server names no password strength path in its methods list: it offers no password method');
+    }
+    const body: Record<string, string> = { password };
+    for (const key of ['username', 'name', 'email'] as const) {
+      const value = details[key];
+      if (typeof value === 'string' && value !== '') {
+        body[key] = value;
+      }
+    }
+    const response = await this.options.request<StrengthAnswer | null>('POST', list.passwordStrength, {
+      body,
+      absolute: true,
+      accept: strengthRefusals,
+    });
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    const answer = response.body ?? {};
+    const reason = answer.reason;
+    return {
+      outcome: 'judged',
+      strongEnough: answer.strongEnough === true,
+      strength: finiteOf(answer.strength),
+      minimum: finiteOf(answer.minimum),
+      ...(typeof reason === 'string' && reason !== '' ? { reason } : {}),
+    };
+  }
+
+  /**
    * Removes the signed-in person's own password: reads the methods list again, then posts
    * the password, as proof, to the removal path the refreshed list names. Once removed,
    * the password no longer signs the person in, and they sign in through the directory
@@ -1178,6 +1280,7 @@ export class AuthClient {
     return {
       outcome: 'opened',
       email: stringOf(body.email),
+      name: stringOf(body.name),
       tenantId: stringOf(body.tenantId),
       tenantName: stringOf(body.tenantName),
       ...newTenantOf(body),
@@ -1318,20 +1421,24 @@ export class AuthClient {
   /**
    * Opens the password reset a mailed link carried: reads the methods list again, then
    * posts the token to the open route. The answer is the username whose password the link
-   * resets; a link that has expired, was already used, or was mailed before the password
-   * or the address changed resolves `refused` with 404.
+   * resets, with the account's name and address for the page to send with
+   * `passwordStrength()`; a link that has expired, was already used, or was mailed before
+   * the password or the address changed resolves `refused` with 404.
    */
   async openPasswordReset(token: string): Promise<PasswordResetOpenResult> {
     const routes = await this.passwordResetRoutes();
-    const response = await this.options.request<(Partial<{ username: string }> & RefusalAnswer) | null>(
-      'POST',
-      routes.open,
-      { body: { token }, absolute: true, accept: linkRefusals },
-    );
+    const response = await this.options.request<
+      (Partial<{ username: string; name: string; email: string }> & RefusalAnswer) | null
+    >('POST', routes.open, { body: { token }, absolute: true, accept: linkRefusals });
     if (response.status >= 400) {
       return refusalOf(response);
     }
-    return { outcome: 'opened', username: stringOf(response.body?.username) };
+    return {
+      outcome: 'opened',
+      username: stringOf(response.body?.username),
+      name: stringOf(response.body?.name),
+      email: stringOf(response.body?.email),
+    };
   }
 
   /**
@@ -1518,6 +1625,10 @@ export class AuthClient {
     if (typeof changePassword === 'string' && changePassword !== '') {
       list.changePassword = changePassword;
     }
+    const passwordStrength = answer?.passwordStrength;
+    if (typeof passwordStrength === 'string' && passwordStrength !== '') {
+      list.passwordStrength = passwordStrength;
+    }
     const removePassword = answer?.removePassword;
     if (typeof removePassword === 'string' && removePassword !== '') {
       list.removePassword = removePassword;
@@ -1681,6 +1792,7 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
   }
   return {
     email: stringOf(value.email),
+    name: stringOf(value.name),
     tenantId: stringOf(value.tenantId),
     tenantName: stringOf(value.tenantName),
     ...newTenantOf(value),
@@ -1729,6 +1841,11 @@ function methodNamesOf(value: unknown): readonly string[] {
 
 function stringOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+/** A number the server answered, 0 for anything that is not a finite number. */
+function finiteOf(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 /** The result of having the code mailed: a refusal for a status the step accepts, else sent, with the address and the expiry as the server wrote them. */
