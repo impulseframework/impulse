@@ -96,6 +96,7 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "the name with an accent the password lacks", password: "Zabrowski2077", who: Details{Name: "Quentin Zabrówski"}},
 		{name: "the password with an accent the name lacks", password: "Zabrówski2077", who: Details{Name: "Quentin Zabrowski"}},
 		{name: "a username outside ASCII", password: "щжфыхцэюбьъй", who: Details{Username: "щжфыхцэюбьъй"}},
+		{name: "a username outside ASCII in another case", password: "ЩЖФЫХЦЭЮБЬЪЙ", who: Details{Username: "щжфыхцэюбьъй"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

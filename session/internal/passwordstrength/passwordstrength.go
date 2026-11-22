@@ -19,7 +19,7 @@
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone, one character for each character typed: an accented letter is read as its
 // letter, and any other character outside ASCII as one stand-in, the same for the same
-// character throughout one judgment.
+// character, in either case, throughout one judgment.
 package passwordstrength
 
 import (
@@ -273,14 +273,16 @@ func (r *reading) of(typed string) string {
 	return text.String()
 }
 
-// standInOf is c's stand-in: the one c was given in this reading, or else the next of
-// standIns.
+// standInOf is c's stand-in, the same in either case: the one c was given in this reading,
+// typed in either case, or else the next of standIns. A stand-in is kept under the
+// character's lower case.
 func (r *reading) standInOf(c rune) byte {
-	if standIn, ok := r.standIn[c]; ok {
+	lower := unicode.ToLower(c)
+	if standIn, ok := r.standIn[lower]; ok {
 		return standIn
 	}
 	standIn := standIns[len(r.standIn)%len(standIns)]
-	r.standIn[c] = standIn
+	r.standIn[lower] = standIn
 
 	return standIn
 }
