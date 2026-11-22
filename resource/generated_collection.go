@@ -560,7 +560,8 @@ func newGeneratedCollection() *GeneratedCollection {
 // generated data fails at startup rather than surfacing as wrong permission decisions.
 // It refuses a name listed in both scopes: the collection finds a resource's scope by
 // its name alone (Scope), so such a name was answered with either scope from one call
-// to the next. It refuses a field's name and a former name that holds a dot.
+// to the next. It refuses a field's name and a former name that holds a dot, a field with
+// no name and a field named *.
 func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	g := newGeneratedCollection()
 
@@ -587,8 +588,8 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 
 	for i := range data.Resources {
 		res := &data.Resources[i]
-		if res.Name == "" {
-			return nil, errors.New("resource with empty name")
+		if err := refuseEmptyResourceName(res.Name); err != nil {
+			return nil, err
 		}
 		if err := refuseDottedResourceName(res.Name); err != nil {
 			return nil, err
@@ -816,6 +817,9 @@ func (g *GeneratedCollection) addResourceTags(res *CollectionResource) error {
 	g.tagStore[res.Scope][res.Name] = make(map[accesstypes.Tag][]accesstypes.Permission, len(res.Tags))
 
 	for _, tag := range res.Tags {
+		if err := refuseReservedFieldName(res.Name, tag.Name); err != nil {
+			return err
+		}
 		if err := refuseDottedFieldName(res.Name, tag.Name, ""); err != nil {
 			return err
 		}
@@ -1606,6 +1610,36 @@ func refuseDottedFieldName(res accesstypes.Resource, tag, formerly accesstypes.T
 	)
 }
 
+// refuseReservedFieldName refuses a field with no name and a field named *: Resource.
+// names no field, and Resource.* is how a grant names all of a resource's fields, so the
+// collection could not name either as a field of its own. Collection data and the
+// builder's AddResourceSet are held to it.
+func refuseReservedFieldName(res accesstypes.Resource, tag accesstypes.Tag) error {
+	switch tag {
+	case "":
+		return errors.Newf("resource %q lists a field with no name. Give the field a name", res)
+	case "*":
+		return errors.Newf(
+			"tag %q under resource %q: a field is not named *. "+
+				"Resource.* is how a grant names all of a resource's fields, so the collection could not name this field alone. "+
+				"Give the field another name",
+			tag, res,
+		)
+	default:
+		return nil
+	}
+}
+
+// refuseEmptyResourceName refuses a resource with no name. Collection data and each of
+// the builder's registrations are held to it.
+func refuseEmptyResourceName(res accesstypes.Resource) error {
+	if res != "" {
+		return nil
+	}
+
+	return errors.New("resource with empty name")
+}
+
 // refuseDottedFormerName refuses a resource's former name that holds a dot: the former
 // name would be read as a field of another resource.
 func refuseDottedFormerName(res, former accesstypes.Resource) error {
@@ -1622,6 +1656,9 @@ func refuseDottedFormerName(res, former accesstypes.Resource) error {
 }
 
 func (g *GeneratedCollection) addResource(allowDuplicateRegistration bool, scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) error {
+	if err := refuseEmptyResourceName(res); err != nil {
+		return err
+	}
 	if err := refuseDottedResourceName(res); err != nil {
 		return err
 	}
@@ -1646,10 +1683,16 @@ func (g *GeneratedCollection) addResource(allowDuplicateRegistration bool, scope
 // from already-canonicalized CollectionData directly instead: its input is already
 // deduplicated per resource, so it validates rather than merges.
 func (g *GeneratedCollection) addResourceSet(scope accesstypes.PermissionScope, res accesstypes.Resource, perms []accesstypes.Permission, tags accesstypes.TagPermissions, immutableFields map[accesstypes.Tag]struct{}) error {
+	if err := refuseEmptyResourceName(res); err != nil {
+		return err
+	}
 	if err := refuseDottedResourceName(res); err != nil {
 		return err
 	}
 	for _, tag := range slices.Sorted(maps.Keys(tags)) {
+		if err := refuseReservedFieldName(res, tag); err != nil {
+			return err
+		}
 		if err := refuseDottedFieldName(res, tag, ""); err != nil {
 			return err
 		}
