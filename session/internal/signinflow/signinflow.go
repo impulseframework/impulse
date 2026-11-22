@@ -909,8 +909,10 @@ type signInHold struct {
 // invitation stands. Where the acceptance rests on the account's own mailed code
 // (acceptedByCode's byOwnCode), the code's address is written in the account's own
 // spelling, and only while the account still holds what it held when the code was
-// checked and no other account holds the address (Driver.VerifyUserEmailIfHeldIn);
-// otherwise the code no longer stands, stop is the code_expired refusal
+// checked and no other account holds the address (Driver.VerifyUserEmailIfHeldIn), the
+// users table's refusal of an address another account took at the same moment
+// (dbtype.EmailConflict) included; otherwise the code no longer stands, stop is the
+// code_expired refusal
 // (codeAddressGone), and nothing is written: the invitation stands. The acceptance is
 // made before the sign-in policy decides, so that the policy sees what it gave: a
 // sign-in the policy then denies or holds leaves the invitation accepted and the
@@ -987,6 +989,11 @@ func acceptInvitation[Tx any](
 		}
 		if errors.Is(err, errAcceptanceSkipped) {
 			return false, nil, nil
+		}
+		if claim != nil && d.SignInConflict(err) == dbtype.EmailConflict {
+			// Another account took the code's address at the same moment: the code no
+			// longer stands, and the invitation does.
+			return false, codeAddressGone(userID, claim), nil
 		}
 
 		return false, nil, errors.Wrap(err, "Driver.Transact()")
@@ -1178,7 +1185,9 @@ func resolveIdentity[Tx any](
 			}
 
 			return "", "", nil, nil, httpio.NewConflictMessagef("username %q already exists", req.Username)
-		case dbtype.IdentityConflict:
+		case dbtype.IdentityConflict, dbtype.EmailConflict:
+			// The identities key, or the address a racing provisioning of the same identity
+			// wrote on its own user: the resolution runs once more and finds the link.
 			if attempt == 1 {
 				continue
 			}
@@ -2177,10 +2186,11 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // user is enabled, the password unchanged, the policy has allowed it and neither
 // addressHold nor addressTaken stopped it. It is written only while the account still
 // holds what it held when the code was checked and no other account holds the address
-// (Driver.VerifyUserEmailIfHeldIn); otherwise the code no longer stands, and the sign-in
-// is refused with code_expired and no session. A user who already holds a confirmed
-// address is written nothing. A refusal or a wait writes no address, so the person signs
-// in again and is asked for the code again.
+// (Driver.VerifyUserEmailIfHeldIn), the users table's refusal of an address another
+// account took at the same moment (dbtype.EmailConflict) included; otherwise the code no
+// longer stands, and the sign-in is refused with code_expired and no session. A user
+// who already holds a confirmed address is written nothing. A refusal or a wait writes
+// no address, so the person signs in again and is asked for the code again.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
 	source sessioninfo.UserSource, tenant string, rules Rules[Tx], trusted bool,
@@ -2236,6 +2246,12 @@ func decideAndInsert[Tx any](
 		return nil
 	})
 	if err != nil {
+		if claim != nil && d.SignInConflict(err) == dbtype.EmailConflict {
+			// Another account took the code's address at the same moment: the code no
+			// longer stands, as where the other account held it before.
+			return codeAddressGone(req.UserID, claim)
+		}
+
 		return errors.Wrap(err, "Driver.Transact()")
 	}
 

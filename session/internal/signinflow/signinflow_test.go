@@ -41,11 +41,15 @@ const (
 	conflicts
 	// fails drops the writes and ends the transaction with errCommitFailed.
 	fails
+	// emailConflicts drops the writes and ends the transaction with errEmailConflict, as
+	// the users table refuses an address another account took at the same moment.
+	emailConflicts
 )
 
 var (
 	errIdentityConflict = errors.New("the identities key is taken")
 	errCommitFailed     = errors.New("the commit failed")
+	errEmailConflict    = errors.New("the address is another user's")
 )
 
 // memUser is a user row of the store.
@@ -161,6 +165,10 @@ func (d *memDriver) Transact(ctx context.Context, fn func(ctx context.Context, t
 			d.store.notef("commit failed")
 
 			return errCommitFailed
+		case emailConflicts:
+			d.store.notef("address conflict")
+
+			return errEmailConflict
 		case commits:
 		}
 		for _, write := range tx.writes {
@@ -259,11 +267,14 @@ func (d *memDriver) InsertSessionIn(_ context.Context, tx *memTx, _ impulse.UUID
 }
 
 func (d *memDriver) SignInConflict(err error) dbtype.SignInConflict {
-	if errors.Is(err, errIdentityConflict) {
+	switch {
+	case errors.Is(err, errIdentityConflict):
 		return dbtype.IdentityConflict
+	case errors.Is(err, errEmailConflict):
+		return dbtype.EmailConflict
+	default:
+		return dbtype.NoSignInConflict
 	}
-
-	return dbtype.NoSignInConflict
 }
 
 func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.UUID, _ time.Time) error {
@@ -563,6 +574,16 @@ func TestSignIn_aCommittedFunctionRunsOnceAfterTheCommitBeforeThePolicy(t *testi
 			next: []commitOutcome{conflicts},
 			wantSteps: []string{
 				"seat in run 1", "accept in run 1", "conflict",
+				"seat in run 2", "accept in run 2", "commit",
+				"seat of run 2 committed: user=true", "accept of run 2 committed: user=true invitation live=false",
+				"policy: pat@lakeside.edu holds [lakeside/Member Teacher] after 2 committed", "commit",
+			},
+		},
+		{
+			name: "the first resolution loses a race on the address a racing provisioning wrote on its own user and the flow resolves once more: only the second resolution's committed functions run",
+			next: []commitOutcome{emailConflicts},
+			wantSteps: []string{
+				"seat in run 1", "accept in run 1", "address conflict",
 				"seat in run 2", "accept in run 2", "commit",
 				"seat of run 2 committed: user=true", "accept of run 2 committed: user=true invitation live=false",
 				"policy: pat@lakeside.edu holds [lakeside/Member Teacher] after 2 committed", "commit",

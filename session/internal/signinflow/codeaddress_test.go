@@ -329,3 +329,84 @@ func wantHeldFor(factor sessioninfo.AuthMethod) func(t *testing.T, err error) {
 		}
 	}
 }
+
+// TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode pins the answer to a
+// transaction that writes the address a code confirms (Rules.CodeAddress) and ends in
+// the users table refusing it, another account having taken the address at the same
+// moment (dbtype.EmailConflict): the code no longer stands, and the sign-in is refused
+// with code_expired, no session and nothing written, as it is where the other account
+// held the address before. That is so for the transaction that inserts the session and
+// for an invitation's acceptance on the account's own code, whose invitation stands.
+// Without a claim the error is the store's.
+func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testing.T) {
+	t.Parallel()
+
+	const (
+		typed   = "pat@lakeside.edu"
+		invited = "pat@north.example"
+	)
+	proof := dbtype.ProofOfStored("the password hash the password was compared against")
+	tests := []struct {
+		name string
+		// address is the address the account holds, unconfirmed, "" for none; invited
+		// says the sign-in carries an invitation mailed to it, which the sign-in accepts
+		// on the account's own code; claim is the address the code confirms.
+		address string
+		invited bool
+		claim   *dbtype.CodeAddress
+		wantErr func(t *testing.T, err error)
+	}{
+		{
+			name:    "the address the person typed, taken as the session is inserted: refused code_expired",
+			claim:   &dbtype.CodeAddress{Email: typed},
+			wantErr: wantRefusal(sessioninfo.RefusedCodeExpired),
+		},
+		{
+			name:    "the account's own address, taken as the invitation is accepted on its code: refused code_expired, the invitation standing",
+			address: invited, invited: true, claim: &dbtype.CodeAddress{Held: addressOf(invited), Email: invited},
+			wantErr: wantRefusal(sessioninfo.RefusedCodeExpired),
+		},
+		{
+			name:    "a sign-in that carries no claim: the store's error",
+			wantErr: wantCause(errEmailConflict),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			store.next = []commitOutcome{emailConflicts}
+			hooks := &roleHooks{store: store}
+			userID := impulse.Must(impulse.NewUUID())
+			store.users[userID] = &memUser{username: "pat", email: tt.address, proof: proof}
+			rules := Rules[*memTx]{ConfirmAddress: true, Accept: hooks.accept, Proven: proof, CodeAddress: tt.claim}
+			req := &sessioninfo.NewSessionRequest{
+				Reason: sessioninfo.ReasonStepUp, UserID: userID, Username: "pat",
+				Identity:   &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String(), Email: tt.address},
+				AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: sessioninfo.MethodEmailCode}},
+			}
+			var inv *sessioninfo.Invitation
+			if tt.invited {
+				inv = store.invite(invited, "lakeside", "Coach")
+				req.Invitation = inv
+			}
+
+			err := signInWith(t, &memDriver{store: store}, req, rules)
+
+			tt.wantErr(t, err)
+			if store.sessions != 0 {
+				t.Errorf("the store holds %d session(s), want none", store.sessions)
+			}
+			if user := store.users[userID]; user.email != tt.address || user.confirmed {
+				t.Errorf("the account holds %q (confirmed %t), want %q as it was, unconfirmed", user.email, user.confirmed, tt.address)
+			}
+			if len(store.granted) != 0 {
+				t.Errorf("the roles given = %v, want none", store.granted)
+			}
+			if inv != nil && (inv.Accepted || !store.invitations[inv.ID]) {
+				t.Errorf("Invitation.Accepted = %t, still live = %t, want the invitation standing", inv.Accepted, store.invitations[inv.ID])
+			}
+		})
+	}
+}

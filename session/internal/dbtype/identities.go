@@ -175,4 +175,7 @@ const (
 	// LockConflict is the database ending the transaction to break a deadlock or a
 	// serialization failure between racing sign-ins; the sign-in runs once more.
 	LockConflict
+	// EmailConflict is the users table refusing an address another user holds: one that
+	// a racing transaction wrote on another account at the same moment.
+	EmailConflict
 )
