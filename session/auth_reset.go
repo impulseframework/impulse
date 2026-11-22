@@ -337,9 +337,10 @@ func (a *Auth[S, U, Tx]) passwordResetComplete() http.HandlerFunc {
 // the store writes the password, clears the password change mark and ends every session
 // of the person in one transaction, only while the account still holds the password it
 // held when the link was followed: one changed or removed in that moment stands as it
-// is. The name's failed sign-ins and the address's mail count are reset, and the other
-// reset links that stand for the account are withdrawn: the person has their new
-// password, so no older link is left to choose another with.
+// is. The name's failed sign-ins, the address's mail count and the count of the wrong
+// sign-in codes entered for the address are reset, and the other reset links that stand
+// for the account are withdrawn: the person has their new password, so no older link is
+// left to choose another with.
 func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password string) (*sessionstorage.SessionUser, error) {
 	link, user, err := a.resetLink(ctx, token)
 	if err != nil {
@@ -364,8 +365,10 @@ func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password stri
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ChangeUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
-	// The link reached the person: the address's mail count is reset.
+	// The link reached the person: the address's mail count is reset, and so is the
+	// count of the wrong sign-in codes entered for it.
 	a.clearResetLimit(ctx, link.Email)
+	a.clearCodeGuesses(ctx, link.Email)
 	a.endResetLinks(ctx, user.ID)
 	logger.FromCtx(ctx).Infof("user %s chose a new password from a reset link", user.ID)
 

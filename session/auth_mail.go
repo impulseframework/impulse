@@ -77,12 +77,18 @@ const (
 // up the invitation's count alone. Everything else is counted together under the
 // address (mailLimitKey), and anybody who knows the address can run that count up: a
 // sign-up started for it, a link asked to add it to an account, a code asked for it by
-// a person whose account holds no address yet. Kept apart, nothing a stranger asks for
-// in a person's name, or with a link mailed to them, holds up the codes that person
-// signs in with. A code or link that is used resets the counts it was sent under
-// (clearMailLimit, clearCodeLimit, clearInvitationCodeLimit), so a person who uses what
-// they are sent never meets the limit; it stops mail asked for over and over and never
-// used.
+// a person whose account holds no address yet. Kept apart, nothing a person who has not
+// reached an account's code step asks for in its person's name, or with a link mailed
+// to them, holds up the codes that account signs in with. One person who reaches that
+// step may be a stranger: a first sign-in under the name of an account that holds an
+// address and has no link yet and no password the application can ask for, through a
+// method that does not vouch for the name as the account's own, waits for the account's
+// own code with nothing linked (signinflow's nameAloneHold). The codes it asks for are
+// counted here with the account's own, so it can hold them up for fifteen minutes at a
+// time, and the wrong codes it enters are held to codeGuessLimit. A code or link that
+// is used resets the counts it was sent under (clearMailLimit, clearCodeLimit,
+// clearInvitationCodeLimit), so a person who uses what they are sent never meets the
+// limit; it stops mail asked for over and over and never used.
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
 // mailLimitKey is the address's key in the sign-in attempts table: the address folded
@@ -170,6 +176,34 @@ func addressGuessKey(email string) string {
 func errAddressSpent() error {
 	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedAddressSpent,
 		httpio.NewUnauthorizedMessage("This email address can't be confirmed with a code any more. Ask an administrator to add it to your account."))
+}
+
+// codeGuessLimit is the budget of wrong codes entered for the address an account holds,
+// at the sign-in code's step: twenty-five, and then the address takes no more. A person
+// past the account's first step who does not read its mail (one who holds its
+// password, or a first sign-in under its name that nothing vouches for) can have a new
+// code mailed every few minutes, and mailLimit with a code's five guesses would let
+// them guess for as long as they liked. The count is kept under the address
+// (codeGuessKey), so the codes entered for it in every sign-in that waits on the
+// account's own code are one count; its window and its lock are the invitation's
+// (invitationGuessHorizon), so no time resets it. A proof of the mailbox resets it: the
+// right code (clearCodeGuesses), and a password chosen at a reset link mailed to the
+// address (completeReset). An administrator resets it by clearing its row, as a name's
+// lock is cleared (SignInAttemptKey).
+var codeGuessLimit = sessionstorage.SignInAttemptLimit{Failures: 25, Window: invitationGuessHorizon, Lock: invitationGuessHorizon}
+
+// codeGuessKey is the key, in the sign-in attempts table, of the codes entered for the
+// address email an account holds: the address folded as mailLimitKey folds it, under a
+// kind of its own.
+func codeGuessKey(email string) string {
+	return attempts.OwnKey(attempts.KindCodeGuess, attempts.Normalize(email))
+}
+
+// errCodesSpent is the refusal of a code asked for or entered for an account whose
+// address takes no more codes (codeGuessLimit).
+func errCodesSpent() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedCodesSpent,
+		httpio.NewUnauthorizedMessage("Too many wrong codes were entered for this account. Reset your password, or ask an administrator to unlock your sign-in."))
 }
 
 // errInvitationNotOpen is the refusal of a code mailed for an invitation and entered in
@@ -674,10 +708,17 @@ func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
 }
 
 // limitCode bounds the sign-in codes sent to the address an account holds, as limitMail
-// bounds the address's other mail, in a count of its own (codeLimitKey): what a
-// stranger asks for in the address's name never uses up the codes its person signs in
-// with.
+// bounds the address's other mail, in a count of its own (codeLimitKey): what a person
+// who has not reached the account's code step asks for in the address's name never uses
+// up the codes its person signs in with. A first sign-in under the account's name that
+// is not linked yet has reached that step, and the codes it asks for are counted here
+// with the account's own (mailLimit). An address whose account takes no more codes
+// (codesSpent) is mailed none, and is refused before the count is touched.
 func (a *Auth[S, U, Tx]) limitCode(ctx context.Context, email string) error {
+	if err := a.codesSpent(ctx, email); err != nil {
+		return err
+	}
+
 	return a.limitSent(ctx, codeLimitKey(email))
 }
 
@@ -718,6 +759,21 @@ func (a *Auth[S, U, Tx]) addressSpent(ctx context.Context, email string) error {
 	}
 	if _, locked := record.Locked(time.Now()); locked {
 		return errAddressSpent()
+	}
+
+	return nil
+}
+
+// codesSpent refuses the address email an account holds once the wrong codes entered
+// for it reached the limit (codeGuessLimit), with codes_spent. It reads the count and
+// touches nothing.
+func (a *Auth[S, U, Tx]) codesSpent(ctx context.Context, email string) error {
+	record, err := a.storage.SignInAttempts(ctx, codeGuessKey(email))
+	if err != nil && !httpio.HasNotFound(err) {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
+	}
+	if _, locked := record.Locked(time.Now()); locked {
+		return errCodesSpent()
 	}
 
 	return nil
@@ -811,6 +867,26 @@ func (a *Auth[S, U, Tx]) countAddressGuess(ctx context.Context, email string) (l
 	return locked, nil
 }
 
+// countCodeGuess takes the place of a code entered for the address email an account
+// holds, the account's own code, in that address's count (codeGuessLimit), before the
+// code is judged, and reports whether it took the last place. The store counts it in
+// one transaction and says whether it was counted: a code that was not, the address
+// being at its limit already, is refused with codes_spent and compared with nothing.
+// Codes entered at once are each counted, so no more than the limit are ever judged
+// for one address.
+func (a *Auth[S, U, Tx]) countCodeGuess(ctx context.Context, email string) (last bool, err error) {
+	record, err := a.storage.RecordSignInFailure(ctx, codeGuessKey(email), codeGuessLimit)
+	if err != nil {
+		return false, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		return false, errCodesSpent()
+	}
+	_, locked := record.Locked(time.Now())
+
+	return locked, nil
+}
+
 // carriesInvitation refuses a code mailed for the invitation with id in a browser that
 // does not carry that invitation, live. One that carries no invitation, or another one
 // that is live, does not have the code's invitation open, and is answered so
@@ -875,6 +951,16 @@ func (a *Auth[S, U, Tx]) clearCodeLimit(ctx context.Context, email string) {
 // goes on.
 func (a *Auth[S, U, Tx]) clearAddressGuesses(ctx context.Context, email string) {
 	if err := a.storage.ClearSignInAttempts(ctx, addressGuessKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
+}
+
+// clearCodeGuesses resets the count of the wrong codes entered for the address email an
+// account holds, once a proof of its mailbox was given: the account's own right code,
+// or a password chosen at a reset link mailed to the address. It is bookkeeping after
+// the proof: a failure is logged, and the request goes on.
+func (a *Auth[S, U, Tx]) clearCodeGuesses(ctx context.Context, email string) {
+	if err := a.storage.ClearSignInAttempts(ctx, codeGuessKey(email)); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
 	}
 }

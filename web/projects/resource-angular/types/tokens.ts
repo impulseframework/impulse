@@ -242,6 +242,9 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   // Twenty-five wrong codes were entered for an address typed at the code step: it takes no more and is mailed none.
   address_spent:
     "This email address can't be confirmed with a code any more. Ask an administrator to add it to your account.",
+  // Twenty-five wrong codes were entered for the address an account holds: it takes no more and is mailed none until the count is reset.
+  codes_spent:
+    'Too many wrong codes were entered for this account. Reset your password, or ask an administrator to unlock your sign-in.',
   // A code mailed for an invitation, entered where that invitation's link is not open: the step stays, and the code works once the link is opened again.
   invitation_not_open:
     'This code belongs to an invitation that is not open in this browser. Open the link in your invitation again, then enter the code.',

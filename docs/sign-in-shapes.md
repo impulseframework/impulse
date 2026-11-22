@@ -530,6 +530,10 @@ link mailed to the confirmed address of their account.
 - An address a person types at the sign-in code's step takes twenty-five wrong codes in
   all, whoever types it. After that it is mailed nothing from that step, and an
   administrator puts it on the person's account.
+- The address an account holds takes twenty-five wrong sign-in codes in all, in however
+  many sign-ins. After that it is mailed no code until its person chooses a new password
+  from a reset link or an administrator unlocks the sign-in. The right code starts the
+  count again.
 - No link is sent to an account that has no password or no confirmed address. The
   administrator who asked is told so.
 - Turning the switch off stops new requests. A link a person asked for while it was on
