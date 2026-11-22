@@ -473,8 +473,8 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 
 // TestRoleFile_keepsTheFile pins that a role file read to be changed is written back as
 // it was: every role file the command renders reads and writes to the same bytes, so a
-// change to one is the change alone, and the comparison signs of a condition stay as a
-// person typed them.
+// change to one is the change alone, the file's auth stays its first key, and the
+// comparison signs of a condition stay as a person typed them.
 func TestRoleFile_keepsTheFile(t *testing.T) {
 	t.Parallel()
 

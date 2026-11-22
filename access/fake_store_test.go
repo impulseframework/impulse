@@ -225,7 +225,9 @@ func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.PolicySco
 }
 
 // InsertRole creates the role with its description; an existing role is left
-// as it is, description included.
+// as it is, description included. A name that differs only in case from a
+// custom role held where the two are read side by side is refused with a
+// *policy.CaseTwinError, under the lock that makes it one step with the write.
 func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -235,9 +237,25 @@ func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.PolicyScope,
 	if _, exists := f.roles[fakeRoleKey{scope, role}]; exists {
 		return nil
 	}
+	held := make([]policy.Role, 0, len(f.roles))
+	for key := range f.roles {
+		held = append(held, policy.Role{Scope: key.scope, Name: key.role})
+	}
+	if twin, found := policy.CaseTwin(held, scope, role); found {
+		return errors.Wrapf(&policy.CaseTwinError{Held: twin}, "role %q in scope %s", role, scope)
+	}
 	f.roles[fakeRoleKey{scope, role}] = description
 
 	return nil
+}
+
+// writeRoleUnchecked writes a role row with no rule: the pair of custom roles
+// that differ only in case a store written before the rule may hold, which
+// InsertRole no longer makes.
+func (f *fakeStore) writeRoleUnchecked(scope accesstypes.PolicyScope, role accesstypes.Role, description string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.roles[fakeRoleKey{scope, role}] = description
 }
 
 func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error) {

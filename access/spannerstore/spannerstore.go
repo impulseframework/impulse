@@ -28,6 +28,7 @@ import (
 	"slices"
 
 	"cloud.google.com/go/spanner"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
@@ -137,6 +138,7 @@ type Store struct {
 	sqlDeleteEndedMembers  string
 	sqlRoleExists          string
 	sqlListRoles           string
+	sqlReadMeetingRoles    string
 	sqlListUserRoles       string
 	sqlListUserMemberships string
 	sqlListUserAssignments string
@@ -167,6 +169,7 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlDeleteEndedMembers:  fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", names.userRoles, ended),
 		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
+		sqlReadMeetingRoles:    fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s WHERE Axis = @axis AND ((Kind = @kind AND DomainId = @domain) OR (@kind != '%s' AND Kind = '%s') OR (@kind = '%s' AND Kind = '%s'))", names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
 		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND UserId = @user AND %s ORDER BY Role", names.userRoles, counting("")),
 		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, counting("")),
 		sqlListUserAssignments: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt, Reason FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, standing("")),
@@ -360,6 +363,20 @@ func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wra
 	return nil
 }
 
+// readWrite runs f in a read-write transaction at the serializable isolation level,
+// whatever level the application chose for its client
+// (spanner.ClientConfig.TransactionOptions, which the client applies to a transaction
+// that names none). Several of the store's transactions read and then write another
+// row, and rely on Spanner serializing the read with what another transaction writes: a
+// role's insert with its twin's, a role's or a group's deletion with a membership given
+// at the same moment. At repeatable read, which checks only two writes to one row, both
+// would commit.
+func (s *Store) readWrite(ctx context.Context, f func(context.Context, *spanner.ReadWriteTransaction) error) error {
+	_, err := s.client.ReadWriteTransactionWithOptions(ctx, f, spanner.TransactionOptions{IsolationLevel: sppb.TransactionOptions_SERIALIZABLE})
+
+	return err //nolint:wrapcheck // each caller wraps it with the words that name its transaction
+}
+
 // given is one column an assignment is given beside its period, with the value
 // it is given: a membership's reason.
 type given struct {
@@ -380,7 +397,7 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 		columns = append(columns, g.column)
 		values = append(values, g.value)
 	}
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var m *spanner.Mutation
 		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
 		case err == nil:
@@ -415,7 +432,7 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, "spanner.Client.ReadWriteTransaction() assign user role",
+		period, "spanner.Client.ReadWriteTransactionWithOptions() assign user role",
 		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 
@@ -532,14 +549,66 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope
 
 // InsertRole creates the (scope, role) row with its description;
 // re-inserting an existing role is a no-op that leaves the stored description
-// as it is.
+// as it is. A name that differs only in case from a custom role held where the
+// two are read side by side is refused with a *policy.CaseTwinError. The read of
+// the roles the name is held to and the insert are one read-write transaction at
+// the serializable isolation level, which Spanner serializes with any other that
+// wrote a row the read reads, so of two inserts of names alike but for case one
+// commits first and the other, run again, reads its row.
 func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlReadMeetingRoles, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
 	m := spanner.Insert(s.names.roles,
 		[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
 		[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		held, err := meetingRoles(ctx, txn, stmt)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(held, policy.Role{Scope: scope, Name: role}) {
+			return nil
+		}
+		if twin, found := policy.CaseTwin(held, scope, role); found {
+			return errors.Wrapf(&policy.CaseTwinError{Held: twin}, "role %q in scope %s", role, scope)
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
 
-	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert role")
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() insert role")
+	}
+
+	return nil
+}
+
+// meetingRoles reads, through txn, the custom roles a new name held where stmt's
+// columns say could meet (policy.RoleNamesMeet): those of the same place, every
+// domain's for one domain, and every domain's and each domain's for every
+// domain.
+func meetingRoles(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) ([]policy.Role, error) {
+	var roles []policy.Role
+	err := txn.Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var kind, axis, domain, role string
+		if err := row.Columns(&kind, &axis, &domain, &role); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		scope, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		roles = append(roles, policy.Role{Scope: scope, Name: accesstypes.Role(role)})
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.Query() roles")
+	}
+
+	return roles, nil
 }
 
 // ListRoles returns the scope's roles with their descriptions, sorted by
@@ -575,7 +644,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	kind, axis, domain := policy.ScopeColumns(scope)
 	params := map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)}
 	var deleted bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if members, err := anyRow(ctx, txn, spanner.Statement{SQL: s.sqlRoleHasMembers, Params: params}); err != nil {
 			return errors.Wrap(err, "role members")
 		} else if members {
@@ -607,7 +676,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction() delete role")
+		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() delete role")
 	}
 
 	return deleted, nil
@@ -704,7 +773,7 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 	}
 
 	for chunk := range slices.Chunk(changes, changeGrantsChunk) {
-		_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			keys := make([]spanner.KeySet, 0, len(chunk))
 			for _, c := range chunk {
 				if !c.remove {
@@ -752,7 +821,7 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 			return nil
 		})
 		if err != nil {
-			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() change grants")
+			return errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() change grants")
 		}
 	}
 

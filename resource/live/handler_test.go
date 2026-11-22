@@ -168,6 +168,69 @@ func TestSubscribing(t *testing.T) {
 	}
 }
 
+// TestSubscribing_groupBound proves what Subscribing does with a request its outlet's
+// group bound (resource.BindAuth): where the group bound the auth Subscribing was given,
+// the request passes on and what answers for it reads that auth; where the group bound
+// another auth, the request is refused with a 500 before the next handler, and the
+// cause logged names both auths.
+func TestSubscribing_groupBound(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "this request is bound to the crew auth, and the routes it reached were mounted for the members auth's sessions " +
+		"(live.Subscribing, which an outlet's generated routes run under). A request comes through one auth, the one its outlet's group binds: " +
+		"mount these routes under the members auth's own group, or give the group's resource.BindAuth and its routes one auth's name"
+	tests := []struct {
+		name       string
+		group      string
+		wantStatus int
+		wantRan    bool
+		wantCause  string
+	}{
+		{name: "a request its group bound to the routes' auth passes on with that auth", group: membersAuth, wantStatus: http.StatusOK, wantRan: true},
+		{name: "a request its group bound to another auth is refused", group: crewAuth, wantStatus: http.StatusInternalServerError, wantCause: refusal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ran, gotAuth, gotOK, gotBound := false, "", false, ""
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ran = true
+				gotAuth, gotOK = resource.AuthFrom(r.Context())
+				gotBound = resource.BoundAuth(r.Context())
+				w.WriteHeader(http.StatusOK)
+			})
+			var grouped context.Context
+			bind := resource.BindAuth(tt.group)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				grouped = r.Context()
+				Subscribing(membersAuth)(next).ServeHTTP(w, r)
+			}))
+			req := httptest.NewRequestWithContext(withUser(t.Context(), "dispatcher"), http.MethodGet, "/api/ships", http.NoBody)
+			rr := httptest.NewRecorder()
+			bind.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d: %s", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if ran != tt.wantRan {
+				t.Errorf("handler ran = %v, want %v", ran, tt.wantRan)
+			}
+			if tt.wantRan && (gotAuth != membersAuth || !gotOK || gotBound != membersAuth) {
+				t.Errorf("resource.AuthFrom() = %q, %v and resource.BoundAuth() = %q, want %q, true and %q", gotAuth, gotOK, gotBound, membersAuth, membersAuth)
+			}
+			err := groupAuthRefusal(grouped, membersAuth)
+			switch {
+			case tt.wantCause == "" && err != nil:
+				t.Errorf("groupAuthRefusal() error = %v, want nil", err)
+			case tt.wantCause != "" && err == nil:
+				t.Error("groupAuthRefusal() error = nil, want the refusal")
+			case tt.wantCause != "" && !strings.HasSuffix(err.Error(), "error="+tt.wantCause):
+				t.Errorf("groupAuthRefusal() error = %v, want the cause %q", err, tt.wantCause)
+			}
+		})
+	}
+}
+
 // TestSubscribing_authName proves the refusal of an auth name that cannot begin a
 // principal id: it panics as the routes are registered, naming what is wrong.
 func TestSubscribing_authName(t *testing.T) {

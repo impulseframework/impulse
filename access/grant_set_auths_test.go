@@ -68,8 +68,8 @@ var customRoleEngines = []struct {
 	opts   []Option
 	heldTo bool
 }{
-	{name: "the engine of crew", auths: []string{"crew", "staff"}, opts: []Option{WithDefaultRoles(crewsRoleFile, "crew")}, heldTo: true},
-	{name: "an engine told no auth", auths: []string{"crew"}, opts: []Option{WithDefaultRoles(crewsRoleFile, "")}},
+	{name: "the engine of crew", auths: []string{"crew", "staff"}, opts: []Option{WithDefaultRoles(crewsRoleFile("crew"), "crew")}, heldTo: true},
+	{name: "an engine told no auth", auths: []string{"crew"}, opts: []Option{WithDefaultRoles(crewsRoleFile(""), "")}},
 	{name: "an engine opened with no role file", auths: []string{"crew"}},
 }
 
@@ -161,7 +161,7 @@ func TestValidateRoles_customRoleWriteSaysTheRoleFilesSentence(t *testing.T) {
 			clerk := &Role{Name: "Clerk", Description: aDescription, Permissions: map[accesstypes.Permission][]Grant{
 				accesstypes.Read: {{Resource: "Widgets", Condition: grant.cond}},
 			}}
-			_, err := ValidateRoles(customRoleSetsRelease("crew", "staff"), &RoleConfig{Roles: ScopedRoles{Domain: []*Role{clerk}}}, "crew")
+			_, err := ValidateRoles(customRoleSetsRelease("crew", "staff"), &RoleConfig{Auth: "crew", Roles: ScopedRoles{Domain: []*Role{clerk}}}, "crew")
 			if err == nil {
 				t.Fatal("ValidateRoles() error = nil, want the grant refused")
 			}

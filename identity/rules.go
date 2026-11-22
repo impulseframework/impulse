@@ -55,9 +55,9 @@ import (
 
 // callerIs reports whether the request's caller is the person of the account in this
 // auth: the request came through this auth, and the caller's id is the account's. The
-// auth a request came through is the one its outlet's generated routes bound
-// (resource.AuthFrom). A request bound to another auth is another auth's person. A
-// caller with no auth bound, which no generated route produces, is judged by the id
+// auth a request came through is the one its outlet's group or its generated routes
+// bound (resource.AuthFrom). A request bound to another auth is another auth's person.
+// A caller with no auth bound, which no generated route produces, is judged by the id
 // alone, so the rule errs toward refusing.
 func (m *Manager) callerIs(ctx context.Context, userID impulse.UUID) bool {
 	caller := resource.CallerFrom(ctx)

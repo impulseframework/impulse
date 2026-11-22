@@ -168,8 +168,8 @@ func TestRender(t *testing.T) {
 
 // TestRenderAuth renders the base with its first auth named: the placeholder is gone from
 // every path and every file in each of its cases (staff, Staff, and the STAFF of an
-// environment variable), the named auth is where the placeholder was, and the static
-// checks read the renamed auth as wired.
+// environment variable), the named auth is where the placeholder was, its role file
+// carries its name, and the static checks read the renamed auth as wired.
 func TestRenderAuth(t *testing.T) {
 	t.Parallel()
 
@@ -221,6 +221,7 @@ func TestRenderAuth(t *testing.T) {
 		"pkg/config/data.go":           "MembersAdministrator string `env:\"APP_MEMBERS_ADMINISTRATOR\"`",
 		".envrc.template":              "# export APP_MEMBERS_ADMINISTRATOR=",
 		"pkg/auth/members/foothold.go": "const AdministratorVariable = \"APP_MEMBERS_ADMINISTRATOR\"",
+		"pkg/auth/members/roles.json":  "{\n  \"auth\": \"members\",\n  \"roles\": {",
 		"pkg/deploy/deploy.go":         "email: data.MembersAdministrator(), invite: data.Members().InviteAdministrator, reinvite: data.Members().ReinviteAdministrator",
 	} {
 		data, err := root.ReadFile(filepath.FromSlash(rel))
@@ -245,7 +246,7 @@ func TestRenderAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("app.Discover() error = %v", err)
 	}
-	for _, name := range []string{"session-tables", "migrations-reader", "auths-wired", "env-template", "options"} {
+	for _, name := range []string{"session-tables", "migrations-reader", "auths-wired", "roles-file", "env-template", "options"} {
 		checks, err := check.Select([]string{name})
 		if err != nil {
 			t.Fatal(err)

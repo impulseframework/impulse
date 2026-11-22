@@ -93,12 +93,12 @@ func engineerAtAnvil(t *testing.T, db *initiator.SpannerDB, userID string) (peri
 func withoutGrant(t *testing.T, roles access.RoleFile, role, permission, res string) access.RoleFile {
 	t.Helper()
 
-	var file map[string]map[string][]map[string]any
+	var file looseRoleFile
 	if err := json.Unmarshal(roles, &file); err != nil {
 		t.Fatalf("reading the role file: %v", err)
 	}
 	taken := false
-	for _, set := range file["roles"] {
+	for _, set := range file.Roles {
 		for _, entry := range set {
 			if entry["name"] != role {
 				continue

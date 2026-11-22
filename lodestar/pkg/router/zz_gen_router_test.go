@@ -1753,10 +1753,20 @@ func newRouterCallRecorder() *routerCallRecorder {
 	return &routerCallRecorder{generatedCallRecorder: newGeneratedCallRecorder()}
 }
 
-// Middleware returns middleware that appends its name to the chain when it runs.
+// routerBindRecorded marks a request whose bind to an auth the chain records already.
+type routerBindRecorded struct{}
+
+// Middleware returns middleware that appends its name to the chain when it runs. The
+// first recorded middleware that runs on a request bound to an auth (resource.BindAuth,
+// which the router mounts itself) appends the bind in front of its own name, so the
+// chain shows where the router's bind sits.
 func (rec *routerCallRecorder) Middleware(name string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if auth := resource.BoundAuth(r.Context()); auth != "" && r.Context().Value(routerBindRecorded{}) == nil {
+				rec.chain = append(rec.chain, "BindAuth("+auth+")")
+				r = r.WithContext(context.WithValue(r.Context(), routerBindRecorded{}, true))
+			}
 			rec.chain = append(rec.chain, name)
 			next.ServeHTTP(w, r)
 		})
@@ -2161,10 +2171,6 @@ func (s *routerHandlersStub) Portal() PortalSession {
 
 func (s *routerHandlersStub) Droids() DroidsTokens {
 	return s.droids
-}
-
-func (s *routerHandlersStub) BindAuth(name string) func(http.Handler) http.Handler {
-	return s.rec.Middleware("BindAuth(" + name + ")")
 }
 
 func (s *routerHandlersStub) SchedulerAuth(next http.Handler) http.Handler {

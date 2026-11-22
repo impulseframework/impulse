@@ -108,7 +108,7 @@ func TestTemporalWindows(t *testing.T) {
 
 	refitFields := []accesstypes.Tag{"shipId", "statusId", "estimate"}
 	taskFields := []accesstypes.Tag{"notes"}
-	conf := &access.RoleConfig{Roles: access.ScopedRoles{Domain: []*access.Role{
+	conf := &access.RoleConfig{Auth: crew.Name, Roles: access.ScopedRoles{Domain: []*access.Role{
 		{
 			Name:        "OnShift",
 			Description: "Works the refits during the shift.",

@@ -11,7 +11,7 @@ import (
 // TestPilotCardIsCallerScoped drives the caller-scoped read: PilotCards is a computed
 // resource whose List yields the one row of the identity the permission check ran as
 // (QuerySet.User), so two crew members asking the same route get two different single
-// rows. The List grant still gates the route: a client outside the crew is refused
+// rows. The List grant still gates the route: a session outside the crew is refused
 // before the function runs.
 func TestPilotCardIsCallerScoped(t *testing.T) {
 	t.Parallel()
@@ -28,7 +28,7 @@ func TestPilotCardIsCallerScoped(t *testing.T) {
 	}{
 		{name: "the pilot sees the pilot's card", user: "pilot", wantStatus: http.StatusOK, wantRows: 1, wantClearance: 3},
 		{name: "the flight lead sees the lead's card with Hammer", user: "lead", wantStatus: http.StatusOK, wantRows: 1, wantClearance: -1, wantSquadrons: []any{"Hammer"}},
-		{name: "a client outside the crew is refused by the grant", user: "client", wantStatus: http.StatusForbidden},
+		{name: "a session outside the crew is refused by the grant", user: "visitor-nobody", wantStatus: http.StatusForbidden},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

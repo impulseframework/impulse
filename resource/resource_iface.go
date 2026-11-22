@@ -139,6 +139,12 @@ type SessionUserChecker interface {
 	// its directory only still admits its own administrators with a password
 	// and a second factor (signin.TenantDeclaration.AdmitsAdministrator).
 	AdministersTenant(ctx context.Context, domain accesstypes.Domain) (bool, error)
+
+	// Auth names the auth whose permission engine the checker answers from, as
+	// the engine was opened (the access package's Client.Auth), empty for an
+	// engine opened under no auth's name. SessionPermissions holds it to the auth
+	// a bound request came through.
+	Auth() string
 }
 
 // RolePermissions is the permission surface of a session that operates as a
@@ -163,6 +169,12 @@ type RolePermissions interface {
 	// HasGrants reports whether the role holds at least one grant in scope.
 	// See UserPermissionChecker.HasGrants.
 	HasGrants(ctx context.Context, scope accesstypes.Scope) (bool, error)
+
+	// Auth names the auth whose permission engine the checker answers from, as
+	// the engine was opened (the access package's Client.Auth), empty for an
+	// engine opened under no auth's name. SessionPermissions holds it to the auth
+	// a bound request came through.
+	Auth() string
 }
 
 // DomainRoster lists the application's tenant domains: the roster the tenant

@@ -232,7 +232,7 @@ func authFiles(t *testing.T) map[string]string {
 		"pkg/auth/staff/staff.go":                             staffPackage(t, "staff.go"),
 		"pkg/auth/staff/password.go":                          staffPackage(t, "password.go"),
 		"pkg/config/data.go":                                  authConfig,
-		"pkg/auth/staff/roles.json":                           "{\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n",
+		"pkg/auth/staff/roles.json":                           "{\n  \"auth\": \"staff\",\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n",
 		"schema/migrations/000001_DataChangeEvents.up.sql":    "CREATE TABLE DataChangeEvents (Id STRING(36) NOT NULL) PRIMARY KEY (Id);\n",
 		"schema/migrations/000002_StaffAccess.up.sql":         "CREATE TABLE StaffRoles (\n  Role STRING(128) NOT NULL,\n) PRIMARY KEY (Role);\n\nCREATE TABLE StaffUserRoles (\n  Role STRING(128) NOT NULL,\n) PRIMARY KEY (Role);\n",
 		"schema/migrations/000002_StaffAccess.down.sql":       "DROP TABLE StaffUserRoles;\nDROP TABLE StaffRoles;\n",
@@ -465,6 +465,9 @@ func TestAuthApply(t *testing.T) {
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
+				if got, want := read(t, a, "pkg/auth/partners/roles.json"), "{\n  \"auth\": \"partners\",\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n"; got != want {
+					t.Errorf("pkg/auth/partners/roles.json = %q, want %q: the new auth's empty file, carrying its name", got, want)
+				}
 				pkg := read(t, a, "pkg/auth/partners/partners.go")
 				for _, want := range []string{"package partners", `Name = "partners"`, `TablePrefix = "Partners"`, "session.NewAuth[session.NoCustomData, session.NoCustomData](", `sessionsTable       = "PartnersSessions"`, "handlers.password = registerPassword(authSession)"} {
 					if !strings.Contains(pkg, want) {
@@ -781,7 +784,7 @@ func TestAuthApply(t *testing.T) {
 			wantSkipped: []string{
 				invited,
 				handed,
-				"no file declares a Configurer interface, so the App is not given the partners auth: the generated router's Handlers requires BindAuth(name string) func(http.Handler) http.Handler and the portal outlet's session handlers from the partners auth (partners.Auth.Handlers()), and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client (partners.Auth.Identity()); the application does not compile until the App holds them",
+				"no file declares a Configurer interface, so the App is not given the partners auth: the generated router's Handlers requires the portal outlet's session handlers from the partners auth (partners.Auth.Handlers()), and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client (partners.Auth.Identity()), and the library answers a request the router binds to the partners auth only from that auth's permission engine; the application does not compile until the App holds them",
 			},
 			// The default outlet still declares the staff auth, so its management stays.
 			neverSkipped: []string{"no outlet declares"},

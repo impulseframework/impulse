@@ -70,6 +70,10 @@ type Controller interface {
 	// with them, such as a tenant's list of its people.
 	TenantAdministratorRoles() []accesstypes.Role
 
+	// Auth returns the name of the auth whose roles the engine holds, empty for
+	// an engine opened under no auth's name (see Client.Auth).
+	Auth() string
+
 	// UserPermissionDigest returns user's structural grant enumeration within
 	// scope — the frontend digest payload: resource → permission → granted or
 	// conditional, denied targets absent, nothing folded (see

@@ -1528,10 +1528,10 @@ serve the added auth's outlet as the application does. A configurer that holds n
 read (one that opens the first auth otherwise, or builds the App over an auth handed to
 a function) is left answering none, and a Skipped line says what its suites need.
 The App holds the auth's session
-handlers, its identity client and its permission engine, declares `BindAuth`, which the
-regenerated router's `Handlers` requires once two auths are declared, over the record of
-the auth a request came through (`pkg/auth`, `Bind` and `Name`), and answers a session's
-permissions from that auth's engine; and the accessor of an outlet `add outlet` laid in
+handlers, its identity client and its permission engine, and answers a session's
+permissions from the engine of the auth the request came through (`resource.BoundAuth`;
+the regenerated router binds each outlet's requests to its auth, and the library refuses
+a request asked of another auth's engine); and the accessor of an outlet `add outlet` laid in
 returns the new auth's session handlers in place of the handlers of the auth the outlet
 was laid in with, so the new auth's people sign in there and nobody else's session opens
 there. An App that is not the base's keeps what it has, and a Skipped line says what it

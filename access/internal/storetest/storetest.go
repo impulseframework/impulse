@@ -60,10 +60,13 @@ const (
 
 // Run exercises the full access.Store contract against an empty, ready store.
 // The suite is one ordered scenario: later phases build on earlier writes.
-func Run(t *testing.T, store access.Store) {
+// writeRole writes a role row to the same store with no rule, for the one
+// check that needs a pair of case twins no method of the store makes.
+func Run(t *testing.T, store access.Store, writeRole RoleWriter) {
 	t.Helper()
 
 	t.Run("roles", func(t *testing.T) { runRoles(t, store) })
+	t.Run("role case twins", func(t *testing.T) { runRoleCaseTwins(t, store, writeRole) })
 	t.Run("memberships", func(t *testing.T) { runMemberships(t, store) })
 	t.Run("user memberships", func(t *testing.T) { runUserMemberships(t, store) })
 	t.Run("grants", func(t *testing.T) { runGrants(t, store) })

@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -227,7 +226,7 @@ func fileRequestAs(t *testing.T, h http.Handler, user accesstypes.User, target s
 
 	ctx := sessionContext(t, user)
 	if portalUsers[user] {
-		ctx = auth.Bind(ctx, members.Name)
+		h = resource.BindAuth(members.Name)(h)
 	}
 	req := httptest.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	for name, value := range headers {

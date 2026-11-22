@@ -23,6 +23,7 @@ import (
 // grammarRoleFile is a role file over grammarCollection: Steward executes the
 // global method, Reader reads Widgets and its name field.
 var grammarRoleFile = RoleFile(`{
+  "auth": "crew",
   "roles": {
     "global": [
       {"name": "Steward", "description": "Runs the global method.", "permissions": {"Execute": [{"resource": "DoThing"}]}}
@@ -37,6 +38,7 @@ var grammarRoleFile = RoleFile(`{
 // Paymaster, holds a conditional Delete on Missions without a Read or List
 // on it: the shape GrantWarning flags.
 var probeRoleFile = RoleFile(`{
+  "auth": "crew",
   "roles": {
     "domain": [
       {"name": "Paymaster", "description": "Settles the open missions.", "permissions": {"Delete": [{"resource": "Missions", "condition": "state = 'open'"}]}}
@@ -82,7 +84,7 @@ func TestRoleFile_Parse(t *testing.T) {
 		{
 			name: "a valid file parses into its configuration",
 			file: grammarRoleFile,
-			want: &RoleConfig{Roles: ScopedRoles{
+			want: &RoleConfig{Auth: fixtureAuth, Roles: ScopedRoles{
 				Global: []*Role{{Name: "Steward", Description: "Runs the global method.", Permissions: map[accesstypes.Permission][]Grant{
 					"Execute": {{Resource: "DoThing"}},
 				}}},
@@ -94,7 +96,7 @@ func TestRoleFile_Parse(t *testing.T) {
 		{
 			name: "a condition parses with its grant",
 			file: probeRoleFile,
-			want: &RoleConfig{Roles: ScopedRoles{
+			want: &RoleConfig{Auth: fixtureAuth, Roles: ScopedRoles{
 				Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 					"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 				}}},
@@ -212,73 +214,73 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 		{
 			name:       "a file naming a role outside the grammar",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "reader", "description": "Reads widgets.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "reader", "description": "Reads widgets.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
 			wantErr:    "role reader: a role name is letters and digits starting with a capital letter",
 		},
 		{
 			name:       "a file whose role has no description",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
 			wantErr:    "role Reader: a role carries a description",
 		},
 		{
 			name:       "a file naming a resource the collection does not declare",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Nowhere"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Nowhere"}]}}]}}`),
 			wantErr:    "does not validate",
 		},
 		{
 			name:       "a file granting on a name with more than one dot",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.first"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.first"}]}}]}}`),
 			wantErr:    "grant on Widgets.name.first: a grant's resource holds at most one dot",
 		},
 		{
 			name:       "a file granting all the fields of a field",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.*"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.*"}]}}]}}`),
 			wantErr:    "grant on Widgets.name.*: a grant's resource holds at most one dot",
 		},
 		{
 			name:       "a file naming a field with a dot",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name.first"]}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name.first"]}]}}]}}`),
 			wantErr:    `grant on Widgets: field "name.first" holds a dot`,
 		},
 		{
 			name:       "a file granting on a lone dot",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "."}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "."}]}}]}}`),
 			wantErr:    "grant on .: no resource is named before the dot",
 		},
 		{
 			name:       "a file granting on a field with no resource before its dot",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": ".name"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": ".name"}]}}]}}`),
 			wantErr:    "grant on .name: no resource is named before the dot",
 		},
 		{
 			name:       "a file granting all the fields of no resource",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": ".*"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": ".*"}]}}]}}`),
 			wantErr:    "grant on .*: no resource is named before the dot",
 		},
 		{
 			name:       "a file granting on a resource with no field after its dot",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets."}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets."}]}}]}}`),
 			wantErr:    "grant on Widgets.: no field is named after the dot",
 		},
 		{
 			name:       "a file naming a field with no name",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": [""]}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": [""]}]}}]}}`),
 			wantErr:    "grant on Widgets: one of its fields has no name",
 		},
 		{
 			name:       "a file granting a domain resource to a global role",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"global": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
+			file:       RoleFile(`{"auth": "crew", "roles": {"global": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
 			wantErr:    "does not validate",
 		},
 	}
