@@ -6123,7 +6123,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 				return httpio.NewEncoder(w).StatusCodeWithBody(refused, {{ .RPCMethod.ResponseExpr }})
 			}
 			{{ end }}
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 		{{- else }}
 		{{- if .RPCMethod.Answers }}
@@ -6351,7 +6351,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					return httpio.NewEncoder(w).Ok(nil)
 				}
 
-				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 {{- end }}
 
 {{- /* rpcWarningAsked is what every frame does with a request that asks for the
