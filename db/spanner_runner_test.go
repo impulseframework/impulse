@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/db/internal/runner"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 )
 
 // The fixtures the runner tests apply: a table with a value column, so that a unique index
@@ -38,8 +42,9 @@ type versionRow struct {
 	operation  spanner.NullString
 }
 
-// testMigrator creates a database and a migrator on it; both go with the test.
-func testMigrator(ctx context.Context, t *testing.T, container *SpannerContainer) (*SpannerDB, *SpannerMigrator) {
+// testMigrator creates a database and a migrator on it, with the extra client options given
+// to both of the migrator's clients; both go with the test.
+func testMigrator(ctx context.Context, t *testing.T, container *SpannerContainer, extra ...option.ClientOption) (*SpannerDB, *SpannerMigrator) {
 	t.Helper()
 
 	dbName := genDBName()
@@ -56,7 +61,17 @@ func testMigrator(ctx context.Context, t *testing.T, container *SpannerContainer
 		}
 	})
 
-	migrator, err := NewSpannerMigrator(ctx, container.projectID, container.instanceID, dbName, container.opts...)
+	migrator := openMigrator(ctx, t, container, dbName, extra...)
+
+	return db, migrator
+}
+
+// openMigrator opens a migrator on an existing database, with the extra client options given
+// to both of its clients; it goes with the test.
+func openMigrator(ctx context.Context, t *testing.T, container *SpannerContainer, dbName string, extra ...option.ClientOption) *SpannerMigrator {
+	t.Helper()
+
+	migrator, err := NewSpannerMigrator(ctx, container.projectID, container.instanceID, dbName, append(slices.Clone(container.opts), extra...)...)
 	if err != nil {
 		t.Fatalf("NewSpannerMigrator() error = %v", err)
 	}
@@ -66,7 +81,21 @@ func testMigrator(ctx context.Context, t *testing.T, container *SpannerContainer
 		}
 	})
 
-	return db, migrator
+	return migrator
+}
+
+// The calls the intercepted tests watch: the DDL batch the admin client sends, and the
+// commit of a read-write transaction of the data client.
+const (
+	methodUpdateDatabaseDdl = "/google.spanner.admin.database.v1.DatabaseAdmin/UpdateDatabaseDdl"
+	methodCommit            = "/google.spanner.v1.Spanner/Commit"
+)
+
+// intercepting is a client option that sends every unary call of a client through f, which
+// sees the call by its method name and may answer in place of Spanner: the network between
+// a run and Spanner, as a test stages it.
+func intercepting(f grpc.UnaryClientInterceptor) option.ClientOption {
+	return option.WithGRPCDialOption(grpc.WithChainUnaryInterceptor(f))
 }
 
 // writeSource writes migration files into a temporary directory and returns its file:// URL.
@@ -1013,6 +1042,92 @@ func TestSpannerMigrator_CommitHoldsTheRow(t *testing.T) {
 		t.Fatalf("Commit(held) after a forced version error = %v, want ErrAnotherRun", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 5)
+}
+
+// TestSpannerMigrator_RowChangedUnderARun changes the version row under a run at a staged
+// moment, as another run or a person forcing the version would: the run stops with
+// ErrAnotherRun and applies nothing more.
+func TestSpannerMigrator_RowChangedUnderARun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	container, err := NewSpannerContainer(ctx, "latest")
+	if err != nil {
+		t.Fatalf("NewSpannerContainer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
+	}{
+		{name: "a down migration that loses the row says to run it again", run: testDownLosesTheRow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(ctx, t, container)
+		})
+	}
+}
+
+// forceAfterFirstCommit is an interceptor that, once armed, forces the schema version through
+// another migrator right after the first commit it sees has returned.
+type forceAfterFirstCommit struct {
+	ctx     context.Context
+	t       *testing.T
+	other   *SpannerMigrator
+	version int
+	armed   atomic.Bool
+	forced  atomic.Bool
+}
+
+// intercept is the interceptor.
+func (f *forceAfterFirstCommit) intercept(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	err := invoker(ctx, method, req, reply, cc, opts...)
+	if method == methodCommit && f.armed.Load() && f.forced.CompareAndSwap(false, true) {
+		if err := f.other.ForceSchema(f.ctx, f.version); err != nil {
+			f.t.Errorf("ForceSchema(%d) error = %v", f.version, err)
+		}
+	}
+
+	return err
+}
+
+// testDownLosesTheRow: the version is forced right after a down run marks it dirty; the run
+// stops at its DML group with ErrAnotherRun, which says to run it again, not to force a
+// version, and drops nothing.
+func testDownLosesTheRow(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	force := &forceAfterFirstCommit{ctx: ctx, t: t, version: 1}
+	db, migrator := testMigrator(ctx, t, container, intercepting(force.intercept))
+	force.other = openMigrator(ctx, t, container, migrator.databaseName)
+	source := writeSource(t, map[string]string{
+		"000001_t.up.sql":   sqlCreateT,
+		"000001_t.down.sql": "DELETE FROM T WHERE TRUE;\nDROP TABLE T;",
+	})
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema() error = %v", err)
+	}
+	src, err := runner.Open(source)
+	if err != nil {
+		t.Fatalf("runner.Open() error = %v", err)
+	}
+
+	force.armed.Store(true)
+	err = migrator.runner("SchemaMigrations").Down(ctx, src)
+	if !force.forced.Load() {
+		t.Fatal("the interceptor saw no commit of the down run")
+	}
+	if !errors.Is(err, ErrAnotherRun) || strings.Contains(err.Error(), "force the version that matches its real state") {
+		t.Errorf("Down() error = %v, want ErrAnotherRun, which does not say to force a version", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
+	if !exists(ctx, t, db.Client, "table", "T") {
+		t.Error("table T was dropped after the down run lost the row")
+	}
 }
 
 // TestSpannerMigrator_VersionAndForce reads and forces both tables.

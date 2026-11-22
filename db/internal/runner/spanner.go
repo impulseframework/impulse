@@ -412,7 +412,9 @@ func (s *Spanner) Down(ctx context.Context, src *Source) error {
 	}
 }
 
-// revert runs a down file with the version marked dirty and no progress recorded.
+// revert runs a down file with the version marked dirty and no progress recorded. A run
+// that lost the version row stops with ErrAnotherRun as it is: the row is another run's or a
+// forced one, and the way out is to run it again, not to force a version.
 func (s *Spanner) revert(ctx context.Context, held *Version, m *Migration) error {
 	stmts, err := Split(m.SQL)
 	if err != nil {
@@ -424,7 +426,11 @@ func (s *Spanner) revert(ctx context.Context, held *Version, m *Migration) error
 	}
 
 	for _, g := range Groups(stmts, 0) {
-		if err := s.runGroup(ctx, held, g); err != nil {
+		err := s.runGroup(ctx, held, g)
+		if errors.Is(err, ErrAnotherRun) {
+			return err
+		}
+		if err != nil {
 			return errors.Wrapf(err, "%s failed; the database is dirty at version %d, force the version that matches its real state", m.File, m.Version)
 		}
 	}
