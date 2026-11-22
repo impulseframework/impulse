@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -478,7 +479,7 @@ const addressSpentSentence = "This email address can't be confirmed with a code 
 func (a *authApp[Tx]) typedAddressGuesses(ctx context.Context, t *testing.T, typed string) int64 {
 	t.Helper()
 
-	record, err := a.signInAttempts(ctx, attempts.OwnKey(attempts.KindAddressGuess, attempts.Normalize(typed)))
+	record, err := a.signInAttempts(ctx, attempts.OwnKey(attempts.KindAddressGuess, util.LowerASCII(typed)))
 	if err != nil {
 		if httpio.HasNotFound(err) {
 			return 0

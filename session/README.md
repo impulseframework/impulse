@@ -1265,8 +1265,10 @@ the person reaches.
    or entered after it, is `401 {"code": "invitation_spent"}`; nothing more is mailed
    for the invitation, and an administrator invites the person again. The right code
    among the twenty-five accepts. A code asked for an address a person types at this
-   step is held to a count of the same size, kept under the address
-   (`ADDRESS-GUESS:`). Typing an address shows nothing about who reads it, so the
+   step is held to a count of the same size, kept under the address as the users table
+   compares addresses (`ADDRESS-GUESS:`): the case of its ASCII letters is folded and
+   nothing else, so an address that only reads like another has a count of its own.
+   Typing an address shows nothing about who reads it, so the
    wrong codes entered for one address are counted together, whichever account typed
    it and in however many sign-ins, and no time resets the count. The wrong code that
    takes the twenty-fifth place, and every code asked for or entered for that address

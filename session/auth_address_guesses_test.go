@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -139,6 +140,7 @@ func TestAuth_addressGuesses(t *testing.T) {
 	t.Run("the twenty-fifth wrong code entered for a typed address, across the two accounts that typed it, is answered as the address spent, and every code entered or asked for after it is too, compared with nothing and mailed nothing", addressSpentByWrongCodes)
 	t.Run("a right code within the twenty-five is accepted and starts the address's count again", addressRightCodeWithinBudget)
 	t.Run("an account's own code and an invitation's code take no place in an address's count", addressGuessesNotCounted)
+	t.Run("an address that only reads like another has a count of its own: its wrong codes take no place in the other's, and its right code leaves the other's count as it was", addressCountIsItsOwn)
 }
 
 func addressSpentByWrongCodes(t *testing.T) {
@@ -302,4 +304,53 @@ func addressGuessesNotCounted(t *testing.T) {
 			t.Errorf("the invited address's count = %+v, want none: the code is the invitation's", record)
 		}
 	})
+}
+
+func addressCountIsItsOwn(t *testing.T) {
+	t.Parallel()
+
+	// Two addresses that the mail counts' fold takes for one and the users table for
+	// two: two mailboxes. The keys are written out as the table keeps them.
+	const (
+		patTyped, patKey = "lee@glass.example", "ADDRESS-GUESS:lee@glass.example"
+		samTyped, samKey = "lee@glaß.example", "ADDRESS-GUESS:lee@glaß.example"
+	)
+	if attempts.Normalize(patTyped) != attempts.Normalize(samTyped) {
+		t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", patTyped, samTyped)
+	}
+	w := newAddressTypists(t)
+	count := func(key string) int64 {
+		record := w.f.attemptsRecord(key)
+		if record == nil {
+			return 0
+		}
+
+		return record.Failures
+	}
+
+	// pat enters two wrong codes and sam one: a count each.
+	wrong := notCode(w.mailCode(t, w.pat, patTyped))
+	for guess := 1; guess <= 2; guess++ {
+		if got := w.enter(t, w.pat, wrong); got != sessioninfo.RefusedInvalidCode {
+			t.Fatalf("pat's wrong guess #%d = %q, want %q", guess, got, sessioninfo.RefusedInvalidCode)
+		}
+	}
+	samCode := w.mailCode(t, w.sam, samTyped)
+	if got := w.enter(t, w.sam, notCode(samCode)); got != sessioninfo.RefusedInvalidCode {
+		t.Fatalf("sam's wrong guess = %q, want %q", got, sessioninfo.RefusedInvalidCode)
+	}
+	if patCount, samCount := count(patKey), count(samKey); patCount != 2 || samCount != 1 {
+		t.Fatalf("the counts = %s %d, %s %d; want 2 and 1", patKey, patCount, samKey, samCount)
+	}
+
+	// sam's right code starts its address's count again and leaves the other's as it was.
+	if got := w.enter(t, w.sam, samCode); got != sessioninfo.RefusedInternalError {
+		t.Fatalf("sam's right code = %q, want it accepted and the sign-in handed to the store", got)
+	}
+	if record := w.f.attemptsRecord(samKey); record != nil {
+		t.Errorf("the count of %s after its right code = %+v, want none", samTyped, record)
+	}
+	if got := count(patKey); got != 2 {
+		t.Errorf("the count of %s after the right code of %s = %d, want 2", patTyped, samTyped, got)
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/passwordstrength"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -165,10 +166,14 @@ func errInvitationSpent() error {
 var addressGuessLimit = sessionstorage.SignInAttemptLimit{Failures: 25, Window: invitationGuessHorizon, Lock: invitationGuessHorizon}
 
 // addressGuessKey is the key, in the sign-in attempts table, of the codes entered for
-// the address email typed at the sign-in code's step: the address folded as
-// mailLimitKey folds it, under a kind of its own.
+// the address email typed at the sign-in code's step: the address as the users table
+// compares addresses (util.LowerASCII), under a kind of its own. It is not folded as
+// mailLimitKey folds an address. That fold takes some addresses that only read alike
+// for one, which counts more mail together and lets nobody in; this count is started
+// again by a right code, and under that fold the right code of one mailbox would start
+// the count again for another.
 func addressGuessKey(email string) string {
-	return attempts.OwnKey(attempts.KindAddressGuess, attempts.Normalize(email))
+	return attempts.OwnKey(attempts.KindAddressGuess, util.LowerASCII(email))
 }
 
 // errAddressSpent is the refusal of a code asked for or entered for an address typed at
