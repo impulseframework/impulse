@@ -557,7 +557,7 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 	}
 }
 
-// TestAuthoredApplication makes seven applications the way their author does, with the
+// TestAuthoredApplication makes eight applications the way their author does, with the
 // commands and nothing else, and holds what the commands left to each application's own
 // formatting and lint and to the brief (author). The commands leave obligations, and
 // the brief is where each is named, so the test holds that nothing else is left. Each
@@ -587,7 +587,9 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // sign-in either: impulse new with the shape Directory roles, Google and one Workspace
 // named. Its auth registers that one method, nobody is invited, no generated handler
 // gives a role or invites a person, and a development run signs in the person and the
-// roles the environment template names.
+// roles the environment template names. Its twin starts from a Microsoft Entra tenant,
+// named by its tenant id, and is held to the same with the Microsoft method in the
+// Google method's place.
 //
 // The fifth is an application with a second browser application and a machine outlet,
 // both composed into the creation (--outlet, --api-outlet) and no shape named. The
@@ -783,6 +785,11 @@ func TestAuthoredApplication(t *testing.T) {
 	t.Run("roles from one directory, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
 		made := author(t, checkout, "pier", "directory-roles", []string{"--method", "google", "--organization", "fleet.example"}, nil)
 		holdsDirectoryRoles(t, made, "google: the accounts of one Google Workspace; the directory gives the roles", "APP_STAFF_GOOGLE_HOSTED_DOMAIN=fleet.example")
+	})
+
+	t.Run("roles from a Microsoft Entra tenant, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "dock", "directory-roles", []string{"--method", "azure", "--organization", "3f2504e0-4f89-11d3-9a0c-0305e82c3301"}, nil)
+		holdsDirectoryRoles(t, made, "azure: the accounts of one Microsoft Entra tenant; the directory gives the roles", "APP_STAFF_AZURE_TENANT_ID=3f2504e0-4f89-11d3-9a0c-0305e82c3301")
 	})
 
 	t.Run("a second browser application and a machine outlet", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
