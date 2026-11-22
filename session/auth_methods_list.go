@@ -85,6 +85,11 @@ type MethodList struct {
 	// person's account page forgets every browser the second factor remembered for
 	// them, or none.
 	ForgetBrowsers string
+	// OwnTenants are the paths of the Auth's OwnTenants and LeaveTenant handlers, where a
+	// signed-in person's account page lists their tenants and leaves one; both or none.
+	// Neither is told where the Auth holds no own-tenants hook (SetOwnTenants), whatever
+	// the list names: both handlers answer 404 there.
+	OwnTenants OwnTenantsRoutes
 	// Invitation are the paths of the invitation handlers (Invitation().Open(),
 	// Accept() and SignUp()), or none. Open and Accept go together; SignUp is named
 	// when the password method is listed and refused when it is not.
@@ -148,6 +153,13 @@ type OwnSessionsRoutes struct {
 	EndOthers string
 }
 
+// OwnTenantsRoutes are the paths of the handlers of a person's own tenants, as a
+// MethodList names them: List (OwnTenants) and Leave (LeaveTenant).
+type OwnTenantsRoutes struct {
+	List  string
+	Leave string
+}
+
 // SignUpRoutes are the paths of the sign-up handlers, as a MethodList names them.
 type SignUpRoutes struct {
 	Start    string
@@ -205,6 +217,7 @@ type methodsAnswer struct {
 	UsernameFree     string                 `json:"usernameFree,omitempty"`
 	OwnSessions      *ownSessionsAnswer     `json:"ownSessions,omitempty"`
 	ForgetBrowsers   string                 `json:"forgetBrowsers,omitempty"`
+	OwnTenants       *ownTenantsAnswer      `json:"ownTenants,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
 	UsernameIsEmail bool              `json:"usernameIsEmail,omitempty"`
@@ -280,6 +293,13 @@ type ownSessionsAnswer struct {
 	List      string `json:"list"`
 	End       string `json:"end"`
 	EndOthers string `json:"endOthers"`
+}
+
+// ownTenantsAnswer is the block of a methods answer that names the routes of a person's
+// own tenants.
+type ownTenantsAnswer struct {
+	List  string `json:"list"`
+	Leave string `json:"leave"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -522,7 +542,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.ChangeName = changeNamePathOf(list)
 	answer.SignInMeans = signInMeansPathOf(list)
 	answer.ChangeLook = changeLookPathOf(list)
-	ownAccountPathsOf(answer, list, a.methods.usernameIsEmail())
+	ownAccountPathsOf(answer, list, a.methods.usernameIsEmail(), a.ownTenants != nil)
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
@@ -534,12 +554,14 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 
 // ownAccountPathsOf sets on answer the paths list names for a signed-in person's own
 // account page: the change of their username and the question whether a name is free
-// (none where usernameIsEmail), where they are signed in, and the forgetting of every
-// browser remembered for them.
-func ownAccountPathsOf(answer *methodsAnswer, list *MethodList, usernameIsEmail bool) {
+// (none where usernameIsEmail), where they are signed in, the forgetting of every
+// browser remembered for them, and their tenants (none where ownTenantsServed is false:
+// the Auth holds no hook to answer them).
+func ownAccountPathsOf(answer *methodsAnswer, list *MethodList, usernameIsEmail, ownTenantsServed bool) {
 	answer.ChangeUsername, answer.UsernameFree = usernamePathsOf(list, usernameIsEmail)
 	answer.OwnSessions = ownSessionsAnswerOf(list.OwnSessions)
 	answer.ForgetBrowsers = accountPathOf(list.ForgetBrowsers, "forget-all-remembered-browsers", "ForgetBrowsers", "/api/user/browser/forget-all")
+	answer.OwnTenants = ownTenantsAnswerOf(list.OwnTenants, ownTenantsServed)
 }
 
 // passwordResetAnswerOf validates the password reset routes: none, or all three as
@@ -722,6 +744,27 @@ func ownSessionsAnswerOf(p OwnSessionsRoutes) *ownSessionsAnswer {
 		End:       accountPathOf(p.End, "sign-out-of-one-browser", "EndOwnSession", "/api/user/sessions/end"),
 		EndOthers: accountPathOf(p.EndOthers, "sign-out-everywhere-else", "EndOtherSessions", "/api/user/sessions/end-others"),
 	}
+}
+
+// ownTenantsAnswerOf validates the routes of a person's own tenants: none, or both as
+// canonical paths. Where served is false (the Auth holds no own-tenants hook) neither is
+// told, since both handlers answer 404 there.
+func ownTenantsAnswerOf(p OwnTenantsRoutes, served bool) *ownTenantsAnswer {
+	if p == (OwnTenantsRoutes{}) {
+		return nil
+	}
+	if p.List == "" || p.Leave == "" {
+		panic("session: Methods is given one of the your-tenants routes and not the other: name List and Leave, or neither")
+	}
+	answer := &ownTenantsAnswer{
+		List:  accountPathOf(p.List, "your-tenants", "OwnTenants", "/api/user/tenants"),
+		Leave: accountPathOf(p.Leave, "leave-a-tenant", "LeaveTenant", "/api/user/tenants/leave"),
+	}
+	if !served {
+		return nil
+	}
+
+	return answer
 }
 
 // accountPathOf validates path, the route of one of a signed-in person's own account
