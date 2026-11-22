@@ -53,6 +53,12 @@ var ErrPasswordHeld = dbtype.ErrPasswordHeld
 // proof is the sign-in no password proved, which is held to nothing.
 type PasswordProof = dbtype.PasswordProof
 
+// CodeAddress is the address a mailed sign-in code confirms (SignInRules.CodeAddress):
+// Held is the address the account held when the code was checked, nil for none, and
+// Email the address written, confirmed, by the sign-in that starts the session, only
+// while the account still holds Held and no other account holds Email.
+type CodeAddress = dbtype.CodeAddress
+
 // ProofOfPassword is the proof of a password that was compared against hash, the hash
 // the user was read with: nil for a user with no password.
 func ProofOfPassword(hash *securehash.Hash) (PasswordProof, error) {
@@ -354,14 +360,6 @@ type AuthStore[Tx any] interface {
 	// whose usernames are the addresses it is written as the username, renaming the
 	// user and its live sessions. An address another user holds is a Conflict.
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
-	// VerifyUserEmailIfHeld is VerifyUserEmail taken only while the user still holds
-	// held (nil: no address): the write of the address a mailed sign-in code proved,
-	// which is good only for the address the account held when the code was checked.
-	// The condition is part of the write itself, so a change of the address that
-	// commits between the check and the write is never written over. A user that
-	// holds another address by then, or none, or is gone, is a Conflict, as an
-	// address another user holds is, and nothing is written.
-	VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error
 	// ClaimVerifiedEmail writes email on the user as verified when the user holds no
 	// verified address yet and no other user holds it, and reports whether it wrote:
 	// a Google sign-in's verified address. On a store whose usernames are the
@@ -642,6 +640,12 @@ type SignInRules[Tx any] struct {
 	// to that user or to none: the name it asserts may have moved to another account
 	// during the wait.
 	WaitedOn impulse.NullUUID
+	// CodeAddress is the address the account's own mailed sign-in code confirms, given
+	// by the sign-in that completes a wait with that code and by no other (nil). SignIn
+	// writes it on the account, confirmed, in the transaction that inserts the session
+	// and only then, while the account still holds CodeAddress.Held and has confirmed no
+	// address: a sign-in refused or held again writes no address.
+	CodeAddress *CodeAddress
 }
 
 // SignIn implements AuthStore.
@@ -659,6 +663,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
 		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
 		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress, WaitedOn: rules.WaitedOn,
+		CodeAddress: rules.CodeAddress,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -777,18 +782,6 @@ func (a *Auth[Tx]) VerifyUserEmail(ctx context.Context, id impulse.UUID, email s
 
 	if err := a.db.VerifyUserEmail(ctx, id, email); err != nil {
 		return errors.Wrap(err, "db.VerifyUserEmail()")
-	}
-
-	return nil
-}
-
-// VerifyUserEmailIfHeld implements AuthStore.
-func (a *Auth[Tx]) VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := a.db.VerifyUserEmailIfHeld(ctx, id, held, email); err != nil {
-		return errors.Wrap(err, "db.VerifyUserEmailIfHeld()")
 	}
 
 	return nil

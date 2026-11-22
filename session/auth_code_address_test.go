@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -20,8 +22,8 @@ import (
 // password started: the completion stops once the code is consumed and before the
 // pending sign-in is consumed or anything is linked or written, so nothing is written
 // over the administrator's change. A code mailed to the address the account still holds
-// confirms it, and an account that holds none takes the address its own person gave at
-// the step.
+// hands the store that address to confirm with the session, and an account that holds
+// none hands it the address its own person gave at the step.
 func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 	t.Parallel()
 
@@ -41,10 +43,10 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 		// heldByAnother says another account holds the address the code was mailed to.
 		heldByAnother bool
 		// wantDead is a code that is no longer good; otherwise the completion goes on,
-		// and wantWritten is the address it writes on the account, confirmed, "" for
-		// none.
-		wantDead    bool
-		wantWritten string
+		// and wantClaim is the address its sign-in hands the store to confirm on the
+		// account with the session, held to the address the account holds.
+		wantDead  bool
+		wantClaim string
 	}{
 		{name: "a sign-in that waits to be linked, and the address was taken off the account", identity: waitsToBeLinked, wantDead: true},
 		{name: "a sign-in that waits to be linked, and the address was replaced by one nobody has confirmed", identity: waitsToBeLinked, holds: replacement, wantDead: true},
@@ -53,11 +55,11 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 		{name: "a password's sign-in, and the address was replaced by one nobody has confirmed", identity: passwords, holds: replacement, wantDead: true},
 		{name: "a password's sign-in, and the address was moved to another account", identity: passwords, heldByAnother: true, wantDead: true},
 		{name: "a linked identity's sign-in, and the address was moved to another account", identity: waitsToBeLinked, linked: true, heldByAnother: true, wantDead: true},
-		{name: "the account still holds the address, which nobody has confirmed, and the code confirms it", identity: waitsToBeLinked, holds: mailedTo, wantWritten: mailedTo},
-		{name: "the account holds the address under another spelling of its letters", identity: waitsToBeLinked, holds: "Alice@Corp.Example", wantWritten: "Alice@Corp.Example"},
-		{name: "the account holds the address confirmed, and nothing is written", identity: waitsToBeLinked, holds: mailedTo, confirmed: true},
-		{name: "an account that holds no address takes the one the person who proved its password gave", identity: passwords, wantWritten: mailedTo},
-		{name: "an account that holds no address takes the one the person its identity is linked to gave", identity: waitsToBeLinked, linked: true, wantWritten: mailedTo},
+		{name: "the account still holds the address, which nobody has confirmed, and the code confirms it", identity: waitsToBeLinked, holds: mailedTo, wantClaim: mailedTo},
+		{name: "the account holds the address under another spelling of its letters", identity: waitsToBeLinked, holds: "Alice@Corp.Example", wantClaim: "Alice@Corp.Example"},
+		{name: "the account holds the address confirmed, which the store writes nothing over", identity: waitsToBeLinked, holds: mailedTo, confirmed: true, wantClaim: mailedTo},
+		{name: "an account that holds no address takes the one the person who proved its password gave", identity: passwords, wantClaim: mailedTo},
+		{name: "an account that holds no address takes the one the person its identity is linked to gave", identity: waitsToBeLinked, linked: true, wantClaim: mailedTo},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -94,19 +96,23 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 			}
 			code := expectFactorCode(f, pending)
 			code.row.Email = mailedTo
-			// The completion of a code that is good goes on to consume the pending
-			// sign-in, where this test ends it: the store answers that the row is gone. A
-			// dead code reaches neither call, which the store's mock refuses.
+			// The completion of a code that is good consumes the pending sign-in and hands
+			// the store its sign-in, which this test's store refuses. A dead code reaches
+			// neither call, which the store's mock refuses.
+			var claims []*sessionstorage.CodeAddress
 			if !tt.wantDead {
-				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(httpio.NewNotFoundMessage("no live pending sign-in"))
-			}
-			if tt.wantWritten != "" {
-				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, tt.wantWritten).Return(nil)
+				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(nil)
+				f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
+						claims = append(claims, rules.CodeAddress)
+
+						return impulse.NilUUID, errors.New("the store of this test starts no session")
+					})
 			}
 
 			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)
 
-			want := sessioninfo.RefusedPendingExpired
+			want := sessioninfo.RefusedInternalError
 			if tt.wantDead {
 				want = sessioninfo.RefusedCodeExpired
 			}
@@ -115,6 +121,15 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 			}
 			if code.row.ConsumedAt == nil {
 				t.Error("the code stands after it was entered, want it consumed: a code is entered once")
+			}
+			if tt.wantDead {
+				return
+			}
+			if len(claims) != 1 {
+				t.Fatalf("%d sign-in(s) reached the store, want the one that confirms the code's address", len(claims))
+			}
+			if diff := cmp.Diff(&sessionstorage.CodeAddress{Held: user.Email, Email: tt.wantClaim}, claims[0]); diff != "" {
+				t.Errorf("the address the sign-in handed the store to confirm (-want +got):\n%s", diff)
 			}
 		})
 	}

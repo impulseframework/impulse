@@ -2,7 +2,8 @@
 
 // The window between the code a person enters and the write of the address it confirms,
 // through the real handlers on both backends: an administrator's change of the address
-// that lands in it stands, and the code is dead.
+// that lands in it stands, and the code is dead. A sign-in refused after its code was
+// entered leaves the account's address as it was.
 
 package e2e
 
@@ -18,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -27,10 +29,9 @@ import (
 
 // windowStore is an application's session store that embeds the library's, and plays an
 // administrator's move inside a sign-in's completion: right before the write of the
-// address the code confirms, or right after the code is consumed. The write is hooked
-// under both of its names (the write the completion takes only while the account still
-// holds what it held, and the write with no condition), so a completion that takes
-// either meets the move at the same moment. Each move is played once.
+// address the code confirms, which is made inside SignIn, in the transaction that
+// inserts the session, so the move is played as SignIn starts; or right after the code
+// is consumed. Each move is played once.
 type windowStore[Tx any] struct {
 	*sessionstorage.Auth[Tx]
 
@@ -40,8 +41,8 @@ type windowStore[Tx any] struct {
 	played       int
 }
 
-// beforeTheWrite arms move to be played right before the next write of a confirmed
-// address.
+// beforeTheWrite arms move to be played as the next sign-in starts, right before the
+// write of the address its code confirms.
 func (s *windowStore[Tx]) beforeTheWrite(move func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,25 +85,16 @@ func (s *windowStore[Tx]) assertPlayed(t *testing.T, want int) {
 	}
 }
 
-// VerifyUserEmailIfHeld is the library's write, with the move armed before it played
-// first.
-func (s *windowStore[Tx]) VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error {
+// SignIn is the library's sign-in, which writes the address the code confirms, with the
+// move armed before the write played first.
+func (s *windowStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[Tx]) (impulse.UUID, error) {
 	s.play(&s.beforeWrite)
-	if err := s.Auth.VerifyUserEmailIfHeld(ctx, id, held, email); err != nil {
-		return errors.Wrap(err, "sessionstorage.Auth.VerifyUserEmailIfHeld()")
+	id, err := s.Auth.SignIn(ctx, req, rules)
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.Auth.SignIn()")
 	}
 
-	return nil
-}
-
-// VerifyUserEmail is the library's write, with the move armed before it played first.
-func (s *windowStore[Tx]) VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error {
-	s.play(&s.beforeWrite)
-	if err := s.Auth.VerifyUserEmail(ctx, id, email); err != nil {
-		return errors.Wrap(err, "sessionstorage.Auth.VerifyUserEmail()")
-	}
-
-	return nil
+	return id, nil
 }
 
 // ConsumeFactorCode is the library's consume, with the move armed after it played once
@@ -217,6 +209,38 @@ func runCodeWindowSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamCodeWindowTakenOffAfterTheConsume[Tx],
 		},
 	}
+	// The sign-ins refused after their code was entered, for an account that holds no
+	// address and is given one at the step, and for one that holds an address nobody
+	// confirmed.
+	for _, shape := range []struct {
+		name    string
+		holding bool
+	}{
+		{name: "an account given its address at the step"},
+		{name: "an account that holds an address nobody confirmed", holding: true},
+	} {
+		tests = append(tests, []struct {
+			name string
+			run  func(ctx context.Context, t *testing.T, be backend[Tx])
+		}{
+			{
+				name: shape.name + ": the password changed while the sign-in waited refuses the right code, and the account's address is as it was",
+				run:  seamRefusedAfterTheCode(shape.holding, changesThePassword[Tx]),
+			},
+			{
+				name: shape.name + ": the user disabled while the sign-in waited is refused the right code, and the account's address is as it was",
+				run:  seamRefusedAfterTheCode(shape.holding, disablesTheUser[Tx]),
+			},
+			{
+				name: shape.name + ": the policy that denies the completion refuses the right code, and the account's address is as it was",
+				run:  seamRefusedAfterTheCode(shape.holding, deniesTheCompletion[Tx]),
+			},
+			{
+				name: shape.name + ": a tenant switched to directory only while a member's sign-in waited refuses the right code with directory_only, and the account's address is as it was",
+				run:  seamDirectoryOnlyAfterTheCode[Tx](shape.holding),
+			},
+		}...)
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -255,7 +279,7 @@ func deadCode(ctx context.Context, t *testing.T, b *browser, code string) {
 }
 
 // holds fails unless userID's account holds want (nil for none), confirmed by nobody.
-func (a *codeWindowApp[Tx]) holds(ctx context.Context, t *testing.T, userID impulse.UUID, want *string) {
+func (a *authApp[Tx]) holds(ctx context.Context, t *testing.T, userID impulse.UUID, want *string) {
 	t.Helper()
 
 	user, err := a.api.User(ctx, userID)
@@ -264,9 +288,9 @@ func (a *codeWindowApp[Tx]) holds(ctx context.Context, t *testing.T, userID impu
 	}
 	switch {
 	case want == nil && user.Email != nil:
-		t.Errorf("account %s holds %q, want no address: the administrator's change stands", userID, *user.Email)
+		t.Errorf("account %s holds %q, want no address", userID, *user.Email)
 	case want != nil && (user.Email == nil || *user.Email != *want):
-		t.Errorf("account %s holds %v, want %q: the administrator's change stands", userID, user.Email, *want)
+		t.Errorf("account %s holds %v, want %q", userID, user.Email, *want)
 	case user.EmailVerified():
 		t.Errorf("account %s holds its address confirmed, want it confirmed by nobody", userID)
 	}
@@ -358,4 +382,122 @@ func seamCodeWindowTakenOffAfterTheConsume[Tx any](ctx context.Context, t *testi
 	deadCode(ctx, t, b, code)
 	a.store.assertPlayed(t, 1)
 	a.holds(ctx, t, pat, nil)
+}
+
+// heldForTheCode signs username in by its password in b, under a policy that asks for
+// the mailed code, and has the code mailed: to the address the account holds (holding),
+// or to address, which the person gives at the step where the account holds none. The
+// code is returned.
+func (a *authApp[Tx]) heldForTheCode(ctx context.Context, t *testing.T, b *browser, username, address string, holding bool) string {
+	t.Helper()
+
+	b.prime(ctx)
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": username, "password": seedPassword}); !strings.Contains(string(body), `"mfaIsRequired":true`) {
+		t.Fatalf("password login = %s, want the sign-in held for the code", body)
+	}
+	if holding {
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	} else {
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": address})
+	}
+
+	return a.lastCode(t, address)
+}
+
+// refusedTheRightCode fails unless entering code in b is refused, with wantCode where it
+// is not "", and leaves no session in the browser.
+func refusedTheRightCode(ctx context.Context, t *testing.T, b *browser, code, wantCode string) {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
+	if status < http.StatusBadRequest || (wantCode != "" && !strings.Contains(string(body), `"code":"`+wantCode+`"`)) {
+		t.Errorf("verify of the right code = %d %s, want it refused %s", status, body, wantCode)
+	}
+	if status, body := b.do(ctx, http.MethodGet, "/whoami", nil); status != http.StatusUnauthorized {
+		t.Errorf("the browser's session = %d %s, want none", status, body)
+	}
+}
+
+// seamRefusedAfterTheCode: pat proved the account's password, and the sign-in waits for
+// the mailed code, at the address the account holds, which nobody confirmed (holding),
+// or at the address pat gives at the step, where the account holds none. move is made
+// while the sign-in waits, once the code is mailed. The right code is then refused, no
+// session starts, and the account's address is as it was before the sign-in: the
+// address a code confirms is written with the session or not at all.
+func seamRefusedAfterTheCode[Tx any](holding bool, move func(ctx context.Context, t *testing.T, a *codeWindowApp[Tx], pat impulse.UUID)) func(ctx context.Context, t *testing.T, be backend[Tx]) {
+	return func(ctx context.Context, t *testing.T, be backend[Tx]) {
+		a := newCodeWindowApp(ctx, t, be)
+		const address = "pat@lakeside.edu"
+		var pat impulse.UUID
+		var before *string
+		if holding {
+			pat, before = a.seedWithEmail(ctx, t, "pat", address), new(address)
+		} else {
+			pat = a.seed(ctx, t, "pat")
+		}
+		a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+
+		b := a.browser(t)
+		code := a.heldForTheCode(ctx, t, b, "pat", address, holding)
+		move(ctx, t, a, pat)
+
+		refusedTheRightCode(ctx, t, b, code, "")
+		a.holds(ctx, t, pat, before)
+	}
+}
+
+// changesThePassword changes pat's password, as the person does from another session.
+func changesThePassword[Tx any](ctx context.Context, t *testing.T, a *codeWindowApp[Tx], pat impulse.UUID) {
+	t.Helper()
+
+	req := &session.ChangeSessionUserPasswordRequest{OldPassword: seedPassword, NewPassword: "a-new-password-of-my-own"}
+	if err := a.api.ChangeSessionUserPassword(ctx, httptest.NewRecorder(), pat, req); err != nil {
+		t.Fatalf("ChangeSessionUserPassword(pat) error = %v", err)
+	}
+}
+
+// disablesTheUser has an administrator disable pat.
+func disablesTheUser[Tx any](ctx context.Context, t *testing.T, a *codeWindowApp[Tx], pat impulse.UUID) {
+	t.Helper()
+
+	if err := a.api.DeactivateSessionUser(ctx, pat); err != nil {
+		t.Fatalf("DeactivateSessionUser(pat) error = %v", err)
+	}
+}
+
+// deniesTheCompletion sets the application's sign-in policy to deny every sign-in.
+func deniesTheCompletion[Tx any](_ context.Context, _ *testing.T, a *codeWindowApp[Tx], _ impulse.UUID) {
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.policy = func(*sessioninfo.NewSessionRequest) *signin.Decision { return signin.Deny("") }
+	})
+}
+
+// seamDirectoryOnlyAfterTheCode: in the tenanted application, kim, a member of a tenant
+// that admits passwords, proved the account's password and waits for the mailed code
+// the application's own rule asks for, at the address the account holds, which nobody
+// confirmed (holding), or at the one kim gives at the step. The tenant is switched to
+// directory only while the sign-in waits: the right code is refused with directory_only,
+// and the account's address is as it was.
+func seamDirectoryOnlyAfterTheCode[Tx any](holding bool) func(ctx context.Context, t *testing.T, be backend[Tx]) {
+	return func(ctx context.Context, t *testing.T, be backend[Tx]) {
+		a := newTenantApp(ctx, t, be)
+		a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
+		const kim = "kim@lakeside.edu"
+		var id impulse.UUID
+		var before *string
+		if holding {
+			id, before = a.seedWithEmail(ctx, t, kim, kim), new(kim)
+		} else {
+			id = a.seed(ctx, t, kim)
+		}
+		a.grant(ctx, t, kim, accesstypes.DomainPolicyScope(tenantLakeside), member...)
+		a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+
+		b := a.browser(t)
+		code := a.heldForTheCode(ctx, t, b, kim, kim, holding)
+		a.db.declareTenant(ctx, t, tenantLakeside, true, lakesideEntra)
+
+		refusedTheRightCode(ctx, t, b, code, "directory_only")
+		a.holds(ctx, t, id, before)
+	}
 }

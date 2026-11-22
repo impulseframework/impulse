@@ -804,7 +804,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTrustedDevicePerUser[Tx],
 		},
 		{
-			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified once the code is entered",
+			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified as the session starts",
 			run:  seamEmailCodeEnrollment[Tx],
 		},
 		{

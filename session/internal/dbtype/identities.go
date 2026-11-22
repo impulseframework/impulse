@@ -146,6 +146,19 @@ type User struct {
 	EmailHeld bool
 }
 
+// CodeAddress is the address a mailed sign-in code confirms, carried by the sign-in that
+// completes a wait with the account's own code: it is written on the account, confirmed,
+// in the transaction that inserts the session, and only while the account still holds
+// what it held when the code was checked (signinflow.decideAndInsert).
+type CodeAddress struct {
+	// Held is the address the account held when the code was checked, byte for byte,
+	// nil for none.
+	Held *string
+	// Email is the address the code confirms: Held's own spelling where the account
+	// holds an address, else the address the person gave, which the code was mailed to.
+	Email string
+}
+
 // SignInConflict is a driver's classification of the error a sign-in's transaction
 // ended with.
 type SignInConflict int

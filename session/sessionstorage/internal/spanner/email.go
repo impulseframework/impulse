@@ -145,7 +145,7 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	defer span.End()
 
 	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, map[string]any{emailVerifiedAtColumn: spanner.CommitTimestamp}, nil)
+		err := s.renameUser(ctx, userID, email, map[string]any{emailVerifiedAtColumn: spanner.CommitTimestamp})
 		if httpio.HasConflict(err) {
 			return errEmailTaken(email)
 		}
@@ -168,12 +168,6 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	return nil
 }
 
-// errEmailChanged is the refusal of a write taken only while the user still holds an
-// address, once the user holds another, or none, or is gone.
-func errEmailChanged(userID impulse.UUID) error {
-	return httpio.NewConflictMessagef("user id %q no longer holds the email address the write was taken for", userID)
-}
-
 // stillHolds is the condition of a write of the user's row taken only while the user
 // still holds an address: email, or none for nil.
 type stillHolds struct {
@@ -187,75 +181,6 @@ func (c *stillHolds) met(held spanner.NullString) bool {
 	}
 
 	return held.Valid && held.StringVal == *c.email
-}
-
-// errNotHeld is renameUser's answer when its condition did not hold.
-var errNotHeld = errors.New("the user no longer holds the address")
-
-// VerifyUserEmailIfHeld is VerifyUserEmail taken only while the user still holds held
-// (nil: no address): the write of the address a mailed sign-in code proved, which is
-// good only for the address the account held when the code was checked. The condition
-// is checked against the row the write's own transaction read, and the serializable
-// transaction keeps read and write together, so a change of the address that commits
-// between the check and the write is never written over: a user that holds another
-// address by then, or none, or is gone, is a Conflict, and so is an address another
-// user holds, and nothing is written. The write is a buffered mutation, as in
-// ClaimVerifiedEmailIn: the emulator refuses a DML update of a column a generated
-// column derives from when the statement reads the table too. On a store whose
-// usernames are the addresses the write is the rename, which holds its condition
-// against the row its transaction read.
-func (s *SessionStorageDriver) VerifyUserEmailIfHeld(ctx context.Context, userID impulse.UUID, held *string, email string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	only := &stillHolds{email: held}
-	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, map[string]any{emailVerifiedAtColumn: spanner.CommitTimestamp}, only)
-		switch {
-		case errors.Is(err, errNotHeld), httpio.HasNotFound(err):
-			return errEmailChanged(userID)
-		case httpio.HasConflict(err):
-			return errEmailTaken(email)
-		}
-
-		return err
-	}
-
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{emailColumn})
-		if err != nil {
-			if spanner.ErrCode(err) == codes.NotFound {
-				return errNotHeld
-			}
-
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
-		}
-		var stored spanner.NullString
-		if err := row.Column(0, &stored); err != nil {
-			return errors.Wrap(err, "spanner.Row.Column()")
-		}
-		if !only.met(stored) {
-			return errNotHeld
-		}
-		update := map[string]any{idColumn: userID, emailColumn: email, emailVerifiedAtColumn: spanner.CommitTimestamp}
-		if err := txn.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, update)}); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
-		}
-
-		return nil
-	})
-	if err != nil {
-		switch {
-		case errors.Is(err, errNotHeld):
-			return errEmailChanged(userID)
-		case spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()):
-			return errEmailTaken(email)
-		}
-
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
-	}
-
-	return nil
 }
 
 // ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own.

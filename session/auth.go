@@ -1005,7 +1005,7 @@ func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
 
 // EnrollEmail accepts {"email"} from a pending identity whose user holds no address,
 // and mails that address the code as SendCode does; the address is written on the
-// user, verified, when the code is entered. It answers as SendCode does, and 409 when
+// user, verified, as the session the code completes starts. It answers as SendCode does, and 409 when
 // the user already holds an address: the code goes there, and an administrator
 // changes it. An address another account holds is answered as sent and told so by
 // mail to that address, as the add-address step does, so the screen reveals nothing.

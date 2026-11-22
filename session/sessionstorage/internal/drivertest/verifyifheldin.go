@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 )
 
 // The address a mailed sign-in code confirms is written in the transaction that inserts
@@ -153,4 +154,16 @@ func testVerifyIfHeldInUsernameIsEmail(ctx context.Context, t *testing.T, h *Aut
 	if confirmed.EmailVerifiedAt != nil {
 		w.assertStamped(t, "User().EmailVerifiedAt", *confirmed.EmailVerifiedAt)
 	}
+}
+
+// createUserHolding creates a user holding email, unconfirmed.
+func createUserHolding(ctx context.Context, t *testing.T, d AuthDriver, username, email string) *dbtype.SessionUser {
+	t.Helper()
+
+	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: username, Email: strPtr(email)}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser(%q, %q) error = %v", username, email, err)
+	}
+
+	return user
 }

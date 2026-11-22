@@ -443,7 +443,7 @@ the mailed code: the code is mailed at once to the address the account holds, an
 where it went (the address masked, `n•••@fleet.example`) over the code field, a "Remember this
 browser" box, Sign in, and Send a new code, which replaces the code standing. A person whose
 account holds no email address is asked for one first, and it is written on the account,
-confirmed, when its code is entered. A wrong code shows the sentence for `invalid_code` and keeps
+confirmed, as the session its code completes starts. A wrong code shows the sentence for `invalid_code` and keeps
 the form, the code standing with one fewer attempt; a code entered after the one sent expired or
 ran out of attempts shows the sentence for `code_expired`, and a new one is a click away; an
 address sent five codes within fifteen minutes and using none is refused with `too_many_emails`

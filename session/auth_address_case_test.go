@@ -3,11 +3,17 @@ package session
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/internal/signinflow"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -77,31 +83,82 @@ func TestResettable_foldsOnlyASCIICase(t *testing.T) {
 	}
 }
 
-// TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign holds the rename hook of a store
-// whose usernames are the addresses to the case of ASCII letters alone: a sign-in code
-// that confirms an address written with the Kelvin sign (U+212A) on an account named
-// with the ASCII one renames the user, and the application is told.
-func TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign(t *testing.T) {
+// TestAuth_codeAddressWritten_tellsARenameByTheKelvinSign holds the rename hook of a
+// store whose usernames are the addresses to the case of ASCII letters alone: a sign-in
+// code that confirms an address written with the Kelvin sign (U+212A) on an account
+// named with the ASCII one renames the user as the session starts, and the application
+// is told. A sign-in the store refuses or holds again after the code writes no address,
+// and the hook is not told.
+func TestAuth_codeAddressWritten_tellsARenameByTheKelvinSign(t *testing.T) {
 	t.Parallel()
 
 	const named, written = "kim@kirkwood.edu", "\u212Aim@kirkwood.edu"
-	userID := impulse.Must(impulse.NewUUID())
-	f, _, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
-	user := &sessionstorage.SessionUser{ID: userID, Username: named, Email: strPtr(written)}
-	f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil)
-	f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, written).Return(nil)
-	var renamed []string
-	f.auth.SetUserRenamed(func(_ context.Context, _ impulse.UUID, from, to string) error {
-		renamed = append(renamed, from+" -> "+to)
-
-		return nil
-	})
-
-	if err := f.auth.claimCodeAddress(context.Background(), &pendingState{UserID: impulse.NullUUIDFromUUID(userID)}, user, written); err != nil {
-		t.Fatalf("claimCodeAddress() error = %v", err)
+	tests := []struct {
+		name string
+		// signedIn is the store's answer to the sign-in: nil for a session.
+		signedIn    func(userID impulse.UUID) error
+		wantRenamed []string
+	}{
+		{name: "the session starts: the rename is told", wantRenamed: []string{named + " -> " + written}},
+		{
+			name: "the store refuses the sign-in: nothing is told",
+			signedIn: func(impulse.UUID) error {
+				return signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
+			},
+		},
+		{
+			name: "the store holds the sign-in for another factor: nothing is told",
+			signedIn: func(userID impulse.UUID) error {
+				return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: named, Factors: []sessioninfo.AuthMethod{"totp"}}
+			},
+		},
 	}
-	if len(renamed) != 1 || renamed[0] != named+" -> "+written {
-		t.Errorf("rename hook calls = %q, want the one rename: the address confirmed is another than the username", renamed)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			userID := impulse.Must(impulse.NewUUID())
+			f, _, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+			user := &sessionstorage.SessionUser{ID: userID, Username: named, Email: strPtr(written)}
+			f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).AnyTimes()
+			pending := &pendingState{
+				ID: impulse.Must(impulse.NewUUID()), TokenHash: []byte("the pending token's hash"), Step: sessioninfo.PendingMFA,
+				UserID: impulse.NullUUIDFromUUID(userID), Username: named, Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()},
+			}
+			code := expectFactorCode(f, pending)
+			code.row.Email = written
+			f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(nil)
+			f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) { req.UserID, req.Username = userID, named },
+				func(*sessioninfo.NewSessionRequest) error {
+					if tt.signedIn == nil {
+						return nil
+					}
+
+					return tt.signedIn(userID)
+				})
+			if tt.signedIn != nil {
+				if _, held := tt.signedIn(userID).(*signin.PendingSignInError); held {
+					f.expectHold(named)
+				}
+			}
+			var renamed []string
+			f.auth.SetUserRenamed(func(_ context.Context, _ impulse.UUID, from, to string) error {
+				renamed = append(renamed, from+" -> "+to)
+
+				return nil
+			})
+
+			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)
+			if tt.signedIn == nil && err != nil {
+				t.Fatalf("completeWithEmailCode() error = %v, want a session", err)
+			}
+			if diff := cmp.Diff(&sessionstorage.CodeAddress{Held: strPtr(written), Email: written}, f.signedIn.codeAddress); diff != "" {
+				t.Errorf("the address the sign-in handed the store to confirm (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantRenamed, renamed, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("rename hook calls (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

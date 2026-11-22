@@ -225,6 +225,13 @@ type Rules[Tx any] struct {
 	// still linked to nobody is held to that user before anything is written
 	// (waitedOnAnother).
 	WaitedOn impulse.NullUUID
+	// CodeAddress is the address the account's own mailed sign-in code confirms, for the
+	// sign-in that completes a wait with that code, and nil for every other. It is
+	// written on the account, confirmed, in the transaction that inserts the session and
+	// only then (decideAndInsert); a first link that rests on the code is made only while
+	// the account still holds it (nameAloneHold); and it is what lets an external
+	// sign-in through to an account with no confirmed address (addressHold).
+	CodeAddress *dbtype.CodeAddress
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -350,7 +357,7 @@ func SignIn[Tx any](
 			// account's second factor, so the sign-in ends with the invitation, nobody
 			// signed in and nothing written. An acceptor that fails ends it, the
 			// invitation standing.
-			dead, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait)
+			dead, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait, rules.CodeAddress)
 			if err != nil {
 				return err
 			}
@@ -368,7 +375,7 @@ func SignIn[Tx any](
 		return err
 	}
 
-	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted, rules.Proven, rules.ConfirmAddress)
+	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules, trusted)
 }
 
 // invitedAddressRefusal refuses a sign-in that carries an invitation mailed to another
@@ -555,8 +562,13 @@ func InvitedCodeMessage(inv *sessioninfo.Invitation) string {
 // address accepts once the sign-in has entered the code mailed to the invited address
 // (Invitation.AddressProven), and until then is answered wait: the wait for the code
 // where a sign-in can be held for it, the refusal that says to sign in again where it
-// cannot. The acceptance writes the address on the account, confirmed.
-func acceptedByCode[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, wait error) (stop, err error) {
+// cannot. An account that holds the invited address unconfirmed is mailed its own code
+// at that address, which proves the mailbox as the invitation's code does: it accepts
+// once the sign-in carries that code's address (claim, the rules' CodeAddress), while it
+// still holds the address. The acceptance writes the address on the account, confirmed.
+func acceptedByCode[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, wait error, claim *dbtype.CodeAddress,
+) (stop, err error) {
 	holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
 	if err != nil {
 		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
@@ -567,7 +579,7 @@ func acceptedByCode[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessi
 		return nil, nil
 	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username):
 		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
-	case !inv.AddressProven:
+	case !inv.AddressProven && !(holds && claim != nil && sameAddress(claim.Email, inv.Email)):
 		return wait, nil
 	default:
 		return nil, nil
@@ -838,7 +850,7 @@ func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.
 	if stop := organizationAccountRefusal(inv); stop != nil {
 		return stop
 	}
-	dead, stop, err := acceptInvitation(ctx, d, userID, username, inv, accept, signedInCodeRefusal)
+	dead, stop, err := acceptInvitation(ctx, d, userID, username, inv, accept, signedInCodeRefusal, nil)
 	if err != nil {
 		return err
 	}
@@ -861,10 +873,12 @@ var errAcceptanceStopped = errors.New("the acceptance waits for the code mailed 
 // in the transaction on the user row it reads, with nothing written and no error: a
 // refusal, or what unproven answers for an account that may still enter the code mailed
 // to the invited address. An error is the driver's or the acceptor's, and nothing is
-// written either. inv.Accepted is set to the outcome.
+// written either. inv.Accepted is set to the outcome. claim is the address the
+// account's own mailed code confirms, for a password sign-in that completes a wait with
+// that code, nil otherwise (acceptedByCode).
 func acceptInvitation[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
-	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error,
+	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error, claim *dbtype.CodeAddress,
 ) (dead bool, stop, err error) {
 	inv.Accepted = false
 	var committed committedWork
@@ -880,7 +894,7 @@ func acceptInvitation[Tx any](
 		if err != nil {
 			return errors.Wrap(err, "Driver.UserIn()")
 		}
-		if stop, err = acceptedByCode(ctx, d, tx, inv, user, unproven(user, inv)); err != nil {
+		if stop, err = acceptedByCode(ctx, d, tx, inv, user, unproven(user, inv), claim); err != nil {
 			return err
 		}
 		if stop != nil {
@@ -1199,7 +1213,7 @@ func resolveLinked[Tx any](
 	}
 	req.UserID, req.Username = link.UserID, user.Username
 	if acceptsByCode(req, confirm) && !user.Disabled {
-		if stop, err := acceptedByCode(ctx, d, tx, req.Invitation, user, invitedCodeWait()); err != nil || stop != nil {
+		if stop, err := acceptedByCode(ctx, d, tx, req.Invitation, user, invitedCodeWait(), nil); err != nil || stop != nil {
 			return "", false, stop, err
 		}
 	}
@@ -1776,7 +1790,7 @@ func firstLink[Tx any](
 		return false, nil, nil
 	}
 	if rules.Directories == nil {
-		stop, err := nameAloneHold(ctx, d, tx, req, user, tenant)
+		stop, err := nameAloneHold(ctx, d, tx, req, user, tenant, rules.CodeAddress)
 
 		return false, stop, err
 	}
@@ -1820,19 +1834,24 @@ func firstLink[Tx any](
 // more widely than that (they fold Unicode's case and normalization), so a vouched name
 // that only reads like the account's (the Kelvin sign for a k) vouches for another
 // mailbox than the one the account is under, and goes on as a name the method does not
-// vouch for. Any other name is the provider's word alone. A Google account can be made under any address from outside
-// Google, an identity provider's administrators give the names they like, and a
-// Microsoft directory answers for no address; the link would hand whoever signs in
-// everything the account holds. So the sign-in waits for the code mailed to the address
-// the account holds, whether or not its person has confirmed it: the answer is a
-// pending MFA step that takes the mailed code alone, and nothing is linked while it
-// waits, so a sign-in that never finishes leaves the account as it was. Whoever reads
-// the account's mail is the account's person, and the sign-in that carries the code's
-// event is linked. An account that holds no address has nowhere to mail the code, and
-// an address given at the sign-in would show only that the person reads their own
-// mail, so the link is refused (signin.ErrLinkNeedsAddress).
+// vouch for. Any other name is the provider's word alone. A Google account can be made
+// under any address from outside Google, an identity provider's administrators give the
+// names they like, and a Microsoft directory answers for no address; the link would
+// hand whoever signs in everything the account holds. So the sign-in waits for the code
+// mailed to the address the account holds, whether or not its person has confirmed it:
+// the answer is a pending MFA step that takes the mailed code alone, and nothing is
+// linked while it waits, so a sign-in that never finishes leaves the account as it was.
+// Whoever reads the account's mail is the account's person, and the sign-in that carries
+// the code's event is linked, while the account still holds the address the code was
+// mailed to (claim, the rules' CodeAddress: Driver.UserByEmailIn answers this same
+// user). An account whose address was changed or taken off since is refused with
+// code_expired, the words of a code that no longer stands, and nothing is linked. A code
+// mailed for an invitation carries no claim, and the sign-in that carries it is linked
+// as the invitation's acceptance. An account that holds no address has nowhere to mail
+// the code, and an address given at the sign-in would show only that the person reads
+// their own mail, so the link is refused (signin.ErrLinkNeedsAddress).
 func nameAloneHold[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string, claim *dbtype.CodeAddress,
 ) (stop, err error) {
 	identity := req.Identity
 	if identity.EmailVerified && sameAddress(identity.SignInName, identity.Email) {
@@ -1847,6 +1866,17 @@ func nameAloneHold[Tx any](
 		}
 	}
 	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
+		if claim == nil {
+			return nil, nil
+		}
+		holder, err := d.UserByEmailIn(ctx, tx, claim.Email)
+		if err != nil {
+			return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
+		}
+		if holder == nil || holder.ID != user.ID {
+			return codeAddressGone(user.ID, claim), nil
+		}
+
 		return nil, nil
 	}
 	if !user.EmailHeld {
@@ -1857,6 +1887,22 @@ func nameAloneHold[Tx any](
 		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: tenant,
 		Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
 	}, nil
+}
+
+// errCodeAddressGone is the cause of the refusal of a sign-in whose mailed code confirms
+// an address the account no longer holds as it held it when the code was checked, or
+// that another account holds by now: the code no longer stands, and the sign-in is
+// refused as one with a code that expired is (code_expired), with nothing written and
+// nothing linked by it.
+var errCodeAddressGone = errors.New("the account no longer holds the address the sign-in code was mailed to")
+
+// codeAddressGone is the refusal of a sign-in whose code confirms claim's address, which
+// the user no longer holds or another user holds: the words of a code that no longer
+// stands.
+func codeAddressGone(userID impulse.UUID, claim *dbtype.CodeAddress) error {
+	cause := fmt.Errorf("%w: user %s, the address %s", errCodeAddressGone, userID, claim.Email)
+
+	return Refusal("", sessioninfo.RefusedCodeExpired, cause, "no sign-in code stands: ask for a new one")
 }
 
 // ownInvitation reports whether the invitation a sign-in carries was mailed to user's
@@ -2028,10 +2074,21 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // transaction with dbtype.ErrPasswordChanged before the policy is asked, with nothing
 // written, so a session is never inserted on the strength of a password the user no
 // longer holds. The nil proof holds the sign-in to nothing.
+//
+// The address the account's own mailed code confirms (rules.CodeAddress) is written here,
+// in the transaction that inserts the session, and only when the sign-in goes ahead: the
+// user is enabled, the password unchanged, the policy has allowed it and neither
+// addressHold nor addressTaken stopped it. It is written only while the account still
+// holds what it held when the code was checked and no other account holds the address
+// (Driver.VerifyUserEmailIfHeldIn); otherwise the code no longer stands, and the sign-in
+// is refused with code_expired and no session. A user who already holds a confirmed
+// address is written nothing. A refusal or a wait writes no address, so the person signs
+// in again and is asked for the code again.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
-	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool, proven dbtype.PasswordProof, confirmAddress bool,
+	source sessioninfo.UserSource, tenant string, rules Rules[Tx], trusted bool,
 ) error {
+	policy, proven, confirmAddress, claim := rules.Policy, rules.Proven, rules.ConfirmAddress, rules.CodeAddress
 	base := *req
 	var v verdict
 	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
@@ -2056,11 +2113,20 @@ func decideAndInsert[Tx any](
 			return err
 		}
 		if confirmAddress && v.proceeds() {
-			v = addressHold(req, user)
+			v = addressHold(req, user, claim)
 		}
 		if confirmAddress && v.proceeds() {
 			if v.stop, err = addressTaken(ctx, d, tx, req, user); err != nil {
 				return err
+			}
+		}
+		if v.proceeds() && claim != nil && !user.EmailConfirmed {
+			wrote, err := d.VerifyUserEmailIfHeldIn(ctx, tx, user.ID, claim.Held, claim.Email)
+			if err != nil {
+				return errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
+			}
+			if !wrote {
+				v = verdict{stop: codeAddressGone(user.ID, claim)}
 			}
 		}
 		if v.proceeds() {
@@ -2159,25 +2225,29 @@ func decideSignIn(
 // for the address it asserts (Microsoft Entra ID vouches for none), by a person whose
 // account holds no confirmed address. Every account a person signs in to has a confirmed
 // address, so such a person's first sign-in waits for the code the library mails,
-// whatever the sign-in rule says about a second factor, and the code writes the address
-// on the account, confirmed. Nothing stands in for it: a directory that attests to a
-// second factor says nothing of the address, and no browser is remembered for a person
-// who has confirmed none. The sign-in that completes the wait carries the code's event
-// and goes on; so does every later one, since the account then holds the address. A
-// sign-in whose method vouches for the address is not held: Google does, for a Gmail
-// address and a Workspace account's, and the address is written on the account as the
-// session starts. A Google account made with an address from anywhere else is held as
-// another provider's person is. A password sign-in and a session
-// the application starts are not held either: those accounts are given their address
-// where they are made.
-func addressHold(req *sessioninfo.NewSessionRequest, user *dbtype.User) verdict {
+// whatever the sign-in rule says about a second factor, and the address the code
+// confirms is written on the account as the session starts. Nothing stands in for it: a
+// directory that attests to a second factor says nothing of the address, and no browser
+// is remembered for a person who has confirmed none. The sign-in that completes the wait
+// with the account's own code carries the address the code confirms (claim, the rules'
+// CodeAddress) and goes on, and decideAndInsert writes it; every later sign-in goes on
+// too, since the account then holds the address confirmed. A sign-in that carries the
+// code's event and no claim is held all the same: it was held again for another factor
+// after its code, which wrote nothing, and it is asked for the code once more before a
+// session starts on an account with no confirmed address. A sign-in whose method
+// vouches for the address is not held: Google does, for a Gmail address and a Workspace
+// account's, and the address is written on the account as the session starts. A Google
+// account made with an address from anywhere else is held as another provider's person
+// is. A password sign-in and a session the application starts are not held either:
+// those accounts are given their address where they are made.
+func addressHold(req *sessioninfo.NewSessionRequest, user *dbtype.User, claim *dbtype.CodeAddress) verdict {
 	if user.EmailConfirmed || !dbtype.IsExternal(req.Identity) || !holdsForAddress(req.Reason) {
 		return verdict{}
 	}
 	if req.Identity.EmailVerified && req.Identity.Email != "" {
 		return verdict{}
 	}
-	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
+	if claim != nil {
 		return verdict{}
 	}
 	pending := &signin.PendingSignInError{

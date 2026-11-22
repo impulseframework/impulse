@@ -17,8 +17,8 @@ import (
 // the two and the method does not vouch for the name: a Google account made with an
 // outside address, another identity provider's and Microsoft's alike. The sign-in waits
 // for the code mailed to the address the account holds, whether or not the account's
-// person has confirmed it, and nothing is linked while it waits; the sign-in that
-// carries the code's event makes the link and goes on. An account that holds no address
+// person has confirmed it, and nothing is linked while it waits; the sign-in the
+// account's own code completes makes the link and goes on. An account that holds no address
 // is refused, since a code mailed to an address typed at the sign-in would show only
 // that the person reads their own mail. A name Google vouches for links at once where it
 // is the account's own: its username as the library compares two addresses, or the
@@ -79,7 +79,8 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 		},
 		{
 			name:     "the code the person entered makes the link, and the sign-in goes on",
-			identity: outside, address: name, confirmed: true, rules: Rules[*memTx]{ConfirmAddress: true}, reason: sessioninfo.ReasonStepUp, events: code,
+			identity: outside, address: name, confirmed: true, reason: sessioninfo.ReasonStepUp, events: code,
+			rules: Rules[*memTx]{ConfirmAddress: true, CodeAddress: &dbtype.CodeAddress{Held: addressOf(name), Email: name}},
 		},
 		{
 			name:     "a name Google vouches for links at once",
@@ -111,7 +112,8 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 		},
 		{
 			name:     "a vouched look-alike name is linked by the code mailed to the account's address",
-			identity: lookalike, username: kim, address: kim, rules: Rules[*memTx]{ConfirmAddress: true}, reason: sessioninfo.ReasonStepUp, events: code,
+			identity: lookalike, username: kim, address: kim, reason: sessioninfo.ReasonStepUp, events: code,
+			rules: Rules[*memTx]{ConfirmAddress: true, CodeAddress: &dbtype.CodeAddress{Held: addressOf(kim), Email: kim}},
 		},
 		{
 			name:     "a vouched address the account holds confirmed links at once under a username that is no address",

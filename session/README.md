@@ -1267,12 +1267,12 @@ the person reaches.
    once for one pending sign-in one stands, so there is never a second code to guess
    at with attempts of its own. The code goes to the address the user holds, verified or not:
    an address an operator entered is proven by the code as a link would prove it, and
-   the user holds it verified once the code is entered. A code is good only for the
+   the user holds it verified as the session its code completes starts. A code is good only for the
    address the user holds when it is entered: one mailed to an address the account no
    longer holds is dead (`code_expired`), nothing is written, and the next code goes to
    the address the account holds now. A user who holds no address
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
-   the user verified when its code is entered; an address another account holds is
+   the user verified as the session its code completes starts; an address another account holds is
    answered as sent and told so by mail to that address, as the add-address step does,
    so the screen reveals nothing. An address that an invitation which stands was mailed
    to is treated the same way: no code is made, the mailbox is sent a message that says
@@ -1283,6 +1283,14 @@ the person reaches.
    alone") is given none, since nothing but the name ties it to the account, and is
    answered `409` with the reason. The `AuthAPI` offers the same as `SendEmailCode`,
    `EnrollEmail` and `VerifyEmailCode`.
+
+   The address a code confirms is written in the transaction that starts the session,
+   and only then. A sign-in refused after its code was entered (the password changed
+   while it waited, the user was disabled, the sign-in policy or the tenant's refused
+   it) leaves the account's address as it was, and so does one held for another factor:
+   the person signs in again, and the code is asked for again. A first link that rests
+   on the code is made only while the account still holds the address the code was
+   mailed to.
 
 A code mailed to the mailbox of the account that just signed in adds little against a
 stolen password that opens that mailbox too: for a directory, the attestation is the
@@ -1781,10 +1789,12 @@ How an address gets onto a user:
   an administrator's change and entered after it is dead and writes nothing back; the
   code for an address the person then gives at the step writes it. A change that lands
   while a code is being entered ends that code as well: the address a code confirms is
-  written only while the account still holds what it held before the code was used,
-  and a completion that finds it changed, or finds that another account took the
-  address, is refused (`code_expired`) with nothing written and nobody linked or
-  signed in. Nothing writes an address onto an account unconfirmed after its creation.
+  written in the transaction that starts the session, only while the account still holds
+  what it held when the code was checked, and a completion that finds it changed, or
+  finds that another account took the address, is refused (`code_expired`) with nothing
+  written and nobody signed in; a first link that rests on the code is made only while
+  the account still holds the address the code was mailed to. Nothing writes an address
+  onto an account unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the
