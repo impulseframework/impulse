@@ -357,7 +357,7 @@ func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, 
 	return s.assign(ctx, s.names.groupMembers,
 		[]string{colGroupID, colUser},
 		spanner.Key{string(group), string(user)},
-		period, "spannertxn.Serializable() assign group member")
+		period, nil, "spannertxn.Serializable() assign group member")
 }
 
 // DeleteGroupMember removes one person from a group; removing one who is not
@@ -389,12 +389,25 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 // added where the group does not hold it there, and given the new period where
 // it does. The group's row must exist; the role is named by name alone.
 func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return s.assignGroupRole(ctx, group, scope, role, period, nil)
+}
+
+// InsertCustomGroupRole writes what InsertGroupRole writes, only while the roles
+// table holds a row of the custom role where the group's role reads it, as
+// InsertCustomUserRole reads it, and wraps policy.ErrNoRole where it holds none.
+func (s *Store) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return s.assignGroupRole(ctx, group, scope, role, period, []requirement{s.customRoleHeld(scope, role)})
+}
+
+// assignGroupRole writes one role a group holds in scope with its period once each
+// of needs is there.
+func (s *Store) assignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period, needs []requirement) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.groupRoles,
 		[]string{colGroupID, colKind, colAxis, colDomain, colRole},
 		spanner.Key{string(group), kind, axis, domain, string(role)},
-		period, "spannertxn.Serializable() assign group role")
+		period, needs, "spannertxn.Serializable() assign group role")
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it

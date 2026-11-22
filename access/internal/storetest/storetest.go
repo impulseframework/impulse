@@ -76,6 +76,7 @@ func Run(t *testing.T, store access.Store, writeRole RoleWriter) {
 	t.Run("groups", func(t *testing.T) { runGroups(t, store) })
 	t.Run("periods", func(t *testing.T) { runPeriods(t, store) })
 	t.Run("holdings", func(t *testing.T) { runHoldings(t, store) })
+	t.Run("custom role holdings", func(t *testing.T) { runCustomHoldings(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
 

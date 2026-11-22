@@ -73,7 +73,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 			return httpio.NewBadRequestMessage("user cannot be empty string")
 		}
 
-		if err := u.store.addUserRole(ctx, scope, user, role, accesstypes.Period{}); err != nil {
+		if err := u.giveUserRole(ctx, scope, user, role, accesstypes.Period{}, ""); err != nil {
 			return err
 		}
 	}
@@ -123,9 +123,28 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 	}
 
 	for _, role := range roles {
-		if err := u.store.assignUserRole(ctx, scope, user, role, period, reason); err != nil {
+		if err := u.giveUserRole(ctx, scope, user, role, period, reason); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// giveUserRole gives user the role in scope for the period and with the reason: one of
+// the release's default roles by its name, and a custom role only while its row is
+// there. A custom role deleted since the call found it is answered as a role that does
+// not exist, and nothing is given.
+func (u *userManager) giveUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	if u.defaults.exists(scope, role) {
+		return u.store.assignUserRole(ctx, scope, user, role, period, reason)
+	}
+	if err := u.store.assignCustomUserRole(ctx, scope, user, role, period, reason); err != nil {
+		if errors.Is(err, policy.ErrNoRole) {
+			return roleNotFound(role)
+		}
+
+		return err
 	}
 
 	return nil
@@ -429,9 +448,10 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 		return false, httpio.NewBadRequestMessagef("A group holds the role, now or for a period that has not begun yet. You cannot delete a role a group holds: take it away from the group first")
 	}
 	if errors.Is(err, policy.ErrStillAssigned) {
-		// The listing above reads who holds the role now: what stands in the way
-		// is an assignment whose period has not begun.
-		return false, httpio.NewBadRequestMessagef("Users are assigned to the role for a period that has not begun yet. You cannot delete a role that has users assigned")
+		// The listing above reads who holds the role now: what stands in the way is
+		// an assignment whose period has not begun, or one given while the delete
+		// ran, after the listing read.
+		return false, httpio.NewBadRequestMessagef("Users are assigned to the role, now or for a period that has not begun yet. You cannot delete a role that has users assigned")
 	}
 	if err != nil {
 		return false, err

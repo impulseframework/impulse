@@ -130,8 +130,9 @@ func resolveNames(opts []Option) (tableNames, error) {
 // the serializable isolation level (spannertxn.Serializable), whatever level the application
 // chose for its client. Several of them read and then write another row, and rely on Spanner
 // serializing the read with what another transaction writes: a role's insert with its
-// twin's, a role's or a group's deletion with a membership given at the same moment. At
-// repeatable read, which checks only two writes to one row, both would commit.
+// twin's, a role's or a group's deletion with a membership given at the same moment, a
+// custom role's holding with the role's deletion. At repeatable read, which checks only
+// two writes to one row, both would commit.
 type Store struct {
 	client *spanner.Client
 	names  tableNames
@@ -375,13 +376,43 @@ type given struct {
 	value  any
 }
 
+// requirement is a row an assignment stands on, read in the assignment's transaction
+// before the assignment's own row: it answers an error where the row is not there, and
+// the assignment writes nothing.
+type requirement func(ctx context.Context, txn *spanner.ReadWriteTransaction) error
+
+// customRoleHeld is the requirement of a custom role's holding in scope: a row of the
+// role where the holding reads it, the scope's own or, for one domain, every domain's.
+// Where neither is there it answers policy.ErrNoRole wrapped.
+func (s *Store) customRoleHeld(scope accesstypes.PolicyScope, role accesstypes.Role) requirement {
+	scopes := []accesstypes.PolicyScope{scope}
+	if _, oneDomain := scope.Domain(); oneDomain {
+		scopes = append(scopes, accesstypes.EveryDomainPolicyScope())
+	}
+
+	return func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		for _, at := range scopes {
+			kind, axis, domain := policy.ScopeColumns(at)
+			switch _, err := txn.ReadRow(ctx, s.names.roles, spanner.Key{kind, axis, domain, string(role)}, []string{colRole}); {
+			case err == nil:
+				return nil
+			case spanner.ErrCode(err) != codes.NotFound:
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow() role")
+			}
+		}
+
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+	}
+}
+
 // assign writes one assignment row with its period and what else it is given
 // with: the row is inserted where its key is free, and where it is taken the
 // period and the columns given with it are replaced and the rest of the row,
 // its CreatedAt among it, left as it was. keyColumns and key name the row; the
 // read and the write share one transaction, so two assignments of one key
-// settle on one period.
-func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, wrap string, with ...given) error {
+// settle on one period. Each of needs is read first in the same transaction: the
+// first that answers an error is answered, and nothing is written.
+func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, needs []requirement, wrap string, with ...given) error {
 	values := append(slices.Clone([]any(key)), period.StartPtr(), period.EndPtr())
 	columns := append(slices.Clone(keyColumns), colStartsAt, colEndsAt)
 	for _, g := range with {
@@ -389,6 +420,11 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 		values = append(values, g.value)
 	}
 	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		for _, need := range needs {
+			if err := need(ctx, txn); err != nil {
+				return err
+			}
+		}
 		var m *spanner.Mutation
 		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
 		case err == nil:
@@ -418,12 +454,28 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 // is named by name alone: no role row is required, since the release's default
 // roles have none.
 func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	return s.assignUserRole(ctx, scope, user, role, period, reason, nil)
+}
+
+// InsertCustomUserRole writes what InsertUserRole writes, only while the roles table
+// holds a row of the custom role where the membership reads it: the scope's own or,
+// for one domain, every domain's. The read of that row and the write are one
+// read-write transaction at the serializable isolation level, so a DeleteRole of the
+// row at the same moment either reads the membership and refuses, or deletes the row
+// and this transaction, run again, finds it gone and wraps policy.ErrNoRole.
+func (s *Store) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	return s.assignUserRole(ctx, scope, user, role, period, reason, []requirement{s.customRoleHeld(scope, role)})
+}
+
+// assignUserRole writes one user-role membership with its period and its reason
+// once each of needs is there.
+func (s *Store) assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, needs []requirement) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, "spannertxn.Serializable() assign user role",
+		period, needs, "spannertxn.Serializable() assign user role",
 		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 

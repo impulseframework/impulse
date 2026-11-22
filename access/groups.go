@@ -414,9 +414,28 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 		}
 	}
 	for _, role := range roles {
-		if err := u.store.addGroupRole(ctx, group, scope, role, period); err != nil {
+		if err := u.giveGroupRole(ctx, group, scope, role, period); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// giveGroupRole gives group the role in scope for the period: one of the release's
+// default roles by its name, and a custom role only while its row is there. A custom
+// role deleted since the call found it is answered as a role that does not exist, and
+// nothing is given.
+func (u *userManager) giveGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	if u.defaults.exists(scope, role) {
+		return u.store.addGroupRole(ctx, group, scope, role, period)
+	}
+	if err := u.store.addCustomGroupRole(ctx, group, scope, role, period); err != nil {
+		if errors.Is(err, policy.ErrNoRole) {
+			return roleNotFound(role)
+		}
+
+		return err
 	}
 
 	return nil
@@ -581,6 +600,15 @@ func (m *storeManager) groupUsers(ctx context.Context, group accesstypes.Group) 
 func (m *storeManager) addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	if err := m.store.InsertGroupRole(ctx, group, scope, role, period); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGroupRole(): role %q to group %s", role, group)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) addCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertCustomGroupRole(ctx, group, scope, role, period); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertCustomGroupRole(): role %q to group %s", role, group)
 	}
 	m.notifyPolicyChange()
 

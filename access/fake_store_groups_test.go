@@ -242,6 +242,21 @@ func (f *fakeStore) InsertGroupRole(_ context.Context, group accesstypes.Group, 
 	})
 }
 
+func (f *fakeStore) InsertCustomGroupRole(_ context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return f.locked(func() error {
+		if !f.customRoleHeld(scope, role) {
+			return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+		}
+		if _, ok := f.groups.rows[group]; !ok {
+			return errors.Newf("group %s does not exist", group)
+		}
+		f.groups.held[fakeGroupRole{group, scope, role}] = period
+		f.writes++
+
+		return nil
+	})
+}
+
 func (f *fakeStore) DeleteGroupRole(_ context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	return f.locked(func() error {
 		delete(f.groups.held, fakeGroupRole{group, scope, role})

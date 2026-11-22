@@ -162,6 +162,11 @@ var ErrStillAssigned = errors.New("assignments that have not ended stand in the 
 // says which of the two stands in the way.
 var ErrHeldByGroup = errors.New("a group holds the role, now or for a period that has not begun")
 
+// ErrNoRole is the refusal of a write that needs a custom role's row where none
+// is held: a store wraps it, so the access package answers that the role does
+// not exist.
+var ErrNoRole = errors.New("the roles table holds no row of the role")
+
 // SameRoleName reports whether a and b are the same role name but for the case
 // of their ASCII letters: an ASCII capital letter equals its lower-case letter,
 // and every other byte equals only itself. It is the rule the library compares

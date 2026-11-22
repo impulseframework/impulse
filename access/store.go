@@ -54,10 +54,17 @@ import (
 //     database's present, so one outside its period is left out while its row
 //     is still there; ReadPolicy returns every row with its period, for the
 //     engine to apply at the instant of each check.
-//   - A membership names a role by name alone: InsertUserRole writes it
-//     whether or not a role row exists, since the role may be one of the
-//     release's defaults, which have no row. The access package checks that
-//     the name resolves before it writes.
+//   - A membership names a role by name alone, and so does a group's role.
+//     InsertUserRole and InsertGroupRole write the row whether or not a role
+//     row exists: they are how one of the release's default roles, which has
+//     no row, is given. InsertCustomUserRole and InsertCustomGroupRole are how
+//     a custom role is given: each reads the role's row where the holding
+//     reads it (the scope's own, or every domain's for one domain) in the
+//     transaction that writes the holding, writes nothing and wraps
+//     policy.ErrNoRole where no such row is held, and takes its turn with a
+//     DeleteRole of that row. Of a role given and deleted at the same moment,
+//     either the holding is written and the delete refuses, or the role goes
+//     and nothing is held.
 //   - DeleteRole is scoped to (scope, role): it cascades the role's grants,
 //     refuses with an error while memberships held in that scope that have
 //     not ended still name the role (checked in the same transaction as the
@@ -90,6 +97,10 @@ type Store interface {
 	// reason, replacing the period and the reason of one that is there; the
 	// three listings return the memberships that count now.
 	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
+	// InsertCustomUserRole writes what InsertUserRole writes, only while the
+	// roles table holds a row of the custom role where the membership reads
+	// it, and wraps policy.ErrNoRole where it holds none.
+	InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
 	DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
 	ListUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// ListUserMemberships returns every membership the user holds now,
@@ -197,6 +208,10 @@ type Store interface {
 	CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error)
 	ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error)
 	InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
+	// InsertCustomGroupRole writes what InsertGroupRole writes, only while the
+	// roles table holds a row of the custom role where the group's role reads
+	// it, and wraps policy.ErrNoRole where it holds none.
+	InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
 	DeleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	ListUserGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)

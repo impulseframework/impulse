@@ -125,6 +125,7 @@ type Store struct {
 	// parameters — so no query text is assembled at call sites.
 	sqlInsertRole          string
 	sqlLockRoleName        string
+	sqlCustomRoleHeld      string
 	sqlReadMeetingRoles    string
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
@@ -163,6 +164,7 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 
 		sqlInsertRole:         fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "Description") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.roles),
 		sqlLockRoleName:       `select pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+		sqlCustomRoleHeld:     fmt.Sprintf(`select exists(select 1 from %s where "Axis" = $2 and "Role" = $4 and (("Kind" = $1 and "DomainId" = $3) or ($1 = '%s' and "Kind" = '%s' and "DomainId" = '')))`, names.roles, policy.KindDomain, policy.KindEvery),
 		sqlReadMeetingRoles:   fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s where "Axis" = $1 and (("Kind" = $2 and "DomainId" = $3) or ($2 <> '%s' and "Kind" = '%s') or ($2 = '%s' and "Kind" = '%s'))`, names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
 		sqlDeleteRole:         fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4`, names.roles),
 		sqlRoleHasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s)`, names.userRoles, standing("")),
@@ -399,6 +401,59 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 	return nil
 }
 
+// InsertCustomUserRole writes what InsertUserRole writes, only while the roles table
+// holds a row of the custom role where the membership reads it: the scope's own or,
+// for one domain, every domain's. It takes its turn with a DeleteRole of the role as
+// assignCustom says, and wraps policy.ErrNoRole where no such row is held.
+func (s *Store) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	kind, axis, domain := policy.ScopeColumns(scope)
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
+
+	return s.assignCustom(ctx, scope, role, "assign user role", s.sqlInsertUserRole, kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why)
+}
+
+// assignCustom writes a holding of a custom role in scope by the insert statement and
+// its arguments, in one transaction that first takes the lock on the role's name a
+// DeleteRole takes and then reads whether a row of the role is held where the holding
+// reads it. Where none is held it writes nothing and wraps policy.ErrNoRole. Of a
+// holding and a delete of the row at the same moment, the second to take the lock
+// reads what the first wrote: the delete refuses for the holding, or the holding
+// finds the row gone.
+func (s *Store) assignCustom(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, what, insert string, args ...any) error {
+	kind, axis, domain := policy.ScopeColumns(scope)
+	// Read committed whatever the database's default, as InsertRole: the read after
+	// the lock sees what the delete that held the lock before it committed.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return errors.Wrapf(err, "pgxpool.Pool.BeginTx() %s", what)
+	}
+	defer func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+	}()
+
+	if _, err := tx.Exec(ctx, s.sqlLockRoleName, s.names.rawRoles, policy.FoldRoleName(string(role))); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec() lock role name")
+	}
+	var held bool
+	if err := tx.QueryRow(ctx, s.sqlCustomRoleHeld, kind, axis, domain, role).Scan(&held); err != nil {
+		return errors.Wrap(err, "pgx.Tx.QueryRow() role row")
+	}
+	if !held {
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+	}
+	if _, err := tx.Exec(ctx, insert, args...); err != nil {
+		return errors.Wrapf(err, "pgx.Tx.Exec() %s", what)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.Wrapf(err, "pgx.Tx.Commit() %s", what)
+	}
+
+	return nil
+}
+
 // DeleteUserRole removes one user-role membership; removing an absent
 // membership is a no-op.
 func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
@@ -607,16 +662,24 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([
 // delete, and so does a group that holds the role there, now or for a period
 // that has not begun: each is checked in the delete's own transaction, since
 // nothing in the schema ties a membership or a group's role to a role row. The
-// ended ones, a person's and a group's, go with the role.
+// ended ones, a person's and a group's, go with the role. The transaction first
+// takes the lock on the role's name a custom role's holding takes, so a holding
+// written at the same moment is read by the checks or finds the row gone.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	tx, err := s.pool.Begin(ctx)
+	// Read committed whatever the database's default, as InsertRole: the checks after
+	// the lock see the holding that held the lock before it.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return false, errors.Wrap(err, "pgxpool.Pool.Begin() delete role")
+		return false, errors.Wrap(err, "pgxpool.Pool.BeginTx() delete role")
 	}
 	defer func() {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	}()
+
+	if _, err := tx.Exec(ctx, s.sqlLockRoleName, s.names.rawRoles, policy.FoldRoleName(string(role))); err != nil {
+		return false, errors.Wrap(err, "pgx.Tx.Exec() lock role name")
+	}
 
 	var hasMembers bool
 	if err := tx.QueryRow(ctx, s.sqlRoleHasMembers, kind, axis, domain, role).Scan(&hasMembers); err != nil {

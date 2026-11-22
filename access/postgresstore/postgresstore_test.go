@@ -4,9 +4,15 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/db"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestNew_naming(t *testing.T) {
@@ -215,4 +221,157 @@ func TestDDL_keys(t *testing.T) {
 			}
 		})
 	}
+}
+
+// turnRole is the custom role the turn tests give and delete, in turnScope.
+const turnRole = accesstypes.Role("Warden")
+
+var turnScope = accesstypes.DomainPolicyScope("tenant1")
+
+// TestStore_DeleteRole_takesItsTurnWithAGive pins that a role's deletion takes the
+// lock on the role's name a custom role's give takes, and reads after it: a membership
+// written while the delete waits for the lock is seen, and the delete refuses. A
+// delete that read before the lock, or under a snapshot taken before it, would delete
+// the role from under the membership.
+func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, database := prepareStore(ctx, t)
+	if err := store.InsertRole(ctx, turnScope, turnRole, "Keeps the wards."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	turns := repeatableReadStore(ctx, t, database)
+
+	lock := holdRoleNameLock(ctx, t, database, store, turnRole)
+	var (
+		deleted bool
+		err     error
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		deleted, err = turns.DeleteRole(ctx, turnScope, turnRole)
+	}()
+	waitingOnALock(t, database, done)
+	if err := store.InsertUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, ""); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
+	}
+	if err := lock.Commit(ctx); err != nil {
+		t.Fatalf("pgx.Tx.Commit() error = %v", err)
+	}
+	<-done
+
+	if deleted || !errors.Is(err, policy.ErrStillAssigned) {
+		t.Errorf("DeleteRole() of a role given while it waited = (%v, %v), want it refused with policy.ErrStillAssigned", deleted, err)
+	}
+	if exists, err := store.RoleExists(ctx, turnScope, turnRole); err != nil || !exists {
+		t.Errorf("RoleExists() after the refusal = (%v, %v), want the role there", exists, err)
+	}
+}
+
+// TestStore_InsertCustomUserRole_takesItsTurnWithADelete pins that a custom role's give
+// takes the lock on the role's name a role's deletion takes, and reads the role's row
+// after it: a row deleted while the give waits for the lock is seen gone, and nothing
+// is written.
+func TestStore_InsertCustomUserRole_takesItsTurnWithADelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, database := prepareStore(ctx, t)
+	if err := store.InsertRole(ctx, turnScope, turnRole, "Keeps the wards."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	turns := repeatableReadStore(ctx, t, database)
+
+	lock := holdRoleNameLock(ctx, t, database, store, turnRole)
+	var err error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		err = turns.InsertCustomUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, "")
+	}()
+	waitingOnALock(t, database, done)
+	kind, axis, domain := policy.ScopeColumns(turnScope)
+	if _, err := lock.Exec(ctx, store.sqlDeleteRole, kind, axis, domain, turnRole); err != nil {
+		t.Fatalf("pgx.Tx.Exec() delete role error = %v", err)
+	}
+	if err := lock.Commit(ctx); err != nil {
+		t.Fatalf("pgx.Tx.Commit() error = %v", err)
+	}
+	<-done
+
+	if !errors.Is(err, policy.ErrNoRole) {
+		t.Errorf("InsertCustomUserRole() of a role deleted while it waited: error = %v, want policy.ErrNoRole", err)
+	}
+	if users, err := store.ListRoleUsers(ctx, turnScope, turnRole); err != nil || len(users) != 0 {
+		t.Errorf("ListRoleUsers() after the refusal = (%v, %v), want nobody", users, err)
+	}
+}
+
+// repeatableReadStore is a store on a pool of its own to the test's database whose
+// sessions begin every transaction at repeatable read: the database's default level is
+// not the store's to count on, so a transaction of the store that leaves its level to
+// the database reads under a snapshot taken before it waited, and fails the test.
+func repeatableReadStore(ctx context.Context, t *testing.T, database *db.PostgresDatabase) *Store {
+	t.Helper()
+	config := database.Config()
+	if config.ConnConfig.RuntimeParams == nil {
+		config.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	config.ConnConfig.RuntimeParams["default_transaction_isolation"] = "repeatable read"
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("pgxpool.NewWithConfig() error = %v", err)
+	}
+	t.Cleanup(pool.Close)
+	store, err := New(pool)
+	if err != nil {
+		t.Fatalf("postgresstore.New() error = %v", err)
+	}
+
+	return store
+}
+
+// holdRoleNameLock begins a transaction on the test's database that takes the lock a
+// store takes on the role's name, and returns it: a statement of the store that takes
+// the lock waits until the transaction ends. A transaction the test has not ended is
+// rolled back.
+func holdRoleNameLock(ctx context.Context, t *testing.T, database *db.PostgresDatabase, store *Store, role accesstypes.Role) pgx.Tx {
+	t.Helper()
+	tx, err := database.Begin(ctx)
+	if err != nil {
+		t.Fatalf("pgxpool.Pool.Begin() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+	})
+	if _, err := tx.Exec(ctx, store.sqlLockRoleName, store.names.rawRoles, policy.FoldRoleName(string(role))); err != nil {
+		t.Fatalf("pgx.Tx.Exec() lock role name error = %v", err)
+	}
+
+	return tx
+}
+
+// waitingOnALock waits until a session of the test's database waits on a lock, as a
+// statement of the store does while the test holds the role name's lock. It fails the
+// test where done is closed first: the store answered without waiting for the lock.
+func waitingOnALock(t *testing.T, database *db.PostgresDatabase, done <-chan struct{}) {
+	t.Helper()
+	ctx := t.Context()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-done:
+			t.Fatal("the store answered before it was seen waiting on the role name's lock")
+		default:
+		}
+		var waiting bool
+		if err := database.QueryRow(ctx, `select exists(select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock')`).Scan(&waiting); err != nil {
+			t.Fatalf("pgxpool.Pool.QueryRow() pg_stat_activity error = %v", err)
+		}
+		if waiting {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no session of the database was seen waiting on a lock within 30 seconds")
 }

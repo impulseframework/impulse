@@ -144,14 +144,45 @@ func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicySc
 	if f.failWith != nil {
 		return f.failWith
 	}
+	f.insertUserRole(scope, user, role, period, reason)
+
+	return nil
+}
+
+func (f *fakeStore) InsertCustomUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return f.failWith
+	}
+	if !f.customRoleHeld(scope, role) {
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+	}
+	f.insertUserRole(scope, user, role, period, reason)
+
+	return nil
+}
+
+// insertUserRole writes the membership with its period and its reason; the caller holds
+// mu.
+func (f *fakeStore) insertUserRole(scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) {
 	f.memberships[fakeMembership{scope, user, role}] = period
 	delete(f.reasons, fakeMembership{scope, user, role})
 	if reason != "" {
 		f.reasons[fakeMembership{scope, user, role}] = reason
 	}
 	f.writes++
+}
 
-	return nil
+// customRoleHeld reports whether a holding of the custom role in scope stands on a role
+// row: the scope's own, or every domain's for one domain. The caller holds mu.
+func (f *fakeStore) customRoleHeld(scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	if f.hasRole(scope, role) {
+		return true
+	}
+	_, oneDomain := scope.Domain()
+
+	return oneDomain && f.hasRole(accesstypes.EveryDomainPolicyScope(), role)
 }
 
 func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {

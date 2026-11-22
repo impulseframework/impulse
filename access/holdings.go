@@ -87,6 +87,10 @@ type holdingStore interface {
 	// assignUserRole gives the membership its period and its reason, replacing both on
 	// one that is there.
 	assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
+	// assignCustomUserRole writes what assignUserRole writes, only while a row of the
+	// custom role is held where the membership reads it, and wraps policy.ErrNoRole
+	// where none is.
+	assignCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
 	// userAssignments lists every membership of the user's own that has not ended, each
 	// with its period and its reason.
 	userAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error)
@@ -108,6 +112,15 @@ var _ managementStore = (*storeManager)(nil)
 func (m *storeManager) assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	if err := m.store.InsertUserRole(ctx, scope, user, role, period, reason); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) assignCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	if err := m.store.InsertCustomUserRole(ctx, scope, user, role, period, reason); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertCustomUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()
 

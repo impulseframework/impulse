@@ -388,6 +388,15 @@ func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, sc
 	return nil
 }
 
+// InsertCustomGroupRole writes what InsertGroupRole writes, only while the roles
+// table holds a row of the custom role where the group's role reads it, as
+// InsertCustomUserRole reads it, and wraps policy.ErrNoRole where it holds none.
+func (s *Store) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	kind, axis, domain := policy.ScopeColumns(scope)
+
+	return s.assignCustom(ctx, scope, role, "assign group role", s.groups.insertRole, group, kind, axis, domain, role, period.StartPtr(), period.EndPtr())
+}
+
 // DeleteGroupRole removes one role a group holds in scope; removing one it
 // does not hold there is a no-op.
 func (s *Store) DeleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
