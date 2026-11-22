@@ -630,8 +630,10 @@ describe('ResourceListComponent', () => {
       }
       // The column asked for is the field the question is about.
       const field = url.searchParams.get('columns') ?? '';
-      const known =
-        new RegExp(`${field}:notin:\\(([^)]*)\\)`).exec(url.searchParams.get('filter') ?? '')?.[1].split(',') ?? [];
+      const filter = url.searchParams.get('filter') ?? '';
+      const notIn = `${field}:notin:(`;
+      const from = filter.indexOf(notIn);
+      const known = from < 0 ? [] : filter.slice(from + notIn.length, filter.indexOf(')', from)).split(',');
       const next = held.filter((role) => !known.includes(role)).sort()[0];
       return { status: 200, body: next === undefined ? [] : [{ [field]: next }] };
     };
