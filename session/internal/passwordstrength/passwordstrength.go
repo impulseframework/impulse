@@ -32,15 +32,17 @@
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone: an accented letter is read as its letter, a dotless ı as i, a letter people also
-// write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), and any other
-// character outside ASCII as one stand-in, the same for the same letter, with or without its
-// marks and in either case, throughout one judgment. A letter read as two (ß, æ, œ, þ) is
-// written as its two letters to match a person's word, and counts as one character toward the
-// password's strength: the password as typed has it as its stand-in. A vowel sign or tone mark
-// that a script types as a character of its own, as Thai and Hindi do, is a character: it
-// counts toward the password's strength, and a name written with it counts against a password
-// built on it. A point a person may leave off (a Hebrew, Arabic or Syriac point, an Indic
-// nukta) is no character, so a password or a name counts the same with or without its points.
+// write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), a letter people
+// write two ways in plain letters in both (ü as u and ue, ø as o and oe, å as a and aa, đ as d
+// and dj), and any other character outside ASCII as one stand-in, the same for the same letter,
+// with or without its marks and in either case, throughout one judgment. A letter read as two
+// (ß, æ, œ, þ) is written as its two letters to match a person's word, and counts as one
+// character toward the password's strength: the password as typed has it as its stand-in. A
+// vowel sign or tone mark that a script types as a character of its own, as Thai and Hindi do,
+// is a character: it counts toward the password's strength, and a name written with it counts
+// against a password built on it. A point a person may leave off (a Hebrew, Arabic or Syriac
+// point, an Indic nukta) is no character, so a password or a name counts the same with or
+// without its points.
 package passwordstrength
 
 import (
@@ -80,8 +82,8 @@ const (
 	maxL33tCost = maxL33tWork * MaxJudged * MaxJudged
 
 	// maxFurtherAsks is the most asks of one judgment past the two about the password as
-	// typed: with the person's details, about the password as spelled and its plain reading;
-	// without them, about the password as spelled.
+	// typed: with the person's details, about the password as spelled, in its second spelling
+	// and the two plain readings; without them, about the first two.
 	maxFurtherAsks = 8
 
 	// maxL33tCostFurther is the most the reading of look-alike characters may cost in each of
@@ -194,9 +196,9 @@ func Judge(password string, who Details, minimum int) Judgment {
 	}
 
 	read := newReading()
-	typed, spelled := spellingsOf(password, read)
+	typed, spelled, second := spellingsOf(password, read)
 	inputs := inputsOf(who, read)
-	readings := readingsOf(typed, spelled, inputs)
+	readings := readingsOf(typed, spelled, second, inputs)
 	bits := bitsOf(readings, inputs)
 	strength := strengthOf(bits, minimum)
 	if bits >= float64(minimum) {
@@ -223,6 +225,10 @@ const (
 	// spelledOnce writes one character for each character typed: a letter whose plain spelling
 	// is two letters (ß, æ, œ, þ) is written as its stand-in.
 	spelledOnce
+
+	// spelledSecond writes a letter that has a second plain spelling (alsoSpelledInASCII) in
+	// that one, and every other character as spelledPlain does.
+	spelledSecond
 )
 
 // asked is one reading of the password the library is asked about.
@@ -240,24 +246,29 @@ type asked struct {
 	personal bool
 }
 
-// spellingsOf are the two texts password is read as, each cut to MaxJudged characters: typed,
-// one character for each of the password's first MaxJudged characters (spelledOnce), and
+// spellingsOf are the three texts password is read as, each cut to MaxJudged characters:
+// typed, one character for each of the password's first MaxJudged characters (spelledOnce);
 // spelled, the same characters with each letter people also write in plain letters in that
-// spelling, as the person's details are read. typed is read first, so its stand-ins are given
-// in the order the password's characters are typed.
-func spellingsOf(password string, read *reading) (typed, spelled string) {
+// spelling, as the person's details are read; and second, with each letter that has a second
+// plain spelling in that one (spelledSecond). They are read in that order, so the stand-ins are
+// given in the order the password's characters are typed.
+func spellingsOf(password string, read *reading) (typed, spelled, second string) {
 	cut := firstRunes(password, MaxJudged)
 	typed = firstRunes(read.as(cut, spelledOnce), MaxJudged)
 	spelled = firstRunes(read.of(cut), MaxJudged)
+	second = firstRunes(read.as(cut, spelledSecond), MaxJudged)
 
-	return typed, spelled
+	return typed, spelled, second
 }
 
 // readingsOf are the readings of the password the library is asked about, in this order, a text
-// already among them left out: typed, within maxL33tCost; spelled; and spelled with the
-// person's words it spells with look-alike characters written as the words are
-// (plainReading), personal. Every reading after typed is within maxL33tCostFurther.
-func readingsOf(typed, spelled string, inputs []string) []asked {
+// already among them left out: typed, within maxL33tCost; spelled; second; and spelled and
+// second each with the person's words it spells with look-alike characters written as the
+// words are (plainReading), personal. Every reading after typed is within maxL33tCostFurther.
+// Each spelling has its own plain reading so a word of the person's keeps its place in the
+// list in whichever spelling the person wrote it: Süßmilch typed for a person named Süßmilch
+// matches sussmilch, and for one registered as Suessmilch, suessmilch.
+func readingsOf(typed, spelled, second string, inputs []string) []asked {
 	readings := []asked{{text: typed, added: 0, bound: maxL33tCost, personal: false}}
 	add := func(text string, personal bool) {
 		for _, r := range readings {
@@ -268,7 +279,9 @@ func readingsOf(typed, spelled string, inputs []string) []asked {
 		readings = append(readings, asked{text: text, added: 0, bound: maxL33tCostFurther, personal: personal})
 	}
 	add(spelled, false)
+	add(second, false)
 	add(plainReading(spelled, inputs), true)
+	add(plainReading(second, inputs), true)
 
 	return readings
 }
@@ -342,15 +355,16 @@ func firstRunes(s string, n int) string {
 // inputsOf are the words the person's details give the estimate. Each detail is cut to its
 // first maxDetailTyped characters, trimmed of surrounding space, put in NFC and cut to its
 // first maxDetail characters; an empty one gives nothing, as does one with more than
-// maxDetailTyped characters of space before anything else. The words come in two passes over the
-// details, each in the order Username, Name, Email. First, each detail whole, then each run of
-// letters, digits and marks in it whose reading is at least minRun characters long. Then, for
-// each run that holds a digit, the run without the digits at its two ends (z4br0wski in
-// z4br0wski77) and each part of it between digits (zabrowski in zabrowski77), each whose reading
-// is at least minRun characters long. The library prices a word by its place in the list, so
-// the second pass comes after every word of the first, and a word of the first keeps the place
-// it has without the second. Each word is as read reads it and given once whatever its case.
-// It is nil when the details give none.
+// maxDetailTyped characters of space before anything else. The words come in two passes over
+// the details, each in the order Username, Name, Email. First, each detail whole, then each run
+// of letters, digits and marks in it whose reading is at least minRun characters long. Then,
+// for each run, the run in its second spelling (Mueller in Müller, spelledSecond), and for a
+// run that holds a digit, the run without the digits at its two ends (z4br0wski in z4br0wski77)
+// and each part of it between digits (zabrowski in zabrowski77), each in both spellings; each
+// of these whose reading is at least minRun characters long. The library prices a word by its
+// place in the list, so the second pass comes after every word of the first, and a word of the
+// first keeps the place it has without the second. Each word is as read reads it and given once
+// whatever its case. It is nil when the details give none.
 func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
@@ -367,6 +381,14 @@ func inputsOf(who Details, read *reading) []string {
 		if word := read.of(run); len(word) >= minRun {
 			add(word)
 		}
+	}
+	addBoth := func(text string) {
+		// A text too short to count in its own spelling does not count in another.
+		if len(read.of(text)) < minRun {
+			return
+		}
+		add(read.of(text))
+		add(read.as(text, spelledSecond))
 	}
 
 	var details []string
@@ -385,12 +407,13 @@ func inputsOf(who Details, read *reading) []string {
 	}
 	for _, detail := range details {
 		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
+			addBoth(run)
 			if !strings.ContainsFunc(run, unicode.IsDigit) {
 				continue
 			}
-			addRun(strings.TrimFunc(run, unicode.IsDigit))
+			addBoth(strings.TrimFunc(run, unicode.IsDigit))
 			for _, part := range strings.FieldsFunc(run, unicode.IsDigit) {
-				addRun(part)
+				addBoth(part)
 			}
 		}
 	}
@@ -524,18 +547,25 @@ func (r *reading) of(typed string) string {
 }
 
 // as is typed in NFC as the library is to read it: a character in ASCII as it is; outside
-// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a letter
-// people also write in plain letters as that spelling (spelledInASCII) or, under spelledOnce
-// and when that spelling is two letters, as its stand-in, a letter whose capital is in ASCII
-// (the dotless ı) as that letter in lower case, a mark NFC left on its own dropped when it is
-// one a person may leave off (leftOff), a chandrabindu as an anusvara, and any other character
-// as its stand-in, a vowel sign or tone mark that a script types as a character of its own
-// (Thai, Hindi) among them.
+// ASCII, under spelledSecond a letter that has a second plain spelling as that spelling
+// (alsoSpelledInASCII), an accented letter or digit (é, Å, a full-width p) as its letter or
+// digit, a letter people also write in plain letters as that spelling (spelledInASCII) or,
+// under spelledOnce and when that spelling is two letters, as its stand-in, a letter whose
+// capital is in ASCII (the dotless ı) as that letter in lower case, a mark NFC left on its own
+// dropped when it is one a person may leave off (leftOff), a chandrabindu as an anusvara, and
+// any other character as its stand-in, a vowel sign or tone mark that a script types as a
+// character of its own (Thai, Hindi) among them.
 func (r *reading) as(typed string, how spelling) string {
 	var text strings.Builder
 	for _, c := range norm.NFC.String(typed) {
 		if c < utf8.RuneSelf {
 			text.WriteRune(c)
+
+			continue
+		}
+		// Before baseOf, since ä, ö, ü and å have a letter they are written on.
+		if second, ok := alsoSpelledInASCII[c]; ok && how == spelledSecond {
+			text.WriteString(second)
 
 			continue
 		}
@@ -598,6 +628,18 @@ var spelledInASCII = map[rune]string{
 	'æ': "ae", 'Æ': "AE",
 	'œ': "oe", 'Œ': "OE",
 	'þ': "th", 'Þ': "TH",
+}
+
+// alsoSpelledInASCII are the letters people write in plain letters two ways, with the longer
+// spelling, in either case; the shorter is the letter itself (u for ü) or spelledInASCII's
+// (o for ø).
+var alsoSpelledInASCII = map[rune]string{
+	'ä': "ae", 'Ä': "AE",
+	'ö': "oe", 'Ö': "OE",
+	'ü': "ue", 'Ü': "UE",
+	'å': "aa", 'Å': "AA",
+	'ø': "oe", 'Ø': "OE",
+	'đ': "dj", 'Đ': "DJ",
 }
 
 // standInOf is c's stand-in, the same in either case and with or without c's marks: the one

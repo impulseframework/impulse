@@ -116,6 +116,12 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a username written with look-alike characters, typed in letters", password: "Zabrowski2077!", who: Details{Username: "z4br0wski77"}},
 		{name: "a name with a ł, typed with l", password: "Lukasz2077horse", who: Details{Name: "Łukasz Błaszczykowski"}},
 		{name: "a name with an ø, typed with o", password: "Soren2077horse", who: Details{Name: "Søren Kierkegaard"}},
+		{name: "a name with ä and ö, typed with ae and oe", password: "Haegerstroem2077", who: Details{Name: "Ingrid Hägerström"}},
+		{name: "a name with an ø, typed with oe", password: "Soeren2077horse", who: Details{Name: "Søren Kierkegaard"}},
+		{name: "a name with an å, typed with aa", password: "Raagaard2077horse", who: Details{Name: "Håkon Rågård"}},
+		{name: "a name with a đ, typed with dj", password: "djordjevic2077", who: Details{Name: "Đorđe Đorđević"}},
+		{name: "a name with an ü, typed with ue", password: "Buechsenschuetz2077", who: Details{Name: "Günther Büchsenschütz"}},
+		{name: "a name spelled with ue, typed with ü", password: "Büchsenschütz2077", who: Details{Name: "Uwe Buechsenschuetz"}},
 		{name: "a Thai name with its vowel signs and tone mark", password: "กิตติศักดิ์2077", who: Details{Name: "กิตติศักดิ์ ศรีสุวรรณ"}},
 		{name: "a Hindi name with its vowel signs", password: "सुनीता2077!", who: Details{Name: "सुनीता शर्मा"}},
 		{name: "a Hindi name with a nukta, typed without it", password: "जाकिर2077!", who: Details{Name: "ज़ाकिर हुसैन"}},
@@ -157,6 +163,9 @@ func TestInputsOf(t *testing.T) {
 			want: []string{"77zabrowski", "zabrowski77@example.com", "zabrowski77", "example", "com", "zabrowski"},
 		},
 		{who: Details{Name: "Al"}, want: []string{"Al"}},
+		{who: Details{Name: "Søren Müller"}, want: []string{"Soren Muller", "Soren", "Muller", "Soeren", "Mueller"}},
+		{who: Details{Username: "müller77"}, want: []string{"muller77", "mueller77", "muller", "mueller"}},
+		{who: Details{Name: "Lü Bu"}, want: []string{"Lu Bu"}},
 		{who: Details{}, want: nil},
 	}
 	for _, tt := range tests {
@@ -501,6 +510,16 @@ func TestReading_as(t *testing.T) {
 		{typed: "æœþ", how: spelledOnce, want: standIns[:3]},
 		{typed: "Łukasz Søren", how: spelledOnce, want: "Lukasz Soren"},
 		{typed: "Strauß", how: spelledPlain, want: "Strauss"},
+		{typed: "Müller", how: spelledSecond, want: "Mueller"},
+		{typed: "Hägerström", how: spelledSecond, want: "Haegerstroem"},
+		{typed: "Søren", how: spelledSecond, want: "Soeren"},
+		{typed: "Rågård", how: spelledSecond, want: "Raagaard"},
+		{typed: "Đorđe", how: spelledSecond, want: "DJordje"},
+		{typed: "ÄÖÜ", how: spelledSecond, want: "AEOEUE"},
+		{typed: "über", how: spelledSecond, want: "ueber"},
+		{typed: "Strauß", how: spelledSecond, want: "Strauss"},
+		{typed: "Łukasz", how: spelledSecond, want: "Lukasz"},
+		{typed: "José", how: spelledSecond, want: "Jose"},
 	}
 	for _, tt := range tests {
 		if got := newReading().as(tt.typed, tt.how); got != tt.want {
@@ -516,16 +535,35 @@ func TestSpellingsOf(t *testing.T) {
 		password string
 		typed    string
 		spelled  string
+		second   string
 	}{
-		{password: "vexillumtrek", typed: "vexillumtrek", spelled: "vexillumtrek"},
-		{password: "Großkreutz2077", typed: "Gro" + standIns[:1] + "kreutz2077", spelled: "Grosskreutz2077"},
-		{password: strings.Repeat("ß", MaxJudged), typed: strings.Repeat(standIns[:1], MaxJudged), spelled: strings.Repeat("s", MaxJudged)},
-		{password: strings.Repeat("a", MaxJudged) + "ß", typed: strings.Repeat("a", MaxJudged), spelled: strings.Repeat("a", MaxJudged)},
+		{password: "vexillumtrek", typed: "vexillumtrek", spelled: "vexillumtrek", second: "vexillumtrek"},
+		{password: "Großkreutz2077", typed: "Gro" + standIns[:1] + "kreutz2077", spelled: "Grosskreutz2077", second: "Grosskreutz2077"},
+		{
+			password: strings.Repeat("ß", MaxJudged),
+			typed:    strings.Repeat(standIns[:1], MaxJudged),
+			spelled:  strings.Repeat("s", MaxJudged),
+			second:   strings.Repeat("s", MaxJudged),
+		},
+		{
+			password: strings.Repeat("a", MaxJudged) + "ß",
+			typed:    strings.Repeat("a", MaxJudged),
+			spelled:  strings.Repeat("a", MaxJudged),
+			second:   strings.Repeat("a", MaxJudged),
+		},
+		{password: "Müller2077", typed: "Muller2077", spelled: "Muller2077", second: "Mueller2077"},
+		{password: "Süßmilch", typed: "Su" + standIns[:1] + "milch", spelled: "Sussmilch", second: "Suessmilch"},
+		{
+			password: strings.Repeat("ü", MaxJudged),
+			typed:    strings.Repeat("u", MaxJudged),
+			spelled:  strings.Repeat("u", MaxJudged),
+			second:   strings.Repeat("ue", MaxJudged/2),
+		},
 	}
 	for _, tt := range tests {
-		typed, spelled := spellingsOf(tt.password, newReading())
-		if typed != tt.typed || spelled != tt.spelled {
-			t.Errorf("spellingsOf(%q) = %q, %q, want %q, %q", tt.password, typed, spelled, tt.typed, tt.spelled)
+		typed, spelled, second := spellingsOf(tt.password, newReading())
+		if typed != tt.typed || spelled != tt.spelled || second != tt.second {
+			t.Errorf("spellingsOf(%q) = %q, %q, %q, want %q, %q, %q", tt.password, typed, spelled, second, tt.typed, tt.spelled, tt.second)
 		}
 	}
 }
@@ -536,33 +574,47 @@ func TestReadingsOf(t *testing.T) {
 	tests := []struct {
 		typed   string
 		spelled string
+		second  string
 		inputs  []string
 		want    []asked
 	}{
 		{
-			typed: "vexillumtrek", spelled: "vexillumtrek",
+			typed: "vexillumtrek", spelled: "vexillumtrek", second: "vexillumtrek",
 			want: []asked{{text: "vexillumtrek", bound: maxL33tCost}},
 		},
 		{
-			typed: "Gro~kreutz2077", spelled: "Grosskreutz2077",
+			typed: "Gro~kreutz2077", spelled: "Grosskreutz2077", second: "Grosskreutz2077",
 			want: []asked{{text: "Gro~kreutz2077", bound: maxL33tCost}, {text: "Grosskreutz2077", bound: maxL33tCostFurther}},
 		},
 		{
-			typed: "Z@br0w$k!2077", spelled: "Z@br0w$k!2077", inputs: []string{"Zabrowski"},
+			typed: "Z@br0w$k!2077", spelled: "Z@br0w$k!2077", second: "Z@br0w$k!2077", inputs: []string{"Zabrowski"},
 			want: []asked{{text: "Z@br0w$k!2077", bound: maxL33tCost}, {text: "Zabrowski2077", bound: maxL33tCostFurther, personal: true}},
 		},
 		{
-			typed: "Gr0~kreutz2077", spelled: "Gr0sskreutz2077", inputs: []string{"Grosskreutz"},
+			typed: "Gr0~kreutz2077", spelled: "Gr0sskreutz2077", second: "Gr0sskreutz2077", inputs: []string{"Grosskreutz"},
 			want: []asked{
 				{text: "Gr0~kreutz2077", bound: maxL33tCost},
 				{text: "Gr0sskreutz2077", bound: maxL33tCostFurther},
 				{text: "Grosskreutz2077", bound: maxL33tCostFurther, personal: true},
 			},
 		},
+		{
+			typed: "Muller2077", spelled: "Muller2077", second: "Mueller2077",
+			want: []asked{{text: "Muller2077", bound: maxL33tCost}, {text: "Mueller2077", bound: maxL33tCostFurther}},
+		},
+		{
+			typed: "Mull3r2077", spelled: "Mull3r2077", second: "Muell3r2077", inputs: []string{"Muller", "Mueller"},
+			want: []asked{
+				{text: "Mull3r2077", bound: maxL33tCost},
+				{text: "Muell3r2077", bound: maxL33tCostFurther},
+				{text: "Muller2077", bound: maxL33tCostFurther, personal: true},
+				{text: "Mueller2077", bound: maxL33tCostFurther, personal: true},
+			},
+		},
 	}
 	for _, tt := range tests {
-		if got := readingsOf(tt.typed, tt.spelled, tt.inputs); !slices.Equal(got, tt.want) {
-			t.Errorf("readingsOf(%q, %q, %q) = %+v, want %+v", tt.typed, tt.spelled, tt.inputs, got, tt.want)
+		if got := readingsOf(tt.typed, tt.spelled, tt.second, tt.inputs); !slices.Equal(got, tt.want) {
+			t.Errorf("readingsOf(%q, %q, %q, %q) = %+v, want %+v", tt.typed, tt.spelled, tt.second, tt.inputs, got, tt.want)
 		}
 	}
 }
