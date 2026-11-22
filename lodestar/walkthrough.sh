@@ -953,7 +953,7 @@ assert_py "and names Bastion closed to this sign-in, with the reason: she holds 
 r=$(req rigger GET "$API/sectors/$BASTION_ID/wings"); check "Bastion answers her as a sector that does not exist" 404 "$r"
 r=$(req rigger GET "$ANVIL/wings"); check "Anvil's wings answer her" 200 "$r"
 rm -f "$S/bosun.jar"; curl -s -L -c "$S/bosun.jar" -b "$S/bosun.jar" -o /dev/null "$API/user/session"
-r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
+r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"follow-the-lodestar-home"}' -w '\n%{http_code}' "$API/user/password/login")
 check "the bosun, whose only sector is Bastion, is refused at sign-in" 401 "$r"
 assert_py "naming the rule: directory_only" "$r" "rows['code']=='directory_only'"
 r=$(req governor POST "$API/assign-crew-role" '{"username":"navigator","role":"Pilot","everyDomain":true}'); check "a role is given to an account, named by its id: a body that names the person by username is refused" 400 "$r"
@@ -1017,7 +1017,7 @@ r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BAST
 r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and nothing was written" "$r" "rows['directoryOnly'] is False"
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing closed" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "and no row of Bastion's people says anything while it is off" "$r" "all(u.get('cannotEnter') is None for u in rows)"
-r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
+r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"follow-the-lodestar-home"}' -w '\n%{http_code}' "$API/user/password/login")
 check "and the bosun's password is taken, the sign-in waiting for its code" 200 "$r"
 second_factor bosun "$API" bosun@fleet.example "$LOG"
 r=$(req bosun GET "$API/user/session"); assert_py "and the bosun signs in" "$r" "rows['authenticated'] and rows['username']=='bosun'"
@@ -1057,7 +1057,7 @@ r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, Bastion's marshal and 
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NO_PASSWORD\""
 r=$(dryrun rookie POST "$MAKE_ONLY" '{}'); check "the dry run is refused the same way" 409 "$r"
 r=$(req rookie POST "$MAKE_ONLY" '{}'); check "and so is the method" 409 "$r"
-r=$(req rookie POST "$API/user/first-password" '{"code":"000000","password":"lodestar"}'); check "no first password without the mailed code: none was asked for, and the password is refused" 409 "$r"
+r=$(req rookie POST "$API/user/first-password" '{"code":"000000","password":"follow-the-lodestar-home"}'); check "no first password without the mailed code: none was asked for, and the password is refused" 409 "$r"
 r=$(req rigger POST "$API/user/first-password/code"); check "an account that has a password is refused the code: the rigger changes hers with the one she has" 409 "$r"
 r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks for the code of a first password and is told his account has no confirmed address: the simulated provider vouched for him under his login name" 409 "$r"
 assert_py "in a sentence that says what to do" "$r" "rows['message'].startswith('Your account has no confirmed email address') and 'confirm it from the link we send you' in rows['message']"

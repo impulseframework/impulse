@@ -407,7 +407,7 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
     overmind start -l spanner,firestore,server
 
 That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, tenants, both auths' roles, the
-`admin` and `member` staff logins with password `password`, and the `client` member), and
+`admin` and `member` staff logins with password `open-the-console-first`, and the `client` member), and
 serves every outlet on `$PORT` (:8093). The first run
 compiles and bootstraps before it listens; wait for "Starting Server" in the server pane.
 
@@ -443,7 +443,7 @@ local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts t
 
 `weblib.sh` expects the framework checkout beside this application as `impulse`; set
 `IMPULSE` to point elsewhere. Then `overmind start` runs everything: the console at
-http://127.0.0.1:4301/console/ (sign in as `admin` / `password`) and the portal at
+http://127.0.0.1:4301/console/ (sign in as `admin` / `open-the-console-first`) and the portal at
 http://127.0.0.1:4303/portal/ (the sign-in button signs in as the simulated directory's
 `client`).
 

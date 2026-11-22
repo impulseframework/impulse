@@ -47,7 +47,7 @@ const (
 	// store names a person.
 	adminUser     = "admin"
 	memberUser    = "member"
-	adminPassword = "password"
+	adminPassword = "open-the-console-first"
 )
 
 // servedConfigurer implements app.Configurer over the real dependencies: the test

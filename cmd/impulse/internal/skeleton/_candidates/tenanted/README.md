@@ -379,7 +379,7 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
     overmind start -l spanner,firestore,server
 
 That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
-roles, the `admin`, `member` and `newcomer` logins with password `password`; `newcomer`
+roles, the `admin`, `member` and `newcomer` logins with password `open-the-console-first`; `newcomer`
 holds no tenant and creates one from the dashboard once `admin` has opened a sign-in
 method to sign-up on the Sign-in page), and serves the API on
 `$PORT` (:8092). The first run compiles and bootstraps before it listens; wait for
