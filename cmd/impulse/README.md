@@ -412,12 +412,16 @@ With `--shape directory-roles` the deployment's tests (`pkg/deploy`,
 deployment reports about an invitation goes with what it tested, and the migrate
 command's test proves that a release invites nobody and that the command takes no
 `-reinvite-administrator`; with `--shape tenant-owned-users-by-directory` the two harnesses
-(`test/integration`, `test/authz`) build the tenant roster and the generated maker, and
-the first administrator's invitation is proven accepted through Google. The new
-application passes `go vet` with and without the tag as it is made. The spec of the
-browser application's login page is written for the same sign-in: it answers the methods
-route with the methods the auth registers, and expects a button for each and no password
-form. In a start with tenants the two served suites run as the application was made,
+(`test/integration`, `test/authz`) build the tenant roster and the generated maker, the
+first administrator's invitation is proven accepted through Google, a tenant is founded
+through Google and through Microsoft, each taking its founder's organization as its
+directory, and the methods route is read where a persona provider is configured and where
+none is. The new application passes `go vet` with and without the tag as it is made. The
+spec of the browser application's login page is written for the same sign-in: it answers
+the methods route with the methods the auth registers, and expects a button for each and
+no password form; with `--shape tenant-owned-users-by-directory` it also draws the page of
+an environment that names no persona provider, the two directory buttons alone. In a start
+with tenants the two served suites run as the application was made,
 since the command writes the role a tenant's administrator holds, without which the
 application's router is not built (`impulse add tenancy`, below, says which grants it
 carries). A start with tenants that keeps the password sign-in (`--tenancy`, or one of
@@ -1447,10 +1451,13 @@ is. The shape has no password sign-in, and no command removes a sign-in method, 
 password method stays where the auth has it: the command says that it keeps the
 application outside the shape and names the files to change by hand, and `impulse audit`
 says the same until it is gone.
-Whether a tenant takes a directory, and whether that directory's people get an account
-without an invitation, is each tenant's choice, made while the application runs, so the
-command writes nothing for it and says where it is chosen. A flag that contradicts the
-shape is refused, naming both (`--shape global-users-invite-only
+In `global-users-each-tenant-chooses`, whether a tenant takes a directory, and whether
+that directory's people get an account without an invitation, is each tenant's choice,
+made while the application runs, so the command writes nothing for it and says where it
+is chosen. In `tenant-owned-users-by-directory` a tenant takes its directory when it is
+made, the organization its founder signs in from, and only whether its people get an
+account without an invitation is the tenant's choice. A flag that contradicts the shape
+is refused, naming both (`--shape global-users-invite-only
 --one-tenant-per-person`, `--shape global-users-each-tenant-chooses
 --tenant-directories=false`), and a name the command does not know is refused with the
 names it knows. What the shape filled in is printed after

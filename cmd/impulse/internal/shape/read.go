@@ -461,7 +461,11 @@ func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 		// its organization's directory, and a password could enter none of them.
 		auth.Shape, auth.Says = nil, fmt.Sprintf("its password method keeps it outside %s, the shape its tenants' choices and %s make: in that shape every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant. No command removes a sign-in method; the password method is taken out by hand (%s)", numbered(directory), methodsNamed(through), passwordByHand(auth))
 	case r.Directories != nil && len(through) > 0:
-		auth.named(directory, strings.TrimSpace(fmt.Sprintf("A tenant's people can come through its organization's directory (%s). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page. %s", methodsNamed(through), notTypical(auth, methods))))
+		chosen := eachTenantChooses
+		if auth.OneTenant != "" {
+			chosen = takesItsDirectory
+		}
+		auth.named(directory, strings.TrimSpace(fmt.Sprintf("A tenant's people can come through its organization's directory (%s). %s %s", methodsNamed(through), chosen, notTypical(auth, methods))))
 	case r.Directories != nil && byDirectory:
 		auth.named(invited, fmt.Sprintf("The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone. %s has no password sign-in, so a directory method beside the password method (impulse add method) leaves this auth outside the eight shapes until the password method is taken out by hand.", numbered(directory)))
 	case r.Directories != nil:
@@ -472,6 +476,16 @@ func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 		auth.named(invited, noDirectories+".")
 	}
 }
+
+// What the reading says of a tenant's directory where a method goes through one. Where a
+// person can be in several tenants, a tenant chooses whether it takes a directory at all.
+// Where a person belongs to one tenant, the tenant takes its directory when it is made,
+// from its founder's sign-in, since its founder has no other way in; only opening it to
+// the directory's people is the tenant's choice.
+const (
+	eachTenantChooses = "Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page."
+	takesItsDirectory = "A tenant takes its directory when it is made: the organization its founder signs in from. Whether that directory's people get an account without an invitation is each tenant's choice, made while the application runs on the tenant's Sign-in page."
+)
 
 // passwordByHand names the hand step that takes the password method out of an auth:
 // its file, its registration and its declaration, then the regeneration.
