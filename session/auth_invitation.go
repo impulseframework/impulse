@@ -243,20 +243,22 @@ type InvitationHandlers struct {
 }
 
 // Open accepts {"token"}, the token the mailed link carried, and answers {"email",
-// "tenant", "expiresAt", "signUp", "usernameIsEmail", "methods"}: the address the
-// invitation was sent to, the tenant it seats the person in ("" for the application's
-// global surface), when it stops being accepted, whether the person may create an
-// account with a password here (the password method is registered), whether that
-// account's username is the address, and the names of the listed external
-// registrations that could admit the address (as the methods listing advertises
+// "name", "tenantId", "expiresAt", "signUp", "usernameIsEmail", "methods",
+// "accountExists", "hasPassword"}: the address the invitation was sent to, the person's
+// name as the inviter gave it (absent for none), the tenant it seats the person in
+// (absent for the application's global surface), when it stops being accepted, whether
+// the person may create an account with a password here (the password method is
+// registered), whether that account's username is the address, the names of the listed
+// external registrations that could admit the address (as the methods listing advertises
 // them; empty when none could), so the page hides the methods that would refuse the
-// person. An invitation that makes a tenant answers "newTenant" true and the tenant's
-// name as the invitation carries it ("tenantName"; it has no id yet), and
-// "directoryOnly" true where it is accepted through an organization's directory
-// alone: "signUp" is then false, since an account with a password could not accept
-// it, and the page offers the directory buttons. It sets the invitation cookie, so
-// the sign-in that follows carries the invitation. A token whose invitation is no
-// longer live is 404. Route it behind StartSession and ValidateXSRFToken.
+// person, and whether an account already holds the address and signs in with a password.
+// An invitation that makes a tenant answers "newTenant" true and the tenant's name as the
+// invitation carries it ("tenantName"; it has no id yet), and "directoryOnly" true where
+// it is accepted through an organization's directory alone: "signUp" is then false, since
+// an account with a password could not accept it, and the page offers the directory
+// buttons. It sets the invitation cookie, so the sign-in that follows carries the
+// invitation. A token whose invitation is no longer live is 404. Route it behind
+// StartSession and ValidateXSRFToken.
 func (h *InvitationHandlers) Open() http.HandlerFunc { return h.open }
 
 // Accept accepts the invitation the browser carries for the signed-in user, whose
@@ -303,6 +305,9 @@ func (a *Auth[S, U, Tx]) Invitation() *InvitationHandlers {
 func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 	type response struct {
 		Email string `json:"email"`
+		// Name is the person's name as the inviter gave it, absent for none: the page
+		// sends it with the password it asks the server about (invitedAccountState).
+		Name string `json:"name,omitempty"`
 		// TenantID is the tenant the invitation seats the person in, and TenantName what
 		// people call it (SetTenantNames); both absent for the application's global
 		// surface, and the name absent where no namer knows the tenant.
@@ -350,7 +355,7 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		makes, directoryOnly := madeTenant(link.NewTenant)
 
 		return httpio.NewEncoder(w).Ok(response{
-			Email: link.Email, TenantID: link.TenantID, TenantName: a.invitedTenantName(link.TenantID, link.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
+			Email: link.Email, Name: link.Name, TenantID: link.TenantID, TenantName: a.invitedTenantName(link.TenantID, link.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
 			ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered() && !directoryOnly, UsernameIsEmail: methods.usernameIsEmail(),
 			Methods: invited.methods, AccountExists: invited.exists, HasPassword: invited.hasPassword,
 		})
@@ -362,8 +367,11 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 // password, and the external registrations through which the invitation can be
 // accepted. What the login page shows the invitee turns on it: the password form for an
 // account with one, the account form where none holds the address, and a button for
-// each registration named. Whoever holds the link is told it: the link was mailed to
-// the address, and what it tells is no more than which form to show.
+// each registration named. Whoever holds the link is told it, and the name the inviter
+// gave beside it: the link was mailed to the address, what it tells of the account is
+// no more than which form to show, and the name is what the page sends with the
+// password it asks the server about, so the bar is judged against what the acceptance
+// judges the password against.
 type invitedAccountState struct {
 	exists      bool
 	hasPassword bool
@@ -711,17 +719,17 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 // mailed to the invited address at an invitation's), and the username, which is the
 // address when the password method declares them one and the person's choice
 // otherwise. name is the person's name as the invitation carried it, "" for none and
-// for a sign-up, which carries none.
+// for a sign-up, which carries none. The password is judged against the username the
+// account will have, as every later judgment of it is (detailsOf).
 func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
+	if a.registered().usernameIsEmail() {
+		username = email
+	}
 	who := passwordstrength.Details{Username: username, Name: name, Email: email}
 	if err := a.strongEnough(password, who); err != nil {
 		return nil, err
 	}
-	methods := a.registered()
-	switch {
-	case methods.usernameIsEmail():
-		username = email
-	case username == "":
+	if username == "" {
 		return nil, httpio.NewBadRequestMessage("choose a username")
 	}
 	hash, err := a.hashToSet(password, who)
