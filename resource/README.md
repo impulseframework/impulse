@@ -6044,3 +6044,38 @@ one of its two bytes;
 holders. Lodestar's ship carries a transponder key
 (`lodestar/test/integration/secret_test.go`), and its migrate command retires a version
 over the emulator (`lodestar/cmd/deployment/migrate/main_test.go`).
+
+## 24. The change history
+
+A resource that tracks its changes (`TrackChanges`) writes one record to the
+`DataChangeEvents` table for each create, update and delete, in the write's own
+transaction: `TableName` and `RowId` say which row, `Sequence` numbers the records one
+transaction writes for the row, `EventTime` is the commit timestamp, `EventSource` says
+who made the change (section 6, `UserEvent`), and `ChangeSet` holds each changed field
+with its old and its new value. A secret field is named as changed with neither value
+(section 23).
+
+**The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
+statements. An application copies them into its first migration, as `impulse new` writes
+them and as Lodestar does in
+[000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql), pinned
+to the function by a test. The function has statements for Spanner alone: the package
+does not write to PostgreSQL yet, and the table gets its PostgreSQL statements with that.
+
+**How long records are kept.** The application's schema says it. `period` is
+`resource.KeepChangeHistoryDays(n)` or `resource.KeepChangeHistoryForever()`, and a
+period that was never declared renders no statement. With a number of days the
+statements end with a row deletion policy on `EventTime`:
+
+```sql
+ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY))
+```
+
+Spanner then removes each record once it is older than the period, in the background
+(its documentation says typically within 72 hours of that moment). Nothing else removes
+a change record, so an application that declares forever keeps every record it has ever
+written, and the table grows for as long as the application runs. A record names the
+person who made the change for as long as it is kept: deleting an account rewrites no
+record. An application made by `impulse new` starts at 365 days. To change the period
+later, add a migration that replaces the table's row deletion policy with the new number
+of days.
