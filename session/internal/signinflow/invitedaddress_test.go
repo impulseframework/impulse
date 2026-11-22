@@ -213,7 +213,8 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 // transaction that inserts the session would end it, and the invitation it carries
 // stands: no role is given, the account's address is as it was and no session starts,
 // whether the acceptance rests on the code mailed to the invited address or on an
-// address the method vouches for. A proof the user still holds resolves as before.
+// address the method vouches for. A proof the user still holds resolves as before. A
+// completion that finds the link taken away is held the same way before it links.
 func TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChanged(t *testing.T) {
 	t.Parallel()
 
@@ -224,13 +225,17 @@ func TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChange
 		// vouched says the identity is of a method that vouches for the invited address
 		// it asserts; it is of one that asserts none, and the sign-in carries the code
 		// mailed to the invited address, otherwise. changed says the password changed
-		// while the sign-in waited.
-		vouched bool
-		changed bool
+		// while the sign-in waited. unlinked says the link was taken away and the
+		// password removed meanwhile: the account, under the invited address, holds no
+		// password and no link, and the completion resolves on the sign-in name.
+		vouched  bool
+		changed  bool
+		unlinked bool
 	}{
 		{name: "the code mailed to the invited address, the password still held: accepted, and a session"},
 		{name: "the code mailed to the invited address, the password changed: nothing accepted, and no session", changed: true},
 		{name: "an address the method vouches for, the password changed: nothing accepted, and no session", vouched: true, changed: true},
+		{name: "the link taken away and the password removed while the sign-in waited: nothing linked, nothing accepted, and no session", changed: true, unlinked: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -243,6 +248,9 @@ func TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChange
 			if tt.changed {
 				user.proof = dbtype.ProofOfStored("the hash of the password set meanwhile")
 			}
+			if tt.unlinked {
+				user = &memUser{username: invited}
+			}
 			store.users[userID] = user
 			inv := store.invite(invited, "lakeside", "Teacher")
 			identity := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-north", Subject: "oid-nell"}
@@ -253,9 +261,16 @@ func TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChange
 			} else {
 				inv.AddressProven = true
 			}
-			store.links[linkKey(identity.Method, identity.Connection, identity.Subject)] = userID
+			if tt.unlinked {
+				identity.SignInName = invited
+			} else {
+				store.links[linkKey(identity.Method, identity.Connection, identity.Subject)] = userID
+			}
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: inv, AuthEvents: events}
 			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, ConfirmAddress: true, Proven: proof}
+			if tt.unlinked {
+				rules.WaitedOn = impulse.NullUUIDFromUUID(userID)
+			}
 
 			err := signInWith(t, &memDriver{store: store}, req, rules)
 
@@ -282,6 +297,9 @@ func TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChange
 			}
 			if got := store.users[userID]; got.email != "" || got.confirmed {
 				t.Errorf("the account holds %q (confirmed %t), want no address, as it was", got.email, got.confirmed)
+			}
+			if tt.unlinked && len(store.links) != 0 {
+				t.Errorf("the store holds the links %v, want none", store.links)
 			}
 		})
 	}

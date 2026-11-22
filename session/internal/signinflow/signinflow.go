@@ -285,8 +285,9 @@ type Rules[Tx any] struct {
 // sign-in: the user found, linked or provisioned, and enabled. A sign-in the account
 // rules refuse or hold for a confirmation, a disabled user's, or one whose password
 // changed while it waited (a password sign-in's by signInHold, a directory sign-in's
-// that the password confirmed by resolveLinked), leaves the invitation standing,
-// nothing granted, so the person may sign in another way; a sign-in the policy then
+// that the password confirmed by resolveLinked, or by linkUser where its link was taken
+// away since), leaves the invitation standing, nothing granted, so the person may sign
+// in another way; a sign-in the policy then
 // denies or holds leaves it accepted, and what the acceptance granted stands, the
 // invited address with it. An
 // invitation that is no longer live is skipped and the sign-in goes on, unless the
@@ -1820,7 +1821,12 @@ func applyResolution[Tx any](
 // sign-in would be linked into another person's account. A second identity is linked
 // on proof: the user holds, verified, the address the method verified for the identity
 // (holdsAddress), a user given a password confirms it, a registration's own rule links
-// on its own evidence, and the application may link one itself.
+// on its own evidence, and the application may link one itself. A sign-in that rests on
+// a password proof (rules.Proven: the completion of a wait, after the account's
+// password confirmed a link that has been taken away since) links only while the user
+// still holds that password: after a change or a removal it ends with
+// dbtype.ErrPasswordChanged before anything is linked, consumed or accepted, as
+// resolveLinked ends it. The nil proof holds it to nothing.
 func linkUser[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, onName bool, rules Rules[Tx],
 ) (live bool, stop, err error) {
@@ -1829,6 +1835,9 @@ func linkUser[Tx any](
 	user, err := lockedAsRegistered(ctx, d, tx, res.UserID(), rules)
 	if err != nil {
 		return false, nil, err
+	}
+	if err := rules.Proven.Check(user.PasswordProof); err != nil {
+		return false, nil, errors.Wrap(err, "dbtype.PasswordProof.Check()")
 	}
 	if stop, err := notTheInvited(ctx, d, tx, req.Invitation, provenAddress(req, rules.ConfirmAddress), user); err != nil || stop != nil {
 		return false, stop, err
