@@ -143,15 +143,16 @@ type UserManager interface {
 	// or a custom role held in scope — or, for one domain, in every domain.
 	// A custom role held in one domain alone cannot be assigned in every
 	// domain. A custom role deleted at the moment it is given is not given:
-	// the call answers that the role does not exist, and the users it reached
-	// before that keep the role.
+	// the call answers that the role does not exist.
 	AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error
 
 	// AddUserRoles assigns roles to user, the memberships held in scope, each
 	// with no period and no reason: it counts until it is removed, and a role
 	// the user held for a period loses the period and the reason it was given
 	// for. Errors if any role doesn't exist in scope, as AddRoleUsers defines
-	// it.
+	// it. A custom role deleted at the moment it is given is not given: the
+	// call answers that the role does not exist, and the user keeps the roles
+	// the call gave before that one.
 	AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error
 
 	// AssignUserRole gives user the role in scope for the period: the role
@@ -277,7 +278,9 @@ type UserManager interface {
 	// domain alone. No group holds the Super Administrator role. Errors if
 	// the group does not exist or a role doesn't exist in scope, as
 	// AddRoleUsers defines it. Each role is given with no period. A custom
-	// role deleted at that moment is not given, as AddRoleUsers says.
+	// role deleted at the moment it is given is not given: the call answers
+	// that the role does not exist, and the group keeps the roles the call
+	// gave before that one.
 	AddGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error
 
 	// AssignGroupRole gives group the role in scope for the period, replacing
