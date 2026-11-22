@@ -14,9 +14,8 @@ import {
 } from './frame-testing';
 import { initialsOf, PersonMenuComponent } from './person-menu.component';
 
-// The person's menu holds what is theirs: their account where the page holds something for
-// them, their API keys where the application issues tokens, the application's own entries,
-// Appearance, and Sign out last. Both pages are every place's: they open where the person is.
+// The person's menu holds what is theirs: their account page, their API keys where the
+// application issues tokens, the application's own entries, Appearance, and Sign out last. Both pages are every place's: they open where the person is.
 
 interface Setup {
   methods?: Record<string, unknown>;
@@ -218,14 +217,10 @@ describe('PersonMenuComponent', () => {
     expect(fixture.componentInstance.initials()).toEqual(['G']);
   });
 
-  it('offers the account page for the name alone, where the server serves its change', async () => {
-    await open({ methods: { changeName: passwordMethods.changeName } });
-    expect(labels()).toEqual([['Your account'], ['Appearance'], ['Sign out']]);
-  });
-
-  it('holds only Appearance and Sign out for a person with no account section and no tokens', async () => {
+  it('offers the account page to a person whose sign-in leaves nothing to change, opened where the person is', async () => {
     await open({});
-    expect(labels()).toEqual([['Appearance'], ['Sign out']]);
+    expect(labels()).toEqual([['Your account'], ['Appearance'], ['Sign out']]);
+    expect(fixture.componentInstance.groups()[0]?.entries[0]?.link).toEqual(['account']);
   });
 
   it('offers the account page where it holds something, opened where the person is', async () => {
@@ -234,10 +229,10 @@ describe('PersonMenuComponent', () => {
     expect(fixture.componentInstance.groups()[0]?.entries[0]?.link).toEqual(['account']);
   });
 
-  it('offers Your API keys where the application issues tokens', async () => {
+  it('offers Your API keys after Your account where the application issues tokens', async () => {
     await open({ descriptor: issuingDescriptor });
-    expect(labels()).toEqual([['Your API keys'], ['Appearance'], ['Sign out']]);
-    expect(fixture.componentInstance.groups()[0]?.entries[0]?.link).toEqual(['api-keys']);
+    expect(labels()).toEqual([['Your account', 'Your API keys'], ['Appearance'], ['Sign out']]);
+    expect(fixture.componentInstance.groups()[0]?.entries[1]?.link).toEqual(['api-keys']);
   });
 
   it("puts the application's own entries above Appearance", async () => {

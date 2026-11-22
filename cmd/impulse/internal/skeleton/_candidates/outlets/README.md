@@ -58,10 +58,10 @@ the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's me
 (`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
 Invited tenants page and Feature flags) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
-person's own menu holds Your account (the console's: the email address, Change your
-password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
-portal member signs in through their company's directory and has nothing of their sign-in
-to change there. Help ends with About, a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
+person's own menu holds Your account (on the console: the email address, Change your
+password, Forget this browser; on the portal the page says there is nothing to change, since
+a member signs in through their company's directory), Your API keys on the console,
+Appearance and Sign out. Help ends with About, a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator

@@ -6,7 +6,6 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { FRONTEND_SIGN_OUT_PATH } from '@impulseframework/resource-angular/types';
 import { ThemeService } from '@impulseframework/resource-angular/ui-theme';
-import { Account } from './account';
 import { Frame } from './frame';
 import { here, MenuGroup, page } from './menu';
 import { MenuListComponent } from './menu-list.component';
@@ -53,9 +52,8 @@ function sameAddress(one: string, other: string): boolean {
  * email address under that, and shows each address once: the username is left out where it
  * is the email address, whatever its capitals, and the email address where it already heads
  * the menu. Under the head is what is theirs rather than the application's: their account
- * page where it holds something for them, their API keys where the application issues
- * tokens, the application's own entries, how the application looks to them, and signing
- * out. On a phone the name is left out and the initials stay. Two initials share the circle
+ * page, their API keys where the application issues tokens, the application's own entries,
+ * how the application looks to them, and signing out. On a phone the name is left out and the initials stay. Two initials share the circle
  * one has, drawn a little smaller.
  */
 @Component({
@@ -110,7 +108,6 @@ export class PersonMenuComponent {
   private router = inject(Router);
   private frame = inject(Frame);
   private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
-  private accountSections = inject(Account);
   private issuesTokens = inject(RESOURCE_CLIENT).descriptor.tokens !== undefined;
 
   /** What identifies the person: the name they sign in under. */
@@ -136,10 +133,7 @@ export class PersonMenuComponent {
     const scheme = this.theme.scheme();
     const palette = this.theme.palette();
     const groups: MenuGroup[] = [
-      // A group left empty is dropped: no account page and no keys, no group.
-      {
-        entries: [...(this.accountSections.any() ? [this.account] : []), ...(this.issuesTokens ? [this.apiKeys] : [])],
-      },
+      { entries: [this.account, ...(this.issuesTokens ? [this.apiKeys] : [])] },
       ...(this.frame.config.person ?? []),
       {
         entries: [
