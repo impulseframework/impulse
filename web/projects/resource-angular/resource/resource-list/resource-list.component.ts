@@ -47,6 +47,7 @@ import {
   FieldSort,
   iconCellKey,
   keyFields,
+  ListConcatFn,
   ListViewConfig,
   ReadPermission,
   RecordData,
@@ -771,6 +772,7 @@ export class ResourceListComponent implements OnInit {
           ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
           valueGetter: (data) => {
             const concatArray: string[] = [];
+            let reading = false;
 
             col.additionalIds.forEach((additionalCol) => {
               if (!additionalCol.resource) {
@@ -778,10 +780,14 @@ export class ResourceListComponent implements OnInit {
               } else {
                 const refKey = this.resourceRefKey(additionalCol.resource, additionalCol.id as FieldName);
                 const resourceRef = refmap.get(refKey);
-                // A related read the server refused, or one that failed, holds no rows (reading
-                // its value would throw): the cell says what the page gives for a row whose
-                // record is not read, and the list says above its rows what it could not read.
+                // A related read the server refused (the caller holds no List on the related
+                // record), or one that failed, holds no rows (reading its value would throw):
+                // the cell says what the page gives for a row whose record is not read, and the
+                // list says above its rows what it could not read.
                 const resData = resourceRef?.hasValue() ? resourceRef.value() : undefined;
+                // The read starts from an empty list and holds it while it loads: a row
+                // that finds nothing in it then is not yet known to be missing.
+                reading ||= resourceRef?.isLoading() === true;
                 if (!resData) {
                   return;
                 }
@@ -798,24 +804,24 @@ export class ResourceListComponent implements OnInit {
               }
             });
 
+            if (concatArray.length === 0 && col.tenantKey) {
+              // The tenant's record was not read: the person's own list of tenants may
+              // still name it.
+              const held = this.ownTenantName(data[col.id]);
+              if (held !== undefined) {
+                concatArray.push(held);
+              } else if (reading && data[col.id]) {
+                // The record is still being read: the cell says nothing yet, and never
+                // that the reader cannot see a tenant the read is about to name.
+                return '';
+              }
+            }
             if (concatArray.length === 0) {
               return col.fallback ? col.fallback(data) : (col.emptyDataValue as string);
             }
 
-            switch (col.concatFn) {
-              case 'space-concat':
-                return spaceConcatWithoutResource(concatArray);
-              case 'space-hyphen-concat':
-                return spaceHyphenConcatWithoutResource(concatArray);
-              case 'hyphen-space-concat':
-                return hyphenSpaceConcatWithoutResource(concatArray);
-              case 'no-space-concat':
-                return noSpaceConcatWithoutResource(concatArray);
-              default: {
-                // default case is hyphen-concat
-                return hyphenConcatWithoutResource(concatArray);
-              }
-            }
+            const value = concatenated(col.concatFn, concatArray);
+            return col.said ? col.said(value, data) : value;
           },
         });
       } else {
@@ -1255,6 +1261,19 @@ export class ResourceListComponent implements OnInit {
     return `${resource}::${keyField}`;
   }
 
+  /**
+   * A tenant's name as the person's own list of tenants holds it, for a column over a
+   * tenant's key whose record could not be read; undefined for a key the list does not
+   * name, which the list answers with the key itself.
+   */
+  private ownTenantName(key: unknown): string | undefined {
+    if (typeof key !== 'string' || key === '') {
+      return undefined;
+    }
+    const name = this.store.client.permissions.domainName(key as Domain);
+    return name !== '' && name !== key ? name : undefined;
+  }
+
   /** Whether a refusal or failure is seen for the first time; from then on it is known. */
   private firstSeen(error: unknown): boolean {
     if (typeof error !== 'object' || error === null) {
@@ -1469,5 +1488,21 @@ export class ResourceListComponent implements OnInit {
       // the sorts, or the column filters asks for a first page; the pager turns it.
       this.store.buildStorePage();
     });
+  }
+}
+
+/** The values a related-record column found, joined as the column asks; a hyphen where it does not say. */
+function concatenated(concatFn: ListConcatFn | undefined, values: string[]): string {
+  switch (concatFn) {
+    case 'space-concat':
+      return spaceConcatWithoutResource(values);
+    case 'space-hyphen-concat':
+      return spaceHyphenConcatWithoutResource(values);
+    case 'hyphen-space-concat':
+      return hyphenSpaceConcatWithoutResource(values);
+    case 'no-space-concat':
+      return noSpaceConcatWithoutResource(values);
+    default:
+      return hyphenConcatWithoutResource(values);
   }
 }

@@ -172,6 +172,16 @@
       </mat-form-field>
       <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Create account</button>
     </form>
+    @if (form.source === 'invitation' && invitationPaths()?.existing) {
+      <button
+        mat-button
+        type="button"
+        class="impulse-login-existing-account"
+        [disabled]="busy()"
+        (click)="signInWithExistingAccount()">
+        Sign in with an account you already have
+      </button>
+    }
     @if (!accountOpenedItself()) {
       <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="cancelAccount()">
         Cancel
@@ -211,7 +221,9 @@
       </mat-form-field>
       <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Change my password</button>
     </form>
-    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">Cancel</button>
+    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">
+      Cancel
+    </button>
   </div>
 } @else if (resetAsked(); as address) {
   <div class="impulse-login-reset-asked">
@@ -223,7 +235,9 @@
   </div>
 } @else if (forgetting()) {
   <div class="impulse-login-forgetting">
-    <p class="impulse-login-reset-note">Enter the email address of your account. A link to reset your password is mailed to it.</p>
+    <p class="impulse-login-reset-note">
+      Enter the email address of your account. A link to reset your password is mailed to it.
+    </p>
     <form class="impulse-login-form" (ngSubmit)="sendResetLink()">
       <mat-form-field appearance="outline" class="impulse-login-field">
         <mat-label>Email address</mat-label>
@@ -233,7 +247,9 @@
         Send me a link
       </button>
     </form>
-    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">Cancel</button>
+    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">
+      Cancel
+    </button>
   </div>
 } @else if (addressConfirmed(); as address) {
   <div class="impulse-login-address-confirmed">
@@ -263,7 +279,9 @@
   </div>
 } @else if (starting()) {
   <div class="impulse-login-starting">
-    <p class="impulse-login-starting-note">Enter your email address. A link to finish creating your account is mailed to it.</p>
+    <p class="impulse-login-starting-note">
+      Enter your email address. A link to finish creating your account is mailed to it.
+    </p>
     <form class="impulse-login-form" (ngSubmit)="sendSignUpLink()">
       <mat-form-field appearance="outline" class="impulse-login-field">
         <mat-label>Email address</mat-label>
@@ -295,8 +313,8 @@
   }
   @if (passwordMethod(); as method) {
     @if (!invitationPaths() || invitationPaths()!.password) {
-      @if (invitationPaths()?.known) {
-        <p class="impulse-login-password-note">Sign in with your password to accept it.</p>
+      @if (invitation(); as invited) {
+        <p class="impulse-login-password-note">{{ passwordNote(invited) }}</p>
       }
       <form class="impulse-login-form" (ngSubmit)="login()">
         <mat-form-field appearance="outline" class="impulse-login-field">
@@ -355,7 +373,7 @@
     </div>
   }
   @if (invitationPaths(); as paths) {
-    @if (!paths.known && paths.create) {
+    @if (paths.create && !signedInAs()) {
       <button
         mat-stroked-button
         type="button"
@@ -363,6 +381,16 @@
         [disabled]="busy()"
         (click)="openAccountForm()">
         Create an account with a password
+      </button>
+    }
+    @if (paths.existing) {
+      <button
+        mat-button
+        type="button"
+        class="impulse-login-existing-account"
+        [disabled]="busy()"
+        (click)="signInWithExistingAccount()">
+        Sign in with an account you already have
       </button>
     }
   } @else if (signUpOffered()) {

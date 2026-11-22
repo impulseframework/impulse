@@ -167,54 +167,6 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	return nil
 }
 
-// SetTemporaryPassword buffers a password an operator chose for a user, in the caller's
-// transaction: the person must change it before anything else is served, every session
-// they hold is ended, and the count of failed sign-ins kept under their name is
-// cleared, so a person locked out signs in with the new password at once. The hash is
-// the session library's, made by the password method's hasher. A super administrator's
-// password is set by a super administrator alone: whoever sets it signs in as them
-// (requireSuperAdministratorFor).
-//
-// Shared rule: the session library's ResetSessionUserPassword, which does the same in
-// commits of its own.
-func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, password string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := m.refuseImpersonatorAsSubject(ctx, userID, "set your own password"); err != nil {
-		return err
-	}
-	username, found, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
-	}
-	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sets a super administrator's password"); err != nil {
-		return err
-	}
-	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
-		return err
-	}
-	hash, err := m.sessions.HashPassword(password)
-	if err != nil {
-		return errors.Wrap(err, "identity.SessionAPI.HashPassword()")
-	}
-	// The sessions are read before anything is buffered: they are the ones live now.
-	if err := m.endUserSessions(ctx, txn, userID); err != nil {
-		return err
-	}
-	if err := m.store.SetPassword(ctx, txn, userID, hash, true); err != nil {
-		return errors.Wrap(err, "identity.Store.SetPassword()")
-	}
-	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(username)); err != nil {
-		return errors.Wrap(err, "identity.Store.ClearAttempts()")
-	}
-
-	return m.resetLinksEndAtCommit(txn, userID)
-}
-
 // resetLinksEndAtCommit registers the withdrawal of the user's standing password reset
 // links for after the commit of a transaction that writes or removes their password: a
 // link mailed for the password before does not reset the one after.
@@ -235,7 +187,9 @@ func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userI
 //
 // The link goes to the person's own mailbox and to nowhere the caller names, so it is
 // the caller's to send for whoever the role file lets them manage; an account of
-// another auth, and no account, are NotFound.
+// another auth, and no account, are NotFound. A super administrator's account is acted
+// on by a super administrator alone, and sending its holder a reset link is acting on
+// it: anybody else is refused (requireSuperAdministratorFor).
 //
 // Shared rule: the session library's SendPasswordReset, which counts the message
 // against the limit on reset links to an address, the person's own requests with it.
@@ -250,6 +204,9 @@ func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWr
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sends a super administrator a password reset link"); err != nil {
+		return err
 	}
 	by := askedBy(ctx)
 
@@ -293,7 +250,8 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 // the name may sign in again. The name is what was typed into the username field,
 // whether or not a user holds it, and is keyed as the session library keys it; a name
 // with no count is no error. The table also keeps the session library's own counts (the
-// mail an address was sent, its reset links, the guesses at a first password's code)
+// mail an address was sent, its sign-in codes, its reset links, the guesses at a first
+// password's code)
 // under keys no name folds to, and a row of one, named as the list shows it, is cleared
 // the same way (session.SignInAttemptKey).
 //

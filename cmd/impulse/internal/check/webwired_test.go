@@ -37,7 +37,7 @@ func webConstants(auth string) string {
 		"  " + auth + "SessionUsers: '" + auth + "SessionUsers' as Resource,\n" +
 		"  " + auth + "Sessions: '" + auth + "Sessions' as Resource,\n" +
 		"  " + auth + "UserRoles: '" + auth + "UserRoles' as Resource,\n" +
-		"};\n\nexport const Methods = {\n  Create" + auth + "User: 'Create" + auth + "User' as Method,\n};\n"
+		"};\n\nexport const Methods = {\n  Invite" + auth + "User: 'Invite" + auth + "User' as Method,\n};\n"
 }
 
 // webPeoplePage renders a page of the application's own over the auth's people: the
@@ -55,7 +55,7 @@ func webAPI(auth string, scopes ...string) string {
 	if len(scopes) > 0 {
 		identity = "  identity: [\n    {\n      auth: '" + auth + "',\n      label: '" + auth + "',\n      sides: [\n"
 		for _, scope := range scopes {
-			identity += "        {\n          scope: '" + scope + "',\n          lists: { users: Resources." + auth + "SessionUsers },\n          methods: { create: Methods.Create" + auth + "User },\n        },\n"
+			identity += "        {\n          scope: '" + scope + "',\n          lists: { users: Resources." + auth + "SessionUsers },\n          methods: { invite: Methods.Invite" + auth + "User },\n        },\n"
 		}
 		identity += "      ],\n    },\n  ],\n"
 	}
@@ -111,8 +111,8 @@ type Auth struct {
 	session *session.Auth[session.NoCustomData, session.NoCustomData, *cloudspanner.ReadWriteTransaction]
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string) (*Auth, error) {
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
+func New(ctx context.Context, db *cloudspanner.Client, key string, mail session.MailSettings) (*Auth, error) {
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions")` + option + `)
 	if err != nil {
 		return nil, err

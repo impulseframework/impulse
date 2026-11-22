@@ -60,8 +60,6 @@ func credentialBody(t *testing.T, action accesstypes.Resource, userID accesstype
 		act = strings.Replace(act, part, "", 1)
 	}
 	switch act {
-	case "SetTemporaryPassword":
-		return fmt.Appendf(nil, `{"userId":%q,"password":"a temporary passphrase 7"}`, userID)
 	case "RequirePasswordChange", "RemovePassword", "SendUserPasswordResetLink":
 		return fmt.Appendf(nil, `{"userId":%q}`, userID)
 	case "UnlinkSessionIdentity":
@@ -75,6 +73,26 @@ func credentialBody(t *testing.T, action accesstypes.Resource, userID accesstype
 
 		return nil
 	}
+}
+
+// anvilsOwn makes a person Anvil holds alone, whom a sector's own methods reach (their
+// grants stop at a person who holds a role anywhere else): an account nobody has signed
+// in to (seedCrewAccount), which the governor gives the Cadet role in Anvil. Nobody
+// makes an account for someone else through the application, where a person comes in by
+// an invitation. It answers the account's id.
+func anvilsOwn(ctx context.Context, t *testing.T, s *served) accesstypes.User {
+	t.Helper()
+
+	address := "gus@example.com"
+	id := s.seedCrewAccount(ctx, t, "gus", &address).String()
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	body := fmt.Appendf(nil, `{"userId":%q,"role":"Cadet","domain":%q}`, id, anvil)
+	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), body); status != http.StatusNoContent {
+		t.Fatalf("the governor giving the new person the Cadet role in Anvil: status %d, want 204: %s", status, answer)
+	}
+
+	return accesstypes.User(id)
 }
 
 // dryRun posts a method as the browser with X-Dry-Run: the whole call runs, every
@@ -169,9 +187,7 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 
 	// The person the methods are asked to act on: one Anvil holds alone, whom a sector's
 	// own methods reach (their grants stop at a person who holds a role anywhere else).
-	status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-user"), []byte(`{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}`))
-	assertStatus(t, status, http.StatusOK, body)
-	target := accesstypes.User(cell[string](t, decodeRow(t, body), "id"))
+	target := anvilsOwn(ctx, t, s)
 	// What the governor's roles give him, in the whole application and in Anvil.
 	holds := func(action accesstypes.Resource) bool {
 		t.Helper()
@@ -434,16 +450,8 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 	// sets it herself, in a session of her own.
 	own := newBrowser(t, s, consoleAPI)
 	own.signIn(ctx, "marshal")
-	status, body = own.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-user"), []byte(`{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}`))
-	assertStatus(t, status, http.StatusOK, body)
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
-		t.Fatalf("create-crew-sector-user answered %s, want the new account's id", body)
-	}
 	setAddress := sectorPath(anvil, "set-crew-sector-user-email")
-	address := fmt.Appendf(nil, `{"userId":%q,"email":"gus.new@example.com"}`, created.ID)
+	address := fmt.Appendf(nil, `{"userId":%q,"email":"gus.new@example.com"}`, anvilsOwn(ctx, t, s))
 	if status, answer := dryRun(ctx, own, setAddress, address); status != http.StatusOK {
 		t.Fatalf("the marshal setting the address of a person her sector holds alone, as a dry run: status %d, want 200: %s", status, answer)
 	}
@@ -545,7 +553,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 		t.Fatalf("the marshal scrapping a ship, as a dry run: status %d, want 200: %s", status, answer)
 	}
 	hers := digestOf(ctx, t, own, anvil)
-	for _, action := range []accesstypes.Resource{"ScrapShip", "AssignCrewSectorRole", "SetCrewSectorTemporaryPassword"} {
+	for _, action := range []accesstypes.Resource{"ScrapShip", "AssignCrewSectorRole", "RequireCrewSectorPasswordChange"} {
 		if _, ok := hers[action][accesstypes.Execute]; !ok {
 			t.Fatalf("the marshal's digest carries no Execute on %s: the suite reads ScrapShip, a neighbor of it and a credential method off it", action)
 		}

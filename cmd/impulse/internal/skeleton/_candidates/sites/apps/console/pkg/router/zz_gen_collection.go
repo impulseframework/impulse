@@ -66,15 +66,6 @@ func Collection() *resource.GeneratedCollection {
 				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
-				Name:        "CreateStaffTenantUser",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
-			},
-			{
 				Name:        "DeleteStaffTenantGroup",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -197,13 +188,6 @@ func Collection() *resource.GeneratedCollection {
 			},
 			{
 				Name:        "SendStaffTenantUserPasswordResetLink",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassCredential},
-				Target:      "StaffTenantUsers",
-			},
-			{
-				Name:        "SetStaffTenantTemporaryPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassCredential},
@@ -384,6 +368,7 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
 					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "name"},
 				},
 				Attributes: []resource.AttributeData{
@@ -543,15 +528,6 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
-			},
-			{
-				Name:        "CreateStaffUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
 			},
 			{
 				Name:        "CreateTenant",
@@ -722,13 +698,6 @@ func Collection() *resource.GeneratedCollection {
 				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
-				Name:        "SetStaffTemporaryPassword",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassCredential},
-				Target:      "StaffSessionUsers",
-			},
-			{
 				Name:        "SetStaffUserEmail",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -740,6 +709,23 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "StaffSessionUsers",
+			},
+			{
+				Name:        "StaffGivableRoles",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "domain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "everyDomain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "group", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "name", Column: "Name", Type: "string"},
+				},
 			},
 			{
 				Name:        "StaffGroupMembers",
@@ -973,10 +959,12 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "consumedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "email", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "everyTenant", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "expiresAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "invitedByUserId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "kind", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "mailFailedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "roleNames", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "tenantId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},

@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
@@ -12,6 +13,7 @@ func newSession(spannerClient any, cookieKey string) (*session.PasswordMethod, e
 		sessionstorage.NewSpannerAuth(spannerClient),
 		cookieKey,
 		session.NoSuperAdministrators(),
+		session.MailSettings{Sender: mail.Log{}, Application: "Lighthouse", LoginURL: "https://lighthouse.example/login"},
 		session.WithSessionTableName("LighthouseSessions"),
 		session.WithCookieName("lighthouse"),
 	)

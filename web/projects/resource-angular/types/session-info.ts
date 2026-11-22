@@ -22,10 +22,10 @@ export interface SessionInfo {
    */
   look?: Look | null;
   /**
-   * An operator set this user's password: the server serves nothing but the password
-   * change, this read and the logout until the person sets a password of their own,
-   * refusing everything else with the code `password_change_required`. The login page
-   * renders the change form while it is set.
+   * An administrator required a new password of this user: the server serves nothing but
+   * the password change, this read and the logout until the person chooses one, refusing
+   * everything else with the code `password_change_required`. The login page renders the
+   * change form while it is set. Nobody but the person ever sets their password.
    */
   passwordChangeRequired?: boolean;
   /**

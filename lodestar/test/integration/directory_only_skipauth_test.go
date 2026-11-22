@@ -230,7 +230,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 			return rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil)
 		},
 	} {
-		if status, body := call(); status != http.StatusNotFound || strings.Contains(string(body), "persona") {
+		if status, body := call(); status != http.StatusNotFound || strings.Contains(string(body), "Persona") {
 			t.Errorf("%s at Bastion as a marshal in every sector who signed in with a password, while Bastion is directory only: status %d, want 404 that says nothing of its directory: %s", name, status, body)
 		}
 	}
@@ -299,7 +299,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// directory themselves. The governor holds the grant and signed in with a password:
 	// the warning a page asks first and the method are refused in the same words, which
 	// say what to do, and nothing is written.
-	notThroughIt := "Directory only is turned on by a person who is signed in through this sector's directory, OpenID Connect provider persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider persona and try again."
+	notThroughIt := "Directory only is turned on by a person who is signed in through this sector's directory, OpenID Connect provider Persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider Persona and try again."
 	if status, body := warns(governor, bastion); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("asking what directory only would do to Bastion, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
@@ -320,7 +320,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status, body := turn(warden, anvil, true); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
 		t.Errorf("turning directory only on for Anvil, which has no directory: status %d, want 409 saying %q: %s", status, noDirectory, body)
 	}
-	anotherDirectory := "Directory only is turned on by a person who is signed in through this sector's directory, Google Workspace example: that shows the directory works, and that you will not shut yourself out. You signed in through OpenID Connect provider persona. Sign in through Google Workspace example and try again."
+	anotherDirectory := "Directory only is turned on by a person who is signed in through this sector's directory, Google Workspace example: that shows the directory works, and that you will not shut yourself out. You signed in through OpenID Connect provider Persona. Sign in through Google Workspace example and try again."
 	if status, body := warns(warden, cinder); status != http.StatusConflict || !strings.Contains(string(body), anotherDirectory) {
 		t.Errorf("asking what directory only would do to Cinder, signed in through another sector's directory: status %d, want 409 saying %q: %s", status, anotherDirectory, body)
 	}
@@ -338,7 +338,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// and no role in the sector: the sector's routes do not answer her at all. A sector
 	// that does not exist is not found.
 	saysTheRule := func(body []byte) bool {
-		return strings.Contains(string(body), "persona") || strings.Contains(string(body), "signed in") || strings.Contains(string(body), "Sign in") || strings.Contains(string(body), `"directoryOnly"`)
+		return strings.Contains(string(body), "Persona") || strings.Contains(string(body), "signed in") || strings.Contains(string(body), "Sign in") || strings.Contains(string(body), `"directoryOnly"`)
 	}
 	if status, body := turn(rookie, bastion, true); status != http.StatusForbidden || saysTheRule(body) {
 		t.Errorf("turning Bastion's directory only on as the rookie, who holds no grant on the method: status %d, want 403 that says nothing of the rule: %s", status, body)
@@ -561,7 +561,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if err := json.Unmarshal(body, &would); err != nil {
 		t.Fatalf("the answer is not an object: %v: %s", err, body)
 	}
-	if would.Confirm != "Admit only people who sign in through persona" {
+	if would.Confirm != "Admit only people who sign in through Persona" {
 		t.Errorf("the button says %q, want what it does", would.Confirm)
 	}
 	named := func(username string) bool {
@@ -581,7 +581,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// the crew alone: the portal's members seated at Bastion are counted and named to
 	// nobody who may not list them, so the sentence says the list is the people the
 	// warden may list. A part of them is never read as all of them.
-	const onlyPersona = "Only people who sign in through persona will be able to enter this sector. An administrator of this sector who has a password can still sign in with it and a code sent to their email."
+	const onlyPersona = "Only people who sign in through Persona will be able to enter this sector. An administrator of this sector who has a password can still sign in with it and a code sent to their email."
 	var counted int
 	if _, err := fmt.Sscanf(strings.TrimPrefix(would.Consequence, onlyPersona), " %d people", &counted); err != nil {
 		t.Fatalf("the consequence = %q, want %q and then how many people lose access: %v", would.Consequence, onlyPersona, err)
@@ -628,13 +628,27 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// through the directory alike. Who the switch keeps out now is the people list's to say.
 	onAlready := "This sector is directory only already: only people who sign in through its directory enter it. There is nothing to turn on."
 	for name, asks := range map[string]*browser{"the governor, by password": governor, "the warden, through the directory": warden} {
-		if status, body := warns(asks, bastion); status != http.StatusConflict || !strings.Contains(string(body), onAlready) || strings.Contains(string(body), "rigger") || strings.Contains(string(body), "persona") {
+		if status, body := warns(asks, bastion); status != http.StatusConflict || !strings.Contains(string(body), onAlready) || strings.Contains(string(body), "rigger") || strings.Contains(string(body), "Persona") {
 			t.Errorf("asking what directory only would do to Bastion while it is on, as %s: status %d, want 409 saying %q and naming nobody: %s", name, status, onAlready, body)
 		}
 	}
 	// And a call that leaves it on is plain too.
 	if status, body := turn(governor, bastion, true); status != http.StatusOK {
 		t.Errorf("turning directory only on for a sector that is directory only already, signed in with a password: status %d, want 200: %s", status, body)
+	}
+
+	// A decision, pinned as it is built. The warden holds the marshal's role in every
+	// sector and in no sector of its own, and his session is one Bastion's directory
+	// opened: in Bastion he does what the role file says of a marshal, turning directory
+	// only off included, which no rule holds. He turns it on again, as he did before.
+	if status, body := turn(warden, bastion, false); status != http.StatusOK {
+		t.Fatalf("turning Bastion's directory only off as a marshal in every sector, signed in through its directory: status %d, want 200: %s", status, body)
+	}
+	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
+		t.Errorf("Bastion's switch once the warden turned it off: status %d %s, want 200 %s", status, got, off)
+	}
+	if status, body := turn(warden, bastion, true); status != http.StatusOK {
+		t.Errorf("turning Bastion's directory only on again as the warden: status %d, want 200: %s", status, body)
 	}
 }
 

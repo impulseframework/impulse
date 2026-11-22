@@ -193,11 +193,11 @@ func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 	tn := Tenancy{Table: "Tenants", OneTenantPerPerson: true}
 	start := byDirectoryStart("members")
 	start.Tenants = &tn
-	a, _ := started(t, &start, "set_members_temporary_password")
+	a, _ := started(t, &start, "send_members_user_password_reset_link")
 	// The generator serves no management of a password for an auth with no password method.
 	collection := withoutResources(t, []byte(names.Rename(string(referenceCollection(t)), "staff", "members")),
-		"SetMembersTenantTemporaryPassword", "RequireMembersTenantPasswordChange", "RemoveMembersTenantPassword", "MembersTenantSignInWays", "SendMembersTenantUserPasswordResetLink",
-		"SetMembersTemporaryPassword", "RequireMembersPasswordChange", "RemoveMembersPassword", "MembersSignInWays", "SendMembersUserPasswordResetLink", "SetMembersSelfServiceReset",
+		"RequireMembersTenantPasswordChange", "RemoveMembersTenantPassword", "MembersTenantSignInWays", "SendMembersTenantUserPasswordResetLink",
+		"RequireMembersPasswordChange", "RemoveMembersPassword", "MembersSignInWays", "SendMembersUserPasswordResetLink", "SetMembersSelfServiceReset",
 	)
 	ch := tenantedOn(t, a, tn, "members", collection)
 
@@ -220,7 +220,7 @@ func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 	}
 	for _, want := range []string{
 		`provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DisableMembersTenantUser", "heldElsewhere = false AND heldGlobally = false")`,
-		"s.auth.SeedCastFile(ctx, io.Discard,", "signIn(ctx, members.PersonaRegistration,", `"create-members-tenant-user"`, `"unlink-members-tenant-session-identity"`,
+		"s.auth.SeedCastFile(ctx, io.Discard,", "signIn(ctx, members.PersonaRegistration,", "membersAccount(ctx, t, s, name,", `"/api/assign-members-role"`, `"unlink-members-tenant-session-identity"`,
 	} {
 		if !strings.Contains(proof, want) {
 			t.Errorf("%s does not contain %q", tenantPeopleTest, want)
@@ -229,7 +229,7 @@ func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 	if got := strings.Count(read(t, a, integrationHarness), oneRoleDirective+"func provesGrant("); got != 1 {
 		t.Errorf("%s marks provesGrant for the lint %d time(s), want once: every grant the test proves is one role's", integrationHarness, got)
 	}
-	for _, never := range []string{`"password"`, "adminPassword", "passwordRemoval", "tenantWays", "temporary-password", "staff", "Staff"} {
+	for _, never := range []string{`"password"`, "adminPassword", "passwordRemoval", "tenantWays", "first-day-pass", "second-subject-of-nora", "staff", "Staff"} {
 		if strings.Contains(proof, never) {
 			t.Errorf("%s contains %q, and the members auth has no password sign-in", tenantPeopleTest, never)
 		}

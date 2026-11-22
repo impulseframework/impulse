@@ -20,10 +20,8 @@ import (
 
 func (h *Handlers) TakeStaffGroupRole() http.HandlerFunc {
 	type request struct {
-		GroupID     impulse.UUID `json:"groupId"`
-		Role        string       `json:"role"`
-		Domain      *string      `json:"domain"`
-		EveryDomain bool         `json:"everyDomain"`
+		GroupID impulse.UUID `json:"groupId"`
+		Role    string       `json:"role"`
 	}
 
 	decoder := NewRPCDecoder[staffidentity.TakeStaffGroupRole, request](h, accesstypes.Execute)

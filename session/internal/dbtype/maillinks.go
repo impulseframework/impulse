@@ -63,9 +63,14 @@ type MailLink struct {
 	// UserID names the account a verification link, a first-password code, a password
 	// reset link or an address change belongs to; null for the other kinds.
 	UserID impulse.NullUUID
-	// TenantID is the tenant an invitation seats the person in, "" for the application's
-	// global surface or for the other kinds.
+	// TenantID is the tenant an invitation seats the person in, "" for an invitation
+	// that names no one tenant or for the other kinds.
 	TenantID string
+	// EveryTenant says an invitation's roles are held in every tenant: its acceptance
+	// gives each role there and nowhere else. It is false for an invitation into one
+	// tenant, for one into the application's global surface (TenantID is "" and
+	// EveryTenant false) and for the other kinds.
+	EveryTenant bool
 	// RoleNames are the roles an invitation's acceptance grants; nil for the other
 	// kinds.
 	RoleNames []string

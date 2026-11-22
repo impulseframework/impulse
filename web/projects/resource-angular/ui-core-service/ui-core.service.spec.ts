@@ -105,6 +105,8 @@ describe('UiCoreService login messages', () => {
       'directory_only_personal_account',
       'invitation_only',
       'invitation_address',
+      'invitation_spent',
+      'invitation_not_open',
       'other_tenant',
       'organization_account_required',
       'organization_has_tenant',

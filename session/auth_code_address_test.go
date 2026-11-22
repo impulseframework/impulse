@@ -92,7 +92,7 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 				ID: impulse.Must(impulse.NewUUID()), TokenHash: []byte("the pending token's hash"), Step: sessioninfo.PendingMFA,
 				UserID: impulse.NullUUIDFromUUID(userID), Username: mailedTo, Identity: tt.identity,
 			}
-			code := expectFactorCode(f, pending, "123456")
+			code := expectFactorCode(f, pending)
 			code.row.Email = mailedTo
 			// The completion of a code that is good goes on to consume the pending
 			// sign-in, where this test ends it: the store answers that the row is gone. A
@@ -104,7 +104,7 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, tt.wantWritten).Return(nil)
 			}
 
-			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, "123456", false)
+			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)
 
 			want := sessioninfo.RefusedPendingExpired
 			if tt.wantDead {
@@ -152,7 +152,7 @@ func TestAuth_emailCodeState_aCodeForAnAddressTheAccountNoLongerHolds(t *testing
 			f.store.EXPECT().Identity(gomock.Any(), waitsToBeLinked.Method, waitsToBeLinked.Connection, waitsToBeLinked.Subject).
 				Return(nil, httpio.NewNotFoundMessage("no identity link")).AnyTimes()
 			pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), Step: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Identity: waitsToBeLinked}
-			code := expectFactorCode(f, pending, "123456")
+			code := expectFactorCode(f, pending)
 			code.row.Email = mailedTo
 
 			got, err := f.auth.emailCodeState(context.Background(), pending)

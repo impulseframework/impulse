@@ -214,12 +214,12 @@ generated router test proves the route sits behind the token check.
   members auth's management, and no role of the whole application, so the members' lists
   and methods for the whole application are served and granted to nobody until a role is
   written for them. An account is one row for the whole application, whichever tenants
-  its person holds a role in, so the methods a tenant changes an account through (a
-  temporary password, a new name, a delete and the rest) are granted to a tenant's
+  its person holds a role in, so the methods a tenant changes an account through (a new
+  name, a new address, a delete and the rest) are granted to a tenant's
   administrator under a condition: the tenant holds the person alone
   (`heldElsewhere = false AND heldGlobally = false`). Without it one tenant's
-  administrator could set a password on an account that also manages another tenant or
-  the application. The address and the directory's subject of a person another tenant
+  administrator could rename, disable or delete an account that also manages another
+  tenant or the application. The address and the directory's subject of a person another tenant
   holds too are left out of the tenant's lists the same way (`heldElsewhere = false`), a
   role held in every tenant is not one tenant's to take (`everyDomain = false`), and an
   invitation is withdrawn while it stands (`pending = true`);
@@ -233,14 +233,14 @@ generated router test proves the route sits behind the token check.
   (`GenerateIdentity`) as code of this application; the generator owns the tree whole.
   Each auth has two sides. The whole application's: the lists (`StaffSessionUsers`,
   `StaffUserRoles`, `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
-  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
-  and the rest). A tenant's, under the tenant segment and named with the tenant record:
+  (`InviteStaffUser`, `AssignStaffRole`, `SendStaffUserPasswordResetLink` and the
+  rest). A tenant's, under the tenant segment and named with the tenant record:
   the lists of its people, the roles held in it, its invitations, its people's sign-in
   identities and the roles it gives (`StaffTenantUsers`, `StaffTenantUserRoles`,
   `StaffTenantInvitations`, `StaffTenantIdentities`, `StaffTenantRoles`), and the methods
-  (`CreateStaffTenantUser`, `InviteStaffTenantUser`, `AssignStaffTenantRole` and the
-  rest). The members' carry the same names with `Members` for `Staff`, served on the
-  portal, without the methods that create an account or set a password: the members
+  (`InviteStaffTenantUser`, `AssignStaffTenantRole` and the rest). The members' carry
+  the same names with `Members` for `Staff`, served on the portal, without the methods
+  that act on a password: the members
   sign in through a directory, which presents the account, and hold no password. All of it is served like every other resource and method and
   granted in the auth's role file. Each auth builds its client when it opens
   (its package's `New`, answered by its `Auth.Identity`) with the roles that count as an
@@ -262,11 +262,12 @@ generated router test proves the route sits behind the token check.
   link. The members administrator opens the link and signs in through the directory: the
   tenants here have directories, where a stranger is admitted by an invitation or by a
   tenant's directory alone, and the first administrator belongs to no tenant, so the
-  invitation is what ties the sign-in to the roles, and the address the directory gives
-  must be the invited one. As the session library stands, the Microsoft method asks the
-  directory for no address, so that sign-in is refused: the members auth has no first
-  administrator yet, and every release goes on asking for its address and the mailbox
-  (the session library's README, "The first administrator's invitation"). No account is
+  invitation is what ties the sign-in to the roles. The Microsoft method asks the
+  directory for no address, so the sign-in has none to hold to the invited one: it waits
+  for a sign-in code, which is mailed to the invited address and which nobody types an
+  address for, and entering it accepts the invitation, makes the account with the invited
+  address confirmed and gives it the roles (the session library's README, "The first
+  administrator's invitation"). No account is
   made ahead of either person and no password is generated. A release leaves an invitation that stands as it is, mails a new one once
   it has run out (seven days), and withdraws one for an address the placement no longer
   names; the migrate command's `-reinvite-administrator <auth>` (`staff` or `members`) withdraws the

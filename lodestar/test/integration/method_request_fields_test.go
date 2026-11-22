@@ -4,9 +4,9 @@ package integration
 // tests the row being written.
 //
 // The method declares the fields a condition may read with a bare @attribute(name) on
-// the field (the crew's AssignCrewRole.Role, CreateCrewUser.Roles, InviteCrewUser.Roles,
-// each as `role`; SetSectorPilotClearance.Clearance as `clearance`). A grant's condition
-// reads one as new.<name>.
+// the field (the crew's AssignCrewRole.Role and InviteCrewUser.Roles, each as `role`;
+// SetSectorPilotClearance.Clearance as `clearance`). A grant's condition reads one as
+// new.<name>.
 //
 // The roles below exist only in the copy of the crew's role file this test opens its
 // engine with; nothing here touches pkg/auth/crew/roles.json.
@@ -66,10 +66,9 @@ const (
 func requestFieldRoles() []requestFieldRole {
 	return []requestFieldRole{
 		// A delegate at headquarters: gives any role but the headquarters' own, and
-		// creates or invites people into the two plain roles alone.
+		// invites people into the two plain roles alone.
 		{name: "FieldDelegate", permissions: map[string][]map[string]any{"Execute": {
 			execute("AssignCrewRole", condNotHeadquarters),
-			execute("CreateCrewUser", condPlainRoles),
 			execute("InviteCrewUser", condPlainRoles),
 		}}},
 		// Rates a sector's own pilots, up to clearance 3: a fact of the row and a
@@ -289,43 +288,52 @@ func TestMethodRequestFieldsNoTarget(t *testing.T) {
 }
 
 // TestMethodRequestFieldsList holds a list field: the condition is judged once per
-// element, and one element that fails refuses the call.
+// element, and one element that fails refuses the call. The method is the invitation,
+// whose roles are a list. This suite serves no session manager, and its stand-in for one
+// keeps each invitation it is handed before it fails (preparedInvitations): the
+// invitation the condition admits answers 500 and the stand-in was handed it, with its
+// roles, where a refused one answers 403 and hands it nothing.
 func TestMethodRequestFieldsList(t *testing.T) {
 	t.Parallel()
 	w := newRequestFieldWorld(t)
 
 	suffix := identitySuffix()
+	address := func(name string) string {
+		return name + "-" + suffix + "@example.com"
+	}
+	const refusal = "You may not do this here."
 	fires := []struct {
 		name       string
-		method     string
-		body       string
+		email      string
+		roles      string
 		wantStatus int
 		wantBody   string
+		prepared   []string
 	}{
-		{name: "create: every role is one the condition admits", method: "create-crew-user", body: `{"username":"ada-` + suffix + `","roles":["CrewCommon","ClientBrowser"]}`, wantStatus: http.StatusOK},
-		{name: "create: one role of two fails", method: "create-crew-user", body: `{"username":"bea-` + suffix + `","roles":["CrewCommon","Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
-		{name: "create: the one role fails", method: "create-crew-user", body: `{"username":"cy-` + suffix + `","roles":["Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
-		{name: "create: no role at all is no value, which never permits", method: "create-crew-user", body: `{"username":"dee-` + suffix + `","roles":[]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
-		{name: "create: the field left out is no value too", method: "create-crew-user", body: `{"username":"eli-` + suffix + `"}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
-		{name: "invite: one role of two fails, before any invitation is written", method: "invite-crew-user", body: `{"email":"fay-` + suffix + `@example.com","roles":["ClientBrowser","Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
+		{name: "every role is one the condition admits", email: address("ada"), roles: `,"roles":["CrewCommon","ClientBrowser"]`, wantStatus: http.StatusInternalServerError, prepared: []string{"ClientBrowser", "CrewCommon"}},
+		{name: "one role of two fails, before any invitation is written", email: address("bea"), roles: `,"roles":["CrewCommon","Headquarters"]`, wantStatus: http.StatusForbidden, wantBody: refusal},
+		{name: "the one role fails", email: address("cy"), roles: `,"roles":["Headquarters"]`, wantStatus: http.StatusForbidden, wantBody: refusal},
+		{name: "no role at all is no value, which never permits", email: address("dee"), roles: `,"roles":[]`, wantStatus: http.StatusForbidden, wantBody: refusal},
+		{name: "the field left out is no value too", email: address("eli"), wantStatus: http.StatusForbidden, wantBody: refusal},
 	}
 	for _, tt := range fires {
 		t.Run(tt.name, func(t *testing.T) {
-			status, body := doRequestAs(t, w.h, fieldDelegate, http.MethodPost, consoleAPI+"/"+tt.method, tt.body)
+			status, body := doRequestAs(t, w.h, fieldDelegate, http.MethodPost, consoleAPI+"/invite-crew-user", `{"email":"`+tt.email+`"`+tt.roles+`}`)
 			assertStatus(t, status, tt.wantStatus, body)
 			if tt.wantBody != "" && !strings.Contains(string(body), tt.wantBody) {
 				t.Errorf("the answer %s lacks %q", body, tt.wantBody)
 			}
+			var prepared [][]string
+			for _, req := range preparedInvitations.take(tt.email) {
+				prepared = append(prepared, slices.Sorted(slices.Values(req.RoleNames)))
+			}
+			switch {
+			case tt.prepared == nil && len(prepared) != 0:
+				t.Errorf("the session manager's stand-in was handed the invitation with %v, want it never reached", prepared)
+			case tt.prepared != nil && (len(prepared) != 1 || !slices.Equal(prepared[0], tt.prepared)):
+				t.Errorf("the session manager's stand-in was handed %v for %s, want one invitation with %v: a 500 that never reached it is another failure", prepared, tt.email, tt.prepared)
+			}
 		})
-	}
-
-	if got, want := crewRolesOf(t, w, "ada-"+suffix), []string{"ClientBrowser", "CrewCommon"}; !slices.Equal(got, want) {
-		t.Errorf("the created person's roles = %v, want %v", got, want)
-	}
-	for _, refused := range []string{"bea-", "cy-", "dee-", "eli-"} {
-		if got := crewRolesOf(t, w, refused+suffix); len(got) != 0 {
-			t.Errorf("%s was refused and holds roles %v", refused+suffix, got)
-		}
 	}
 }
 
@@ -423,7 +431,7 @@ func TestMethodRequestFieldsDigest(t *testing.T) {
 		// digest does not name.
 		want map[string]string
 	}{
-		{name: "the delegate, at headquarters", user: fieldDelegate, target: consoleAPI + "/permission-digest", want: map[string]string{"AssignCrewRole": "conditional", "CreateCrewUser": "conditional", "InviteCrewUser": "conditional", "RemoveCrewRole": ""}},
+		{name: "the delegate, at headquarters", user: fieldDelegate, target: consoleAPI + "/permission-digest", want: map[string]string{"AssignCrewRole": "conditional", "InviteCrewUser": "conditional", "RemoveCrewRole": ""}},
 		{name: "the rater, at Anvil", user: fieldRater, target: consoleAPI + "/permission-digest?domain=" + anvil, want: map[string]string{setSectorPilotClearance: "conditional"}},
 		{name: "the capper, at Anvil", user: fieldCapper, target: consoleAPI + "/permission-digest?domain=" + anvil, want: map[string]string{setSectorPilotClearance: "conditional"}},
 	}

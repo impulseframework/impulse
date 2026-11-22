@@ -20,6 +20,7 @@ export const PermissionScopes = {
 export const Resources = {
   Announcements: 'Announcements' as Resource,
   FeatureFlags: 'FeatureFlags' as Resource,
+  MembersGivableRoles: 'MembersGivableRoles' as Resource,
   MembersGroupMembers: 'MembersGroupMembers' as Resource,
   MembersGroupRoles: 'MembersGroupRoles' as Resource,
   MembersGroupUsers: 'MembersGroupUsers' as Resource,
@@ -61,8 +62,6 @@ export const Methods = {
   AssignMembersTenantRole: 'AssignMembersTenantRole' as Method,
   CreateMembersGroup: 'CreateMembersGroup' as Method,
   CreateMembersTenantGroup: 'CreateMembersTenantGroup' as Method,
-  CreateMembersTenantUser: 'CreateMembersTenantUser' as Method,
-  CreateMembersUser: 'CreateMembersUser' as Method,
   DeleteMembersGroup: 'DeleteMembersGroup' as Method,
   DeleteMembersTenantGroup: 'DeleteMembersTenantGroup' as Method,
   DeleteMembersTenantUser: 'DeleteMembersTenantUser' as Method,
@@ -134,6 +133,25 @@ export namespace FeatureFlags {
     name: 'FeatureFlags.name' as Resource,
     updatedAt: 'FeatureFlags.updatedAt' as Resource,
     updatedBy: 'FeatureFlags.updatedBy' as Resource,
+  };
+}
+
+export namespace MembersGivableRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+    group: 'group' as FieldName,
+    method: 'method' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'MembersGivableRoles.description' as Resource,
+    domain: 'MembersGivableRoles.domain' as Resource,
+    everyDomain: 'MembersGivableRoles.everyDomain' as Resource,
+    group: 'MembersGivableRoles.group' as Resource,
+    method: 'MembersGivableRoles.method' as Resource,
+    name: 'MembersGivableRoles.name' as Resource,
   };
 }
 
@@ -395,10 +413,12 @@ export namespace MembersSessionMailLinks {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
     email: 'email' as FieldName,
+    everyTenant: 'everyTenant' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
+    mailFailedAt: 'mailFailedAt' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
@@ -408,10 +428,12 @@ export namespace MembersSessionMailLinks {
     consumedAt: 'MembersSessionMailLinks.consumedAt' as Resource,
     createdAt: 'MembersSessionMailLinks.createdAt' as Resource,
     email: 'MembersSessionMailLinks.email' as Resource,
+    everyTenant: 'MembersSessionMailLinks.everyTenant' as Resource,
     expiresAt: 'MembersSessionMailLinks.expiresAt' as Resource,
     id: 'MembersSessionMailLinks.id' as Resource,
     invitedByUserId: 'MembersSessionMailLinks.invitedByUserId' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
+    mailFailedAt: 'MembersSessionMailLinks.mailFailedAt' as Resource,
     name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
     tenantId: 'MembersSessionMailLinks.tenantId' as Resource,
@@ -748,10 +770,12 @@ export namespace MembersTenantInvitations {
 export namespace MembersTenantRoles {
   export const fieldName = {
     description: 'description' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'MembersTenantRoles.description' as Resource,
+    method: 'MembersTenantRoles.method' as Resource,
     name: 'MembersTenantRoles.name' as Resource,
   };
 }
@@ -920,9 +944,9 @@ export namespace AddMembersTenantGroupMember {
 export namespace AssignMembersRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
-    role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
     reason: 'reason' as FieldName,
@@ -951,26 +975,6 @@ export namespace CreateMembersTenantGroup {
   export const fieldName = {
     name: 'name' as FieldName,
     description: 'description' as FieldName,
-  };
-}
-
-export namespace CreateMembersTenantUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
-export namespace CreateMembersUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    roles: 'roles' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 
@@ -1057,9 +1061,9 @@ export namespace EndMembersUserSessions {
 export namespace GiveMembersGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
-    role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
   };
@@ -1086,8 +1090,9 @@ export namespace InviteMembersUser {
   export const fieldName = {
     email: 'email' as FieldName,
     name: 'name' as FieldName,
-    roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+    roles: 'roles' as FieldName,
   };
 }
 

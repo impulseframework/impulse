@@ -125,8 +125,6 @@ type fakeStore struct {
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
-	// nextID is the id InsertUser answers.
-	nextID impulse.UUID
 	// failOn names a call that fails.
 	failOn string
 
@@ -143,23 +141,6 @@ func (f *fakeStore) fail(call string) error {
 	}
 
 	return nil
-}
-
-func (f *fakeStore) InsertUser(_ context.Context, _ resource.ReadWriteTransaction, user *NewUser) (impulse.UUID, error) {
-	if err := f.fail("InsertUser"); err != nil {
-		return impulse.NilUUID, err
-	}
-	email := "<none>"
-	if user.Email != nil {
-		email = *user.Email
-	}
-	line := "insert user " + user.Username + " " + email
-	if user.Name != nil {
-		line += " name=" + *user.Name
-	}
-	f.writes = append(f.writes, line)
-
-	return f.nextID, nil
 }
 
 func (f *fakeStore) UpdateUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, change *UserChange) error {
@@ -390,15 +371,6 @@ func (f *fakeStore) RenameSession(_ context.Context, _ resource.ReadWriteTransac
 	return nil
 }
 
-func (f *fakeStore) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
-	if err := f.fail("SetPassword"); err != nil {
-		return err
-	}
-	f.writes = append(f.writes, "set password "+id.String()+" "+hash+" changeRequired="+boolText(changeRequired))
-
-	return nil
-}
-
 func (f *fakeStore) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	if err := f.fail("RemovePassword"); err != nil {
 		return err
@@ -426,6 +398,9 @@ func (f *fakeStore) InsertInvitation(_ context.Context, _ resource.ReadWriteTran
 		invitedBy = row.InvitedByUserID.String()
 	}
 	line := "insert invitation " + row.ID.String() + " " + row.Email + " tenant=" + row.TenantID + " roles=" + strings.Join(row.RoleNames, ",") + " by=" + invitedBy
+	if row.EveryTenant {
+		line += " every-tenant"
+	}
 	if row.Name != "" {
 		line += " name=" + row.Name
 	}
@@ -803,17 +778,9 @@ func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection s
 	return []string{string(method)}
 }
 
-func (fakeSessions) HashPassword(password string) (string, error) {
-	if password == "" {
-		return "", httpio.NewBadRequestMessage("an empty password is not a password")
-	}
-
-	return "hash(" + password + ")", nil
-}
-
 func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {
 	if s.mail == nil {
-		return nil, errors.New("the Auth sends no mail: pass WithMail to NewAuth")
+		return nil, errors.New("the fake was given no mailbox, so it prepares no invitation")
 	}
 	if !strings.Contains(req.Email, "@") {
 		return nil, httpio.NewBadRequestMessage("the address is not an email address")
@@ -822,20 +789,20 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 	return &fakePrepared{
 		mail: s.mail,
 		row: session.InvitationRow{
-			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
-			ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
+			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, EveryTenant: req.EveryTenant,
+			RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID, ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
 		},
 	}, nil
 }
 
 // fakeMail is the mailbox of the fake session library: the id its invitations take,
-// the addresses mailed, the invitations withdrawn after a failed send, and the failure
+// the addresses mailed, the invitations ended after a failed send, and the failure
 // a send answers.
 type fakeMail struct {
-	id        impulse.UUID
-	sent      []string
-	withdrawn []impulse.UUID
-	err       error
+	id    impulse.UUID
+	sent  []string
+	ended []impulse.UUID
+	err   error
 	// asked are the messages about an account the rules asked for, in order: the link
 	// that confirms a new address, the reset link, and the notices.
 	asked []string
@@ -853,11 +820,11 @@ func (p *fakePrepared) Row() *session.InvitationRow {
 	return &row
 }
 
-// Send mails the link as the session library does: a failed send withdraws the
+// Send mails the link as the session library does: a failed send ends the
 // invitation and is the error.
 func (p *fakePrepared) Send(context.Context) error {
 	if p.mail.err != nil {
-		p.mail.withdrawn = append(p.mail.withdrawn, p.row.ID)
+		p.mail.ended = append(p.mail.ended, p.row.ID)
 
 		return p.mail.err
 	}

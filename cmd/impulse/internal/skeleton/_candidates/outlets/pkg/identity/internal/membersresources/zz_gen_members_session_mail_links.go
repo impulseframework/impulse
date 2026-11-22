@@ -33,11 +33,13 @@ type membersSessionMailLinkRead struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var membersSessionMailLinkReadSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkRead]
@@ -52,11 +54,13 @@ type membersSessionMailLinkWrite struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"       nullable:"true"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var membersSessionMailLinkWriteSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkWrite]
@@ -171,11 +175,13 @@ func (c *MembersSessionMailLinkColumns) All() *MembersSessionMailLinkColumns {
 		"Name",
 		"UserID",
 		"TenantID",
+		"EveryTenant",
 		"RoleNames",
 		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"MailFailedAt",
 	}
 
 	return c
@@ -217,6 +223,12 @@ func (c *MembersSessionMailLinkColumns) TenantID() *MembersSessionMailLinkColumn
 	return c
 }
 
+func (c *MembersSessionMailLinkColumns) EveryTenant() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "EveryTenant")
+
+	return c
+}
+
 func (c *MembersSessionMailLinkColumns) RoleNames() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "RoleNames")
 
@@ -243,6 +255,12 @@ func (c *MembersSessionMailLinkColumns) ExpiresAt() *MembersSessionMailLinkColum
 
 func (c *MembersSessionMailLinkColumns) ConsumedAt() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *MembersSessionMailLinkColumns) MailFailedAt() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "MailFailedAt")
 
 	return c
 }
@@ -365,6 +383,10 @@ func (c *membersSessionMailLinkSort) TenantID() *MembersSessionMailLinkSort {
 	return c.addField("TenantID")
 }
 
+func (c *membersSessionMailLinkSort) EveryTenant() *MembersSessionMailLinkSort {
+	return c.addField("EveryTenant")
+}
+
 func (c *membersSessionMailLinkSort) RoleNames() *MembersSessionMailLinkSort {
 	return c.addField("RoleNames")
 }
@@ -383,6 +405,10 @@ func (c *membersSessionMailLinkSort) ExpiresAt() *MembersSessionMailLinkSort {
 
 func (c *membersSessionMailLinkSort) ConsumedAt() *MembersSessionMailLinkSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *membersSessionMailLinkSort) MailFailedAt() *MembersSessionMailLinkSort {
+	return c.addField("MailFailedAt")
 }
 
 type MembersSessionMailLinkSort struct {
@@ -564,6 +590,22 @@ func (p *MembersSessionMailLinkCreatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *MembersSessionMailLinkCreatePatch) SetEveryTenant(v bool) *MembersSessionMailLinkCreatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *MembersSessionMailLinkCreatePatch) SetRoleNames(v []string) *MembersSessionMailLinkCreatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -650,6 +692,26 @@ func (p *MembersSessionMailLinkCreatePatch) ConsumedAt() *time.Time {
 
 func (p *MembersSessionMailLinkCreatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *MembersSessionMailLinkCreatePatch) SetMailFailedAt(v *time.Time) *MembersSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -836,6 +898,22 @@ func (p *MembersSessionMailLinkUpdatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *MembersSessionMailLinkUpdatePatch) SetEveryTenant(v bool) *MembersSessionMailLinkUpdatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *MembersSessionMailLinkUpdatePatch) SetRoleNames(v []string) *MembersSessionMailLinkUpdatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -922,6 +1000,26 @@ func (p *MembersSessionMailLinkUpdatePatch) ConsumedAt() *time.Time {
 
 func (p *MembersSessionMailLinkUpdatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) SetMailFailedAt(v *time.Time) *MembersSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

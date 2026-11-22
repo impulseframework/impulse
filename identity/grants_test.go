@@ -27,8 +27,11 @@ type fakeGrants struct {
 	// noneGives are the roles no method that gives a role by hand takes from the caller
 	// (CouldGive), whoever the role is for.
 	noneGives []accesstypes.Role
-	err       error
-	asked     []string
+	// onlyBy are the roles one method alone takes from the caller, each with the
+	// method: every other method that gives a role by hand refuses it (CouldGive).
+	onlyBy map[accesstypes.Role]accesstypes.Resource
+	err    error
+	asked  []string
 	// askedOutside are the questions about giving a role asked outside a transaction.
 	askedOutside []string
 }
@@ -50,11 +53,21 @@ func (g *fakeGrants) MayTake(_ context.Context, _ resource.ReadWriteTransaction,
 	return !slices.Contains(g.noTake, role), g.err
 }
 
-func (g *fakeGrants) CouldGive(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
-	g.asked = append(g.asked, "could give "+scope.String()+" "+string(role))
+func (g *fakeGrants) CouldGive(_ context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	g.asked = append(g.asked, string(method)+" could give "+scope.String()+" "+string(role))
+	if only, limited := g.onlyBy[role]; limited && only != method {
+		return false, g.err
+	}
 
 	return !slices.Contains(g.noneGives, role), g.err
 }
+
+// The methods the tests' lists of the roles to give are asked for: the one that gives a
+// person a role and the invitation, as a role file names them.
+const (
+	assigns accesstypes.Resource = "AssignMembersRole"
+	invites accesstypes.Resource = "InviteMembersUser"
+)
 
 // wardenRoles are the roles the fake engine holds for the tests of a group's changes:
 // engineRoles with Warden, a role of alpha the tests' caller may neither give nor take.

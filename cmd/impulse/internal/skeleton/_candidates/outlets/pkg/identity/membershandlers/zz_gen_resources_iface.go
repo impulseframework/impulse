@@ -27,6 +27,7 @@ type Resourcer interface {
 		membersresources.MembersTenantInvitation | membersresources.MembersTenantUser |
 		membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
-		membersresources.MembersUserRole | membersidentity.MembersTakeLength |
-		membersidentity.MembersTakeableRole | membersidentity.MembersTenantRole
+		membersresources.MembersUserRole | membersidentity.MembersGivableRole |
+		membersidentity.MembersTakeLength | membersidentity.MembersTakeableRole |
+		membersidentity.MembersTenantRole
 }

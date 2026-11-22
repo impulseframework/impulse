@@ -44,6 +44,9 @@ const metas: Record<string, ResourceMeta> = {
     'lastSignInAt',
   ),
   CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+  // The lists a role is picked from: each answers for the method its filter names.
+  CrewGivableRoles: fields('name', 'description', 'method', 'group', 'domain', 'everyDomain'),
+  CrewSectorRoles: fields('name', 'description', 'method'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
   CrewSessionMailLinks: fields(
     'id',
@@ -51,6 +54,7 @@ const metas: Record<string, ResourceMeta> = {
     'email',
     'name',
     'tenantId',
+    'everyTenant',
     'roleNames',
     'createdAt',
     'expiresAt',
@@ -138,6 +142,7 @@ const crew: IdentityDescriptor = {
       lists: {
         users: 'CrewSessionUsers',
         roles: 'CrewUserRoles',
+        rolesToGive: 'CrewGivableRoles',
         identities: 'CrewSessionIdentities',
         invitations: 'CrewSessionMailLinks',
         sessions: 'CrewSessions',
@@ -145,7 +150,6 @@ const crew: IdentityDescriptor = {
         signInMethods: 'CrewSignInMethods',
       },
       methods: {
-        create: 'CreateCrewUser',
         invite: 'InviteCrewUser',
         withdrawInvitation: 'WithdrawCrewInvitation',
         assignRole: 'AssignCrewRole',
@@ -156,7 +160,6 @@ const crew: IdentityDescriptor = {
         rename: 'RenameCrewUser',
         setName: 'SetCrewUserName',
         setEmail: 'SetCrewUserEmail',
-        setTemporaryPassword: 'SetCrewTemporaryPassword',
         sendPasswordResetLink: 'SendCrewUserPasswordResetLink',
         requirePasswordChange: 'RequireCrewPasswordChange',
         endUserSessions: 'EndCrewUserSessions',
@@ -174,11 +177,11 @@ const crew: IdentityDescriptor = {
       lists: {
         users: 'CrewSectorUsers',
         roles: 'CrewSectorUserRoles',
+        rolesToGive: 'CrewSectorRoles',
         identities: 'CrewSectorIdentities',
         invitations: 'CrewSectorInvitations',
       },
       methods: {
-        create: 'CreateCrewSectorUser',
         invite: 'InviteCrewSectorUser',
         withdrawInvitation: 'WithdrawCrewSectorInvitation',
         assignRole: 'AssignCrewSectorRole',
@@ -192,7 +195,7 @@ const crew: IdentityDescriptor = {
     },
   ],
 };
-// A directory writes this Auth's roles and admits its people: nobody is created, invited or given a role by hand.
+// A directory writes this Auth's roles and admits its people: nobody is invited or given a role by hand.
 const members: IdentityDescriptor = {
   auth: 'Members',
   label: 'Members',
@@ -242,6 +245,14 @@ const presentation = (presentations: false | MethodPresentation[] | undefined, m
   return found;
 };
 const children = (config: RootConfig): ListViewConfig[] => config.relatedConfigs as ListViewConfig[];
+/** The filter a presentation asks a picker's list with, from the dialog's values; a picker it does not narrow fails the spec. */
+const narrowed = (presented: MethodPresentation, field: string): ((values: RecordData) => string) => {
+  const narrow = presented.narrows?.[field];
+  if (!narrow) {
+    throw new Error(`${presented.method} does not narrow ${field}`);
+  }
+  return narrow;
+};
 
 describe("identityPages, the whole application's side", () => {
   const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
@@ -448,7 +459,6 @@ describe("identityPages, the whole application's side", () => {
       ['SetCrewUserName', 'Change the name'],
       ['RenameCrewUser', 'Change the username'],
       ['SetCrewUserEmail', 'Change the email address'],
-      ['SetCrewTemporaryPassword', 'Set a temporary password'],
       ['SendCrewUserPasswordResetLink', 'Send a password reset link'],
       ['RequireCrewPasswordChange', 'Require a new password'],
       ['EndCrewUserSessions', 'Sign out everywhere'],
@@ -457,10 +467,8 @@ describe("identityPages, the whole application's side", () => {
       ['EnableCrewUser', 'Enable'],
       ['DeleteCrewUser', 'Delete'],
     ]);
-    expect(methodsOf(list(people).listMethods)).toEqual([
-      ['CreateCrewUser', 'Add an account'],
-      ['InviteCrewUser', 'Invite'],
-    ]);
+    // An account is added by an invitation, and by nothing else on the page.
+    expect(methodsOf(list(people).listMethods)).toEqual([['InviteCrewUser', 'Invite']]);
   });
 
   it('says whether the message of a method that mails a person went, in the words the server gives when it did not', () => {
@@ -513,10 +521,73 @@ describe("identityPages, the whole application's side", () => {
       startsAt: 'From',
       endsAt: 'Until',
     });
-    expect(presentation(list(people).listMethods, 'CreateCrewUser').labels).toEqual({
+    expect(presentation(list(people).listMethods, 'InviteCrewUser').labels).toEqual({
       domain: 'Sector',
       everyDomain: 'In every sector',
     });
+  });
+
+  it("asks where a role is to be held and offers the roles the dialog's own method could give there: each dialog that gives one names its method and the place in its role picker's filter", () => {
+    const invite = narrowed(presentation(list(people).listMethods, 'InviteCrewUser'), 'roles');
+    const give = narrowed(presentation(list(people).rowMethods, 'AssignCrewRole'), 'role');
+    for (const [where, method] of [
+      [invite, 'InviteCrewUser'],
+      [give, 'AssignCrewRole'],
+    ] as const) {
+      // The roles the dialog's own method takes from the caller: one sector's where a
+      // sector is chosen; else the whole application's, or every sector's, as "In every
+      // sector" says.
+      expect(where({ domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false })).toBe(
+        `method:eq:${method},domain:eq:a1111111-1111-4111-8111-111111111111`,
+      );
+      expect(where({ domain: '', everyDomain: false })).toBe(`method:eq:${method},everyDomain:eq:false`);
+      expect(where({ domain: '', everyDomain: '' })).toBe(`method:eq:${method},everyDomain:eq:false`);
+      expect(where({ domain: '', everyDomain: true })).toBe(`method:eq:${method},everyDomain:eq:true`);
+    }
+    // A sector's key is quoted where the filter would read it as more than one value.
+    expect(invite({ domain: 'anvil, east' })).toBe('method:eq:InviteCrewUser,domain:eq:"anvil, east"');
+    // With sectors, the dialog asks where: the page fills no place.
+    expect(presentation(list(people).listMethods, 'InviteCrewUser').fill).toBeUndefined();
+  });
+
+  it('asks a list that carries no method field for none, and names no place where the application has no tenants', () => {
+    // A list that names no method lists the same roles whichever dialog asks: the place alone is named.
+    const plain = (resource: Resource): ResourceMeta =>
+      resource === 'CrewGivableRoles' ? fields('name', 'description', 'domain', 'everyDomain') : resourceMeta(resource);
+    const [unnamed] = identityPages({ ...descriptor }, plain, { auth: 'Crew', scope: 'global' });
+    expect(
+      narrowed(presentation(list(unnamed).listMethods, 'InviteCrewUser'), 'roles')({ domain: '', everyDomain: true }),
+    ).toBe('everyDomain:eq:true');
+    // A side whose description names no list of the roles to give is asked the same way.
+    const [wholeApplication, tenant] = crew.sides;
+    const lists = { ...wholeApplication.lists, rolesToGive: undefined };
+    const unlisted = { ...descriptor, identity: [{ ...crew, sides: [{ ...wholeApplication, lists }, tenant] }] };
+    const [without] = identityPages(unlisted as ApiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(
+      narrowed(presentation(list(without).rowMethods, 'AssignCrewRole'), 'role')({ domain: '', everyDomain: false }),
+    ).toBe('everyDomain:eq:false');
+    // Without tenants every role is held for the whole application: the method alone is named.
+    const office: IdentityDescriptor = {
+      auth: 'Office',
+      label: 'Office',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users: 'CrewSessionUsers', roles: 'CrewUserRoles', rolesToGive: 'CrewSectorRoles' },
+          methods: { invite: 'InviteOfficeUser', assignRole: 'AssignOfficeRole' },
+        },
+      ],
+    };
+    const [solo] = identityPages({ ...descriptor, identity: [office] } as ApiDescriptor, resourceMeta, {
+      auth: 'Office',
+      scope: 'global',
+    });
+    expect(narrowed(presentation(list(solo).listMethods, 'InviteOfficeUser'), 'roles')({})).toBe(
+      'method:eq:InviteOfficeUser',
+    );
+    expect(narrowed(presentation(list(solo).rowMethods, 'AssignOfficeRole'), 'role')({})).toBe(
+      'method:eq:AssignOfficeRole',
+    );
   });
 
   it("draws a person's row page from the account's fields, with the roles, the identities and the sessions under it", () => {
@@ -553,10 +624,15 @@ describe("identityPages, the whole application's side", () => {
       ['createdAt', 'Given'],
     ]);
     // The sector a role is held in is named: the list reads the sector record's row by the
-    // key the membership carries and shows its name. The words below are what a row says
-    // that names no sector, or whose sector the caller may not read.
+    // key the membership carries and shows its name after the sector's word, since the
+    // heading does not say what the name is a name of. A reader who may not read the
+    // record is shown the name their own list of sectors holds (tenantKey). The words
+    // below are what a row says that names no sector, or whose sector's name the reader
+    // may not read: words a person reads, and never the sector's key.
     const where = roles.listColumns[1] as MultiColumnConfig;
     expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(where.tenantKey).toBe(true);
+    expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
     expect(where.filterable).toBe(false);
     expect(roles.listColumns[2].hidden).toBe(true);
     const heldIn = where.fallback as (row: RecordData) => string;
@@ -569,7 +645,7 @@ describe("identityPages, the whole application's side", () => {
       },
       {
         row: { userId: 'u-1', role: 'Cadet', kind: 'domain', domainId: 'a1111111-1111-4111-8111-111111111111' },
-        where: 'Sector a1111111-1111-4111-8111-111111111111',
+        where: 'A sector you cannot see',
         body: { userId: 'u-1', role: 'Cadet', domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false },
       },
       {
@@ -580,6 +656,7 @@ describe("identityPages, the whole application's side", () => {
     ];
     for (const tt of cases) {
       expect(heldIn(tt.row)).toBe(tt.where);
+      expect(heldIn(tt.row)).not.toContain('a1111111');
       expect(remove.fill?.(tt.row)).toEqual(tt.body);
     }
     // The question names no key: the row the person clicked names the sector, and the
@@ -590,6 +667,85 @@ describe("identityPages, the whole application's side", () => {
       'Take Cadet in this sector away from this person?',
       'Take Marshal in every sector away from this person?',
     ]);
+  });
+
+  it('where the sector record marks no name there is none to read, and a row shows the key after the word', () => {
+    // The key is all such an application has for a sector: nobody is refused a name here.
+    const unnamed = (resource: Resource): ResourceMeta =>
+      resource === 'Sectors' ? { ...metas[resource], nameField: undefined } : metas[resource];
+    const [unnamedPeople] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
+    const where = children(unnamedPeople)[0].listColumns[1] as { valueGetter?: (row: RecordData) => string };
+    expect(where.valueGetter?.({ kind: 'domain', domainId: 's-1' })).toBe('Sector s-1');
+    expect(where.valueGetter?.({ kind: 'every', domainId: '' })).toBe('Every sector');
+  });
+
+  it("where the outlet serves no sector record there is none to read: a row names the sector from the person's own list of tenants, or says the page's words, and never the key", () => {
+    const unserved = { ...descriptor, identity: [{ ...crew, tenantResource: undefined }] } as ApiDescriptor;
+    const [unservedPeople] = identityPages(unserved, resourceMeta, { auth: 'Crew', scope: 'global' });
+    const where = children(unservedPeople)[0].listColumns[1] as MultiColumnConfig;
+    // No record is read, and the list asks the person's own tenants for the name.
+    expect(where.additionalIds).toEqual([]);
+    expect(where.tenantKey).toBe(true);
+    expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
+    const said = where.fallback as (row: RecordData) => string;
+    expect(said({ kind: 'domain', domainId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
+    expect(said({ kind: 'global', domainId: '' })).toBe('The whole application');
+  });
+
+  // The mailed links as the generator writes them: who sent a link and when its mail
+  // failed are fields a reader may be granted.
+  const sentMetas = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSessionMailLinks'
+      ? { ...metas[resource], fields: [...metas[resource].fields, ...fields('invitedByUserId', 'mailFailedAt').fields] }
+      : metas[resource];
+  const dates = ['createdAt', 'expiresAt', 'consumedAt'];
+  const cell = (config: RootConfig, id: string): ((row: RecordData) => string) | undefined =>
+    list(config).listColumns.find((column) => column.id === id)?.valueGetter;
+
+  it('says a link whose message could not be mailed was not mailed and ended, and leaves its Used cell empty', () => {
+    // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
+    const [, links] = identityPages({ ...descriptor }, sentMetas, { auth: 'Crew', scope: 'global' });
+    const unmailed = {
+      createdAt: '2026-11-20T10:00:00Z',
+      expiresAt: '2026-11-27T10:00:00Z',
+      consumedAt: '2026-11-20T10:00:01Z',
+      mailFailedAt: '2026-11-20T10:00:01Z',
+    };
+    expect(dates.map((id) => cell(links, id)?.(unmailed))).toEqual(['Not mailed', 'Ended', '']);
+    // A link that was used or withdrawn shows its dates, and one that stands has no Used.
+    const used = { ...unmailed, mailFailedAt: null };
+    expect(dates.map((id) => cell(links, id)?.(used))).toEqual([used.createdAt, used.expiresAt, used.consumedAt]);
+    expect(cell(links, 'consumedAt')?.({ ...used, consumedAt: null })).toBe('');
+    // When the mail failed is read with each row and not drawn, and the other columns are left alone.
+    const unseen = list(links).listColumns.filter((column) => column.hidden);
+    expect(unseen.map((column) => column.id)).toEqual(['everyTenant', 'invitedByUserId', 'mailFailedAt']);
+    expect(cell(links, 'email')).toBeUndefined();
+    // It has nothing left to withdraw.
+    expect(presentation(list(links).rowMethods, 'WithdrawCrewInvitation').when?.(unmailed)).toBe(false);
+    // Where the reader may not read when the mail failed, the cells are the fields' own.
+    expect(dates.map((id) => cell(invitations, id))).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("says the first administrator's own invitation gives roles in the whole application and in every sector", () => {
+    // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
+    const [, links] = identityPages({ ...descriptor }, sentMetas, { auth: 'Crew', scope: 'global' });
+    const into = (config: RootConfig): MultiColumnConfig => list(config).listColumns[3] as MultiColumnConfig;
+    const first = {
+      kind: 'invitation',
+      tenantId: null,
+      everyTenant: false,
+      invitedByUserId: null,
+      roleNames: ['SuperAdministrator'],
+    };
+    expect(into(links).fallback?.(first)).toBe('The whole application and every sector');
+    // An invitation a person sent, and one that gives another role, say the place the row keeps.
+    const sent = { ...first, invitedByUserId: 'f0000000-0000-4000-8000-000000000001' };
+    expect(into(links).fallback?.(sent)).toBe('The whole application');
+    expect(into(links).fallback?.({ ...first, roleNames: ['Clerk'] })).toBe('The whole application');
+    expect(into(links).fallback?.({ ...first, everyTenant: true })).toBe('Every sector');
+    expect(into(links).fallback?.({ ...first, roleNames: [] })).toBe('');
+    // Where the reader may not read who sent a link, the row says the place it keeps.
+    expect(into(invitations).fallback?.(first)).toBe('The whole application');
   });
 
   it('offers Withdraw on a mailed link that was not used, End the session on a session, and Unlock on a counted name', () => {
@@ -608,18 +764,43 @@ describe("identityPages, the whole application's side", () => {
       'Sent',
       'Expires',
       'Used',
+      // Whether a link invites into every sector is read with each row and not drawn.
+      undefined,
     ]);
-    // The sector a link invites into is named the same way, and shows its key where the sector cannot be read.
+    const unseen = list(invitations).listColumns.filter((column) => column.hidden);
+    expect(unseen.map((column) => column.id)).toEqual(['everyTenant']);
+    // The sector a link invites into is named the same way, under a heading that is the
+    // sector's word already, so the name stands alone. Where the reader may not read the
+    // sector's name the cell says so, and never shows the key.
     const into = list(invitations).listColumns[3] as MultiColumnConfig;
     expect(into.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
-    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe(
-      'a1111111-1111-4111-8111-111111111111',
-    );
+    expect(into.tenantKey).toBe(true);
+    expect(into.said).toBeUndefined();
+    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
     expect(into.fallback?.({ tenantId: null })).toBe('');
+    // A link that names no sector says where its roles are held: in every sector, or in
+    // the whole application. One that gives no role is held nowhere and says nothing: a
+    // verification, and an invitation that makes a sector.
+    expect(into.fallback?.({ tenantId: null, everyTenant: true, roleNames: ['Pilot'] })).toBe('Every sector');
+    expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: ['Clerk'] })).toBe('The whole application');
+    expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: [] })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
     expect(methodsOf(list(attempts).rowMethods)).toEqual([['UnlockCrewSignIn', 'Unlock']]);
     expect(methodsOf(children(people)[2].rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it('says nothing of where a mailed link gives its roles where the reader may not read the every-sector mark', () => {
+    // Without the mark an invitation into every sector reads like one into the whole
+    // application, so the list says neither.
+    const unmarked = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSessionMailLinks'
+        ? fields('id', 'kind', 'email', 'name', 'tenantId', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt')
+        : metas[resource];
+    const [, unmarkedLinks] = identityPages({ ...descriptor }, unmarked, { auth: 'Crew', scope: 'global' });
+    expect(list(unmarkedLinks).listColumns.some((column) => column.hidden)).toBe(false);
+    const into = list(unmarkedLinks).listColumns[3] as MultiColumnConfig;
+    expect(into.fallback?.({ tenantId: null, roleNames: ['Clerk'] })).toBe('');
   });
 });
 
@@ -673,10 +854,7 @@ describe("identityPages, a tenant's side", () => {
       ['EnableCrewSectorUser', 'Enable'],
       ['DeleteCrewSectorUser', 'Delete'],
     ]);
-    expect(methodsOf(list(people).listMethods)).toEqual([
-      ['CreateCrewSectorUser', 'Add a person'],
-      ['InviteCrewSectorUser', 'Invite'],
-    ]);
+    expect(methodsOf(list(people).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
   });
 
   it("leaves a tenant's methods to their target rows: nothing is filled", () => {
@@ -702,6 +880,24 @@ describe("identityPages, a tenant's side", () => {
     const withdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewSectorInvitation');
     expect([withdraw.when?.({ pending: true }), withdraw.when?.({ pending: false })]).toEqual([true, false]);
     expect(methodsOf(list(invitations).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
+  });
+
+  it("offers each of a tenant's dialogs the roles its own method could give: the picker names the method and no place", () => {
+    const asks: [MethodPresentation, string][] = [
+      [presentation(list(people).listMethods, 'InviteCrewSectorUser'), 'roles'],
+      [presentation(list(invitations).listMethods, 'InviteCrewSectorUser'), 'roles'],
+      [presentation(list(people).rowMethods, 'AssignCrewSectorRole'), 'role'],
+    ];
+    for (const [presented, field] of asks) {
+      expect(narrowed(presented, field)({ domain: 'a1111111-1111-4111-8111-111111111111' })).toBe(
+        `method:eq:${presented.method}`,
+      );
+    }
+    // A tenant's list that names no method is every role of the tenant: nothing narrows it.
+    const plain = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSectorRoles' ? fields('name', 'description') : resourceMeta(resource);
+    const [unnamed] = identityPages({ ...descriptor }, plain, { auth: 'Crew', scope: 'domain' });
+    expect(presentation(list(unnamed).rowMethods, 'AssignCrewSectorRole').narrows).toBeUndefined();
   });
 });
 
@@ -913,10 +1109,13 @@ describe('identityPages, what an auth and an application decide', () => {
     expect(people.listMethods).toEqual([]);
     // The roles are listed and nobody takes one away by hand.
     expect(children(pages[0]).map((child) => [child.title, child.rowMethods])).toEqual([['Roles held', []]]);
-    // An application with no tenant record names no tenant: where a role is held is said in words alone.
-    const where = children(pages[0])[0].listColumns[1];
-    expect('additionalIds' in where).toBe(false);
-    expect(where.valueGetter?.({ kind: 'global', domainId: '' })).toBe('The whole application');
+    // An auth whose description names no tenant record holds every role in the one place:
+    // the list says the role and not where, and reads nothing of a place.
+    const held = children(pages[0])[0].listColumns;
+    expect(held.map((column) => column.id)).toContain('role');
+    expect(held.map((column) => column.header)).not.toContain('Held in');
+    expect(held.map((column) => column.id)).not.toContain('kind');
+    expect(held.map((column) => column.id)).not.toContain('domainId');
   });
 
   it('takes the routes the application gives', () => {
@@ -1130,15 +1329,41 @@ describe('identityPages, an Auth that keeps groups', () => {
     ]);
     const kept = groups.listColumns[2] as MultiColumnConfig;
     expect(kept.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(kept.tenantKey).toBe(true);
+    expect(kept.said?.('Anvil', {})).toBe('Sector Anvil');
     const keptIn = kept.fallback as (row: RecordData) => string;
     expect(keptIn({ kind: 'global', domainId: '' })).toBe('The whole application');
-    expect(keptIn({ kind: 'domain', domainId: 's-1' })).toBe('Sector s-1');
+    expect(keptIn({ kind: 'domain', domainId: 's-1' })).toBe('A sector you cannot see');
     expect(methodsOf(groups.rowMethods)).toEqual([
       ['DescribeCrewGroup', 'Change the description'],
       ['AddCrewGroupMember', 'Add a person'],
       ['GiveCrewGroupRole', 'Give a role'],
       ['DeleteCrewGroup', 'Delete'],
     ]);
+    // A group is given a role where it is to be held, picked from the roles the method
+    // could give there; the same dialog opened from the group's own page asks the same.
+    const [, held] = children(global[1]);
+    for (const give of [
+      presentation(groups.rowMethods, 'GiveCrewGroupRole'),
+      presentation(held.listMethods, 'GiveCrewGroupRole'),
+    ]) {
+      // The dialog was opened with the group's id, which names the group beside the
+      // method: the server lists what that group may hold, by the rule its method keeps.
+      expect(narrowed(give, 'role')({ groupId: 'g-1', domain: '', everyDomain: true })).toBe(
+        'method:eq:GiveCrewGroupRole,group:eq:g-1,everyDomain:eq:true',
+      );
+      expect(narrowed(give, 'role')({ groupId: 'g-1', domain: 's-1', everyDomain: false })).toBe(
+        'method:eq:GiveCrewGroupRole,group:eq:g-1,domain:eq:s-1',
+      );
+      // A group kept in one sector holds roles there alone, so its dialog is opened
+      // with that sector and does not ask where; one kept for the whole application
+      // is asked.
+      expect(give.fill?.({ id: 'g-1', kind: 'domain', domainId: 's-1' })).toEqual({
+        domain: 's-1',
+        everyDomain: false,
+      });
+      expect(give.fill?.({ id: 'g-2', kind: 'global', domainId: '' })).toEqual({});
+    }
     expect(methodsOf(groups.listMethods)).toEqual([['CreateCrewGroup', 'Add a group']]);
     expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({
       domain: 'Sector',
@@ -1228,6 +1453,13 @@ describe('identityPages, an Auth that keeps groups', () => {
     ]);
     const [people, roles] = children(domain[1]);
     expect([people.primaryResource, roles.primaryResource]).toEqual(['CrewSectorGroupUsers', 'CrewSectorGroupRoles']);
+    // A tenant's group is given a role of the tenant, among the ones the method could give.
+    for (const give of [
+      presentation(groups.rowMethods, 'GiveCrewSectorGroupRole'),
+      presentation(roles.listMethods, 'GiveCrewSectorGroupRole'),
+    ]) {
+      expect(narrowed(give, 'role')({})).toBe('method:eq:GiveCrewSectorGroupRole');
+    }
     expect(columns(roles)).toEqual([
       ['role', 'Role'],
       ['createdAt', 'Given'],
@@ -1482,5 +1714,240 @@ describe('identityPages, the period of an assignment', () => {
       expect(presentation(people.listMethods, add).labels, add).toEqual(words);
       expect(presentation(roles.listMethods, give).labels, give).toEqual(expect.objectContaining(words));
     }
+  });
+});
+
+describe('identityPages, what the notice says once a method has run', () => {
+  const [wholeApplication, tenant] = crew.sides;
+  // Every method a side can name, each under a name of its own.
+  const groupLists = { groups: 'CrewGroups', groupUsers: 'CrewGroupUsers', groupRoles: 'CrewGroupRoles' };
+  const every: IdentityDescriptor = {
+    ...crew,
+    sides: [
+      {
+        ...wholeApplication,
+        lists: { ...wholeApplication.lists, ...groupLists, signInWays: 'CrewSignInWays' },
+        methods: {
+          ...wholeApplication.methods,
+          removePassword: 'RemoveCrewPassword',
+          createGroup: 'CreateCrewGroup',
+          describeGroup: 'DescribeCrewGroup',
+          deleteGroup: 'DeleteCrewGroup',
+          addGroupMember: 'AddCrewGroupMember',
+          removeGroupMember: 'RemoveCrewGroupMember',
+          giveGroupRole: 'GiveCrewGroupRole',
+          takeGroupRole: 'TakeCrewGroupRole',
+        },
+      },
+      tenant,
+    ],
+  };
+  const everyMetas: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
+    CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
+  };
+  const everyDescriptor = { ...descriptor, identity: [every] } as ApiDescriptor;
+  const sides = (['global', 'domain'] as const).map((scope) =>
+    identityPages(everyDescriptor, (resource) => everyMetas[resource], { auth: 'Crew', scope }),
+  );
+  /** Every offer of a method the pages of a side make: on the rows and above the list, of each page and of each list under a row. */
+  const offers = (pages: RootConfig[]): MethodPresentation[] =>
+    pages
+      .flatMap((page) => [list(page), ...((page.relatedConfigs ?? []) as ListViewConfig[])])
+      .flatMap((config) => [...(config.rowMethods || []), ...(config.listMethods ?? [])]);
+
+  it('says what happened in a sentence, for every method the pages offer: none is left to its label and "done"', () => {
+    const [global, domain] = sides.map(offers);
+    // The pages offer every method the two sides name.
+    const named = [...Object.values(every.sides[0].methods), ...Object.values(every.sides[1].methods)];
+    expect([...new Set([...global, ...domain].map((offer) => offer.method))].sort()).toEqual([...named].sort());
+    for (const offer of [...global, ...domain]) {
+      const said = offer.answered?.({ sent: true })?.message ?? offer.successMessage;
+      expect(said, offer.method).toMatch(/^[A-Z].*\.$/);
+      expect(said, offer.method).not.toContain(': done');
+    }
+    const words = (side: MethodPresentation[], method: string): string | undefined =>
+      presentation(side, method).successMessage;
+    expect(words(global, 'AssignCrewRole')).toBe('The role was given.');
+    expect(words(global, 'RemoveCrewRole')).toBe('The role was taken away.');
+    expect(words(global, 'GiveCrewGroupRole')).toBe('The role was given to the group.');
+    expect(words(global, 'WithdrawCrewInvitation')).toBe('The invitation is withdrawn.');
+    expect(words(global, 'DisableCrewUser')).toBe('The account is disabled.');
+    // Words a page gives an offer of its own are kept.
+    expect(words(global, 'MakeCrewInviteOnly')).toBe('The method is invite only.');
+  });
+
+  it('reads whether an invitation was mailed from its answer, and says a failed one is ended and what to do', () => {
+    for (const [side, method] of [
+      [sides[0], 'InviteCrewUser'],
+      [sides[1], 'InviteCrewSectorUser'],
+    ] as const) {
+      const invite = presentation(offers(side), method);
+      expect(invite.successMessage, method).toBeUndefined();
+      expect(invite.answered?.({ id: 'i-1', sent: true }), method).toEqual({
+        message: 'The invitation is on its way.',
+      });
+      for (const unsent of [{ id: 'i-1', sent: false }, {}, undefined]) {
+        expect(invite.answered?.(unsent), method).toEqual({
+          message: 'The invitation was not mailed, so it is ended. Invite the person again.',
+          failed: true,
+        });
+      }
+    }
+  });
+});
+
+describe('identityPages, an application without tenants', () => {
+  // The generator writes the same lists for every application: a role row says its kind
+  // and a mailed link carries a tenant. The methods that give a role, take one away or
+  // keep a group have no field that says where, and the roles to give name no place.
+  const officeMetas: Record<string, ResourceMeta> = {
+    OfficeSessionUsers: fields('id', 'username', 'name', 'email', 'disabled', 'lastSignInAt'),
+    OfficeUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+    OfficeGivableRoles: fields('name', 'description', 'method', 'group'),
+    OfficeSessionMailLinks: fields(
+      'id',
+      'kind',
+      'email',
+      'name',
+      'tenantId',
+      'everyTenant',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+    ),
+    OfficeGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    OfficeGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
+    OfficeGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
+    OfficeUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role'),
+  };
+  const office: IdentityDescriptor = {
+    auth: 'Office',
+    label: 'Office',
+    sides: [
+      {
+        scope: 'global',
+        lists: {
+          users: 'OfficeSessionUsers',
+          roles: 'OfficeUserRoles',
+          rolesToGive: 'OfficeGivableRoles',
+          invitations: 'OfficeSessionMailLinks',
+          groups: 'OfficeGroups',
+          groupUsers: 'OfficeGroupUsers',
+          groupRoles: 'OfficeGroupRoles',
+          rolesThroughGroups: 'OfficeUserGroupRoles',
+        },
+        methods: {
+          invite: 'InviteOfficeUser',
+          withdrawInvitation: 'WithdrawOfficeInvitation',
+          assignRole: 'AssignOfficeRole',
+          removeRole: 'RemoveOfficeRole',
+          createGroup: 'CreateOfficeGroup',
+          describeGroup: 'DescribeOfficeGroup',
+          addGroupMember: 'AddOfficeGroupMember',
+          giveGroupRole: 'GiveOfficeGroupRole',
+          takeGroupRole: 'TakeOfficeGroupRole',
+        },
+      },
+    ],
+  };
+  const officeDescriptor = { ...descriptor, domainRoute: undefined, identity: [office] } as ApiDescriptor;
+  const [accounts, groups, mailed] = identityPages(officeDescriptor, (resource) => officeMetas[resource], {
+    auth: 'Office',
+    scope: 'global',
+  });
+  const [roles, throughGroups] = children(accounts);
+  const [, groupRoles] = children(groups);
+  /** What a page fills a method's request with from a row: nothing where it fills nothing. */
+  const filled = (offer: MethodPresentation, row: RecordData): Record<string, unknown> => offer.fill?.(row) ?? {};
+
+  it('sends no place: the methods have no field that says where, and a request is sent as filled', () => {
+    // The server refuses a field a method does not have, so a page that filled "no
+    // tenant" would have every one of these refused.
+    expect(filled(presentation(list(accounts).listMethods, 'InviteOfficeUser'), {})).toEqual({});
+    // The id of the person's account is filled, as with tenants, and nothing beside it.
+    expect(filled(presentation(list(accounts).rowMethods, 'AssignOfficeRole'), { id: 'u-1' })).toEqual({
+      userId: 'u-1',
+    });
+    expect(filled(presentation(list(groups).rowMethods, 'GiveOfficeGroupRole'), { id: 'g-1' })).toEqual({});
+    expect(filled(presentation(groupRoles.listMethods, 'GiveOfficeGroupRole'), { id: 'g-1' })).toEqual({});
+    expect(filled(presentation(list(groups).listMethods, 'CreateOfficeGroup'), {})).toEqual({});
+    // The group's dialog names the group beside its method, and no place.
+    for (const give of [
+      presentation(list(groups).rowMethods, 'GiveOfficeGroupRole'),
+      presentation(groupRoles.listMethods, 'GiveOfficeGroupRole'),
+    ]) {
+      expect(narrowed(give, 'role')({ groupId: 'g-1' })).toBe('method:eq:GiveOfficeGroupRole,group:eq:g-1');
+    }
+    // A method that never named a place is filled with none either.
+    expect(presentation(list(groups).rowMethods, 'DescribeOfficeGroup').fill).toBeUndefined();
+    expect(presentation(list(groups).rowMethods, 'AddOfficeGroupMember').fill).toBeUndefined();
+  });
+
+  it('names no place in a list: what a person or a group holds is held for the whole application, which is all there is', () => {
+    expect(columns(roles)).toEqual([
+      ['role', 'Role'],
+      ['createdAt', 'Given'],
+    ]);
+    expect(columns(throughGroups)).toEqual([
+      ['role', 'Role'],
+      ['groupName', 'Group'],
+    ]);
+    expect(columns(list(groups))).toEqual([
+      ['name', 'Name'],
+      ['description', 'Description'],
+    ]);
+    expect(columns(groupRoles)).toEqual([
+      ['role', 'Role'],
+      ['createdAt', 'Given'],
+    ]);
+    expect(columns(list(mailed))).toEqual([
+      ['kind', 'Kind'],
+      ['email', 'Email'],
+      ['name', 'Name'],
+      ['roleNames', 'Roles'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+      ['consumedAt', 'Used'],
+    ]);
+    // A role is taken away from where it is held, the whole application: the request and
+    // the question name no place, whatever kind the row says.
+    const remove = presentation(roles.rowMethods, 'RemoveOfficeRole');
+    expect(remove.fill?.({ userId: 'u-1', role: 'Clerk', kind: 'global', domainId: '' })).toEqual({
+      userId: 'u-1',
+      role: 'Clerk',
+    });
+    expect((remove.confirm as (row: RecordData) => string)({ role: 'Clerk' })).toBe(
+      'Take Clerk away from this person?',
+    );
+    const take = presentation(groupRoles.rowMethods, 'TakeOfficeGroupRole');
+    expect(take.fill?.({ groupId: 'g-1', role: 'Clerk', kind: 'global', domainId: '' })).toEqual({
+      groupId: 'g-1',
+      role: 'Clerk',
+    });
+  });
+
+  it('says "tenant" nowhere: no heading, no title, no button and no word above an input', () => {
+    const lists = [accounts, groups, mailed].flatMap((page) => [
+      list(page),
+      ...((page.relatedConfigs ?? []) as ListViewConfig[]),
+    ]);
+    const drawn = [
+      ...[accounts, groups, mailed].map((page) => page.page?.label),
+      ...lists.flatMap((config) => [
+        config.title,
+        ...config.listColumns.filter((column) => !column.hidden).map((column) => column.header),
+        ...[...(config.rowMethods || []), ...(config.listMethods ?? [])].flatMap((offer) => [
+          offer.label,
+          offer.successMessage,
+          ...Object.values(offer.labels ?? {}),
+        ]),
+      ]),
+    ].filter((words): words is string => typeof words === 'string');
+    expect(drawn).toContain('Invite');
+    expect(drawn.filter((words) => /tenant|whole application/i.test(words))).toEqual([]);
   });
 });

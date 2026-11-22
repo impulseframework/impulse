@@ -196,12 +196,15 @@ func (p *pagingDecl) resolvePaging(annotations genlang.StructAnnotations, sortab
 }
 
 // resolveResourcePaging applies the paging annotations of a table or view
-// resource. Every field of a resource is a column, so every field is sortable. A
-// view with no @primarykey is a whole list and refuses @page; a table's key comes
-// from the schema, so a table is never key-less.
+// resource. Every field of a resource is a column, so every field is sortable, and
+// so is a name field the generator adds beside one: those are added once every struct
+// is extracted, so a name one of the struct's fields could be given is let through
+// here and held to the name fields then (checkOrderNameFields). A view with no
+// @primarykey is a whole list and refuses @page; a table's key comes from the schema,
+// so a table is never key-less.
 func resolveResourcePaging(res *resourceInfo, annotations genlang.StructAnnotations) error {
 	err := res.resolvePaging(annotations, func(field string) error {
-		if !slices.ContainsFunc(res.Fields, func(f *resourceField) bool { return f.Name() == field }) {
+		if res.fieldNamed(field) == nil && res.couldBeNameFieldOf(field) == nil {
 			return errors.Newf("%s is not a field of %s", field, res.Name())
 		}
 

@@ -483,6 +483,41 @@ func TestQueryDecoder_gatedFields(t *testing.T) {
 	}
 }
 
+// TestQueryDecoder_flagTurnedOn pins that a request does not change the decoder it is
+// decoded by: one decoder answers a request with a flag off, then the flag is turned on,
+// and the next request's default projection carries the field, with no restart.
+func TestQueryDecoder_flagTurnedOn(t *testing.T) {
+	t.Parallel()
+
+	rSet, err := NewSet[gatedResource, gatedRequest](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedResource, gatedRequest](rSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+
+	steps := []struct {
+		name            string
+		features        *FeatureSet
+		wantRequestable []accesstypes.Field
+	}{
+		{name: "off", features: featureSetOf(map[Feature]bool{"secrets": false}), wantRequestable: []accesstypes.Field{"ID", "Name"}},
+		{name: "then on", features: featureSetOf(map[Feature]bool{"secrets": true}), wantRequestable: []accesstypes.Field{"ID", "Name", "Secret"}},
+	}
+	for _, step := range steps {
+		decoder.WithFeatures(step.features)
+		qSet, err := decoder.DecodeWithoutPermissions(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/gated?sort=id", http.NoBody))
+		if err != nil {
+			t.Fatalf("%s: DecodeWithoutPermissions() error = %v", step.name, err)
+		}
+		if diff := cmp.Diff(step.wantRequestable, qSet.requestableFields); diff != "" {
+			t.Errorf("%s: requestable fields mismatch (-want +got):\n%s", step.name, diff)
+		}
+	}
+}
+
 // TestDecoder_gatedFields pins the patch decoder's answer: a body naming a field behind
 // a flag that is off is refused as a body naming an undeclared field is.
 func TestDecoder_gatedFields(t *testing.T) {

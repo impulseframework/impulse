@@ -46,6 +46,9 @@ func (tn Tenancy) writeBrowser(a *app.App, site *app.Site, ch *Change) error {
 	if err := tn.editMenuSpec(a, site, source, auth, ch); err != nil {
 		return err
 	}
+	if err := tn.editDialogsSpec(a, source, auth, ch); err != nil {
+		return err
+	}
 	if err := tn.editFrameConfig(a, source, ch); err != nil {
 		return err
 	}
@@ -616,6 +619,10 @@ func (tn Tenancy) tenantMenusNamed() string {
 // appMenusSpecFile is the menu file's test, beside it under a project's source root.
 const appMenusSpecFile = "app/app.menus.spec.ts"
 
+// appDialogsSpecFile is the test of the dialogs the library draws for the generated
+// methods, under a project's source root.
+const appDialogsSpecFile = "app/app.dialogs.spec.ts"
+
 // systemPagesRE reads where the base skeleton's menu test lists the pages the System menu
 // alone places: the auth's mailed links, then its sessions.
 var systemPagesRE = regexp.MustCompile(`\n([ \t]*)'Mailed links',\n[ \t]*'Sessions',\n`)
@@ -657,6 +664,51 @@ func (tn Tenancy) editMenuSpec(a *app.App, site *app.Site, source, auth string, 
 		return errors.Wrap(err, "os.WriteFile()")
 	}
 	ch.didf("%s: the pages the System menu places gain %s, the page staff bring a %s in from, after Mailed links", rel, label, tn.oneLower())
+
+	return nil
+}
+
+// editDialogsSpec writes the test of the dialogs again as the tenanted skeleton's where
+// it is as the base skeleton rendered it, for the auth, as editRoutes writes the routes.
+// The base's test expects the dialog that invites a person to ask for no place, and once
+// there are tenants that dialog asks for the tenant; the tenanted skeleton's test has no
+// test of that dialog. A test edited since is left, and the brief says what it must
+// expect; an application with no such test, or with the tenanted skeleton's already, is
+// left without a word.
+func (tn Tenancy) editDialogsSpec(a *app.App, source, auth string, ch *Change) error {
+	rel := path.Join(source, appDialogsSpecFile)
+	data, mode, err := readFile(a, rel)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	reference, err := referenceText(TenancyReferenceCandidate, appDialogsSpecFile)
+	if err != nil {
+		return err
+	}
+	if reference, err = tn.forTenants(appDialogsSpecFile, reference); err != nil {
+		return err
+	}
+	reference = tn.inRecordWords(appDialogsSpecFile, forAuth(reference, auth))
+	if text == reference {
+		return nil
+	}
+	base, err := referenceText(skeleton.Base, appDialogsSpecFile)
+	if err != nil {
+		return err
+	}
+	if text != forAuth(base, auth) {
+		ch.skipf("%s was edited since the skeleton rendered it, so it was left as it is: the dialog that invites a person now asks for the %s, so a test that expects it to ask for no place, as the base skeleton's does, fails until it expects the %[2]s or is taken out", rel, tn.oneLower())
+
+		return nil
+	}
+	if err := os.WriteFile(a.Abs(rel), []byte(reference), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: written again as the tenanted skeleton's, which has no test of the dialog that invites a person: the base skeleton's test expects that dialog to ask for no place, and with %s it asks for the %s", rel, tn.manyLower(), tn.oneLower())
 
 	return nil
 }

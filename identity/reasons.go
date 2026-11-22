@@ -110,9 +110,12 @@ func (l TakeLength) Duration() (lasts time.Duration, ok bool) {
 //     may, and anyone else as the role file says. A manager built without the role
 //     grants cannot judge it, which is an error and never a pass;
 //   - taking a role the caller holds there already writes over it: the new time and the
-//     new reason take the old ones' place, and nothing is refused. The rule that nobody
-//     lengthens their own holding does not hold a taking, whose length is the caller's
-//     own to choose and capped by the lengths offered.
+//     new reason take the old ones' place. The rule that nobody lengthens their own
+//     holding does not hold a taking, whose length is the caller's own to choose and
+//     capped by the lengths offered. The rule on a tenant's last administrator does: the
+//     last administrator of a tenant's own does not take the role they hold there for a
+//     time that ends sooner than their holding, which would leave the tenant with no
+//     administrator once the time is over (refuseLastAdministrator).
 //
 // The Super Administrator role is not taken: it takes no period (access.ValidatePeriod).
 func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, role accesstypes.Role, length TakeLength, reason string) error {
@@ -165,11 +168,13 @@ func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransactio
 // Super Administrator role is never among them: it takes no end.
 //
 // A page offers what the caller may do: the list holds the roles the request's caller
-// could give by hand where the role is taken (RoleGrants.CouldGive), and no other. A
+// could give by hand where the role is taken (RoleGrants.CouldGive), and no other. The
+// question is asked of the method that gives a person a role (method), by the name its
+// grant is written under, since that is the grant a taking is judged by (TakeRole). A
 // call outside any request is the application's own and lists them all; a manager a
 // request reaches without the role grants cannot judge it, which is an error and never
 // a list. TakeRole then judges the role for the place the request names.
-func (m *Manager) RolesToTake(ctx context.Context, tenants bool) ([]access.RoleInfo, error) {
+func (m *Manager) RolesToTake(ctx context.Context, method accesstypes.Resource, tenants bool) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -193,7 +198,7 @@ func (m *Manager) RolesToTake(ctx context.Context, tenants bool) ([]access.RoleI
 		if !judged {
 			return true, nil
 		}
-		could, err := m.grants.CouldGive(ctx, scope, role)
+		could, err := m.grants.CouldGive(ctx, method, scope, role)
 		if err != nil {
 			return false, errors.Wrap(err, "identity.RoleGrants.CouldGive()")
 		}

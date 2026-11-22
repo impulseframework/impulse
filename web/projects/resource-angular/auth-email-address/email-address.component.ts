@@ -12,8 +12,8 @@ import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-c
  * The signed-in person's email address, for an account page. The component reads the
  * address from the session the AuthService last checked (the address, whether the person
  * has confirmed it, and the address a directory sign-in asserted, offered as a prefill
- * while they hold none) and offers to add or change it where the server sends mail: the
- * methods list names the email routes. The person types an address and the server mails
+ * while they hold none) and offers to add or change it where the methods list names the
+ * email routes. The person types an address and the server mails
  * it a confirmation link; nothing is written until the link is followed on the login page,
  * so an address never attaches to an account its follower does not control, and the
  * screen says the link is on its way whatever the address's state (an address another
@@ -52,9 +52,9 @@ export class EmailAddressComponent implements OnInit {
 
   /** The session as the service last checked it: the address and its state. */
   session = this.auth.sessionInfo;
-  /** The methods list as the client last read it; the email routes say whether the server sends mail. */
+  /** The methods list as the client last read it; the email routes say whether an address may be added here. */
   private list = storeSignal(this.client.auth.snapshot);
-  /** The server sends mail: an address may be added or changed here. */
+  /** The server serves the email routes: an address may be added or changed here. */
   offered = computed(() => this.list()?.email !== undefined);
   /**
    * The address on the account, or none. A name that is no address is none: a development

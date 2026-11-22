@@ -28,10 +28,11 @@ import (
 //     account, which removes a super administrator in effect, and enabling one, which
 //     makes one;
 //   - only a super administrator changes how another signs in: a password set for a
-//     holder or taken from them, a change of password required of them, a new username,
-//     a new address (where the code of their second factor is mailed) and the unlinking
-//     of an identity each take a caller who holds the role, since each is a way to
-//     become that person or to shut them out (requireSuperAdministratorFor);
+//     holder or taken from them, a link mailed to them that resets it, a change of
+//     password required of them, a new username, a new address (where the code of their
+//     second factor is mailed) and the unlinking of an identity each take a caller who
+//     holds the role, since each is a way to become that person or to shut them out
+//     (requireSuperAdministratorFor);
 //   - giving the role ends nothing: the sessions the person holds, their bearer tokens
 //     and the browsers remembered for them stand, since a person who is signed in when
 //     the role is given is no risk for being signed in. What the role guards is the
@@ -80,7 +81,7 @@ func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.Re
 		}
 	}
 
-	return httpio.NewForbiddenMessagef("only a super administrator %s, and you do not hold the Super Administrator role", act)
+	return httpio.NewForbiddenMessagef("Only a super administrator %s, and you do not hold the Super Administrator role", act)
 }
 
 // requireSuperAdministratorFor refuses an act on how a person signs in, or on where the
@@ -144,10 +145,10 @@ func (m *Manager) refuseLastSuperAdministrator(ctx context.Context, txn resource
 		return err
 	}
 	if m.callerIs(ctx, userID) {
-		return httpio.NewForbiddenMessage("you are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own")
+		return httpio.NewForbiddenMessage("You are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own")
 	}
 
-	return httpio.NewForbiddenMessagef("this person is the last super administrator who can sign in: give another person the Super Administrator role before you %s", act)
+	return httpio.NewForbiddenMessagef("This person is the last super administrator who can sign in: give another person the Super Administrator role before you %s", act)
 }
 
 // lastSuperAdministrator reports whether userID is the one super administrator who can

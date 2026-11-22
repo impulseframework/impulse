@@ -228,8 +228,8 @@ func TestAuth_PasswordProof_Pending(t *testing.T) {
 		})
 
 		err := complete(f, cookies)
-		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "Invalid Credentials" || !errors.Is(err, sessionstorage.ErrPasswordChanged) {
-			t.Fatalf("CompletePending() error = %v, want Unauthorized \"Invalid Credentials\" over ErrPasswordChanged", err)
+		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "The username or password is wrong. Check what you entered and try again" || !errors.Is(err, sessionstorage.ErrPasswordChanged) {
+			t.Fatalf("CompletePending() error = %v, want Unauthorized \"The username or password is wrong. Check what you entered and try again\" over ErrPasswordChanged", err)
 		}
 		if f.held[pendingID].ConsumedAt == nil {
 			t.Error("the pending sign-in stands, want it consumed: the person signs in again")
@@ -295,8 +295,8 @@ func TestAuth_PasswordProof_Confirmation(t *testing.T) {
 	assertRefusedAsWrong := func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
 		t.Helper()
 
-		if rr.Code != wrongStatus || refusalMessage(t, rr) != "Invalid Credentials" {
-			t.Errorf("confirmation = %d %s, want %d \"Invalid Credentials\", as a wrong password gets", rr.Code, rr.Body.String(), wrongStatus)
+		if rr.Code != wrongStatus || refusalMessage(t, rr) != "The username or password is wrong. Check what you entered and try again" {
+			t.Errorf("confirmation = %d %s, want %d \"The username or password is wrong. Check what you entered and try again\", as a wrong password gets", rr.Code, rr.Body.String(), wrongStatus)
 		}
 		if r := f.attemptsRecord("pat"); r == nil || r.Failures != 1 {
 			t.Errorf("attempts under the name = %+v, want one failure", r)

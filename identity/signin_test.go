@@ -17,11 +17,19 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
-// TestManager_giveInvitedRoles pins what an accepted invitation gives: its roles in its
-// tenant, or, for an invitation into the application, each role where it is held, every
-// one under the id of the person's account; a role that can no longer be given fails
-// the transaction, in an error that names the person by username, and a failed write is
-// not taken for a role that does not exist.
+// roleKeyIn is the key of the roles table's row for role in scope: a custom role.
+func roleKeyIn(scope accesstypes.PolicyScope, role accesstypes.Role) access.RoleKey {
+	key := access.NewMembershipKey(scope, "", role)
+
+	return access.RoleKey{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: role}
+}
+
+// TestManager_giveInvitedRoles pins what an accepted invitation gives: its roles in the
+// place it stores, which is its tenant, every tenant, or the application's global scope,
+// and nowhere else, whatever roles exist by then, every one under the id of the
+// person's account; a role that can no longer be given there fails the transaction, in
+// an error that names the person by username, and a failed write is not taken for a
+// role that does not exist.
 func TestManager_giveInvitedRoles(t *testing.T) {
 	t.Parallel()
 
@@ -31,6 +39,9 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 		name string
 		inv  *sessioninfo.Invitation
 		held []access.MembershipKey
+		// roles are the rows of the roles table: the custom roles that exist when the
+		// invitation is accepted.
+		roles map[access.RoleKey]bool
 		// periods are the periods of the memberships the person holds.
 		periods     map[access.MembershipKey]accesstypes.Period
 		failOn      string
@@ -46,20 +57,57 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			wantChanged: 1,
 		},
 		{
-			name: "an invitation into the application gives a global role globally and a tenant's role in every tenant, and the engine is told once",
-			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
-			// Reader is asked for globally first, where the role file does not hold it, so the
-			// roles table is read there before every tenant is tried.
-			wantReads:   []string{"role global/ Reader"},
-			wantWrites:  []string{"insert membership global/ " + id + " Steward", "insert membership every/ " + id + " Reader"},
+			name:        "an invitation into the application gives its roles in the global scope, and the engine is told once",
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Auditor"}},
+			roles:       map[access.RoleKey]bool{roleKeyIn(globalScope, "Auditor"): true},
+			wantReads:   []string{"role global/ Auditor"},
+			wantWrites:  []string{"insert membership global/ " + id + " Steward", "insert membership global/ " + id + " Auditor"},
 			wantChanged: 1,
 		},
 		{
+			name:        "an invitation for every tenant gives its roles in every tenant",
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", EveryTenant: true, RoleNames: []string{"Reader"}},
+			wantWrites:  []string{"insert membership every/ " + id + " Reader"},
+			wantChanged: 1,
+		},
+		{
+			// An invitation stored with a tenant's role and no place: the acceptance does
+			// not go looking for the role in every tenant.
+			name:      "an invitation that names no place gives nothing in every tenant: a role held only in the tenants is refused",
+			inv:       &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Reader"}},
+			wantErr:   httpio.HasNotFound,
+			wantReads: []string{"role global/ Reader"},
+		},
+		{
+			// The global scope gained a role named Reader after the invitation was sent.
+			name:        "an invitation for every tenant gives the tenants' role where the global scope has since gained a role of its name",
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", EveryTenant: true, RoleNames: []string{"Reader"}},
+			roles:       map[access.RoleKey]bool{roleKeyIn(globalScope, "Reader"): true},
+			wantWrites:  []string{"insert membership every/ " + id + " Reader"},
+			wantChanged: 1,
+		},
+		{
+			// The global custom role Auditor was deleted after the invitation was sent, and
+			// every tenant holds a custom role of its name.
+			name:      "an invitation into the application whose global role was deleted since is refused, though every tenant holds a role of its name",
+			inv:       &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Auditor"}},
+			roles:     map[access.RoleKey]bool{roleKeyIn(everyScope, "Auditor"): true},
+			wantErr:   httpio.HasNotFound,
+			wantReads: []string{"role global/ Auditor"},
+		},
+		{
+			name:      "a role of an invitation for every tenant that is not held there is refused, though the global scope holds it",
+			inv:       &sessioninfo.Invitation{Email: "dana@example.com", EveryTenant: true, RoleNames: []string{"Steward"}},
+			wantErr:   httpio.HasNotFound,
+			wantReads: []string{"role every/ Steward"},
+		},
+		{
 			name:       "a role the person holds already is left as it is, and the others are given",
-			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Auditor"}},
 			held:       []access.MembershipKey{access.NewMembershipKey(globalScope, dana, "Steward")},
-			wantReads:  []string{"role global/ Reader"},
-			wantWrites: []string{"insert membership every/ " + id + " Reader"},
+			roles:      map[access.RoleKey]bool{roleKeyIn(globalScope, "Auditor"): true},
+			wantReads:  []string{"role global/ Auditor"},
+			wantWrites: []string{"insert membership global/ " + id + " Auditor"},
 			// One membership was written, so the engine is told.
 			wantChanged: 1,
 		},
@@ -94,8 +142,8 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			name:    "a role that exists nowhere any more fails the transaction, so the role given before it is not committed",
 			inv:     &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Retired"}},
 			wantErr: httpio.HasNotFound,
-			// Retired is read from the roles table in both places it could be held.
-			wantReads:  []string{"role global/ Retired", "role every/ Retired"},
+			// Retired is read from the roles table in the invitation's place alone.
+			wantReads:  []string{"role global/ Retired"},
 			wantWrites: []string{"insert membership global/ " + id + " Steward"},
 		},
 		{
@@ -119,6 +167,9 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}, failOn: tt.failOn}
 			for _, key := range tt.held {
 				store.memberships[key] = true
+			}
+			for key := range tt.roles {
+				store.roles[key] = true
 			}
 			store.membershipPeriods = tt.periods
 			m, engine := newManager(t, store, engineRoles)
@@ -144,6 +195,143 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			}
 			if engine.changed != tt.wantChanged {
 				t.Errorf("the engine was told the policy changed %d time(s), want %d", engine.changed, tt.wantChanged)
+			}
+		})
+	}
+}
+
+// TestManager_giveInvitedRoles_firstAdministrator pins where the first administrator's
+// invitation gives its roles. The deployment sends it for the whole application, and it
+// is the one invitation whose roles are held in two places: each role is given where the
+// application's first-administrator setup declares it (WithFirstAdministratorRoles), the
+// first list in the whole application and the second in every tenant. No other
+// invitation reads the lists: one a user sent, and one that does not give the Super
+// Administrator role, give a tenants' role with no tenant named nowhere, and the
+// acceptance fails, as it does for the first administrator's where the application
+// declared nothing.
+func TestManager_giveInvitedRoles_firstAdministrator(t *testing.T) {
+	t.Parallel()
+
+	const super = string(accesstypes.SuperAdministrator)
+	id := userID.String()
+	// The role file: Keeper is a role of the whole application and of every tenant, by
+	// the same name.
+	roles := map[accesstypes.PolicyScope][]accesstypes.Role{
+		globalScope: {accesstypes.SuperAdministrator, "Steward", "Keeper"},
+		everyScope:  {"Reader", "Keeper"},
+	}
+	declared := WithFirstAdministratorRoles([]accesstypes.Role{"Steward"}, []accesstypes.Role{"Reader"})
+	sender := impulse.NullUUIDFromUUID(otherUser)
+
+	tests := []struct {
+		name       string
+		opts       []Option
+		inv        *sessioninfo.Invitation
+		wantErr    func(error) bool
+		wantWhere  string
+		wantWrites []string
+		wantReads  []string
+	}{
+		{
+			name: "the first administrator's invitation gives the first list in the whole application and the second in every tenant",
+			opts: []Option{declared},
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Steward", "Reader"}},
+			wantWrites: []string{
+				"insert membership global/ " + id + " " + super,
+				"insert membership global/ " + id + " Steward",
+				"insert membership every/ " + id + " Reader",
+			},
+		},
+		{
+			name: "a role both lists name is given in both places",
+			opts: []Option{WithFirstAdministratorRoles([]accesstypes.Role{"Keeper"}, []accesstypes.Role{"Keeper"})},
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Keeper"}},
+			wantWrites: []string{
+				"insert membership global/ " + id + " " + super,
+				"insert membership global/ " + id + " Keeper",
+				"insert membership every/ " + id + " Keeper",
+			},
+		},
+		{
+			// Keeper exists in every tenant too, and nothing is looked up by a role's kind.
+			name: "a role neither list names is given in the whole application, where the invitation stores it",
+			opts: []Option{declared},
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Keeper"}},
+			wantWrites: []string{
+				"insert membership global/ " + id + " " + super,
+				"insert membership global/ " + id + " Keeper",
+			},
+		},
+		{
+			name:       "a role declared for every tenant that no tenant holds any more fails the acceptance, in words that say where",
+			opts:       []Option{WithFirstAdministratorRoles(nil, []accesstypes.Role{"Steward"})},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Steward"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Steward in every tenant",
+			wantReads:  []string{"role every/ Steward"},
+			wantWrites: []string{"insert membership global/ " + id + " " + super},
+		},
+		{
+			name:       "where the application declared nothing, the first administrator's invitation gives every role in the whole application: a tenants' role is refused",
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Reader"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Reader in the whole application",
+			wantReads:  []string{"role global/ Reader"},
+			wantWrites: []string{"insert membership global/ " + id + " " + super},
+		},
+		{
+			name:       "an invitation a user sent is not the first administrator's: a tenants' role with no tenant named is still refused",
+			opts:       []Option{declared},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", InvitedByUserID: sender, RoleNames: []string{super, "Reader"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Reader in the whole application",
+			wantReads:  []string{"role global/ Reader"},
+			wantWrites: []string{"insert membership global/ " + id + " " + super},
+		},
+		{
+			name:       "an invitation that does not give the Super Administrator role is not the first administrator's: a tenants' role with no tenant named is still refused",
+			opts:       []Option{declared},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Reader in the whole application",
+			wantReads:  []string{"role global/ Reader"},
+			wantWrites: []string{"insert membership global/ " + id + " Steward"},
+		},
+		{
+			name:       "an invitation into a tenant gives its roles in the tenant alone, whatever the lists name",
+			opts:       []Option{WithFirstAdministratorRoles(nil, []accesstypes.Role{"Keeper"})},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Keeper"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Keeper in alpha",
+			wantReads:  []string{"role domain/alpha Keeper"},
+			wantWrites: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}}
+			m, _ := newManager(t, store, roles, tt.opts...)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.giveInvitedRoles(ctx, txn, userID, "dana", tt.inv)
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("giveInvitedRoles() error = %v, want the refusal", err)
+				}
+				if !strings.Contains(err.Error(), tt.wantWhere) {
+					t.Errorf("giveInvitedRoles() error = %v, want one that says %q", err, tt.wantWhere)
+				}
+			} else if err != nil {
+				t.Fatalf("giveInvitedRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantReads, store.reads); diff != "" {
+				t.Errorf("reads of the roles table (-want +got):\n%s", diff)
 			}
 		})
 	}

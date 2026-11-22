@@ -29,9 +29,9 @@ import (
 // still the one the account holds confirmed. It is as strong as that address is, which
 // a signed-in person replaces with a link mailed to the new one (Email()). It is the
 // only way to a first password a person has; an account that holds
-// a password changes it with the old one (PasswordMethod.ChangeUserPassword), and an
-// administrator's reset is AuthAPI.ResetSessionUserPassword. See "A person's first
-// password" in the README.
+// a password changes it with the old one (PasswordMethod.ChangeUserPassword), and one
+// who has lost theirs follows a reset link (AuthAPI.SendPasswordReset). See "A person's
+// first password" in the README.
 
 // firstPasswordAttempts bounds the wrong codes entered for an account's first password:
 // five within fifteen minutes end the code that stands and hold the account's first
@@ -92,12 +92,9 @@ func (h *FirstPasswordHandlers) Set() http.HandlerFunc {
 	return h.set
 }
 
-// FirstPassword returns the handlers of a person's first password. It panics on an
-// Auth without mail, as a wiring mistake. On an Auth with no password method the
-// handlers refuse every request: there is no password to choose.
+// FirstPassword returns the handlers of a person's first password. On an Auth with no
+// password method the handlers refuse every request: there is no password to choose.
 func (a *Auth[S, U, Tx]) FirstPassword() *FirstPasswordHandlers {
-	a.requireMail("FirstPassword()")
-
 	return &FirstPasswordHandlers{
 		sendCode: a.serving(a.firstPasswordSendCode()),
 		set:      a.serving(a.firstPasswordSet()),
@@ -262,10 +259,7 @@ func (a *Auth[S, U, Tx]) endFirstPasswordCodes(ctx context.Context, codes []*ses
 // the account holds confirmed, and records it in place of the code that stood. The
 // address's mail is limited as a link's is.
 func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impulse.UUID) (*firstPasswordCodeAnswer, error) {
-	m, err := a.mailOf()
-	if err != nil {
-		return nil, err
-	}
+	m := a.settings.mail
 	user, err := a.firstPasswordUser(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -309,8 +303,8 @@ func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impul
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.firstPasswordMessage(email, code, lifetime)); err != nil {
-		if rerr := a.storage.RevokeMailLink(ctx, row.ID); rerr != nil && !httpio.HasNotFound(rerr) {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		if rerr := a.storage.FailMailLink(ctx, row.ID); rerr != nil && !httpio.HasNotFound(rerr) {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.FailMailLink()"))
 		}
 
 		return nil, err

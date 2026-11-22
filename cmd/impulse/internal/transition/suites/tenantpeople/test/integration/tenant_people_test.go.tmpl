@@ -79,7 +79,6 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserName", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserEmail", "heldElsewhere = false AND heldGlobally = false")
 [[- if .Password]]
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]TemporaryPassword", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RequireStaff[[.Record]]PasswordChange", "heldElsewhere = false AND heldGlobally = false")
 [[- end]]
 	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RevokeStaff[[.Record]]UserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
@@ -99,26 +98,21 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	s := newServed(ctx, t)
 	admin, member := tenantAdministrators(ctx, t, s)
 
-	// North's administrator creates the three in north; the application's administrator
-	// then gives sam a role in south and gail one of the whole application.
-[[- if .OneTenant]] erin is
-	// created with them, and given the tenants' role in every tenant.
+	// The three have accounts already (staffAccount), and the application's
+	// administrator gives each a role in north; then sam a role in south and gail one of
+	// the whole application. A tenant's own method gives a role to a person the tenant
+	// already holds, so every one of these goes through the whole application's method,
+	// which names the tenant, and the person by the id of their account as every method
+	// does.
+[[- if .OneTenant]] erin has an account with them, and is given the tenants' role in
+	// every tenant.
 [[- end]]
 	ids := map[string]string{}
 	for _, name := range []string{"nora", "sam", "gail"[[if .OneTenant]], "erin"[[end]]} {
-		status, body := tenantPost(ctx, member, north, "create-staff-[[.Kebab]]-user", map[string]any{
-			"username": name, "name": "  " + name + " of north ", "email": name + "@example.com",[[if .Password]] "password": "first-day-pass",[[end]] "roles": []string{"[[.Record]]Administrator"},
-		})
-		if status != http.StatusOK {
-			t.Fatalf("creating %s in %s: status %d: %s", name, north, status, body)
+		ids[name] = staffAccount(ctx, t, s, name, "  "+name+" of north ")
+		if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+ids[name]+`","role":"[[.Record]]Administrator","domain":"`+north+`"}`)); status != http.StatusNoContent {
+			t.Fatalf("giving %s a role in %s: status %d: %s", name, north, status, body)
 		}
-		var created struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
-			t.Fatalf("creating %s answered %s (%v), want the new account's id", name, body, err)
-		}
-		ids[name] = created.ID
 	}
 	globalRole := func(name string) []byte {
 		return []byte(`{"userId":"` + ids[name] + `","role":"FeatureAdministrator","everyDomain":false}`)
@@ -128,9 +122,6 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		t.Fatalf("giving sam a role of the whole application: status %d: %s", status, body)
 	}
 [[- end]]
-	// A tenant's own method gives a role to a person the tenant already holds, so the
-	// role in south is given through the whole application's method, which names the
-	// tenant, and the person by the id of their account as every method does.
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+ids["sam"]+`","role":"[[.Record]]Administrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving sam a role in %s: status %d: %s", south, status, body)
 	}
@@ -148,7 +139,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// no tenant north's administrator reaches: holding nothing there, they are answered
 	// as if it did not exist.
 	if row := tenantRows(ctx, t, admin, south, "staff-[[.Kebab]]-users")[ids["sam"]]; row["username"] != "sam" {
-		t.Fatalf("sam among south's people = %v, want the account north created", row)
+		t.Fatalf("sam among south's people = %v, want the account that holds a role in north too", row)
 	}
 	if status, body := tenantPost(ctx, member, south, "disable-staff-[[.Kebab]]-user", map[string]any{"userId": ids["sam"]}); status != http.StatusNotFound {
 		t.Fatalf("north's administrator calling a method of south's: status %d, want 404: %s", status, body)
@@ -167,6 +158,19 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 			"EmailAtLink": name + "@example.com", "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 		}))
 	}
+[[- if .Password]]
+	// And a second one for nora, of another directory account, so that she keeps a way in
+	// when the first link goes and, where a link signs a person in, when her password
+	// does.
+	second, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID() error = %v", err)
+	}
+	linkRows = append(linkRows, spanner.InsertMap("StaffSessionIdentities", map[string]any{
+		"Id": second.String(), "UserId": ids["nora"], "Method": "google", "Connection": "example.com", "Subject": "second-subject-of-nora",
+		"EmailAtLink": "nora@example.com", "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+	}))
+[[- end]]
 	if _, err := s.db.Apply(ctx, linkRows); err != nil {
 		t.Fatalf("writing the identity links: %v", err)
 	}
@@ -252,16 +256,6 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 			return map[string]any{"userId": ids[name], "username": name + "-renamed"}
 		}, http.StatusNoContent},
 [[- if .Password]]
-		// A person keeps one way in: a password is removed while an identity that signs
-		// them in is linked, and an identity unlinked while a password is held. So the
-		// password the person was created with goes first, while the link stands, and
-		// the temporary one set next is what lets the link go further down. Where the
-		// link signs nobody in, the removal is north's to ask for and that rule refuses
-		// it: the grant let the call reach the rule, which is what the condition decides.
-		{"remove-staff-[[.Kebab]]-password", user, passwordRemoval(linkSignsIn)},
-		{"set-staff-[[.Kebab]]-temporary-password", func(name string) map[string]any {
-			return map[string]any{"userId": ids[name], "password": "second-day-pass"}
-		}, http.StatusNoContent},
 		{"require-staff-[[.Kebab]]-password-change", user, http.StatusNoContent},
 [[- end]]
 		{"end-staff-[[.Kebab]]-user-sessions", user, http.StatusNoContent},
@@ -269,9 +263,16 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		{"disable-staff-[[.Kebab]]-user", user, http.StatusNoContent},
 		{"enable-staff-[[.Kebab]]-user", user, http.StatusNoContent},
 [[- if .Password]]
+		// A person keeps one way in: an identity is unlinked while a password is held, and
+		// a password removed while an identity that signs them in is linked. So the link
+		// goes first, while the password stands, and the second link written above is
+		// what lets the password go after it. Where a link signs nobody in, the removal
+		// is north's to ask for and that rule refuses it: the grant let the call reach
+		// the rule, which is what the condition decides.
 		{"unlink-staff-[[.Kebab]]-session-identity", func(name string) map[string]any {
 			return map[string]any{"identityId": links[name]}
 		}, http.StatusNoContent},
+		{"remove-staff-[[.Kebab]]-password", user, passwordRemoval(linkSignsIn)},
 [[- else]]
 		// A person keeps one way in, and nobody here holds a password: the one identity
 		// linked to a person is their only way in, so its unlinking is north's to ask
@@ -479,6 +480,32 @@ func tenantAdministrators(ctx context.Context, t *testing.T, s *served) (admin, 
 [[- end]]
 
 	return admin, member
+}
+
+// staffAccount creates an account through the session library's API and answers its id:
+// with the name, which is kept without the space around it, and an address nobody has
+// confirmed.
+[[- if .Password]] It holds a password, as the people the bootstrap creates do.
+[[- else]] It holds no password: nobody here does.
+[[- end]] Nobody
+// creates an account for someone else through the application, where a person comes in
+// by an invitation, so a test that needs a person who is there already makes one here
+// and gives them their roles through the methods.
+func staffAccount(ctx context.Context, t *testing.T, s *served, username, name string) string {
+	t.Helper()
+
+	email := username + "@example.com"
+	request := &session.CreateUserRequest{Username: username, Name: &name, Email: &email}
+[[- if .Password]]
+	password := "first-day-pass"
+	request.Password = &password
+[[- end]]
+	id, err := s.auth.Session().API().CreateSessionUser(ctx, request)
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+
+	return id.String()
 }
 [[if .Password]]
 // passwordRemoval is what the removal of a password answers for a person north holds

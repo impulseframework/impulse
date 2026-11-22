@@ -610,7 +610,7 @@ func Test_prepareIdentity_newTenantColumn(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	r := citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) {
-		r.tableMap["CrewSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{"Email": {SpannerType: "STRING(MAX)"}}}
+		r.tableMap["CrewSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{"Email": {SpannerType: "STRING(MAX)"}, everyTenantColumn: {SpannerType: "BOOL"}}}
 	})
 	want := `Auth("example.com/acme/beacon/pkg/auth/crew"): the table CrewSessionMailLinks has no column NewTenant, which an invitation that makes a citadel is kept in, and staff bring a citadel in by such an invitation alone; add it as the session library's schema does (ALTER TABLE CrewSessionMailLinks ADD COLUMN NewTenant STRING(MAX))`
 	if err := r.prepareIdentity(); err == nil || !strings.Contains(err.Error(), want) {
@@ -620,10 +620,52 @@ func Test_prepareIdentity_newTenantColumn(t *testing.T) {
 	// The members' people make no tenant, so their mail links table is asked for no
 	// column: with the crew's in place the run passes whatever the members' holds.
 	r = citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) {
-		r.tableMap["MembersSessionMailLinks"] = &tableMetadata{}
+		r.tableMap["MembersSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{everyTenantColumn: {SpannerType: "BOOL"}, mailFailedColumn: {SpannerType: "TIMESTAMP", IsNullable: true}}}
 	})
 	if err := r.prepareIdentity(); err != nil {
 		t.Errorf("prepareIdentity() with the members' mail links table lacking the column: error = %v", err)
+	}
+}
+
+// Test_prepareIdentity_everyTenantColumn pins the refusal of a schema whose mail links
+// table lacks the column an invitation keeps its mark for every tenant in, with the
+// statement that adds it, before the auth's store is written, for every auth that keeps
+// mail links: the generated store writes the column on every invitation. An auth whose
+// schema keeps no mail links is asked for nothing.
+func Test_prepareIdentity_everyTenantColumn(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	lacking := &tableMetadata{Columns: map[string]columnMeta{newTenantColumn: {SpannerType: "STRING(MAX)", IsNullable: true}}}
+	for _, tt := range []struct {
+		table string
+		store string
+		want  string
+	}{
+		{
+			table: "CrewSessionMailLinks",
+			store: "crewidentity/store.go",
+			want:  `Auth("example.com/acme/beacon/pkg/auth/crew"): the table CrewSessionMailLinks has no column EveryTenant, which says an invitation's roles are held in every tenant: an accepted invitation gives each role in the place its row keeps and nowhere else; add it as the session library's schema does (ALTER TABLE CrewSessionMailLinks ADD COLUMN EveryTenant BOOL NOT NULL DEFAULT (false))`,
+		},
+		{
+			table: "MembersSessionMailLinks",
+			store: "membersidentity/store.go",
+			want:  `the table MembersSessionMailLinks has no column EveryTenant, which says an invitation's roles are held in every tenant`,
+		},
+	} {
+		r := citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) { r.tableMap[tt.table] = lacking })
+		if err := r.prepareIdentity(); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Fatalf("prepareIdentity() with %s lacking the column: error = %v, want one containing %q", tt.table, err, tt.want)
+		}
+		if got := identitySource(t, tt.store); got != "" {
+			t.Errorf("%s was written though %s lacks the column, want no store", tt.store, tt.table)
+		}
+	}
+
+	// An auth whose schema keeps no mail links writes no invitation.
+	r := citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) { delete(r.tableMap, "CrewSessionMailLinks") })
+	if err := r.prepareIdentity(); err != nil {
+		t.Errorf("prepareIdentity() with no mail links table: error = %v", err)
 	}
 }
 

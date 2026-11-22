@@ -20,14 +20,16 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:                newAuthInstance,
-		CountAuthEvents:    countAuthEvents,
-		DeleteSession:      deleteSession,
-		Recorded:           recorded,
-		Record:             record,
-		PendingConsumedAt:  pendingConsumedAt,
-		MailLinkConsumedAt: mailLinkConsumedAt,
-		ClockLead:          emulatorClockLead,
+		New:                   newAuthInstance,
+		CountAuthEvents:       countAuthEvents,
+		DeleteSession:         deleteSession,
+		Recorded:              recorded,
+		Record:                record,
+		PendingConsumedAt:     pendingConsumedAt,
+		MailLinkConsumedAt:    mailLinkConsumedAt,
+		MailLinkMailFailedAt:  mailLinkMailFailedAt,
+		RequirePasswordChange: requirePasswordChange,
+		ClockLead:             emulatorClockLead,
 	})
 }
 
@@ -137,6 +139,17 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID impulse
 	}
 }
 
+// requirePasswordChange sets the user's password change mark directly, as an
+// application's account management writes it.
+func requirePasswordChange(ctx context.Context, t *testing.T, raw any, userID impulse.UUID) {
+	t.Helper()
+
+	mark := spanner.Update("SessionUsers", []string{"Id", "PasswordChangeRequired"}, []any{userID.String(), true})
+	if _, err := client(t, raw).Apply(ctx, []*spanner.Mutation{mark}); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+}
+
 // hookTx is drivertest.HookTx over a hook's read-write transaction.
 type hookTx struct {
 	txn *spanner.ReadWriteTransaction
@@ -219,4 +232,20 @@ func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []
 	}
 
 	return &consumedAt.Time
+}
+
+func mailLinkMailFailedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT MailFailedAt FROM SessionMailLinks WHERE TokenHash = @tokenHash")
+	stmt.Params["tokenHash"] = tokenHash
+	var failedAt spanner.NullTime
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &failedAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !failedAt.Valid {
+		return nil
+	}
+
+	return &failedAt.Time
 }

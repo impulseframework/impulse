@@ -4,8 +4,8 @@ package generation
 // person what the whole application's does is written from the whole application's
 // template, which renders both: the pieces below are what the tenant's rendering adds
 // and the whole application's leaves out. The methods that differ in what a request
-// carries (a role given and taken, a person created, an address invited) have a
-// template of their own here.
+// carries (a role given and taken, an address invited) have a template of their own
+// here.
 
 const (
 	// identityTenantUserNote is the paragraph a tenant's method that names a person
@@ -331,6 +331,9 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	{{- if .OffersRolesToGive }}
+	"github.com/impulseframework/impulse/identity"
+	{{- end }}
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -342,19 +345,24 @@ import (
 // It is a computed resource. The role file's roles are held by the permission engine
 // and only a custom role is a row of a table, so the engine is asked and no query
 // selects the list.
-{{- if .OffersRolesToGive }} A person is listed the roles they could give. A role file
-// says which roles a person hands out on the grants of the methods that give one, whose
-// role field picks from this list:
+{{- if .OffersRolesToGive }} A person is listed the roles they could give with one
+// method. A role file says which roles a person hands out on the grant of each method
+// that gives one, whose role field picks from this list, each for itself:
 //
 //	{{ .GivingMethods }}
 //
-// A condition there reads the role (new.role != 'TenantAdmin'), and the list leaves out
-// a role every one of them refuses the caller (identity.Manager.RolesToGive), so the
-// limit is said once and a page offers what the caller may do. One list serves all of
-// them, so it holds a role that one of them takes and another refuses, which the method
-// then says. The role file grants the list like any resource, and a condition on the
-// role's name there (name != 'TenantAdmin') narrows it further: the library judges each
-// role the list answers.
+// A condition there reads the role (new.role != 'TenantAdmin'). The list is asked for
+// one method at a time, by a filter that names it
+// (method:eq:{{ (index .TenantGivings 0).Method }}), and leaves out a role that method
+// refuses the caller (identity.Manager.RolesToGive): the limit is said once, on the
+// method's grant, and a dialog offers what its own method takes. A role one method
+// takes and another refuses is in the first one's list alone, and a request that names
+// no method is listed no role. The role file grants the list like any resource, and a
+// condition on the role's name there (name != 'TenantAdmin') narrows it further: the
+// library judges each role the list answers. A caller filters by the fields they may
+// read, and a computed list filters only by a field granted with no condition: the role
+// is granted method among the fields of a grant with no condition, or, beside a grant
+// that carries one, as a grant of the field alone ({{ Pluralize .TenantRoleChoice }}.method).
 {{- else }} The role file grants it like any resource, and a grant may carry
 // a condition on the role's name (name != 'TenantAdmin'): the library judges each role
 // the engine answers, so a person is listed the roles their grant admits and picks
@@ -374,6 +382,11 @@ type {{ .TenantRoleChoice }} struct {
 	// @attribute(name)
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
+	{{- if .OffersRolesToGive }}
+	// Method is the method the role is listed for, the one the request's filter
+	// names: the caller could give the role with it.
+	Method string ` + "`spanner:\"Method\" allow_filter:\"true\"`" + `
+	{{- end }}
 }
 
 // Resource implements resource.Resourcer.
@@ -382,8 +395,10 @@ func ({{ .TenantRoleChoice }}) Resource() accesstypes.Resource {
 }
 
 // List{{ .TenantRoleChoice }} yields the roles that exist in the tenant the request was
-// checked in{{ if .OffersRolesToGive }} that the caller could give there{{ end }}; the generated handler applies the request's filter, sort and page over
-// them.
+// checked in{{ if .OffersRolesToGive }} that the caller could give there with the method the request's filter
+// names, and none for a request that names no method; the generated handler applies
+// the rest of the filter, the sort and the page over them.{{ else }}; the generated handler applies the request's filter, sort and page over
+// them.{{ end }}
 func List{{ .TenantRoleChoice }}(ctx context.Context, qSet *resource.QuerySet[{{ .TenantRoleChoice }}], _ resource.Client, client *Client) iter.Seq2[*{{ .TenantRoleChoice }}, error] {
 	return func(yield func(*{{ .TenantRoleChoice }}, error) bool) {
 		domain, ok := qSet.Scope().Domain()
@@ -393,7 +408,20 @@ func List{{ .TenantRoleChoice }}(ctx context.Context, qSet *resource.QuerySet[{{
 			return
 		}
 		{{- if .OffersRolesToGive }}
-		roles, err := client.manager.RolesToGive(ctx, domain)
+		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
+			{{- range .TenantGivings }}
+			{{ .Method }}{}.Method(),
+			{{- end }}
+		}, qSet.Filter().Take("Method"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingMethod()"))
+
+			return
+		}
+		if !named {
+			return
+		}
+		roles, err := client.manager.RolesToGive(ctx, method, domain)
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.RolesToGive()"))
 
@@ -408,7 +436,7 @@ func List{{ .TenantRoleChoice }}(ctx context.Context, qSet *resource.QuerySet[{{
 		}
 		{{- end }}
 		for _, role := range roles {
-			if !yield(&{{ .TenantRoleChoice }}{Name: string(role.Name), Description: role.Description}, nil) {
+			if !yield(&{{ .TenantRoleChoice }}{Name: string(role.Name), Description: role.Description{{ if .OffersRolesToGive }}, Method: string(method){{ end }}}, nil) {
 				return
 			}
 		}
@@ -450,8 +478,7 @@ import (
 //
 // It is a tenant's method: it names a row of {{ .TenantUser }}, the tenant's own list of
 // the auth's people, so the role goes to a person who holds one in the tenant already.
-// A person new to the tenant is created in it or invited to it, holding a role from the
-// start.
+// A person new to the tenant is invited to it, holding a role from the start.
 //
 // @rpc
 // @permissionScope(domain)
@@ -556,99 +583,6 @@ func (m *Remove{{ .Subject }}Role) Execute(ctx context.Context, txn resource.Rea
 }
 `
 
-	// identityTenantCreateUserTemplate is the method that creates a person in a tenant.
-	identityTenantCreateUserTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
-// Source: {{ .Source }}
-
-package {{ .Package }}
-
-import (
-	"context"
-
-	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/identity"
-	"github.com/impulseframework/impulse/resource"
-)
-
-type (
-	// Create{{ .Subject }}User creates a person in the {{ .Auth }} auth who holds the
-	// roles, at least one, in one {{ .TenantName }}: the tenant the request is made
-	// under, and no other. The roles are written in the same transaction as the user,
-	// and each must exist in the tenant.
-	{{- if eq .PasswordOnCreate "required" }}
-	// Password is a temporary password, which the person changes before anything else
-	// is served: the password is the auth's one way in, so a person is created with
-	// one.
-	{{- else if eq .PasswordOnCreate "optional" }}
-	// Password, when given, is a temporary password, which the person changes before
-	// anything else is served; without one the person signs in another way, or
-	// follows an invitation and chooses their own.
-	{{- else }}
-	// The person holds no password: they sign in through a directory.
-	{{- end }}
-	// Name is the person's name as people read it, shown in place of the username
-	// where it is given; the person may change it themselves.
-	// It answers the new user's id. An account is one row for the whole application, so
-	// a username or an address another user holds, in whatever tenant, is refused when
-	// the transaction commits.
-	//
-	// @rpc
-	// @permissionScope(domain)
-	// @outlet({{ .Outlets }})` + identityAccessClass + `
-	Create{{ .Subject }}User struct {
-		Username string ` + "`validate:\"required\"`" + `
-		Name     *string
-		{{- if not .UsernameIsEmail }}
-		Email    *string
-		{{- end }}
-		{{- if eq .PasswordOnCreate "required" }}
-		Password string ` + "`validate:\"required\" conditions:\"secret\"`" + `
-		{{- else if eq .PasswordOnCreate "optional" }}
-		Password *string ` + "`conditions:\"secret\"`" + `
-		{{- end }}
-		// Roles are the roles the person is given, picked from the roles that exist in the
-		// tenant ({{ Pluralize .TenantRoleChoice }}). A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		// @enumerate({{ Pluralize .TenantRoleChoice }})
-		Roles []string
-	}
-	// Create{{ .Subject }}UserResult answers the new user's id.
-	Create{{ .Subject }}UserResult struct {
-		ID impulse.UUID
-	}
-)
-
-// Execute buffers the new user and the memberships into the caller's transaction.
-func (m *Create{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Create{{ .Subject }}UserResult, error) {
-	tenant, err := client.manager.Tenant(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
-	}
-	account := &identity.NewAccount{Username: m.Username, Name: m.Name}
-	{{- if not .UsernameIsEmail }}
-	account.Email = m.Email
-	{{- end }}
-	{{- if eq .PasswordOnCreate "required" }}
-	account.Password, account.PasswordRequired = &m.Password, true
-	{{- else if eq .PasswordOnCreate "optional" }}
-	account.Password = m.Password
-	{{- end }}
-	for _, role := range m.Roles {
-		account.Roles = append(account.Roles, accesstypes.Role(role))
-	}
-	id, err := tenant.CreateUser(ctx, txn, account)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Tenant.CreateUser()")
-	}
-
-	return &Create{{ .Subject }}UserResult{ID: id}, nil
-}
-`
-
 	// identityTenantInviteUserTemplate is the method that invites an address into a
 	// tenant.
 	identityTenantInviteUserTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
@@ -677,8 +611,8 @@ type (
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
 	// cannot be taken back. The answer says whether the message went (Sent). When it
-	// did not, the invitation is withdrawn, so no link stands that nobody holds:
-	// invite again.
+	// did not, the invitation is ended, not mailed, so no link stands that nobody
+	// holds: invite again.
 	//
 	// @rpc
 	// @permissionScope(domain)

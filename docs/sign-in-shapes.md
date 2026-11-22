@@ -53,7 +53,8 @@ that start an application from one, and what `impulse audit` prints for it.
   document "tenant" alone always means the application's, and Microsoft's is always
   written "Microsoft Entra tenant".
 - **Invitation**: a link mailed to an email address. Accepting it gives the person the
-  roles it carries.
+  roles it carries, in the place it was sent for (one tenant, every tenant or the whole
+  application) and nowhere else.
 - **Sign-in method**: one way an auth's people sign in: a password, Google, Microsoft, or
   another identity provider. An auth registers each method in code, under a name. The
   command's words for the kinds are `password`, `google`, `azure` (Microsoft) and `oidc`
@@ -269,16 +270,62 @@ an application cannot import. It is not the `oidc` method of the last column: th
 names a single provider in a setting, so it serves one organization.
 
 One thing differs between Google and Microsoft: invitations. An invitation is accepted
-only with the invited email address: the address of the sign-in must be the invited one.
-A Google sign-in carries the person's address. A Microsoft sign-in carries none unless
-the application's registration at Microsoft is set up to send it, and without it an
-invited person who signs in with Microsoft is refused. (A person who is not accepting an
-invitation and signs in with Microsoft confirms their address with a mailed code the first
-time, as described under [In every shape](#in-every-shape).) A person can still accept with a
-password where the auth has the password method. A new person chooses a password from the
-link, and the account is made with the invited address. An account that has no address
-yet accepts by the link alone and takes the invited address. This is described under
-"Invitations" and "The first administrator's invitation" in
+only with the invited email address. Google vouches for the address a sign-in carries, so
+a Google sign-in with the invited address accepts at once, and one with another address
+is refused. Microsoft does not vouch for an address. A Microsoft sign-in carries none
+unless the application's registration at Microsoft is set up to send it, and the one it
+then carries is whatever the administrator of that Microsoft directory wrote: anybody can
+make a directory and write somebody else's address in it. So that address counts for
+nothing, whether it is the invited one or another. A person who accepts an invitation with
+Microsoft, or with another provider that sends no address or does not vouch for the one
+it sends, is stopped before the application opens and mailed a code at the invited
+address. They type no address: the code goes to the one that was invited. Entering the
+code accepts the invitation, and a new person's account is made with the invited address,
+confirmed. The first administrator of an auth whose only method is Microsoft accepts the
+same way.
+
+The code shows that the mailbox is the person's, and nothing more. It makes a new person's
+account, and it confirms the invited address on the account of a person who already signs
+in with that Microsoft account and has no confirmed address yet. It never adds a sign-in
+to an account somebody can already sign in to. Where the invited address belongs to an
+account with a password, the person confirms with the password, and where that account
+has no confirmed address yet they are asked for the code once more after it. Where it belongs to an
+account that signs in through a provider, a different Microsoft account is refused, and
+the person accepts by signing in the way they do. (A person who is
+not accepting an invitation and signs in with Microsoft confirms their address with a
+mailed code the first time, as described under [In every shape](#in-every-shape).)
+
+The page an invitation's link opens offers only the methods the invitation can be accepted
+with. A new person is offered every method that admits the invited address, and, where the
+auth has the password method, the form that chooses a password, beside the other methods:
+the account is then made with the invited address. A person whose account has a password
+is offered the same methods, and confirms with the password. A person whose account has no
+password is offered the methods the account already signs in with.
+
+The link only opens the invitation. A mailed link can be forwarded, so holding one does
+not show that the mailbox is the person's. A person who chooses a password from an
+invitation is mailed a code at the invited address, and the account is made, with that
+address confirmed, once they enter it. A person who signs in with a password to an
+account that holds no address is mailed the invitation's code the same way, and the
+account takes the address as the invitation is accepted. An account that already holds
+the invited address and has not confirmed it is mailed its own sign-in code there
+instead, under the limits of any sign-in code: entering it confirms the address, and the
+sign-in then accepts the invitation. A person who is already signed in to such an
+account is told to sign in again from the invitation's link, which mails the code. The
+code comes in a message of its own, which says that it accepts an invitation and that
+somebody else has the invitation's link if the person did not open it themselves. An
+invitation takes twenty-five codes: after twenty-five were entered and none of them
+accepted it, no more are mailed for it and none is taken, however long it stands, and
+the person asks whoever invited them for a new invitation. A code counts toward the
+twenty-five of the invitation it was mailed for, and it works only in a browser that has
+that invitation's link open: entered anywhere else it is refused, and it still counts.
+While an invitation stands, a person who types the invited address to be mailed a code
+is mailed none, and the mailbox is sent a message that says to open the invitation's
+link; a code that was mailed to that address before the invitation was sent stays good
+until it expires. The code of an invitation that was used, withdrawn or has taken its
+twenty-five accepts nothing and puts no address on an account. An account that has
+confirmed the invited address accepts with no code.
+This is described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).
 
 The persona method, the sign-in of the test environments, is not part of any shape.
@@ -414,14 +461,17 @@ Every command and flag is described in [cmd/impulse/README.md](../cmd/impulse/RE
 
 ## In every shape
 
-These things hold for all eight shapes, wherever the auth sends mail.
+These things hold for all eight shapes. Every application sends mail: an auth is not built
+without a sender, and an application that could send none could not invite a person,
+confirm an address or send a code.
 
 ### The email address on an account
 
 An account's email address counts once the person has shown that the mailbox is theirs.
 The address is then confirmed. It gets confirmed in one of these ways:
 
-- The person accepted an invitation mailed to it, or signed up from a link mailed to it.
+- The person accepted an invitation mailed to it, by entering the code mailed to it, or
+  signed up from a link mailed to it.
 - Google vouched for it at a sign-in. Google vouches only for an address it answers for
   itself: a Gmail address, or the address of a Google Workspace account. A Google account
   can also be made with an address from somewhere else, and for that address Google's
@@ -456,13 +506,13 @@ link mailed to the confirmed address of their account.
 
 - An administrator sends the link from the person's row: the application's administrators
   to any account, a tenant's administrator to a person of the tenant. The message says
-  whose administrator asked.
+  whose administrator asked. A link to a Super Administrator's account is sent only by a
+  Super Administrator: the link changes how the account signs in.
 - A person asks for their own on the login page, under "Forgot your password?", only while
   the application lets them. That is a switch on the auth's Sign-in page, which an
-  administrator turns on and off while the application runs. It starts off. The switch is
-  there where the Sign-in page carries the choice of who may sign up. An auth without that
-  choice (its directory gives the roles, or it has tenants and its people do not create
-  one) has no switch yet, and its people ask an administrator.
+  administrator turns on and off while the application runs. It starts off. Every auth
+  that has the password method has the switch, whether or not its Sign-in page also
+  carries the choice of who may sign up.
 - The login page answers a person's own request the same way whether or not the address
   has an account. An address with no account is mailed nothing.
 - Sending a link changes nothing. The password the account has still signs in, and the
@@ -473,6 +523,10 @@ link mailed to the confirmed address of their account.
 - One address is sent at most five reset links in fifteen minutes, whoever asks. The next
   is refused for fifteen minutes, and an administrator who asked is told why. Sign-in
   codes are counted apart, so reset links never use up a person's codes.
+- The codes mailed to the address an account holds, at a sign-in, are counted by
+  themselves too. Mail that anybody can cause for an address (a sign-up, a change of
+  address, the address a person gives at a first sign-in) has another count, so a stranger
+  who types somebody's address cannot hold up that person's sign-in codes.
 - No link is sent to an account that has no password or no confirmed address. The
   administrator who asked is told so.
 - Turning the switch off stops new requests. A link a person asked for while it was on
@@ -600,8 +654,8 @@ Administrator role, so the first person in can invite the others and open a meth
 
 `--shape invite-only`, taken by `impulse add auth` and `impulse add method`.
 
-- **Gets an account**: only people an administrator invites, or creates an account for.
-  Everyone else is turned away, and nothing is written for them.
+- **Gets an account**: only people an administrator invites. Everyone else is turned
+  away, and nothing is written for them.
 - **Starts with**: the roles the administrator gives with the invitation.
 - **Managed by**: the application's administrators.
 
@@ -639,7 +693,10 @@ impulse new ./harbor --module example.com/harbor --auth staff
 The first administrator of a deployed environment is invited too. While nobody in the
 auth holds the Super Administrator role, the deployment mails an invitation that gives
 the role to the address in the setting `APP_<AUTH>_ADMINISTRATOR`
-(`APP_STAFF_ADMINISTRATOR` for an auth named `staff`). This holds for every auth whose
+(`APP_STAFF_ADMINISTRATOR` for an auth named `staff`). It is the one invitation that
+gives roles in two places: beside the Super Administrator role it gives the roles the
+auth names for its first administrator, each where the auth says it is held, for the
+whole application or in every tenant. This holds for every auth whose
 roles the application gives, so in every shape but
 [Directory roles](#3-directory-roles). It is described with `add auth` in
 [cmd/impulse/README.md](../cmd/impulse/README.md).
@@ -1022,17 +1079,16 @@ administrator has opened the method to sign-up, they get an account that holds n
 tenant, and can create a tenant of their own, as
 [Who can create a tenant](#who-can-create-a-tenant) describes.
 
-A person an administrator created an account for is not such a person. Their sign-in
-under the account's sign-in name is joined to the account, through any of the auth's
-methods. An account that has a password asks for it first. An account that has none, and
-has never signed in, is joined to the first sign-in under its name, as in an application
-without tenants. It is joined at once only where Google answers for the name: a Gmail
-address, or the address of a Google Workspace account. Through every other sign-in
-(Microsoft, another identity provider, or a Google account made with an address from
-somewhere else) the login page stops and asks for a code mailed to the address the
-account holds, and nothing is joined until the code is entered. An account that holds no
-address cannot be mailed a code, so that sign-in is refused: an administrator creates the
-account with the person's address.
+A person who has an account already is not such a person. Their sign-in under the account's
+sign-in name is joined to the account, through any of the auth's methods. An account that has a
+password asks for it first. An account that has none, and has never signed in, is joined to the
+first sign-in under its name, as in an application without tenants. It is joined at once only
+where Google answers for the name: a Gmail address, or the address of a Google Workspace
+account. Through every other sign-in (Microsoft, another identity provider, or a Google account
+made with an address from somewhere else) the login page stops and asks for a code mailed to the
+address the account holds, and nothing is joined until the code is entered. An account that
+holds no address cannot be mailed a code, so that sign-in is refused: an administrator creates
+the account with the person's address.
 
 Where the auth has no password method, nothing asks for a password: an account that has
 one is joined as an account that has none.
@@ -1121,14 +1177,14 @@ a tenant's administrator can do this much:
 
 | A tenant's administrator can | For whom |
 | --- | --- |
-| Invite a person, create an account in the tenant | Anyone. Where a person belongs to one tenant, anyone who is in no other tenant. |
-| Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited or has an account created there, with a role from the start. |
+| Invite a person | Anyone. Where a person belongs to one tenant, anyone who is in no other tenant. |
+| Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited, with a role from the start. |
 | Take away a role held in the tenant | Anyone in the tenant. A role a person holds in every tenant is not one tenant's to take. |
 | Withdraw an invitation | An invitation of the tenant that still stands |
 | See the name a person signs in with and their name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
 | See a person's email address, and whether they must choose a new password | A person who holds no role in another tenant or in every tenant (`heldElsewhere = false`) |
 | Send a password reset link | Everyone in the tenant who has a password and a confirmed email address |
-| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), set a temporary password, require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
+| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
 
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.
@@ -1214,9 +1270,9 @@ the rule, and manage any account from the whole application's side.
 `--shape tenant-owned-users-invite-only`, taken by `impulse new` and
 `impulse add tenancy`.
 
-- **Gets an account**: only people the tenant's administrator invites, or creates an
-  account for. A person belongs to one tenant, so an invitation from a second tenant is
-  refused, when it is sent or when it is accepted.
+- **Gets an account**: only people the tenant's administrator invites. A person belongs
+  to one tenant, so an invitation from a second tenant is refused, when it is sent or
+  when it is accepted.
 - **Starts with**: the roles the tenant's administrator gives with the invitation.
 - **Managed by**: the tenant's administrator.
 
@@ -1229,9 +1285,10 @@ the rule, and manage any account from the whole application's side.
 Any method can be used, and the methods are the same for every tenant. No tenant has a
 directory: an application made with this shape has tenants and no tenant directories, so
 a Google, Microsoft or other provider's method is a way for an invited person to sign in
-and nothing more. An invited person accepts by signing in with any of the auth's methods,
-with the invited email address (with Microsoft, only where the sign-in carries the
-person's address, as
+and nothing more. An invited person accepts by signing in with any of the auth's methods
+(with Google, the sign-in carries the invited email address; with Microsoft, or with
+another provider that does not vouch for the address it sends, the person is mailed a
+code at the invited address, as
 [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
 describes). A person from an organization's directory who has no account and no
 invitation joins no tenant, whichever methods the auth has, as
@@ -1341,8 +1398,9 @@ impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned
 - Before the application deploys, its author registers it at both providers, since each
   method needs a client id and a secret of its own.
 - The application's own people come by invitation and accept it through either method.
-  The first administrator's invitation is accepted the same way. An invitation is
-  accepted with Microsoft only where the sign-in carries the person's address, as
+  The first administrator's invitation is accepted the same way. A person who accepts
+  with Microsoft is mailed a code at the invited address, since Microsoft does not vouch
+  for the address a sign-in carries, as
   [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
   describes.
 - The command also registers the persona method, the sign-in of the test environments,

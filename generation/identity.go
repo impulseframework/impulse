@@ -78,8 +78,8 @@ type identityInstance struct {
 	rolesSynced bool
 	// invited marks an auth with a registration beside or instead of the password
 	// method, whose roles the application assigns: every such registration is invite
-	// only until an administrator opens it, so its people may exist before their first
-	// sign-in, created by hand with no password.
+	// only until an administrator opens it, so its people are invited before their
+	// first sign-in.
 	invited bool
 	// createsTenant marks the auth whose people create a tenant of their own: the
 	// application has a tenant record, and the session outlets that serve the record
@@ -344,14 +344,6 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	return inst, nil
 }
 
-// createsUsers reports whether the auth's people are created by hand: every auth whose
-// roles the application assigns, since each of its methods is invite only until an
-// administrator opens it. A directory that writes the roles takes it away, since a
-// person is created holding a role.
-func (inst *identityInstance) createsUsers() bool {
-	return (inst.password || inst.invited) && !inst.rolesSynced
-}
-
 // prepareIdentity derives the run's instances and writes their sources, the declarations
 // and the methods, before the packages are loaded: the load that follows reads them as
 // it reads the application's own.
@@ -386,7 +378,13 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseInvitationNamesTaken(); err != nil {
 			return err
 		}
+		if err := r.requireEveryTenantColumn(inst); err != nil {
+			return err
+		}
 		if err := r.requireNewTenantColumn(inst); err != nil {
+			return err
+		}
+		if err := r.requireMailFailedColumn(inst); err != nil {
 			return err
 		}
 		if err := r.refuseReservedRole(inst); err != nil {
@@ -626,21 +624,6 @@ func (d *identitySourceData) GivesRoles() bool {
 	return !d.rolesSynced && d.has(identityMemberships)
 }
 
-// PasswordOnCreate says what a create does with a password: "required" where the
-// password is the auth's one way in, "optional" beside another registration, through
-// which a person created with no password signs in, and "none" where the auth has no
-// password method.
-func (d *identitySourceData) PasswordOnCreate() string {
-	switch {
-	case !d.password:
-		return "none"
-	case d.invited:
-		return "optional"
-	default:
-		return "required"
-	}
-}
-
 // AuthImportPath is the auth package the instance was declared from.
 func (d *identitySourceData) AuthImportPath() string { return d.importPath }
 
@@ -702,7 +685,6 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	if inst.password {
 		files = append(files,
 			identitySourceFile{dir: inst.methods, name: fileStem("Require" + inst.auth + "PasswordChange"), template: identityRequirePasswordChangeTemplate, needs: []identityTable{identityUsers}},
-			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "TemporaryPassword"), template: identitySetTemporaryPasswordTemplate, needs: []identityTable{identityUsers}},
 			// The reset link is one of the links the auth mails, so the method is written
 			// where the schema holds them.
 			identitySourceFile{
@@ -726,24 +708,20 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "UserEmail"), template: identitySetUserEmailTemplate, needs: []identityTable{identityUsers}},
 		)
 	}
-	// A person is created by hand in every auth whose roles the application assigns:
-	// each of its methods is invite only until an administrator opens it. A person is
-	// created holding a role, so an auth whose directory writes the roles creates nobody
-	// here: the directory admits its own, and the first sign-in creates the row.
-	if inst.createsUsers() {
-		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Create" + inst.auth + "User"), template: identityCreateUserTemplate, needs: []identityTable{identityUsers, identityMemberships}})
-	}
 	// The memberships of an auth whose directory writes them are read here and written
 	// nowhere: a role assigned by hand would be gone at the person's next sign-in.
 	if !inst.rolesSynced {
 		files = append(files,
-			// An invitation gives a role, which the acceptance seats the person in.
+			// An invitation is how a person is added: nobody creates an account for
+			// someone else. It gives a role, which the acceptance seats the person in.
 			identitySourceFile{dir: inst.methods, name: fileStem("Invite" + inst.auth + "User"), template: identityInviteUserTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Withdraw" + inst.auth + "Invitation"), template: identityWithdrawInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Assign" + inst.auth + "Role"), template: identityAssignRoleTemplate, needs: []identityTable{identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)
 	}
+	// The roles those methods' role fields pick from, where the role is to be held.
+	files = append(files, r.givableRoleSources(inst)...)
 	// Who may sign in without an invitation: the list of the auth's sign-in methods and
 	// the two methods that open one to sign-up and make it invite only again.
 	files = append(files, r.signUpSources(inst)...)

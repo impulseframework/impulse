@@ -86,8 +86,6 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return []byte(`{"name":"password"}`)
 	case "SetSelfServiceReset":
 		return []byte(`{"on":true}`)
-	case "CreateUser":
-		return []byte(`{"username":"made-under-a-mask","email":"Made <made-under-a-mask@example.com>","roles":["Cadet"]}`)
 	default:
 		t.Fatalf("the generated collection classes %s access and this suite has no body for its act %s: add one to accessBody, so the method is proven refused under a mask with the others", action, act)
 
@@ -123,7 +121,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"AssignCrewRole", "RemoveCrewRole", "AssignCrewSectorRole", "RemoveCrewSectorRole", "TakeCrewRole",
 		"AddCrewGroupMember", "RemoveCrewGroupMember", "GiveCrewGroupRole", "TakeCrewGroupRole", "GiveCrewSectorGroupRole",
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
-		"CreateCrewUser", "OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
+		"OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
 		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "SetCrewSelfServiceReset", "CreateSector",
 		"SetSectorPilotClearance",
 	} {
@@ -142,9 +140,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 	giveMarshalStandIn(ctx, t, s)
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-user"), []byte(`{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}`))
-	assertStatus(t, status, http.StatusOK, body)
-	target := accesstypes.User(cell[string](t, decodeRow(t, body), "id"))
+	target := anvilsOwn(ctx, t, s)
 
 	type masked struct {
 		name    string

@@ -612,7 +612,7 @@ func TestFiles_tenantMaker(t *testing.T) {
 	carries := []string{
 		"\tTenantMaker identity.TenantMaker\n",
 		"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n",
-		"staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))",
+		"staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))",
 	}
 	policy := func(admitWithoutTenant bool) *TenantPolicy {
 		return &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: admitWithoutTenant}

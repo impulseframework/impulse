@@ -1,6 +1,6 @@
 package drivertest
 
-// An account can exist ahead of its first sign-in: an administrator creates a person
+// An account can exist ahead of its first sign-in: the application creates a person
 // and gives them a role before they have ever signed in, with no password where the
 // person is to sign in through a directory. Such an account has no password and no
 // link, so nothing but its name ties it to whoever signs in next under that name, and
@@ -78,8 +78,8 @@ func assertUntouched(ctx context.Context, t *testing.T, w *doorWorld, d AuthDriv
 func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 	const name = "dana@riverside.example"
 
-	// An administrator's create that gives no password: the account has neither a
-	// password nor a link, and holds the role it was created with, in Riverside.
+	// An account created ahead with no password: it has neither a password nor a link,
+	// and holds the role it was created with, in Riverside.
 	createdAhead := func(ctx context.Context, t *testing.T, w *doorWorld, in *AuthInstance) *dbtype.SessionUser {
 		t.Helper()
 
@@ -339,8 +339,8 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 		w := firstLinkWorld("Member")
 		in := w.start(ctx, t, h)
 
-		// An administrator's create with a temporary password, and the first
-		// administrator a deployment seeds, both hold a password: the link waits for it.
+		// An account created with a password, as one a seed or an import makes is, holds
+		// a password: the link waits for it.
 		dana := passwordUser(ctx, t, in.Driver, name)
 		w.seats.give(dana.ID, "riverside", "Teacher")
 		identity := throughProvider("sub-claimed", name, name)

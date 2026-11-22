@@ -245,6 +245,8 @@ type db interface {
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeMailLink marks the live mail link id consumed at now; NotFound when it is not live.
 	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
+	// FailMailLink marks the live mail link id consumed at now, and as one whose message could not be mailed; NotFound when it is not live.
+	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	// SetTokensTableName sets the name of the tokens table.
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table.
@@ -355,9 +357,6 @@ type db interface {
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
 	// UpgradeUserPasswordHash replaces the proven password hash with hash while the row still holds it, leaving the password change mark as it is.
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	// ReplaceUserPassword updates the user password hash and the password change mark, whatever the row holds, and expires
-	// the user's sessions, in one transaction.
-	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
 	// sessions, in one transaction, while the row still holds the proven hash.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error

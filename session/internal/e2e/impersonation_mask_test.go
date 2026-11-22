@@ -58,8 +58,8 @@ func maskCredentialActions() []accesstypes.Resource {
 		"RemoveStaffPassword",
 		"RenameStaffUser",
 		"RequireStaffPasswordChange",
-		"SetStaffTemporaryPassword",
-		"SetStaffTenantTemporaryPassword",
+		"SendStaffTenantUserPasswordResetLink",
+		"SendStaffUserPasswordResetLink",
 		"SetStaffUserEmail",
 		"UnlinkStaffSessionIdentity",
 	}
@@ -733,9 +733,9 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			wantColumn: "*;-class:credential;-class:money_movement;-on:Execute:EndStaffUserSessions",
 			wantWords:  "everything except credential actions, money_movement actions and the action EndStaffUserSessions",
 			refused: map[accesstypes.Resource]string{
-				"SetStaffTemporaryPassword": "Execute denied by mask (*;-class:credential;-class:money_movement;-on:Execute:EndStaffUserSessions) for alice on SetStaffTemporaryPassword: the mask refuses the class credential",
-				wireFunds:                   "on WireFunds: the mask refuses the class money_movement",
-				"EndStaffUserSessions":      "on EndStaffUserSessions: the mask refuses Execute on EndStaffUserSessions",
+				"SendStaffUserPasswordResetLink": "Execute denied by mask (*;-class:credential;-class:money_movement;-on:Execute:EndStaffUserSessions) for alice on SendStaffUserPasswordResetLink: the mask refuses the class credential",
+				wireFunds:                        "on WireFunds: the mask refuses the class money_movement",
+				"EndStaffUserSessions":           "on EndStaffUserSessions: the mask refuses Execute on EndStaffUserSessions",
 			},
 		},
 		{
@@ -745,7 +745,7 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			wantColumn: "*;-on:Execute:SetStaffUserEmail",
 			wantWords:  "everything except the action SetStaffUserEmail",
 			refused:    map[accesstypes.Resource]string{"SetStaffUserEmail": "on SetStaffUserEmail: the mask refuses Execute on SetStaffUserEmail"},
-			kept:       []accesstypes.Resource{"SetStaffTemporaryPassword", "RenameStaffUser", wireFunds, "EndStaffUserSessions"},
+			kept:       []accesstypes.Resource{"SendStaffUserPasswordResetLink", "RenameStaffUser", wireFunds, "EndStaffUserSessions"},
 		},
 		{
 			name:       "the class access under a grant that gives everything: the sign-in settings and the making of a tenant",

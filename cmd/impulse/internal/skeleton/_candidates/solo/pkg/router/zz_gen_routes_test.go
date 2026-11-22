@@ -522,6 +522,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-givable-roles", method: http.MethodGet,
+			handlerFunc: "StaffGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-givable-roles", method: http.MethodPost,
+			handlerFunc: "StaffGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-methods", method: http.MethodGet,
 			handlerFunc: "StaffSignInMethods",
 			parameters:  map[string]string{},
@@ -654,10 +664,6 @@ func (s *generatedHandlersStub) CreateStaffGroup() http.HandlerFunc {
 	return s.record("CreateStaffGroup")
 }
 
-func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
-	return s.record("CreateStaffUser")
-}
-
 func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {
 	return s.record("DeleteStaffGroup")
 }
@@ -758,16 +764,16 @@ func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
 	return s.record("SetStaffSelfServiceReset")
 }
 
-func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {
-	return s.record("SetStaffTemporaryPassword")
-}
-
 func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 	return s.record("SetStaffUserEmail")
 }
 
 func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
 	return s.record("SetStaffUserName")
+}
+
+func (s *generatedHandlersStub) StaffGivableRoles() http.HandlerFunc {
+	return s.record("StaffGivableRoles")
 }
 
 func (s *generatedHandlersStub) StaffGroups() http.HandlerFunc {

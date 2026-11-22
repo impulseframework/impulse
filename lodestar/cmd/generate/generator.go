@@ -31,7 +31,7 @@ func NewGenerator(ctx context.Context) (generation.Generator, error) {
 		// roles a sector picks from: a computed resource the permission engine answers,
 		// which the Sector Marshal's grant trims by a condition on the role's name.
 		//
-		// Demonstrates: auth.generated-identity, auth.tenant-lists, auth.tenant-methods, auth.tenant-role-picker, condition.list-attribute, computed.row-condition.
+		// Demonstrates: auth.generated-identity, auth.tenant-lists, auth.tenant-methods, auth.tenant-role-picker, auth.role-picker, condition.list-attribute, computed.row-condition.
 		generation.GenerateIdentity("pkg/identity"),
 		// The router is generated: the default outlet is the console, the crew auth's
 		// sessions under /console/api, opened with a password or through the fleet's

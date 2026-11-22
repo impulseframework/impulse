@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
@@ -216,7 +217,8 @@ func newReadsApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *rea
 
 	_, library := be.newStore(ctx, t)
 	store := &overridingStore[Tx]{AuthStore: library}
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData, Tx](store, cookieKey, session.NoSuperAdministrators())
+	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData, Tx](store, cookieKey, session.NoSuperAdministrators(),
+		session.MailSettings{Sender: &mail.Recorder{}, Application: "Lakeside", LoginURL: "https://app.example/login"})
 	if err != nil {
 		t.Fatalf("session.NewAuth() over a store that wraps the library's error = %v", err)
 	}

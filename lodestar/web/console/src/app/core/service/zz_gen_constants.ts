@@ -24,6 +24,7 @@ export const Resources = {
   Clients: 'Clients' as Resource,
   Commendations: 'Commendations' as Resource,
   Consignments: 'Consignments' as Resource,
+  CrewGivableRoles: 'CrewGivableRoles' as Resource,
   CrewGroupMembers: 'CrewGroupMembers' as Resource,
   CrewGroupRoles: 'CrewGroupRoles' as Resource,
   CrewGroupUsers: 'CrewGroupUsers' as Resource,
@@ -125,8 +126,6 @@ export const Methods = {
   CompleteMission: 'CompleteMission' as Method,
   CreateCrewGroup: 'CreateCrewGroup' as Method,
   CreateCrewSectorGroup: 'CreateCrewSectorGroup' as Method,
-  CreateCrewSectorUser: 'CreateCrewSectorUser' as Method,
-  CreateCrewUser: 'CreateCrewUser' as Method,
   DeleteCrewGroup: 'DeleteCrewGroup' as Method,
   DeleteCrewSectorGroup: 'DeleteCrewSectorGroup' as Method,
   DeleteCrewSectorUser: 'DeleteCrewSectorUser' as Method,
@@ -188,11 +187,9 @@ export const Methods = {
   ScrapShip: 'ScrapShip' as Method,
   SendCrewSectorUserPasswordResetLink: 'SendCrewSectorUserPasswordResetLink' as Method,
   SendCrewUserPasswordResetLink: 'SendCrewUserPasswordResetLink' as Method,
-  SetCrewSectorTemporaryPassword: 'SetCrewSectorTemporaryPassword' as Method,
   SetCrewSectorUserEmail: 'SetCrewSectorUserEmail' as Method,
   SetCrewSectorUserName: 'SetCrewSectorUserName' as Method,
   SetCrewSelfServiceReset: 'SetCrewSelfServiceReset' as Method,
-  SetCrewTemporaryPassword: 'SetCrewTemporaryPassword' as Method,
   SetCrewUserEmail: 'SetCrewUserEmail' as Method,
   SetCrewUserName: 'SetCrewUserName' as Method,
   SetMembersSectorUserEmail: 'SetMembersSectorUserEmail' as Method,
@@ -336,6 +333,25 @@ export namespace Consignments {
     mass: 'Consignments.mass' as Resource,
     releasedAt: 'Consignments.releasedAt' as Resource,
     sectorId: 'Consignments.sectorId' as Resource,
+  };
+}
+
+export namespace CrewGivableRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+    group: 'group' as FieldName,
+    method: 'method' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'CrewGivableRoles.description' as Resource,
+    domain: 'CrewGivableRoles.domain' as Resource,
+    everyDomain: 'CrewGivableRoles.everyDomain' as Resource,
+    group: 'CrewGivableRoles.group' as Resource,
+    method: 'CrewGivableRoles.method' as Resource,
+    name: 'CrewGivableRoles.name' as Resource,
   };
 }
 
@@ -753,10 +769,12 @@ export namespace CrewSectorInvitations {
 export namespace CrewSectorRoles {
   export const fieldName = {
     description: 'description' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'CrewSectorRoles.description' as Resource,
+    method: 'CrewSectorRoles.method' as Resource,
     name: 'CrewSectorRoles.name' as Resource,
   };
 }
@@ -957,10 +975,12 @@ export namespace CrewSessionMailLinks {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
     email: 'email' as FieldName,
+    everyTenant: 'everyTenant' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
+    mailFailedAt: 'mailFailedAt' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
@@ -970,10 +990,12 @@ export namespace CrewSessionMailLinks {
     consumedAt: 'CrewSessionMailLinks.consumedAt' as Resource,
     createdAt: 'CrewSessionMailLinks.createdAt' as Resource,
     email: 'CrewSessionMailLinks.email' as Resource,
+    everyTenant: 'CrewSessionMailLinks.everyTenant' as Resource,
     expiresAt: 'CrewSessionMailLinks.expiresAt' as Resource,
     id: 'CrewSessionMailLinks.id' as Resource,
     invitedByUserId: 'CrewSessionMailLinks.invitedByUserId' as Resource,
     kind: 'CrewSessionMailLinks.kind' as Resource,
+    mailFailedAt: 'CrewSessionMailLinks.mailFailedAt' as Resource,
     name: 'CrewSessionMailLinks.name' as Resource,
     roleNames: 'CrewSessionMailLinks.roleNames' as Resource,
     tenantId: 'CrewSessionMailLinks.tenantId' as Resource,
@@ -1662,10 +1684,12 @@ export namespace MembersSessionMailLinks {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
     email: 'email' as FieldName,
+    everyTenant: 'everyTenant' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
+    mailFailedAt: 'mailFailedAt' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
@@ -1675,10 +1699,12 @@ export namespace MembersSessionMailLinks {
     consumedAt: 'MembersSessionMailLinks.consumedAt' as Resource,
     createdAt: 'MembersSessionMailLinks.createdAt' as Resource,
     email: 'MembersSessionMailLinks.email' as Resource,
+    everyTenant: 'MembersSessionMailLinks.everyTenant' as Resource,
     expiresAt: 'MembersSessionMailLinks.expiresAt' as Resource,
     id: 'MembersSessionMailLinks.id' as Resource,
     invitedByUserId: 'MembersSessionMailLinks.invitedByUserId' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
+    mailFailedAt: 'MembersSessionMailLinks.mailFailedAt' as Resource,
     name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
     tenantId: 'MembersSessionMailLinks.tenantId' as Resource,
@@ -2291,9 +2317,9 @@ export namespace AddCrewSectorGroupMember {
 export namespace AssignCrewRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
-    role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
     reason: 'reason' as FieldName,
@@ -2362,28 +2388,6 @@ export namespace CreateCrewSectorGroup {
   export const fieldName = {
     name: 'name' as FieldName,
     description: 'description' as FieldName,
-  };
-}
-
-export namespace CreateCrewSectorUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
-export namespace CreateCrewUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    roles: 'roles' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 
@@ -2543,9 +2547,9 @@ export namespace FailMission {
 export namespace GiveCrewGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
-    role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
   };
@@ -2603,8 +2607,9 @@ export namespace InviteCrewUser {
   export const fieldName = {
     email: 'email' as FieldName,
     name: 'name' as FieldName,
-    roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+    roles: 'roles' as FieldName,
   };
 }
 
@@ -2789,13 +2794,6 @@ export namespace SendCrewUserPasswordResetLink {
   };
 }
 
-export namespace SetCrewSectorTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
-  };
-}
-
 export namespace SetCrewSectorUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -2813,13 +2811,6 @@ export namespace SetCrewSectorUserName {
 export namespace SetCrewSelfServiceReset {
   export const fieldName = {
     on: 'on' as FieldName,
-  };
-}
-
-export namespace SetCrewTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
   };
 }
 

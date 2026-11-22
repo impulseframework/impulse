@@ -27,24 +27,32 @@ import (
 // adds, the link a sign-up starts from, the link that resets a password, the link that
 // confirms an address an administrator asked to put on an account, and the notices that
 // tell a person their account changed, which carry no link. Each of the others is one
-// plain-text message with one link in it, to the login page with the link's token as a query parameter, which the
-// page posts back to the route that completes the step. A message reads as
+// plain-text message with one link in it, to the login page with the link's token in
+// the URL's fragment, which the page posts back to the route that completes the step. A message reads as
 // instructions: what the person did, the link to open and how long it is good for,
 // then, under headings of their own, what to do if it was not them and a word to keep
 // the link to themselves. The library writes to the mail.Sender interface and knows
 // nothing of the mail system behind it; see "Sending mail" in the README.
 
-// MailSettings is how the Auth sends mail: through sender, as the application, with
-// links to its login page.
+// MailSettings is how the Auth sends mail: through Sender, as the application, with
+// links to its login page. NewAuth takes it as an argument, since every Auth sends
+// mail: its invitations (AuthAPI.Invite, Invitation()), the add-address step (Email()),
+// sign-up (SignUp()), password resets and the codes of its sign-ins all go by mail.
+// NewAuth refuses a nil sender, an empty application name and a login URL that is not
+// an absolute http or https URL.
 type MailSettings struct {
+	// Sender delivers the messages: mail/workspace is the Google Workspace relay, and
+	// mail.Log writes them to the log in development.
+	Sender mail.Sender
 	// Application is the application's name as the messages say it ("Harbor").
 	Application string
 	// LoginURL is the absolute URL of the application's login page
-	// (https://harbor.example.com/login), where every mailed link leads: with
-	// ?invitation=<token> for an invitation, ?verify=<token> for an address
-	// verification, ?signUp=<token> for a sign-up, ?reset=<token> for a password reset
-	// and ?address=<token> for an address an administrator asked to change. The page
-	// posts the token to the matching route.
+	// (https://harbor.example.com/login), where every mailed link leads, its token in
+	// the fragment, which a browser sends to no server: #invitation=<token> for an
+	// invitation, #verify=<token> for an address verification, #signUp=<token> for a
+	// sign-up, #reset=<token> for a password reset and #address=<token> for an address
+	// an administrator asked to change. The page takes the token out of the address
+	// and posts it to the matching route.
 	LoginURL string
 	// InvitationTimeout is how long an invitation stands; zero is seven days.
 	InvitationTimeout time.Duration
@@ -58,12 +66,23 @@ const (
 	defaultLinkTimeout       = 24 * time.Hour
 )
 
-// mailLimit bounds the sign-in codes and links one address is sent and does not use:
-// five within fifteen minutes, then none for fifteen minutes. It is kept in the sign-in
-// attempts table under the address (mailLimitKey), as a name's failed attempts are. A
-// code or link that is used resets the address (clearMailLimit), so a person who uses
-// what they are sent never meets the limit; it stops mail asked for over and over and
-// never used.
+// mailLimit bounds the sign-in codes and links that are sent and not used: five within
+// fifteen minutes, then none for fifteen minutes. It is kept in the sign-in attempts
+// table, as a name's failed attempts are, in three counts. The codes of an address's
+// own sign-ins are counted by themselves under the address (codeLimitKey): only a
+// person past the first step of the account that holds the address has one sent. The
+// codes that accept an invitation are counted under that invitation
+// (invitationCodeLimitKey) and under no address: whoever holds the invitation's link
+// has them sent, and a mailed link can be forwarded, so a stranger who holds one runs
+// up the invitation's count alone. Everything else is counted together under the
+// address (mailLimitKey), and anybody who knows the address can run that count up: a
+// sign-up started for it, a link asked to add it to an account, a code asked for it by
+// a person whose account holds no address yet. Kept apart, nothing a stranger asks for
+// in a person's name, or with a link mailed to them, holds up the codes that person
+// signs in with. A code or link that is used resets the counts it was sent under
+// (clearMailLimit, clearCodeLimit, clearInvitationCodeLimit), so a person who uses what
+// they are sent never meets the limit; it stops mail asked for over and over and never
+// used.
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
 // mailLimitKey is the address's key in the sign-in attempts table: the address folded
@@ -76,33 +95,81 @@ func mailLimitKey(email string) string {
 	return attempts.OwnKey(attempts.KindMail, attempts.Normalize(email))
 }
 
+// codeLimitKey is the key of the address's sign-in codes in the sign-in attempts table,
+// folded as mailLimitKey folds it and under a kind of its own.
+func codeLimitKey(email string) string {
+	return attempts.OwnKey(attempts.KindCode, attempts.Normalize(email))
+}
+
+// invitationCodeLimitKey is the key, in the sign-in attempts table, of the codes sent to
+// accept the invitation inv: the invitation's id under a kind of its own, so the count
+// is that invitation's and no address's.
+func invitationCodeLimitKey(inv *sessioninfo.Invitation) string {
+	return attempts.OwnKey(attempts.KindInvitation, inv.ID.String())
+}
+
+// invitationGuessLimit is the budget of codes entered to accept one invitation:
+// twenty-five, and then the invitation takes no more. The code mailed to the invited
+// address is the only thing between the holder of an invitation's link and the account,
+// the address and the roles the invitation gives, and mailLimit alone lets its holder
+// guess again every fifteen minutes for as long as the invitation stands. This count
+// does not start again: it is kept in the sign-in attempts table under the invitation
+// (invitationGuessKey), and its window and its lock (invitationGuessHorizon) outlast
+// every invitation, so the codes entered in every sign-in that carried the invitation,
+// whenever they were entered, are one count, and an invitation that reached the limit
+// stays closed to codes. Nothing resets it; an administrator answers a spent invitation
+// by inviting again.
+var invitationGuessLimit = sessionstorage.SignInAttemptLimit{Failures: 25, Window: invitationGuessHorizon, Lock: invitationGuessHorizon}
+
+// invitationGuessHorizon is how long the count of the codes entered for an invitation
+// is kept, and how long an invitation that reached the limit stays closed: a hundred
+// years, which no invitation lives.
+const invitationGuessHorizon = 100 * 365 * 24 * time.Hour
+
+// invitationGuessKey is the key, in the sign-in attempts table, of the codes entered to
+// accept the invitation inv: the invitation's id under a kind of its own, apart from
+// the count of the codes sent for it (invitationCodeLimitKey).
+func invitationGuessKey(inv *sessioninfo.Invitation) string {
+	return invitationGuessKeyOf(inv.ID)
+}
+
+// invitationGuessKeyOf is invitationGuessKey for the invitation with id: a code names
+// the invitation it was mailed for by its id (dbtype.FactorCode.InvitationID).
+func invitationGuessKeyOf(id impulse.UUID) string {
+	return attempts.OwnKey(attempts.KindInvitationGuess, id.String())
+}
+
+// errInvitationSpent is the refusal of a code asked for or entered to accept an
+// invitation that takes no more codes (invitationGuessLimit).
+func errInvitationSpent() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvitationSpent,
+		httpio.NewUnauthorizedMessage("This invitation can't be used any more. Ask the person who invited you to send a new one."))
+}
+
+// errInvitationNotOpen is the refusal of a code mailed for an invitation and entered in
+// a browser that does not have that invitation open (carriesInvitation).
+func errInvitationNotOpen() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvitationNotOpen,
+		httpio.NewUnauthorizedMessage("This code belongs to an invitation that is not open in this browser. Open the link in your invitation again, then enter the code."))
+}
+
 // mailSettings are the Auth's mail settings once validated.
 type mailSettings struct {
 	sender   mail.Sender
 	settings MailSettings
 }
 
-// WithMail gives the Auth the means to send mail: sender delivers the messages
-// (mail/workspace is the Google Workspace relay), and settings say as whom and where
-// the links lead. It is needed by invitations (AuthAPI.Invite, Invitation()), the
-// add-address step (Email()) and sign-up (SignUp(), while an administrator has the
-// password method open to it); an Auth without it offers none of them. NewAuth refuses a nil sender, an
-// empty application name and a login URL that is not an absolute http or https URL.
-func WithMail(sender mail.Sender, settings MailSettings) AuthOption {
-	return authOption{apply: func(s *authSettings) { s.mail = &mailSettings{sender: sender, settings: settings} }}
-}
-
 // validate refuses settings the Auth cannot send with and fills the defaults.
 func (m *mailSettings) validate() error {
 	if m.sender == nil {
-		return errors.New("WithMail: the sender is nil: pass a mail.Sender, such as workspace.New")
+		return errors.New("MailSettings: the sender is nil: every Auth sends mail, so set Sender to a mail.Sender, such as workspace.New")
 	}
 	if strings.TrimSpace(m.settings.Application) == "" {
-		return errors.New("WithMail: the application name is empty: the messages name the application")
+		return errors.New("MailSettings: the application name is empty: the messages name the application")
 	}
 	u, err := url.Parse(m.settings.LoginURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.Fragment != "" {
-		return errors.Newf("WithMail: the login URL %q is not an absolute http or https URL without a fragment: the mailed links lead to the login page", m.settings.LoginURL)
+		return errors.Newf("MailSettings: the login URL %q is not an absolute http or https URL without a fragment: the mailed links lead to the login page", m.settings.LoginURL)
 	}
 	if m.settings.InvitationTimeout <= 0 {
 		m.settings.InvitationTimeout = defaultInvitationTimeout
@@ -114,14 +181,13 @@ func (m *mailSettings) validate() error {
 	return nil
 }
 
-// link renders the login page URL that carries token under param.
+// link renders the login page URL that carries token under param, in the URL's
+// fragment. A browser keeps a fragment to itself: it is in no request line, so the
+// token reaches no server's or proxy's request log, and in no Referer header. The page
+// reads the token from the fragment, takes it out of the address at once, and posts it
+// in the body of the request that uses it. Every kind of mailed link is built here.
 func (m *mailSettings) link(param, token string) string {
-	sep := "?"
-	if strings.Contains(m.settings.LoginURL, "?") {
-		sep = "&"
-	}
-
-	return m.settings.LoginURL + sep + param + "=" + url.QueryEscape(token)
+	return m.settings.LoginURL + "#" + param + "=" + url.QueryEscape(token)
 }
 
 // goodFor renders how long a link is good for in everyday words: minutes under an
@@ -215,6 +281,29 @@ func (m *mailSettings) addressHeldMessage(to string) mail.Message {
 
 If that was you, you have two %s accounts, and this address can be on only one of them. Sign in to the account it is on now.
 If you would rather use it on the other account, change the address on this one first, then add it there.
+
+Didn't do this?
+If you did not try to add this address, ignore this message. Nothing changes.
+`, app, app),
+	}
+}
+
+// addressInvitedMessage is the mail sent when an address that an invitation which
+// stands was mailed to is typed at the sign-in code's step of an account: no code is
+// mailed, the mailbox's owner learns that nothing changed and that the address is added
+// to an account as the invitation is accepted, is told how to do that if it was them
+// (open the invitation's link, sign in there, enter the code then mailed), then what to
+// do if it was not them.
+func (m *mailSettings) addressInvitedMessage(to string) mail.Message {
+	app := m.settings.Application
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your email address and %s", app),
+		Text: fmt.Sprintf("Someone just tried to add this address to a %s account. "+
+			`Nothing was changed: an invitation to %s is waiting for this address, and the address is added to an account when that invitation is accepted.
+
+If that was you, open the link in your invitation and sign in to your account there. A code is then mailed to this address, and entering it accepts the invitation and adds the address to your account.
 
 Didn't do this?
 If you did not try to add this address, ignore this message. Nothing changes.
@@ -447,6 +536,39 @@ Nobody from %s will ask you for it. Don't share it.
 	}
 }
 
+// invitationCodeMessage is the mail that carries the code an invitation is accepted
+// with: the code, that it accepts the invitation sent to this address, where to enter it
+// and how long it is good for (lifetime), then what it means if the person did not open
+// the invitation themselves, and a word to keep the code to oneself. The code is mailed
+// only once a browser that carries the invitation's link is at the code's step, so a
+// person who did not open the invitation learns here that somebody else holds its link.
+// Nothing in it speaks of a password: the person invited may have no account yet. The
+// code is spaced in the middle for reading.
+func (m *mailSettings) invitationCodeMessage(to, code string, lifetime time.Duration) mail.Message {
+	app := m.settings.Application
+	spaced := code
+	if len(code) == emailCodeLength {
+		spaced = code[:emailCodeLength/2] + " " + code[emailCodeLength/2:]
+	}
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your code to accept your invitation to %s is %s", app, spaced),
+		Text: fmt.Sprintf(`Your code to accept your invitation to %s is:
+
+%s
+
+It accepts the invitation to %s that was sent to this address. Enter it on the page that asked you for it. The code is good for %s.
+
+Didn't do this?
+If you did not open your invitation yourself, someone else has its link. Don't give the code to anyone, and tell the person who invited you.
+
+Keep the code to yourself
+Only you should enter it. Nobody from %s will ask you for it. Don't share it.
+`, app, spaced, app, goodFor(lifetime), app),
+	}
+}
+
 // firstPasswordMessage is the mail that carries the code of a person's first password:
 // the code, where to enter it and how long it is good for (lifetime), then what to do
 // if they did not ask: someone at a browser they left signed in asked, and without the
@@ -476,34 +598,13 @@ Nobody from %s will ask you for it. Don't share it.
 	}
 }
 
-// mailOf returns the Auth's mail settings, or an error for an Auth without mail.
-func (a *Auth[S, U, Tx]) mailOf() (*mailSettings, error) {
-	if a.settings.mail == nil {
-		return nil, errors.New("the Auth sends no mail: pass WithMail to NewAuth")
-	}
-
-	return a.settings.mail, nil
-}
-
-// requireMail is mailOf for the handler groups that need mail: a wiring mistake
-// panics, as a misregistered method does.
-func (a *Auth[S, U, Tx]) requireMail(group string) {
-	if a.settings.mail == nil {
-		panic(fmt.Sprintf("session: %s needs mail, which this Auth does not send: pass WithMail to NewAuth", group))
-	}
-}
-
 // send delivers msg through the configured sender. A failure is reported to the person
 // as the message not having been sent, never with the mail system's words.
 func (a *Auth[S, U, Tx]) send(ctx context.Context, msg mail.Message) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
-	if err := m.sender.Send(ctx, msg); err != nil {
+	if err := a.settings.mail.sender.Send(ctx, msg); err != nil {
 		return httpio.NewInternalServerErrorMessageWithError(errors.Wrap(err, "mail.Sender.Send()"), "the message could not be sent")
 	}
 
@@ -534,15 +635,150 @@ func optionalAddress(email *string) (*string, error) {
 	return &bare, nil
 }
 
-// limitMail bounds the codes and links sent to an address (mailLimit): the address's
-// record in the sign-in attempts table counts each one, and an address at the limit is
-// refused with too_many_emails and the wait. A request takes its place under the limit
-// before anything is mailed: the store counts it in one transaction and says whether it
-// was counted (dbtype.SignInAttempts.Counted), and a request that was not, because the
+// limitMail bounds the links, notices and codes sent to an address that anybody who
+// knows the address can ask for (mailLimit, under mailLimitKey): the address's record
+// in the sign-in attempts table counts each one, and an address at the limit is refused
+// with too_many_emails and the wait. A request takes its place under the limit before
+// anything is mailed: the store counts it in one transaction and says whether it was
+// counted (dbtype.SignInAttempts.Counted), and a request that was not, because the
 // address is at the limit already, mails nothing. Requests made at once are so each
 // counted, and no more of them than the limit are ever mailed.
 func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
-	record, err := a.storage.RecordSignInFailure(ctx, mailLimitKey(email), mailLimit)
+	return a.limitSent(ctx, mailLimitKey(email))
+}
+
+// limitCode bounds the sign-in codes sent to the address an account holds, as limitMail
+// bounds the address's other mail, in a count of its own (codeLimitKey): what a
+// stranger asks for in the address's name never uses up the codes its person signs in
+// with.
+func (a *Auth[S, U, Tx]) limitCode(ctx context.Context, email string) error {
+	return a.limitSent(ctx, codeLimitKey(email))
+}
+
+// limitInvitationCode bounds the codes sent to accept the invitation inv, as limitMail
+// bounds an address's mail, in the invitation's own count (invitationCodeLimitKey): the
+// holder of a forwarded link uses up that invitation's codes and nothing of the invited
+// person's own sign-in. An invitation that takes no more codes (invitationSpent) is
+// mailed none, and is refused before the count is touched.
+func (a *Auth[S, U, Tx]) limitInvitationCode(ctx context.Context, inv *sessioninfo.Invitation) error {
+	if err := a.invitationSpent(ctx, inv); err != nil {
+		return err
+	}
+
+	return a.limitSent(ctx, invitationCodeLimitKey(inv))
+}
+
+// invitationSpent refuses the invitation inv once the codes entered for it reached the
+// limit (invitationGuessLimit), with invitation_spent.
+func (a *Auth[S, U, Tx]) invitationSpent(ctx context.Context, inv *sessioninfo.Invitation) error {
+	record, err := a.storage.SignInAttempts(ctx, invitationGuessKey(inv))
+	if err != nil && !httpio.HasNotFound(err) {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
+	}
+	if _, locked := record.Locked(time.Now()); locked {
+		return errInvitationSpent()
+	}
+
+	return nil
+}
+
+// takeInvitationGuess takes the place of a code entered for the pending MFA wait p in
+// the count of the invitation the code accepts (invitationGuessLimit), before the code
+// is judged: the store counts it in one transaction and says whether it was counted,
+// and a code that was not, because the invitation had reached the limit already, is
+// refused with invitation_spent and compared with nothing. Codes entered at once are
+// each counted, so no more than the limit are ever judged for one invitation, in
+// however many sign-ins. last reports that this code took the last place, so a wrong
+// one is answered as the invitation spent. Every code takes a place, the right one too:
+// an invitation it accepts takes no more codes anyway.
+//
+// The invitation is the one the standing code was mailed for (standing's InvitationID),
+// whatever the request carries: a browser that drops the invitation, or carries another
+// one, still uses up that invitation's places and nobody else's. Such a code is judged
+// only in a browser that carries that same invitation, live (carriesInvitation): in any
+// other it is refused once its place is taken, compared with nothing, and nothing is
+// written.
+//
+// A code that names no invitation is the account's own. It, and a code entered while
+// none stands (standing is nil), takes a place only in a browser that carries an
+// invitation the wait's code would be mailed for (codeDestination), in that
+// invitation's count. The code of a wait whose invitation is gone is answered as it
+// always was.
+func (a *Auth[S, U, Tx]) takeInvitationGuess(ctx context.Context, p *pendingState, standing *sessionstorage.FactorCode) (last bool, err error) {
+	if standing != nil && standing.InvitationID.Valid {
+		last, err := a.countInvitationGuess(ctx, standing.InvitationID.UUID)
+		if err != nil {
+			return false, err
+		}
+		if err := a.carriesInvitation(ctx, standing.InvitationID.UUID); err != nil {
+			return false, err
+		}
+
+		return last, nil
+	}
+	if _, carried := invitationTokenHash(ctx); !carried {
+		return false, nil
+	}
+	_, inv, err := a.codeDestination(ctx, p)
+	if err != nil {
+		if sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedPendingExpired {
+			return false, nil
+		}
+
+		return false, err
+	}
+	if inv == nil {
+		return false, nil
+	}
+
+	return a.countInvitationGuess(ctx, inv.ID)
+}
+
+// countInvitationGuess counts one code entered for the invitation with id, and reports
+// whether it took the last place. A code that is not counted, the invitation being at
+// its limit already, is refused with invitation_spent.
+func (a *Auth[S, U, Tx]) countInvitationGuess(ctx context.Context, id impulse.UUID) (last bool, err error) {
+	record, err := a.storage.RecordSignInFailure(ctx, invitationGuessKeyOf(id), invitationGuessLimit)
+	if err != nil {
+		return false, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		return false, errInvitationSpent()
+	}
+	_, locked := record.Locked(time.Now())
+
+	return locked, nil
+}
+
+// carriesInvitation refuses a code mailed for the invitation with id in a browser that
+// does not carry that invitation, live. One that carries no invitation, or another one
+// that is live, does not have the code's invitation open, and is answered so
+// (invitation_not_open): the person opens the invitation's link again and enters the
+// code. One whose invitation was used, withdrawn or ran out is answered as an
+// invitation that ended (invitation_expired). The code is that invitation's acceptance
+// or it is nothing: no account's second factor, and no proof of an address to write.
+func (a *Auth[S, U, Tx]) carriesInvitation(ctx context.Context, id impulse.UUID) error {
+	if _, carried := invitationTokenHash(ctx); !carried {
+		return errInvitationNotOpen()
+	}
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return err
+	}
+	if inv == nil {
+		return errInvitationEnded()
+	}
+	if inv.ID != id {
+		return errInvitationNotOpen()
+	}
+
+	return nil
+}
+
+// limitSent takes a message's place under the mail limit in the count kept under key,
+// and refuses it with too_many_emails and the wait when the count is at the limit.
+func (a *Auth[S, U, Tx]) limitSent(ctx context.Context, key string) error {
+	record, err := a.storage.RecordSignInFailure(ctx, key, mailLimit)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
 	}
@@ -564,6 +800,22 @@ func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 	}
 }
 
+// clearCodeLimit resets the count of the address's sign-in codes once one is used, as
+// clearMailLimit resets the address's other mail.
+func (a *Auth[S, U, Tx]) clearCodeLimit(ctx context.Context, email string) {
+	if err := a.storage.ClearSignInAttempts(ctx, codeLimitKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
+}
+
+// clearInvitationCodeLimit resets the count of the codes sent to accept inv once one is
+// used, as clearMailLimit resets an address's mail.
+func (a *Auth[S, U, Tx]) clearInvitationCodeLimit(ctx context.Context, inv *sessioninfo.Invitation) {
+	if err := a.storage.ClearSignInAttempts(ctx, invitationCodeLimitKey(inv)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
+}
+
 // minPasswordLength is the shortest password any path sets.
 const minPasswordLength = 8
 
@@ -571,11 +823,11 @@ const minPasswordLength = 8
 // shorter than eight characters, counted as characters and not as the bytes that
 // encode them. Every path that sets a password is held to it, since
 // each hashes the password through hashToSet: a sign-up and an invitation's acceptance,
-// a person's first password, their own change, a password set or reset for them, an
-// account created with one, and the hash the generated user management asks for
-// (AuthAPI.HashPassword). A path that judges the password before other work calls it
-// first as well, so a refused password costs nothing. The rules beyond the length are
-// the application's, on its page.
+// a person's first password, their own change, the password a reset link ends in, one
+// set at the end of a flow of the application's own, and an account created with one.
+// A path that judges the password before other work calls it first as well, so a
+// refused password costs nothing. The rules beyond the length are the application's,
+// on its page.
 func acceptedPassword(password string) error {
 	if utf8.RuneCountInString(password) < minPasswordLength {
 		return httpio.NewBadRequestMessagef("the password is at least %d characters", minPasswordLength)
@@ -654,5 +906,5 @@ var tokenDecoder = sessioncore.NewDecoder[tokenRequest]()
 
 // errLinkDead is the answer for a token whose link is no longer live.
 func errLinkDead() error {
-	return httpio.NewNotFoundMessage("the link has expired or was already used")
+	return httpio.NewNotFoundMessage("That link has expired or was already used. Ask for a new one")
 }

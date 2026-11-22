@@ -106,23 +106,31 @@ func (w *identityWorld) inTransaction(ctx context.Context, f func(ctx context.Co
 	return nil
 }
 
-// createCrewUser runs the generated method in the transaction, the person holding the
-// global roles from the start, and answers the new id.
-func (w *identityWorld) createCrewUser(ctx context.Context, txn resource.ReadWriteTransaction, username string, roles ...string) (impulse.UUID, error) {
-	created, err := (&crewidentity.CreateCrewUser{Username: username, Roles: roles}).Execute(ctx, txn, w.app.CrewIdentity())
-	if err != nil {
-		return impulse.NilUUID, fmt.Errorf("CreateCrewUser(%s): %w", username, err)
+// seedCrewUser writes an account of the crew's for a person the test makes up
+// (makeCrewAccount) and gives it the global roles as the bootstrap gives the cast
+// theirs, held by the id of the account, which it answers. Nobody creates an account for
+// someone else through the generated management: a person comes in by an invitation,
+// which takes the session manager a served stack has, so a suite of this world that
+// needs a person who is there already writes one.
+func (w *identityWorld) seedCrewUser(ctx context.Context, t *testing.T, username string, roles ...accesstypes.Role) impulse.UUID {
+	t.Helper()
+
+	user := makeCrewAccount(ctx, t, w.db, accesstypes.User(username))
+	if len(roles) > 0 {
+		if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, roles...); err != nil {
+			t.Fatalf("AddUserRoles(%s, global): %v", username, err)
+		}
 	}
 
-	return created.ID, nil
+	return impulse.Must(impulse.UUIDFromString(string(user)))
 }
 
 // assignHeadquarters gives the account the Headquarters role, the global role these
 // suites give, in the transaction, through the identity client's AssignRole: the Go call
-// the role methods are made of, which looks nobody up and so serves an account the same
-// transaction created. The served method (crewidentity.AssignCrewRole) reads the account
-// first, since its request names a person, and a read sees no buffered write: it is for
-// an account that exists (TestGeneratedIdentityMembershipInTransaction holds both).
+// the role methods are made of, which looks nobody up. The served method
+// (crewidentity.AssignCrewRole) reads the account first, since its request names a
+// person, and refuses one that does not exist
+// (TestGeneratedIdentityMembershipInTransaction holds both).
 func (w *identityWorld) assignHeadquarters(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	const role = "Headquarters"
 	if err := w.app.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userOf(userID), accesstypes.Role(role)); err != nil {
@@ -169,7 +177,6 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 				"CrewSessionUsers": {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 				"CrewSessions":     {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 				"CrewUserRoles":    {"List": accesstypes.DigestGranted},
-				"CreateCrewUser":   {"Execute": accesstypes.DigestGranted},
 				"DisableCrewUser":  {"Execute": accesstypes.DigestGranted},
 				"EnableCrewUser":   {"Execute": accesstypes.DigestGranted},
 				"AssignCrewRole":   {"Execute": accesstypes.DigestGranted},
@@ -177,7 +184,6 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 				// The account actions, the lockout, the invitations and the members' own.
 				"RenameCrewUser":                  {"Execute": accesstypes.DigestGranted},
 				"DeleteCrewUser":                  {"Execute": accesstypes.DigestGranted},
-				"SetCrewTemporaryPassword":        {"Execute": accesstypes.DigestGranted},
 				"RevokeCrewUserTrustedDevices":    {"Execute": accesstypes.DigestGranted},
 				"UnlockCrewSignIn":                {"Execute": accesstypes.DigestGranted},
 				"InviteCrewUser":                  {"Execute": accesstypes.DigestGranted},
@@ -190,16 +196,16 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 				"MembersSessionTrustedDevices":    {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 			},
 			// The members' directory admits them and writes their roles: the generator
-			// wrote no method that creates or invites one, so the collection has no
-			// such entry to grant.
-			absent: []accesstypes.Resource{"CreateMembersUser", "InviteMembersUser", "WithdrawMembersInvitation", "SetMembersTemporaryPassword"},
+			// wrote no method that invites one, so the collection has no such entry to
+			// grant.
+			absent: []accesstypes.Resource{"InviteMembersUser", "WithdrawMembersInvitation"},
 		},
 		{
 			name: "the cadet's digest names none of them",
 			user: "cadet",
 			absent: []accesstypes.Resource{
-				"CrewSessionUsers", "CrewSessions", "CrewUserRoles", "CreateCrewUser", "DisableCrewUser", "EnableCrewUser", "AssignCrewRole", "RemoveCrewRole",
-				"RenameCrewUser", "DeleteCrewUser", "SetCrewTemporaryPassword", "RevokeCrewUserTrustedDevices", "UnlockCrewSignIn", "InviteCrewUser", "WithdrawCrewInvitation", "CrewSessionTrustedDevices",
+				"CrewSessionUsers", "CrewSessions", "CrewUserRoles", "DisableCrewUser", "EnableCrewUser", "AssignCrewRole", "RemoveCrewRole",
+				"RenameCrewUser", "DeleteCrewUser", "RevokeCrewUserTrustedDevices", "UnlockCrewSignIn", "InviteCrewUser", "WithdrawCrewInvitation", "CrewSessionTrustedDevices",
 			},
 		},
 	}
@@ -229,22 +235,22 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 // TestGeneratedIdentityOneTransaction holds the Go face: two of the auth's methods and
 // one of the application's own writes run in one transaction the application opened.
 // All three land together, and when a later method fails at the commit (the disabling of
-// a user that does not exist), the user created beside it is rolled back with it.
+// a user that does not exist), the role given beside it is rolled back with it.
 func TestGeneratedIdentityOneTransaction(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
 	ctx := sessionContext(t, "governor")
 	sfx := identitySuffix()
 
-	var alice, bob, clientID impulse.UUID
+	alice, bob := w.seedCrewUser(ctx, t, "alice-"+sfx, "CrewCommon"), w.seedCrewUser(ctx, t, "bob-"+sfx, "CrewCommon")
+	var clientID impulse.UUID
 	clientName := "Identity Freight " + sfx
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		if alice, err = w.createCrewUser(ctx, txn, "alice-"+sfx, "CrewCommon"); err != nil {
-			return err
+		if err := (&crewidentity.AssignCrewRole{UserID: alice, Role: "ClientBrowser"}).Execute(ctx, txn, w.app.CrewIdentity()); err != nil {
+			return fmt.Errorf("AssignCrewRole(alice): %w", err)
 		}
-		if bob, err = w.createCrewUser(ctx, txn, "bob-"+sfx, "CrewCommon", "ClientBrowser"); err != nil {
-			return err
+		if err := (&crewidentity.AssignCrewRole{UserID: bob, Role: "BulletinOfficer"}).Execute(ctx, txn, w.app.CrewIdentity()); err != nil {
+			return fmt.Errorf("AssignCrewRole(bob): %w", err)
 		}
 		patch, err := resources.NewClientCreatePatch()
 		if err != nil {
@@ -260,18 +266,12 @@ func TestGeneratedIdentityOneTransaction(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("one transaction with two methods and an application write: %v", err)
 	}
-	if got := readColumn[string](ctx, t, w.db, "CrewSessionUsers", spanner.Key{alice.String()}, "Username"); got != "alice-"+sfx {
-		t.Errorf("alice's username = %q", got)
-	}
-	if got := readColumn[string](ctx, t, w.db, "CrewSessionUsers", spanner.Key{bob.String()}, "Username"); got != "bob-"+sfx {
-		t.Errorf("bob's username = %q", got)
-	}
-	// Each person holds the roles they were created with: the memberships landed with
-	// the users, held by the id of each account.
+	// Each person holds the role the transaction gave: the memberships landed together,
+	// held by the id of each account.
 	for _, membership := range []struct {
 		user accesstypes.User
 		role string
-	}{{userOf(alice), "CrewCommon"}, {userOf(bob), "CrewCommon"}, {userOf(bob), "ClientBrowser"}} {
+	}{{userOf(alice), "ClientBrowser"}, {userOf(bob), "BulletinOfficer"}} {
 		if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey(membership.role, membership.user), "UserId"); got != string(membership.user) {
 			t.Errorf("the membership of %s in %s: user = %q", membership.user, membership.role, got)
 		}
@@ -285,11 +285,10 @@ func TestGeneratedIdentityOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var carol impulse.UUID
+	carol := w.seedCrewUser(ctx, t, "carol-"+sfx, "CrewCommon")
 	err = w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		if carol, err = w.createCrewUser(ctx, txn, "carol-"+sfx, "CrewCommon"); err != nil {
-			return err
+		if err := (&crewidentity.AssignCrewRole{UserID: carol, Role: "ClientBrowser"}).Execute(ctx, txn, w.app.CrewIdentity()); err != nil {
+			return fmt.Errorf("AssignCrewRole(carol): %w", err)
 		}
 		if err := (&crewidentity.DisableCrewUser{UserID: missing}).Execute(ctx, txn, w.app.CrewIdentity()); err != nil {
 			return fmt.Errorf("DisableCrewUser(): %w", err)
@@ -300,22 +299,8 @@ func TestGeneratedIdentityOneTransaction(t *testing.T) {
 	if err == nil {
 		t.Fatal("a transaction disabling a user that does not exist committed; want a refusal")
 	}
-	if _, err := w.db.Single().ReadRow(ctx, "CrewSessionUsers", spanner.Key{carol.String()}, []string{"Username"}); spanner.ErrCode(err) != codes.NotFound {
-		t.Errorf("carol after the rollback: err = %v, want not found", err)
-	}
-	if _, err := w.db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey("CrewCommon", userOf(carol)), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
+	if _, err := w.db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey("ClientBrowser", userOf(carol)), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
 		t.Errorf("carol's membership after the rollback: err = %v, want not found", err)
-	}
-
-	// A person is created holding a role: without one the method refuses, in a
-	// transaction of the application's own as over HTTP.
-	err = w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		_, err := w.createCrewUser(ctx, txn, "dora-"+sfx)
-
-		return err
-	})
-	if !httpio.HasBadRequest(err) {
-		t.Errorf("a create without a role: err = %v, want a bad request", err)
 	}
 }
 
@@ -328,67 +313,19 @@ func TestGeneratedIdentityHTTPFaces(t *testing.T) {
 	h := w.h
 	ctx := t.Context()
 	username := "dana-" + identitySuffix()
+	dana := w.seedCrewUser(ctx, t, username, "CrewCommon", "ClientBrowser")
+	id := dana.String()
 
-	status, body := doRequestAs(t, h, "cadet", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+username+`","roles":["CrewCommon"]}`)
-	if status != http.StatusForbidden {
-		t.Fatalf("the cadet's create-crew-user: status %d, want 403: %s", status, body)
-	}
-	// A person is created holding a role: no role, a role that does not exist where it
-	// is given, and a role asked for in one sector and in every sector are refused, and
-	// none of them leaves a user behind.
-	for _, refused := range []struct {
-		name, body string
-		want       int
-	}{
-		{"without a role", `{"username":"` + username + `"}`, http.StatusBadRequest},
-		{"with an empty list of roles", `{"username":"` + username + `","roles":[]}`, http.StatusBadRequest},
-		{"with a role that does not exist", `{"username":"` + username + `","roles":["NoSuchRole"]}`, http.StatusNotFound},
-		{"with a sector's role in the global scope", `{"username":"` + username + `","roles":["Pilot"]}`, http.StatusNotFound},
-		{"in one sector and in every sector", `{"username":"` + username + `","roles":["Pilot"],"domain":"` + anvil + `","everyDomain":true}`, http.StatusBadRequest},
-	} {
-		status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", refused.body)
-		if status != refused.want {
-			t.Errorf("create-crew-user %s: status %d, want %d: %s", refused.name, status, refused.want, body)
-		}
-	}
-	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+username+`","email":"Dana <dana@example.com>","roles":["CrewCommon","ClientBrowser"]}`)
-	assertStatus(t, status, http.StatusOK, body)
-	id := cell[string](t, decodeRow(t, body), "id")
-	if id == "" {
-		t.Fatalf("create-crew-user answered no id: %s", body)
-	}
-	// The memberships are held by the id the create answered, never by the username.
-	for _, role := range []string{"CrewCommon", "ClientBrowser"} {
-		if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey(role, accesstypes.User(id)), "UserId"); got != id {
-			t.Errorf("the membership of the created user in %s: user = %q, want the id of the account %s", role, got, id)
-		}
-		if _, err := w.db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey(role, accesstypes.User(username)), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
-			t.Errorf("a membership in %s under the username: err = %v, want not found", role, err)
-		}
-	}
 	// The person's first request is served with the roles: the client list is the
 	// client browser's.
-	knownAs(t, accesstypes.User(username), impulse.Must(impulse.UUIDFromString(id)))
-	status, body = doRequestAs(t, h, accesstypes.User(username), http.MethodGet, consoleAPI+"/clients?limit=1", "")
+	status, body := doRequestAs(t, h, accesstypes.User(username), http.MethodGet, consoleAPI+"/clients?limit=1", "")
 	assertStatus(t, status, http.StatusOK, body)
-	// A role held in every sector is written where the permission store keeps one.
-	pilot := "pilot-" + username
-	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+pilot+`","roles":["Pilot"],"everyDomain":true}`)
-	assertStatus(t, status, http.StatusOK, body)
-	pilotID := cell[string](t, decodeRow(t, body), "id")
-	every := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), accesstypes.User(pilotID), "Pilot")
-	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", spanner.Key{every.Kind, every.Axis, every.Domain, string(every.Role), string(every.User)}, "UserId"); got != pilotID {
-		t.Errorf("the membership of the created user in every sector: user = %q", got)
-	}
 
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+id, "")
 	assertStatus(t, status, http.StatusOK, body)
 	row := decodeRow(t, body)
 	if got := cell[string](t, row, "username"); got != username {
 		t.Errorf("username = %q, want %q", got, username)
-	}
-	if got := cell[string](t, row, "email"); got != "dana@example.com" {
-		t.Errorf("email = %q, want the bare address", got)
 	}
 	if got := cell[bool](t, row, "disabled"); got {
 		t.Errorf("disabled = true before the method ran")
@@ -402,7 +339,7 @@ func TestGeneratedIdentityHTTPFaces(t *testing.T) {
 	assertStatus(t, status, http.StatusOK, body)
 	rows := decodeRows(t, body)
 	if _, ok := rowsByID(t, rows, "id")[id]; !ok {
-		t.Errorf("the list of %d rows lacks the created user %s", len(rows), id)
+		t.Errorf("the list of %d rows lacks the person %s", len(rows), id)
 	}
 
 	status, body = doRequestAs(t, h, "cadet", http.MethodPost, consoleAPI+"/disable-crew-user", `{"userId":"`+id+`"}`)
@@ -487,9 +424,8 @@ func TestGeneratedIdentityDisableEndsSession(t *testing.T) {
 }
 
 // TestGeneratedIdentityMembershipInTransaction holds the grant half. A membership is
-// written by the generated method inside the application's transaction, beside the user
-// it creates, and the permission engine serves it at the very next check with no word
-// from the caller: the method registers the telling on the transaction, which runs it
+// written by the generated method inside the application's transaction, and the
+// permission engine serves it at the very next check with no word from the caller: the method registers the telling on the transaction, which runs it
 // once the commit lands. A membership in a transaction that fails never reaches the
 // engine.
 func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
@@ -500,21 +436,13 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 	sfx := identitySuffix()
 	erin, frank := accesstypes.User("erin-"+sfx), accesstypes.User("frank-"+sfx)
 
-	// The Go face: the users and the membership land in one transaction, the role given
-	// to the account the same transaction created, by its id.
-	var erinID, frankID impulse.UUID
+	// The Go face: the membership lands in a transaction of the application's, the role
+	// given to the account by its id.
+	erinID, frankID := w.seedCrewUser(ctx, t, string(erin), "CrewCommon"), w.seedCrewUser(ctx, t, string(frank), "CrewCommon")
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		if erinID, err = w.createCrewUser(ctx, txn, string(erin), "CrewCommon"); err != nil {
-			return err
-		}
-		if frankID, err = w.createCrewUser(ctx, txn, string(frank), "CrewCommon"); err != nil {
-			return err
-		}
-
 		return w.assignHeadquarters(ctx, txn, erinID)
 	}); err != nil {
-		t.Fatalf("one transaction with two users and a membership: %v", err)
+		t.Fatalf("a membership in a transaction of the application's: %v", err)
 	}
 	erinUser, frankUser := knownAs(t, erin, erinID), knownAs(t, frank, frankID)
 	if got := readColumn[string](ctx, t, db, "CrewUserRoles", crewMembershipKey("Headquarters", erinUser), "UserId"); got != string(erinUser) {
@@ -561,6 +489,18 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 	if status != http.StatusNotFound {
 		t.Errorf("assigning a role that does not exist: status %d, want 404: %s", status, body)
 	}
+	// A sector's role does not exist in the global scope, and given in every sector it
+	// is written where the permission store keeps a role held everywhere.
+	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", `{"userId":"`+frankID.String()+`","role":"Pilot"}`)
+	if status != http.StatusNotFound {
+		t.Errorf("assigning a sector's role in the global scope: status %d, want 404: %s", status, body)
+	}
+	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", `{"userId":"`+frankID.String()+`","role":"Pilot","everyDomain":true}`)
+	assertStatus(t, status, http.StatusNoContent, body)
+	every := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), frankUser, "Pilot")
+	if got := readColumn[string](ctx, t, db, "CrewUserRoles", spanner.Key{every.Kind, every.Axis, every.Domain, string(every.Role), string(every.User)}, "UserId"); got != string(frankUser) {
+		t.Errorf("the membership of a role given in every sector: user = %q, want the id of frank's account", got)
+	}
 	// A custom role is no entry of the role file: the rule reads it from the roles table
 	// in the transaction that writes the membership.
 	if err := engine.UserManager().AddRole(ctx, accesstypes.GlobalPolicyScope(), "Auditor", "Reads the books."); err != nil {
@@ -599,23 +539,20 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 	}
 
 	// The served method names a person in its request, so it reads the account before
-	// it gives the role, and a read sees no buffered write: an account the same
-	// transaction created is refused as one that does not exist, and nothing lands. An
-	// account that exists is given the role by the same call.
-	var hopeID impulse.UUID
+	// it gives the role: an account that does not exist is refused, and nothing lands.
+	// An account that exists is given the role by the same call.
+	hopeID, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID() error = %v", err)
+	}
 	err = w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		if hopeID, err = w.createCrewUser(ctx, txn, "hope-"+sfx, "CrewCommon"); err != nil {
-			return err
-		}
-
 		return (&crewidentity.AssignCrewRole{UserID: hopeID, Role: "Headquarters"}).Execute(ctx, txn, w.app.CrewIdentity())
 	})
 	if !httpio.HasNotFound(err) {
-		t.Errorf("the method giving a role to an account its own transaction created: err = %v, want not found", err)
+		t.Errorf("the method giving a role to an account that does not exist: err = %v, want not found", err)
 	}
-	if _, err := db.Single().ReadRow(ctx, "CrewSessionUsers", spanner.Key{hopeID.String()}, []string{"Username"}); spanner.ErrCode(err) != codes.NotFound {
-		t.Errorf("hope's account after the refused transaction: err = %v, want not found", err)
+	if _, err := db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey("Headquarters", userOf(hopeID)), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
+		t.Errorf("a membership of the account that does not exist, after the refused transaction: err = %v, want not found", err)
 	}
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		return (&crewidentity.AssignCrewRole{UserID: frankID, Role: "BulletinOfficer"}).Execute(ctx, txn, w.app.CrewIdentity())
@@ -628,12 +565,8 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 
 	// The rollback: a membership buffered beside a write that fails never lands.
 	gina := accesstypes.User("gina-" + sfx)
-	var ginaID impulse.UUID
+	ginaID := w.seedCrewUser(ctx, t, string(gina), "CrewCommon")
 	err = w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		if ginaID, err = w.createCrewUser(ctx, txn, string(gina), "CrewCommon"); err != nil {
-			return err
-		}
 		if err := w.assignHeadquarters(ctx, txn, ginaID); err != nil {
 			return err
 		}
@@ -655,8 +588,9 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 // methods' routes: nobody disables their own account; the service's last super
 // administrator keeps the role; a person who removes a role from themselves in a sector
 // keeps an administrator role nobody else would hold there (the marshal's, which a
-// marshal of every sector holds there too); and the removal of a person's
-// last role anywhere deletes the account in the same transaction.
+// marshal of every sector does not stand in for: they are no marshal of the sector's
+// own); and the removal of a person's last role anywhere deletes the account in the
+// same transaction.
 func TestGeneratedIdentityRules(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
@@ -679,24 +613,16 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	}
 	governor := account(t, "governor")
 	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", superAdministrator(governor))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last super administrator who can sign in") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), "You are the last super administrator who can sign in") {
 		t.Errorf("the governor giving up the last Super Administrator role: status %d, want 403 naming the last super administrator: %s", status, body)
 	}
 	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("SuperAdministrator", governor), "UserId"); got != string(governor) {
 		t.Errorf("the governor's Super Administrator membership after the refusal: user = %q, want it kept", got)
 	}
 
-	// create makes the person and tells the harness whose account it is, so a request
-	// made as the username runs as the account.
-	create := func(user accesstypes.User, role string) string {
-		status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+string(user)+`","roles":["`+role+`"]}`)
-		assertStatus(t, status, http.StatusOK, body)
-		id := cell[string](t, decodeRow(t, body), "id")
-		knownAs(t, user, impulse.Must(impulse.UUIDFromString(id)))
-
-		return id
-	}
-	hanaID, ivanID := create(hana, "Headquarters"), create(ivan, "CrewCommon")
+	// The two people the rules are held over, each an account with the one global role:
+	// a request made as the username runs as the account.
+	hanaID, ivanID := w.seedCrewUser(ctx, t, string(hana), "Headquarters").String(), w.seedCrewUser(ctx, t, string(ivan), "CrewCommon").String()
 	hanaUser, ivanUser := accesstypes.User(hanaID), accesstypes.User(ivanID)
 
 	// Nobody disables themselves: hana holds the grant and is refused her own account;
@@ -710,11 +636,12 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/enable-crew-user", `{"userId":"`+ivanID+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 
-	// The last administrator of a sector. While the governor is marshal of every
-	// sector, a sector's own marshal may leave: hana gives the role up and is given it
-	// again. Once the governor has given up the role held everywhere (no
-	// administrator role of the application, so it goes), hana is the sector's one
-	// marshal and keeps the role until ivan holds it there too.
+	// The last administrator of a sector. The governor is marshal of every sector, and
+	// that makes nobody a marshal of the sector's own: hana is the sector's one marshal
+	// and keeps the role, refused in the rule's words, while the governor holds it
+	// everywhere. The governor gives up the role held everywhere (no administrator role
+	// of one sector, so it goes), and hana gives up hers once ivan holds it in the
+	// sector too.
 	marshal := func(user accesstypes.User) string {
 		return `{"userId":"` + string(user) + `","role":"SectorMarshal","domain":"` + sector + `"}`
 	}
@@ -723,18 +650,14 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(hanaUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))
-	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(hanaUser))
-	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+string(governor)+`","role":"SectorMarshal","everyDomain":true}`)
-	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this sector: give another person the role before you remove your own") {
-		t.Errorf("hana giving up the sector's last marshal role: status %d, want 403 naming the rule: %s", status, body)
+		t.Errorf("hana giving up the sector's last marshal role while the governor is marshal of every sector: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", heldKey, "UserId"); got != string(hanaUser) {
 		t.Errorf("hana's marshal membership after the refusal: user = %q, want it kept", got)
 	}
+	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+string(governor)+`","role":"SectorMarshal","everyDomain":true}`)
+	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(ivanUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))
@@ -770,11 +693,10 @@ func TestGeneratedIdentityRules(t *testing.T) {
 }
 
 // TestGeneratedIdentityAccounts holds the account actions on the served stack, with the
-// real session manager: a temporary password (the sessions end, the count of failed
-// sign-ins is cleared, and the person signs in with it to be told to change it), a
-// password at a create, a rename that leaves the session and the roles where they are
+// real session manager: a rename that leaves the session and the roles where they are
 // (both belong to the account, whose id a rename does not change), the reset of the
-// second factor, and a delete; nobody deletes themselves.
+// second factor, and a delete; nobody deletes themselves. Nobody sets a password for
+// someone else: the link a person chooses a new one through is TestPasswordResetLink's.
 func TestGeneratedIdentityAccounts(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -787,71 +709,9 @@ func TestGeneratedIdentityAccounts(t *testing.T) {
 		return hq.do(ctx, http.MethodPost, consoleAPI+"/"+method, []byte(body))
 	}
 
-	// A temporary password for the cadet, who is signed in and has two failed
-	// sign-ins counted under the name.
-	cadet := newBrowser(t, s, consoleAPI)
-	cadet.signIn(ctx, "cadet")
-	cadetID := crewAccountID(ctx, t, hq, "cadet")
 	stranger := newBrowser(t, s, consoleAPI)
 	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("the session route before a login: status %d: %s", status, body)
-	}
-	for range 2 {
-		if status, body := stranger.login(ctx, "cadet", "not the password"); status != http.StatusUnauthorized {
-			t.Fatalf("a wrong password: status %d, want 401: %s", status, body)
-		}
-	}
-	if got := readColumn[int64](ctx, t, s.db, "CrewSessionSignInAttempts", spanner.Key{"cadet"}, "Failures"); got != 2 {
-		t.Fatalf("the cadet's failed sign-ins = %d, want 2", got)
-	}
-	status, body := post("set-crew-temporary-password", `{"userId":"`+cadetID+`","password":""}`)
-	if status != http.StatusBadRequest {
-		t.Errorf("an empty temporary password: status %d, want 400: %s", status, body)
-	}
-	status, body = post("set-crew-temporary-password", `{"userId":"`+cadetID+`","password":"first-day-pass"}`)
-	assertStatus(t, status, http.StatusNoContent, body)
-	if status, body := cadet.do(ctx, http.MethodGet, userDomains, nil); status != http.StatusUnauthorized {
-		t.Errorf("the cadet's session after the temporary password: status %d, want 401: %s", status, body)
-	}
-	if _, err := s.db.Single().ReadRow(ctx, "CrewSessionSignInAttempts", spanner.Key{"cadet"}, []string{"Failures"}); spanner.ErrCode(err) != codes.NotFound {
-		t.Errorf("the cadet's count of failed sign-ins after the temporary password: err = %v, want not found", err)
-	}
-	if got := readColumn[bool](ctx, t, s.db, "CrewSessionUsers", spanner.Key{cadetID}, "PasswordChangeRequired"); !got {
-		t.Error("the cadet is not marked to change the password")
-	}
-	if status, body := cadet.login(ctx, "cadet", personaPassword); status != http.StatusUnauthorized {
-		t.Errorf("the cadet's old password: status %d, want 401: %s", status, body)
-	}
-	status, body = cadet.login(ctx, "cadet", "first-day-pass")
-	assertStatus(t, status, http.StatusOK, body)
-	if heldForFactor(t, body) {
-		cadet.secondFactor(ctx, "cadet")
-	}
-	if status, body := cadet.do(ctx, http.MethodGet, userDomains, nil); status != http.StatusForbidden || !strings.Contains(string(body), string(sessioninfo.RefusedPasswordChangeRequired)) {
-		t.Errorf("the cadet signed in with the temporary password: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
-	}
-
-	// A person created with a temporary password signs in with it; an empty one is
-	// no password.
-	status, body = post("create-crew-user", `{"username":"new-hire","password":"","roles":["CrewCommon"]}`)
-	if status != http.StatusBadRequest {
-		t.Errorf("a create with an empty password: status %d, want 400: %s", status, body)
-	}
-	status, body = post("create-crew-user", `{"username":"new-hire","password":"welcome-aboard","roles":["CrewCommon"]}`)
-	assertStatus(t, status, http.StatusOK, body)
-	hireID := cell[string](t, decodeRow(t, body), "id")
-	if got := readColumn[bool](ctx, t, s.db, "CrewSessionUsers", spanner.Key{hireID}, "PasswordChangeRequired"); !got {
-		t.Error("the person created with a password is not marked to change it")
-	}
-	hire := newBrowser(t, s, consoleAPI)
-	if status, body := hire.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
-		t.Fatalf("the session route before a login: status %d: %s", status, body)
-	}
-	if status, body := hire.login(ctx, "new-hire", "not the password"); status != http.StatusUnauthorized {
-		t.Errorf("the new hire's wrong password: status %d, want 401: %s", status, body)
-	}
-	if status, body := hire.login(ctx, "new-hire", "welcome-aboard"); status != http.StatusOK {
-		t.Errorf("the new hire's temporary password: status %d, want 200: %s", status, body)
 	}
 
 	// A rename: the marshal's session stands under the new name and the roles stay
@@ -866,7 +726,7 @@ func TestGeneratedIdentityAccounts(t *testing.T) {
 	membership := access.NewMembershipKey(anvilScope, accesstypes.User(marshalID), "SectorMarshal")
 	membershipKey := spanner.Key{membership.Kind, membership.Axis, membership.Domain, string(membership.Role), string(membership.User)}
 	given := readColumn[time.Time](ctx, t, s.db, "CrewUserRoles", membershipKey, "CreatedAt")
-	status, body = post("rename-crew-user", `{"userId":"`+marshalID+`","username":"cadet"}`)
+	status, body := post("rename-crew-user", `{"userId":"`+marshalID+`","username":"cadet"}`)
 	if status != http.StatusConflict {
 		t.Errorf("a rename to a name another user holds: status %d, want 409: %s", status, body)
 	}
@@ -1200,10 +1060,8 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 		t.Errorf("the cadet's next request after require-crew-password-change: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
 	}
 
-	// A person created without a password cannot be required to change one.
-	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/create-crew-user", []byte(`{"username":"directory-only","roles":["CrewCommon"]}`))
-	assertStatus(t, status, http.StatusOK, body)
-	directoryOnly := cell[string](t, decodeRow(t, body), "id")
+	// A person with no password cannot be required to change one.
+	directoryOnly := s.seedCrewAccount(ctx, t, "directory-only", nil).String()
 	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/require-crew-password-change", []byte(`{"userId":"`+directoryOnly+`"}`))
 	if status != http.StatusBadRequest {
 		t.Errorf("require-crew-password-change of a person with no password: status %d, want 400: %s", status, body)

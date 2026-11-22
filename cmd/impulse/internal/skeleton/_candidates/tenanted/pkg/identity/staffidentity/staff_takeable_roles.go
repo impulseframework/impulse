@@ -18,8 +18,8 @@ import (
 // role one tenant alone holds is not among them, since the list is read
 // before the tenant is picked: such a role is given the ordinary way, with an
 // end.
-// The list holds the roles the caller could give by hand and no other
-// (identity.Manager.RolesToTake), so a page offers what the caller may do.
+// The list holds the roles the caller could give a person by hand (AssignStaffRole)
+// and no other (identity.Manager.RolesToTake), so a page offers what the caller may do.
 //
 // It is a computed resource: the role file's roles are held by the permission engine,
 // so the engine is asked and no query selects the list. The role file grants it like
@@ -46,7 +46,7 @@ func (StaffTakeableRole) Resource() accesstypes.Resource {
 // applies the request's filter, sort and page over them.
 func ListStaffTakeableRole(ctx context.Context, _ *resource.QuerySet[StaffTakeableRole], _ resource.Client, client *Client) iter.Seq2[*StaffTakeableRole, error] {
 	return func(yield func(*StaffTakeableRole, error) bool) {
-		roles, err := client.manager.RolesToTake(ctx, true)
+		roles, err := client.manager.RolesToTake(ctx, AssignStaffRole{}.Method(), true)
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.RolesToTake()"))
 

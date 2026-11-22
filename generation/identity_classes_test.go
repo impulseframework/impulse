@@ -37,7 +37,6 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	// new password, and the username and the address they sign in under or recover the
 	// account through. The address changes once the person confirms the new one; asking
 	// for the change is the act.
-	"SetTemporaryPassword":      changesSignIn,
 	"RequirePasswordChange":     changesSignIn,
 	"RemovePassword":            changesSignIn,
 	"SendUserPasswordResetLink": changesSignIn,
@@ -79,10 +78,6 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	// administrator. It is no act on one person's credentials, so it is with the
 	// settings that say who is let in.
 	"SetSelfServiceReset": changesAccess,
-
-	// An account made is made with the roles its person holds, so making one gives
-	// someone what they may do.
-	"CreateUser": changesAccess,
 
 	// An account disabled, enabled or deleted: the work a person who stands in for an
 	// administrator is there to do, which a mask that refuses the class access leaves to
@@ -207,7 +202,6 @@ func Test_prepareIdentity_classedMethods(t *testing.T) {
 	// or signs up to it.
 	want := map[accesstypes.ActionClass]map[string][]string{
 		changesSignIn: {
-			"SetTemporaryPassword":      {"SetCrewShipTemporaryPassword", "SetCrewTemporaryPassword"},
 			"RequirePasswordChange":     {"RequireCrewPasswordChange", "RequireCrewShipPasswordChange"},
 			"RemovePassword":            {"RemoveCrewPassword", "RemoveCrewShipPassword"},
 			"SendUserPasswordResetLink": {"SendCrewShipUserPasswordResetLink", "SendCrewUserPasswordResetLink"},
@@ -253,5 +247,4 @@ var wantAccessMethods = map[string][]string{
 	"OpenSignUp":            {"OpenCrewSignUp"},
 	"MakeInviteOnly":        {"MakeCrewInviteOnly"},
 	"SetSelfServiceReset":   {"SetCrewSelfServiceReset"},
-	"CreateUser":            {"CreateCrewShipUser", "CreateCrewUser", "CreateMembersShipUser", "CreateMembersUser"},
 }

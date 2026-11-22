@@ -187,7 +187,8 @@
             {
               "resource": "MembersTenantRoles",
               "fields": [
-                "description"
+                "description",
+                "method"
               ]
             },
             {

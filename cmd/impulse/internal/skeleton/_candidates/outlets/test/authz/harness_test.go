@@ -141,10 +141,6 @@ func (c *testConfigurer) Staff() *staff.Auth { return nil }
 // invitation whose check passed is told so where its link would be made.
 type noSessionAPI struct{}
 
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", errors.New("the authorization matrix serves no session manager")
-}
-
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, errors.New("the authorization matrix serves no session manager")
 }

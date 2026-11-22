@@ -16,7 +16,7 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns, in mailLinkRow's order.
-const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name", "NewTenant"`
+const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name", "NewTenant", "EveryTenant"`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
@@ -33,12 +33,13 @@ type mailLinkRow struct {
 	ConsumedAt      *time.Time    `db:"ConsumedAt"`
 	Name            *string       `db:"Name"`
 	NewTenant       *string       `db:"NewTenant"`
+	EveryTenant     bool          `db:"EveryTenant"`
 }
 
 func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 	l := &dbtype.MailLink{
 		ID: r.ID, TokenHash: r.TokenHash, Kind: dbtype.MailLinkKind(r.Kind), Email: r.Email, RoleNames: r.RoleNames,
-		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
+		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt, EveryTenant: r.EveryTenant,
 	}
 	if r.UserID != nil {
 		l.UserID = impulse.NullUUIDFromUUID(*r.UserID)
@@ -85,8 +86,8 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if err != nil {
 		return errors.Wrap(err, "dbtype.NewTenantColumn()")
 	}
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10, $11)`, s.mailLinksTable(), mailLinkColumns)
-	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name), newTenant}
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10, $11, $12)`, s.mailLinksTable(), mailLinkColumns)
+	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name), newTenant, l.EveryTenant}
 	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
@@ -160,6 +161,16 @@ func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UU
 	return s.consumeMailLink(ctx, s.conn, `"Id"`, id, now)
 }
 
+// FailMailLink marks the live mail link id consumed and as one whose message could not
+// be mailed, both at the database's time: the link ends where its mail failed, and its
+// row says why. A link that is not live is NotFound.
+func (s *SessionStorageDriver) FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return s.endMailLink(ctx, s.conn, mailLinkMailFailed, `"Id"`, id, now)
+}
+
 // ConsumeMailLinkIn consumes the live mail link id inside tx, at the transaction's
 // time. A link that is not live is NotFound, and the transaction may go on.
 func (s *SessionStorageDriver) ConsumeMailLinkIn(ctx context.Context, tx pgx.Tx, id impulse.UUID, now time.Time) error {
@@ -171,8 +182,22 @@ type execer interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
+// The columns the end of a mail link sets, each to the database's time: a link that was
+// followed or withdrawn is consumed, and one whose message could not be mailed is
+// consumed and says the mail failed.
+const (
+	mailLinkConsumed   = `"ConsumedAt" = now()`
+	mailLinkMailFailed = `"ConsumedAt" = now(), "MailFailedAt" = now()`
+)
+
 func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, q execer, column string, value any, now time.Time) error {
-	query := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = now() WHERE %s = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.mailLinksTable(), column)
+	return s.endMailLink(ctx, q, mailLinkConsumed, column, value, now)
+}
+
+// endMailLink ends the live mail link whose column holds value by a conditional update
+// that sets the columns set names; NotFound when no link is live there.
+func (s *SessionStorageDriver) endMailLink(ctx context.Context, q execer, set, column string, value any, now time.Time) error {
+	query := fmt.Sprintf(`UPDATE %s SET %s WHERE %s = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.mailLinksTable(), set, column)
 	tag, err := q.Exec(ctx, query, value, now)
 	if err != nil {
 		return errors.Wrap(err, "Exec()")

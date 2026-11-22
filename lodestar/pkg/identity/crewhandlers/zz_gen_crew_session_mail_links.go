@@ -26,11 +26,13 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		UserID          *impulse.UUID `json:"userId"          index:"true"`
 		TenantID        *string       `json:"tenantId"        index:"true"`
+		EveryTenant     bool          `json:"everyTenant"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 	}
 
 	type response []map[string]any
@@ -96,6 +98,10 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("tenantId") {
 						rmap["tenantId"] = rec.TenantID
 					}
+				case "EveryTenant":
+					if !row.Masked("everyTenant") {
+						rmap["everyTenant"] = rec.EveryTenant
+					}
 				case "RoleNames":
 					if !row.Masked("roleNames") {
 						rmap["roleNames"] = rec.RoleNames
@@ -115,6 +121,10 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 				case "ConsumedAt":
 					if !row.Masked("consumedAt") {
 						rmap["consumedAt"] = rec.ConsumedAt
+					}
+				case "MailFailedAt":
+					if !row.Masked("mailFailedAt") {
+						rmap["mailFailedAt"] = rec.MailFailedAt
 					}
 				}
 			}
@@ -145,11 +155,13 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		UserID          *impulse.UUID `json:"userId"`
 		TenantID        *string       `json:"tenantId"`
+		EveryTenant     bool          `json:"everyTenant"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionMailLink, response](h, accesstypes.Read)
@@ -203,6 +215,10 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 				if !row.Masked("tenantId") {
 					rmap["tenantId"] = rec.TenantID
 				}
+			case "EveryTenant":
+				if !row.Masked("everyTenant") {
+					rmap["everyTenant"] = rec.EveryTenant
+				}
 			case "RoleNames":
 				if !row.Masked("roleNames") {
 					rmap["roleNames"] = rec.RoleNames
@@ -222,6 +238,10 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 			case "ConsumedAt":
 				if !row.Masked("consumedAt") {
 					rmap["consumedAt"] = rec.ConsumedAt
+				}
+			case "MailFailedAt":
+				if !row.Masked("mailFailedAt") {
+					rmap["mailFailedAt"] = rec.MailFailedAt
 				}
 			}
 		}

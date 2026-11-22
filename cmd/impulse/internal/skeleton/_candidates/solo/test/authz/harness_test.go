@@ -116,10 +116,6 @@ func (c *testConfigurer) Staff() *staff.Auth { return nil }
 // one list it is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", errors.New("the authorization matrix serves no session manager")
-}
-
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, errors.New("the authorization matrix serves no session manager")
 }

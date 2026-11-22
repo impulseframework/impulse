@@ -20,10 +20,8 @@ import (
 
 func (h *Handlers) RemoveStaffRole() http.HandlerFunc {
 	type request struct {
-		UserID      impulse.UUID `json:"userId"`
-		Role        string       `json:"role"`
-		Domain      *string      `json:"domain"`
-		EveryDomain bool         `json:"everyDomain"`
+		UserID impulse.UUID `json:"userId"`
+		Role   string       `json:"role"`
 	}
 
 	decoder := NewRPCDecoder[staffidentity.RemoveStaffRole, request](h, accesstypes.Execute)

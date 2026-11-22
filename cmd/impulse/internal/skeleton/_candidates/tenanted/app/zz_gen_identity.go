@@ -217,6 +217,10 @@ func (a *App) StaffUserRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffUserRoles()
 }
 
+func (a *App) StaffGivableRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGivableRoles()
+}
+
 func (a *App) StaffInvitedTenants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffInvitedTenants()
 }
@@ -271,14 +275,6 @@ func (a *App) CreateStaffGroup() http.HandlerFunc {
 
 func (a *App) CreateStaffTenantGroup() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).CreateStaffTenantGroup()
-}
-
-func (a *App) CreateStaffTenantUser() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).CreateStaffTenantUser()
-}
-
-func (a *App) CreateStaffUser() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).CreateStaffUser()
 }
 
 func (a *App) DeleteStaffGroup() http.HandlerFunc {
@@ -423,14 +419,6 @@ func (a *App) SendStaffUserPasswordResetLink() http.HandlerFunc {
 
 func (a *App) SetStaffSelfServiceReset() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffSelfServiceReset()
-}
-
-func (a *App) SetStaffTemporaryPassword() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).SetStaffTemporaryPassword()
-}
-
-func (a *App) SetStaffTenantTemporaryPassword() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).SetStaffTenantTemporaryPassword()
 }
 
 func (a *App) SetStaffTenantUserEmail() http.HandlerFunc {

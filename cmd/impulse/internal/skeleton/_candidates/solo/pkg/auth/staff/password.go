@@ -68,9 +68,11 @@ func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
 	return h.PasswordReset().Complete()
 }
 
-// InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
+// InvitationSignUp starts the acceptance of an invitation as a stranger with a new
+// password. The link only opened the invitation, so nothing is made yet: the sign-up
+// waits for the code mailed to the invited address. The code entered, the invitee
 // becomes a user under the sign-in name they give, with the
-// address verified by the link, seated in the roles the invitation names.
+// address verified by the code, seated in the roles the invitation names.
 func (h *Handlers) InvitationSignUp() http.HandlerFunc {
 	return h.Invitation().SignUp()
 }

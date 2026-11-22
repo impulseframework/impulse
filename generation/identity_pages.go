@@ -25,8 +25,11 @@ import (
 
 // The keys of the lists of a side.
 const (
-	identityListUsers          = "users"
-	identityListRoles          = "roles"
+	identityListUsers = "users"
+	identityListRoles = "roles"
+	// The list the side's methods that give a role pick it from (identity_givable.go,
+	// and a tenant's in identity_tenant.go).
+	identityListRolesToGive    = "rolesToGive"
 	identityListIdentities     = "identities"
 	identityListSignInWays     = "signInWays"
 	identityListInvitations    = "invitations"
@@ -84,10 +87,12 @@ type tsAPIIdentitySide struct {
 // the tenant keeps of them (listName). A person's roles are the one list that says where
 // each comes from, on both sides (identity_holdings.go).
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
+	data := &identitySourceData{identityInstance: i}
 	if tenant {
 		return []identityPart{
 			{identityListUsers, i.listName(listPeopleSuffix)},
 			{identityListRoles, i.listName(listHeldRolesSuffix)},
+			{identityListRolesToGive, data.TenantRoleChoice()},
 			{identityListIdentities, i.listName(listIdentitiesSuffix)},
 			{identityListSignInWays, i.signInWayName(true)},
 			{identityListInvitations, i.listName(listInvitationsSuffix)},
@@ -97,7 +102,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
 		}
 	}
-	data := &identitySourceData{identityInstance: i}
+
 	// A person's roles are one list where the schema holds what it reads, and the
 	// groups and their roles are listed with what each holds (identity_holdings.go).
 	roles, groups, groupRoles := data.Membership(), data.Group(), data.GroupRole()
@@ -111,6 +116,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	parts := []identityPart{
 		{identityListUsers, data.User()},
 		{identityListRoles, roles},
+		{identityListRolesToGive, data.GivableRole()},
 		{identityListIdentities, data.Identity()},
 		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.MailLink()},
@@ -139,7 +145,6 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	subject := i.subject(tenant)
 	parts := []identityPart{
-		{"create", "Create" + subject + "User"},
 		{"invite", "Invite" + subject + "User"},
 		{"withdrawInvitation", "Withdraw" + subject + "Invitation"},
 		{"assignRole", "Assign" + subject + "Role"},
@@ -150,7 +155,6 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"rename", "Rename" + subject + "User"},
 		{"setName", "Set" + subject + "UserName"},
 		{"setEmail", "Set" + subject + "UserEmail"},
-		{"setTemporaryPassword", "Set" + subject + "TemporaryPassword"},
 		{"sendPasswordResetLink", "Send" + subject + "UserPasswordResetLink"},
 		{"requirePasswordChange", "Require" + subject + "PasswordChange"},
 		{"endUserSessions", "End" + subject + "UserSessions"},

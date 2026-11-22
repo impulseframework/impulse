@@ -7,9 +7,9 @@ import (
 
 // The management of each auth's people is generated (pkg/identity, the generator
 // program's GenerateIdentity): each auth's lists (the accounts, the roles they hold, their sign-in
-// identities, the mailed links, the sessions) and the methods that change them (create a
-// user, give and take a role, invite an address, set a temporary password) are served by
-// generated handlers, which reach its auth's identity client through the accessors below.
+// identities, the mailed links, the sessions) and the methods that change them (invite an
+// address, give and take a role, mail a password reset link) are served by generated
+// handlers, which reach its auth's identity client through the accessors below.
 // What a role may do with them is the role file's to say, in the same grammar as every
 // other resource and method.
 

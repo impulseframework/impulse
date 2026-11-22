@@ -32,9 +32,7 @@ var credentialActions = []accesstypes.Resource{
 	"RequireCrewSectorPasswordChange",
 	"SendCrewSectorUserPasswordResetLink",
 	"SendCrewUserPasswordResetLink",
-	"SetCrewSectorTemporaryPassword",
 	"SetCrewSectorUserEmail",
-	"SetCrewTemporaryPassword",
 	"SetCrewUserEmail",
 	"SetMembersSectorUserEmail",
 	"SetMembersUserEmail",
@@ -48,8 +46,8 @@ var credentialActions = []accesstypes.Resource{
 // what someone may do, by name: the generated identity methods that give and remove a
 // role, take one for a set time, make and delete a group, put a person in one and take them out, give a group a
 // role and take it, send and withdraw an invitation, the one that makes a sector among
-// them, make an account, and open a sign-in method to
-// sign-up or make it invite only, for the whole application and for a sector; the
+// them, and open a sign-in method to sign-up or make it invite only, for the whole
+// application and for a sector; the
 // setting that lets people ask for a reset link at the sign-in page; the four methods
 // the generator writes for the sector record's directory, which open it to the
 // directory's people with a role and make it invite only again, and which make the
@@ -67,8 +65,6 @@ var accessActions = []accesstypes.Resource{
 	"AssignCrewSectorRole",
 	"CreateCrewGroup",
 	"CreateCrewSectorGroup",
-	"CreateCrewSectorUser",
-	"CreateCrewUser",
 	"CreateSector",
 	"DeleteCrewGroup",
 	"DeleteCrewSectorGroup",

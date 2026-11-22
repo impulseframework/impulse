@@ -174,7 +174,7 @@ func (o *MachineOutlet) Name() string { return o.name }
 // sessioninfo.TokenFromCtx names the token. A request without a bearer token, or with
 // one that is unknown, expired, revoked, not a bearer kind, issued for another outlet,
 // or whose person is missing or disabled, is refused with 401 and a WWW-Authenticate
-// challenge; a person who must change a password an operator set is refused with 403
+// challenge; a person an administrator required a new password of is refused with 403
 // and {"message", "code": "password_change_required"}, as everywhere. No cookie is
 // read or written and no XSRF token is checked: a bearer token is nothing a browser
 // sends on its own.

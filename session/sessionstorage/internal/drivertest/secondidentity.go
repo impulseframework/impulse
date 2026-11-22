@@ -119,7 +119,7 @@ func testSecondIdentityByName(_ context.Context, t *testing.T, h *AuthHarness) {
 		ctx := t.Context()
 		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
 
-		// An account an administrator created ahead, with no password: its first
+		// An account created ahead, with no password: its first
 		// sign-in links it on the name, as before.
 		const name = "pat.lee@lakeside.edu"
 		pat := createUser(ctx, t, in.Driver, name)
@@ -220,8 +220,8 @@ func testSecondIdentityByName(_ context.Context, t *testing.T, h *AuthHarness) {
 
 		// With a password, the person proves the account is theirs: the sign-in waits
 		// for it, and the confirmed link is a second identity on the same connection.
-		if err := in.Driver.ReplaceUserPassword(ctx, lee.ID, passwordHashes(t, "a password")[0], false); err != nil {
-			t.Fatalf("ReplaceUserPassword() error = %v", err)
+		if err := in.Driver.SetFirstUserPassword(ctx, lee.ID, passwordHashes(t, "a password")[0]); err != nil {
+			t.Fatalf("SetFirstUserPassword() error = %v", err)
 		}
 		second := google("google-lee-second", name)
 		req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: second}

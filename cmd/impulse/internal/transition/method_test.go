@@ -151,8 +151,8 @@ func TestMethodApply(t *testing.T) {
 					t.Errorf("program = %s", program)
 				}
 				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}).Meaning()
-				if !strings.Contains(meaning, "the generated management of the staff auth makes both (the `InviteStaffUser` and `CreateStaffUser` methods), so grant Execute on them to the role that invites in the role file") {
-					t.Errorf("Meaning() lacks the grants on the methods that invite and create:\n%s", meaning)
+				if !strings.Contains(meaning, "the generated management of the staff auth sends it (the `InviteStaffUser` method), so grant Execute on it to the role that invites in the role file") {
+					t.Errorf("Meaning() lacks the grant on the method that invites:\n%s", meaning)
 				}
 			},
 		},

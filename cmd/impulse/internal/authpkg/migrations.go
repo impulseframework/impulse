@@ -50,8 +50,8 @@ CREATE TABLE %[1]sSessionUsers (
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
@@ -270,7 +270,9 @@ CREATE TABLE %[1]sSessionSignInMethods (
 // tokensUp follows it.
 func mailLinksUp(p, who string) string {
 	return fmt.Sprintf(`-- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- to an address, carrying the roles its acceptance gives and the place they are held in
+-- (TenantId for one tenant, EveryTenant for every tenant, neither for the whole
+-- application: the acceptance gives each role there and nowhere else), the name its
 -- sender gave the person (Name, null for none) and who sent it, or, for an invitation
 -- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
 -- document: the tenant's name, whether it is entered through its directory only, and
@@ -284,10 +286,12 @@ func mailLinksUp(p, who string) string {
 -- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
 -- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
+-- ExpiresAt is the library's deadline, written as given.
 CREATE TABLE %[1]sSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -296,12 +300,14 @@ CREATE TABLE %[1]sSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
     CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_%[1]sSessionMailLinks_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
@@ -398,7 +404,9 @@ func factorsUp(p, who string) string {
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
 -- carries the code and the row keeps its hash; the row is live while it is not consumed
 -- and not expired, Attempts counts the wrong codes entered against it, and a new code for
--- the same pending sign-in consumes the earlier one. A trusted device is a browser a
+-- the same pending sign-in consumes the earlier one. A code mailed for an invitation
+-- names it (InvitationId) and accepts that one alone; every other code names none. A
+-- trusted device is a browser a
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
@@ -414,6 +422,7 @@ CREATE TABLE %[1]sSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_%[1]sSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
     CONSTRAINT FK_%[1]sSessionFactorCodes_%[1]sSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES %[1]sSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);

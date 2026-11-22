@@ -345,7 +345,7 @@ import (
 )
 
 func New(client any, key string, settings *Settings) {
-	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
+	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), settings.Mail)
 ` + statements + `
 }
 ` + strings.Join(decls, "\n")

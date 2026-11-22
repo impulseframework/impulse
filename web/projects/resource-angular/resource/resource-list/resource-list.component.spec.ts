@@ -1109,6 +1109,171 @@ describe('ResourceListComponent', () => {
     });
   });
 
+  describe('names a tenant in a column over its key', () => {
+    // The page lists rows that carry a tenant's key (a role and the tenant it is held in).
+    // Three people read it. One may list the tenant record, and reads the tenant's name
+    // there. One may not, and holds a role in one of the tenants, which their own list of
+    // tenants names. One may not and holds a role in neither: the page's own words stand,
+    // and no cell ever shows the key, which is an id nobody reads.
+    const rows = [
+      { id: 's-1', name: 'Kestrel', clientId: 'a1111111-1111-4111-8111-111111111111' },
+      { id: 's-2', name: 'Vega', clientId: 'b2222222-2222-4222-8222-222222222222' },
+      { id: 's-3', name: 'Dishner', clientId: '' },
+    ];
+    const heldIn = multiColumnConfig({
+      id: 'clientId' as FieldName,
+      header: 'Held in',
+      additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+      concatFn: 'hyphen-concat',
+      tenantKey: true,
+      said: (name: string) => `Sector ${name}`,
+      fallback: (row: Record<string, unknown>) =>
+        row['clientId'] ? 'A sector you cannot see' : 'The whole application',
+      filterable: false,
+    });
+    const shown = async (
+      record: TransportResponse,
+      ownTenants: { domain: string; name: string }[],
+    ): Promise<unknown[]> => {
+      await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, heldIn] }, rows, (request) => {
+        const path = request.url.split('?')[0];
+        if (path === '/api/clients') {
+          return record;
+        }
+        if (path === '/api/user-domains') {
+          return { status: 200, body: ownTenants };
+        }
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      });
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      return fixture.componentInstance.processedRowData().map((row) => row['clientId']);
+    };
+    const refused: TransportResponse = { status: 403, body: { message: 'forbidden' } };
+
+    it('says the name the tenant record holds, in the words the page gives it', async () => {
+      const cells = await shown(
+        {
+          status: 200,
+          body: [
+            { id: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' },
+            { id: 'b2222222-2222-4222-8222-222222222222', name: 'Bastion' },
+          ],
+          headers: { 'total-count': '2' },
+        },
+        [],
+      );
+      expect(cells).toEqual(['Sector Anvil', 'Sector Bastion', 'The whole application']);
+    });
+
+    it("where the record's read is refused, says the name the person's own list of tenants holds, and the page's words for a tenant they hold nothing in: never the key", async () => {
+      const cells = await shown(refused, [{ domain: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' }]);
+      expect(cells).toEqual(['Sector Anvil', 'A sector you cannot see', 'The whole application']);
+      expect(cells.join(' ')).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+      // The rows are drawn, and nothing is left waiting on the read that was refused.
+      const drawn = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('td')).map((cell) =>
+        cell.textContent?.trim(),
+      );
+      expect(drawn).toContain('A sector you cannot see');
+    });
+
+    it("with no record to read, says the name the person's own list of tenants holds and the page's words for the rest", async () => {
+      const unread = { ...heldIn, additionalIds: [] };
+      await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, unread] }, rows, (request) => {
+        const path = request.url.split('?')[0];
+        if (path === '/api/clients') {
+          throw new Error('the column reads no record: nothing asks for the tenants');
+        }
+        if (path === '/api/user-domains') {
+          return { status: 200, body: [{ domain: 'b2222222-2222-4222-8222-222222222222', name: 'Bastion' }] };
+        }
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      });
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual([
+        'A sector you cannot see',
+        'Sector Bastion',
+        'The whole application',
+      ]);
+    });
+
+    it('while the record is still being read, says nothing of a tenant yet: never that the reader cannot see it', async () => {
+      let answer: (response: TransportResponse) => void = () => undefined;
+      const waiting = new Promise<TransportResponse>((resolve) => {
+        answer = resolve;
+      });
+      await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, heldIn] }, rows, (request) => {
+        const path = request.url.split('?')[0];
+        if (path === '/api/clients') {
+          return waiting;
+        }
+        if (path === '/api/user-domains') {
+          return { status: 200, body: [] };
+        }
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      });
+      fixture.detectChanges();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual([
+        '',
+        '',
+        'The whole application',
+      ]);
+      answer({
+        status: 200,
+        body: [{ id: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' }],
+        headers: { 'total-count': '1' },
+      });
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual([
+        'Sector Anvil',
+        'A sector you cannot see',
+        'The whole application',
+      ]);
+    });
+
+    it('a column that is not over a tenant key asks nothing of the list of tenants', async () => {
+      const plain = { ...heldIn, tenantKey: undefined };
+      await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, plain] }, rows, (request) => {
+        const path = request.url.split('?')[0];
+        if (path === '/api/clients') {
+          return refused;
+        }
+        if (path === '/api/user-domains') {
+          return { status: 200, body: [{ domain: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' }] };
+        }
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      });
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual([
+        'A sector you cannot see',
+        'A sector you cannot see',
+        'The whole application',
+      ]);
+    });
+  });
+
   describe('renders an icon column from the declared map', () => {
     it('requests the fields its sentences name, resolves the icon and the words with the display row, and draws the icon as an image', async () => {
       const rows = [

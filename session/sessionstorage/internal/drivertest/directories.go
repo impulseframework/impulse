@@ -166,8 +166,8 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	in := h.New(ctx, t, AuthWithAppTables, cfg)
 
-	// Pat's account stands before Pat ever signs in: Riverside's administrator created
-	// it ahead, with no password, and Riverside's invitation was mailed to its address.
+	// Pat's account stands before Pat ever signs in: it was created ahead, with no
+	// password, and Riverside's invitation was mailed to its address.
 	const name = "pat@lakeside.edu"
 	pat := createUser(ctx, t, in.Driver, name)
 	invitation := insertInvitation(ctx, t, in.Driver, name, "riverside", []string{"Teacher"}, tokenHash(1))

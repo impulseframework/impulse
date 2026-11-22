@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,8 +44,10 @@ func inviteCrew(ctx context.Context, t *testing.T, b *browser, body string) invi
 // the served stack, with the real session manager and its mail: the invitation is
 // written in the method's transaction and its message goes once that has committed,
 // the answer says whether it went, an invitation whose message could not be sent is
-// withdrawn, an invitation gives a role, the person who follows the link holds it, and
-// a withdrawal holds to invitations.
+// ended, an invitation gives a role, the person who follows the link holds it, an
+// invitation that names neither a sector nor every sector is held to the whole
+// application's roles and says what to choose for a sector's, an invitation into every
+// sector is held to the sectors' roles, and a withdrawal holds to invitations.
 //
 // Demonstrates: auth.generated-identity.
 func TestGeneratedIdentityInvitations(t *testing.T) {
@@ -70,11 +73,24 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 		"without a role":                       `{"email":"ensign@example.com"}`,
 		"with a role that does not exist":      `{"email":"ensign@example.com","roles":["NoSuchRole"]}`,
 		"with a global role into a sector":     `{"email":"ensign@example.com","roles":["ClientBrowser"],"domain":"` + anvil + `"}`,
+		"with a global role into every sector": `{"email":"ensign@example.com","roles":["ClientBrowser"],"everyDomain":true}`,
+		"into one sector and every sector":     `{"email":"ensign@example.com","roles":["Pilot"],"domain":"` + anvil + `","everyDomain":true}`,
 		"to something that is no address":      `{"email":"ensign at example","roles":["ClientBrowser"]}`,
 		"into a sector named by an empty name": `{"email":"ensign@example.com","roles":["Pilot"],"domain":""}`,
 	} {
 		if status, respBody := hq.do(ctx, http.MethodPost, consoleAPI+"/invite-crew-user", []byte(body)); status != http.StatusBadRequest {
 			t.Errorf("an invitation %s: status %d, want 400: %s", name, status, respBody)
+		}
+	}
+	// A sector's role in an invitation that names neither a sector nor every sector:
+	// the invitation is into the whole application, where no such role exists, and
+	// the refusal says what to choose. Were it sent, nobody could accept it: the
+	// acceptance gives a role in the place the invitation keeps and nowhere else.
+	const noSector = `is a role held in a sector, and this invitation names none. Choose the sector it is for, or every sector`
+	for _, roles := range []string{`["SectorMarshal"]`, `["ClientBrowser","Pilot"]`} {
+		status, respBody := hq.do(ctx, http.MethodPost, consoleAPI+"/invite-crew-user", []byte(`{"email":"ensign@example.com","roles":`+roles+`}`))
+		if status != http.StatusBadRequest || !strings.Contains(string(respBody), noSector) {
+			t.Errorf("an invitation of %s with no sector named: status %d, want 400 that says to choose the sector or every sector: %s", roles, status, respBody)
 		}
 	}
 	for _, message := range s.mail.Messages() {
@@ -104,6 +120,9 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	listed := decodeRow(t, body)
 	if cell[string](t, listed, "email") != email || cell[string](t, listed, "kind") != "invitation" || listed["consumedAt"] != nil {
 		t.Errorf("the invitation as the generated resource reads it = %v, want it standing for %s", listed, email)
+	}
+	if marked, _ := listed["everyTenant"].(bool); marked {
+		t.Errorf("the invitation into the application as the generated resource reads it = %v, want no mark for every sector", listed)
 	}
 	if _, hashed := listed["tokenHash"]; hashed {
 		t.Errorf("the generated resource serves the token's hash: %v", listed)
@@ -169,8 +188,30 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 		t.Errorf("the withdrawn invitation in Anvil's list: status %d, row %v, want it listed and no longer pending", status, withdrawnAtAnvil)
 	}
 
+	// An invitation into every sector, as the dialog sends it when the person ticks
+	// "In every sector": it names no sector and keeps the sector role beside the mark
+	// for every sector, which is where the acceptance gives it
+	// (TestGeneratedIdentityInvitationPlace).
+	everywhere := inviteCrew(ctx, t, hq, `{"email":"rover@example.com","roles":["Pilot"],"everyDomain":true}`)
+	if !everywhere.Sent {
+		t.Errorf("the answer of the invitation into every sector says the message did not go: %+v", everywhere)
+	}
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{everywhere.ID}, "TenantId"); got.Valid {
+		t.Errorf("the every-sector invitation's tenant = %v, want none: it is into no one sector", got)
+	}
+	if got := readColumn[[]string](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{everywhere.ID}, "RoleNames"); !slices.Equal(got, []string{"Pilot"}) {
+		t.Errorf("the every-sector invitation's roles = %v, want Pilot", got)
+	}
+	// The list of mailed links says the place: the governor reads the mark on the row, which
+	// is how a page tells this invitation from one into the whole application.
+	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/crew-session-mail-links/"+everywhere.ID, nil)
+	assertStatus(t, status, http.StatusOK, body)
+	if roving := decodeRow(t, body); !cell[bool](t, roving, "everyTenant") {
+		t.Errorf("the every-sector invitation as the generated resource reads it = %v, want the mark for every sector", roving)
+	}
+
 	// A message that cannot be sent: the method still answers, the answer says the
-	// message did not go, and the invitation is withdrawn.
+	// message did not go, and the invitation is ended.
 	s.mail.Fail(errors.New("relay down"))
 	unsent := inviteCrew(ctx, t, hq, `{"email":"lost@example.com","roles":["ClientBrowser"]}`)
 	s.mail.Fail(nil)
@@ -178,7 +219,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 		t.Errorf("the answer of an invitation whose message failed says it went: %+v", unsent)
 	}
 	if !consumed(unsent.ID) {
-		t.Error("the invitation whose message failed still stands, want it withdrawn")
+		t.Error("the invitation whose message failed still stands, want it ended")
 	}
 
 	// A withdrawal: the link is dead, a second one finds nothing, and a link that

@@ -8,21 +8,20 @@ import "github.com/impulseframework/impulse/accesstypes"
 type Method interface {
 	Method() accesstypes.Resource
 	AddCrewGroupMember | AddCrewSectorGroupMember | AssignCrewRole | AssignCrewSectorRole |
-		CreateCrewGroup | CreateCrewSectorGroup | CreateCrewSectorUser | CreateCrewUser |
-		DeleteCrewGroup | DeleteCrewSectorGroup | DeleteCrewSectorUser | DeleteCrewUser |
-		DescribeCrewGroup | DescribeCrewSectorGroup | DisableCrewSectorUser | DisableCrewUser |
-		EnableCrewSectorUser | EnableCrewUser | EndCrewSectorUserSessions | EndCrewSession |
-		EndCrewSessionImpersonation | EndCrewUserSessions | GiveCrewGroupRole |
-		GiveCrewSectorGroupRole | InviteCrewSector | InviteCrewSectorUser | InviteCrewUser |
-		MakeCrewInviteOnly | OpenCrewSignUp | RemoveCrewGroupMember | RemoveCrewPassword |
-		RemoveCrewRole | RemoveCrewSectorGroupMember | RemoveCrewSectorPassword |
-		RemoveCrewSectorRole | RenameCrewSectorUser | RenameCrewUser | RequireCrewPasswordChange |
-		RequireCrewSectorPasswordChange | RevokeCrewSectorUserTrustedDevices |
-		RevokeCrewSessionToken | RevokeCrewUserTrustedDevices |
-		SendCrewSectorUserPasswordResetLink | SendCrewUserPasswordResetLink |
-		SetCrewSectorTemporaryPassword | SetCrewSectorUserEmail | SetCrewSectorUserName |
-		SetCrewSelfServiceReset | SetCrewTemporaryPassword | SetCrewUserEmail | SetCrewUserName |
-		TakeCrewGroupRole | TakeCrewRole | TakeCrewSectorGroupRole |
-		UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity | UnlockCrewSignIn |
-		WithdrawCrewInvitation | WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
+		CreateCrewGroup | CreateCrewSectorGroup | DeleteCrewGroup | DeleteCrewSectorGroup |
+		DeleteCrewSectorUser | DeleteCrewUser | DescribeCrewGroup | DescribeCrewSectorGroup |
+		DisableCrewSectorUser | DisableCrewUser | EnableCrewSectorUser | EnableCrewUser |
+		EndCrewSectorUserSessions | EndCrewSession | EndCrewSessionImpersonation |
+		EndCrewUserSessions | GiveCrewGroupRole | GiveCrewSectorGroupRole | InviteCrewSector |
+		InviteCrewSectorUser | InviteCrewUser | MakeCrewInviteOnly | OpenCrewSignUp |
+		RemoveCrewGroupMember | RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
+		RemoveCrewSectorPassword | RemoveCrewSectorRole | RenameCrewSectorUser | RenameCrewUser |
+		RequireCrewPasswordChange | RequireCrewSectorPasswordChange |
+		RevokeCrewSectorUserTrustedDevices | RevokeCrewSessionToken |
+		RevokeCrewUserTrustedDevices | SendCrewSectorUserPasswordResetLink |
+		SendCrewUserPasswordResetLink | SetCrewSectorUserEmail | SetCrewSectorUserName |
+		SetCrewSelfServiceReset | SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole |
+		TakeCrewRole | TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity |
+		UnlinkCrewSessionIdentity | UnlockCrewSignIn | WithdrawCrewInvitation |
+		WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
 }

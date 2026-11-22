@@ -22,6 +22,21 @@ import (
 
 // QuerySet represents a query for a resource, including fields, keys, filters, and permissions.
 type QuerySet[Resource Resourcer] struct {
+	// names are the decoder's name fields whose id the request type carries: beside
+	// an id field, the name of the row it points to, which the statement looks up
+	// (name_lookup.go). A name beside an id a flag hides is held too, so the
+	// declared order can order by it; no request may name it (nameFieldName) and no
+	// row carries it, since its id is never returned. shownNames are the names the
+	// query returns: the ones the request's columns named, or the name beside every
+	// id a request that named no columns returns. nameGrants are the decisions on
+	// the grant each name in play takes beside its id's (checkNameGrants), by name
+	// field; nil until they are asked. closedNames are the names of the declared
+	// order whose id the person may not read (closeOrderedNames).
+	names       []requestName
+	shownNames  []accesstypes.Field
+	nameGrants  map[accesstypes.Field]accesstypes.Decision
+	closedNames map[accesstypes.Field]struct{}
+
 	keys                   *fieldSet
 	fields                 []accesstypes.Field
 	sortFields             []SortField
@@ -336,7 +351,16 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 		}
 		q.carryConditionalDecisions(decisions)
 
+		if err := q.checkNameGrants(ctx); err != nil {
+			return err
+		}
+		if err := q.closeOrderedNames(ctx); err != nil {
+			return err
+		}
 		if err := q.checkQueryFieldsReadable(ctx, q.resourceSet, q.userPermissions); err != nil {
+			return err
+		}
+		if err := q.refuseSortedName(refusedHere); err != nil {
 			return err
 		}
 		if err := q.checkSearchFieldsReadable(ctx); err != nil {
@@ -353,7 +377,9 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 	if q.resourceSet != nil {
 		resources := make([]accesstypes.Resource, 0, len(fields)+1)
 
-		for _, fieldName := range fields {
+		// A name asked for as a column is read under the grant on its id field,
+		// and under its own (refuseNamedColumns).
+		for _, fieldName := range append(slices.Clone(fields), q.shownNameKeys()...) {
 			if q.resourceSet.PermissionRequired(fieldName, q.requiredPermission) {
 				resources = append(resources, q.resourceSet.Resource(fieldName))
 			}
@@ -370,17 +396,21 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 		}
 		q.carryConditionalDecisions(decisions)
+
+		return q.refuseNamedColumns(refusedHere)
 	}
 
 	return nil
 }
 
-// queryFields returns the fields the request orders or filters by, each once.
+// queryFields returns the fields the request orders or filters by, each once. A
+// name the request orders by counts as the id field it stands beside, whose
+// grant covers it.
 func (q *QuerySet[Resource]) queryFields() []accesstypes.Field {
 	fields := make([]accesstypes.Field, 0, len(q.sortFields)+len(q.filterFields))
 	for _, sf := range q.sortFields {
-		if !slices.Contains(fields, accesstypes.Field(sf.Field)) {
-			fields = append(fields, accesstypes.Field(sf.Field))
+		if field := q.grantField(accesstypes.Field(sf.Field)); !slices.Contains(fields, field) {
+			fields = append(fields, field)
 		}
 	}
 	for _, field := range q.filterFields {
@@ -394,14 +424,15 @@ func (q *QuerySet[Resource]) queryFields() []accesstypes.Field {
 
 // queryColumns returns the fields whose columns the statement names outside
 // the select list: the read order (the request's sort or the declared default,
-// then the key), the filter's fields, and the search box's fields that
-// survived the read checks, each once.
+// then the key), the filter's fields, the search box's fields that survived
+// the read checks, and the id field of each name the statement looks up (a
+// name it orders by or returns), each once.
 func (q *QuerySet[Resource]) queryColumns() []accesstypes.Field {
 	order := q.Order()
 	fields := make([]accesstypes.Field, 0, len(order)+len(q.filterFields)+len(q.searchFields))
 	for _, sf := range order {
-		if !slices.Contains(fields, accesstypes.Field(sf.Field)) {
-			fields = append(fields, accesstypes.Field(sf.Field))
+		if field := q.grantField(accesstypes.Field(sf.Field)); !slices.Contains(fields, field) {
+			fields = append(fields, field)
 		}
 	}
 	for _, field := range q.filterFields {
@@ -410,6 +441,11 @@ func (q *QuerySet[Resource]) queryColumns() []accesstypes.Field {
 		}
 	}
 	for _, field := range q.activeSearchFields() {
+		if !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+	for _, field := range q.shownNameKeys() {
 		if !slices.Contains(fields, field) {
 			fields = append(fields, field)
 		}
@@ -600,6 +636,7 @@ func (q *QuerySet[Resource]) addAccessibleFields(ctx context.Context, dbType DBT
 	for _, field := range fields {
 		q.AddField(field)
 	}
+	q.showNamesOf(fields)
 
 	return nil
 }
@@ -701,8 +738,17 @@ type orderColumn struct {
 
 // orderColumn resolves one sort field to the expression the statement orders
 // and pages by. A conditional field with a query override sorts on the override
-// and is nullable regardless of its Go type: its masked cells are NULL.
+// and is nullable regardless of its Go type: its masked cells are NULL. A name
+// field sorts on its lookup, text that is NULL where the id points to no row.
 func (q *QuerySet[Resource]) orderColumn(dbType DBType, rendered *renderedReadConditions, sf SortField) (orderColumn, error) {
+	if _, isName := q.requestName(accesstypes.Field(sf.Field)); isName {
+		lookup := rendered.nameLookup(accesstypes.Field(sf.Field))
+		if lookup == "" {
+			return orderColumn{}, errors.Newf("sort field '%s' is a name the statement did not look up", sf.Field)
+		}
+
+		return orderColumn{sql: lookup, nullable: true, meta: dbFieldMetadata{fieldType: reflect.TypeFor[string]()}}, nil
+	}
 	dbField, ok := q.rMeta.dbFieldMap(dbType)[accesstypes.Field(sf.Field)]
 	if !ok {
 		return orderColumn{}, errors.Newf("sort field '%s' not found in resource metadata for query", sf.Field)
@@ -941,6 +987,11 @@ func (q *QuerySet[Resource]) cursorColumnItems(dbType DBType, rendered *rendered
 			continue
 		}
 		seen[field] = struct{}{}
+		if _, isName := q.requestName(field); isName {
+			// A name the list is ordered by is selected once, for the row and for
+			// the cursor (nameItems).
+			continue
+		}
 		if slices.Contains(q.Fields(), field) && !q.positionalCase(field, rendered) {
 			continue
 		}
@@ -1173,13 +1224,17 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	if err != nil {
 		return nil, err
 	}
+	rendered, err = q.withNameLookups(dbType, rendered, registry)
+	if err != nil {
+		return nil, errors.Wrap(err, "QuerySet.withNameLookups()")
+	}
 
 	capPlan, capChecksItem, err := q.renderCapabilities(dbType, registry)
 	if err != nil {
 		return nil, errors.Wrap(err, "QuerySet.renderCapabilities()")
 	}
 
-	columns, cursorColumns, err := q.selectList(dbType, rendered, capChecksItem)
+	columns, cursorColumns, err := q.selectListWithNames(dbType, rendered, capChecksItem)
 	if err != nil {
 		return nil, err
 	}

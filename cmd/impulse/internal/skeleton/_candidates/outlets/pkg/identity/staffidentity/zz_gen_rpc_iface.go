@@ -8,21 +8,20 @@ import "github.com/impulseframework/impulse/accesstypes"
 type Method interface {
 	Method() accesstypes.Resource
 	AddStaffGroupMember | AddStaffTenantGroupMember | AssignStaffRole | AssignStaffTenantRole |
-		CreateStaffGroup | CreateStaffTenantGroup | CreateStaffTenantUser | CreateStaffUser |
-		DeleteStaffGroup | DeleteStaffTenantGroup | DeleteStaffTenantUser | DeleteStaffUser |
-		DescribeStaffGroup | DescribeStaffTenantGroup | DisableStaffTenantUser | DisableStaffUser |
-		EnableStaffTenantUser | EnableStaffUser | EndStaffSession | EndStaffTenantUserSessions |
-		EndStaffUserSessions | GiveStaffGroupRole | GiveStaffTenantGroupRole | InviteStaffTenant |
-		InviteStaffTenantUser | InviteStaffUser | MakeStaffInviteOnly | OpenStaffSignUp |
-		RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole |
-		RemoveStaffTenantGroupMember | RemoveStaffTenantPassword | RemoveStaffTenantRole |
-		RenameStaffTenantUser | RenameStaffUser | RequireStaffPasswordChange |
-		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
-		SendStaffTenantUserPasswordResetLink | SendStaffUserPasswordResetLink |
-		SetStaffSelfServiceReset | SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword |
-		SetStaffTenantUserEmail | SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
-		TakeStaffGroupRole | TakeStaffRole | TakeStaffTenantGroupRole |
-		UnlinkStaffSessionIdentity | UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation | WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
+		CreateStaffGroup | CreateStaffTenantGroup | DeleteStaffGroup | DeleteStaffTenantGroup |
+		DeleteStaffTenantUser | DeleteStaffUser | DescribeStaffGroup | DescribeStaffTenantGroup |
+		DisableStaffTenantUser | DisableStaffUser | EnableStaffTenantUser | EnableStaffUser |
+		EndStaffSession | EndStaffTenantUserSessions | EndStaffUserSessions | GiveStaffGroupRole |
+		GiveStaffTenantGroupRole | InviteStaffTenant | InviteStaffTenantUser | InviteStaffUser |
+		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
+		RemoveStaffRole | RemoveStaffTenantGroupMember | RemoveStaffTenantPassword |
+		RemoveStaffTenantRole | RenameStaffTenantUser | RenameStaffUser |
+		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
+		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
+		RevokeStaffUserTrustedDevices | SendStaffTenantUserPasswordResetLink |
+		SendStaffUserPasswordResetLink | SetStaffSelfServiceReset | SetStaffTenantUserEmail |
+		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
+		TakeStaffRole | TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
+		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
+		WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
 }

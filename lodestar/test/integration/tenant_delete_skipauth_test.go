@@ -101,15 +101,16 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	emberScope := accesstypes.DomainPolicyScope(accesstypes.Domain(ember))
 	anvilScope := accesstypes.DomainPolicyScope(anvil)
 
-	// The crew in Ember: the marshal of Anvil is given a role there; a person is created
-	// there who holds a role nowhere else; an invitation into Ember stands; and a custom
-	// role is made in Ember.
+	// The crew in Ember: the marshal of Anvil is given a role there; a person whose
+	// account is there already is given a role there and holds one nowhere else; an
+	// invitation into Ember stands; and a custom role is made in Ember.
 	status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+string(marshalUser)+`","role":"Pilot","domain":"`+ember+`"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "create-crew-sector-user"), []byte(`{"username":"`+string(hand)+`","email":"Hand <hand@example.com>","roles":["Cadet"]}`))
-	assertStatus(t, status, http.StatusOK, body)
-	handID := cell[string](t, decodeRow(t, body), "id")
+	handAddress := "hand@example.com"
+	handID := s.seedCrewAccount(ctx, t, string(hand), &handAddress).String()
 	handUser := accesstypes.User(handID)
+	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+handID+`","role":"Cadet","domain":"`+ember+`"}`))
+	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "invite-crew-sector-user"), []byte(`{"email":"invited@example.com","roles":["Cadet"]}`))
 	assertStatus(t, status, http.StatusOK, body)
 	var invitation invited
@@ -150,7 +151,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatalf("the marshal's sectors once given a role in Ember = %v, want Ember among them", got)
 	}
 	if !crewAccountExists(t, s.db, handID) {
-		t.Fatal("the person created in Ember has no account")
+		t.Fatal("the person seated in Ember alone has no account")
 	}
 	for _, held := range []struct {
 		name    string
@@ -159,7 +160,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	}{
 		{name: "Ember's founder, its first marshal", manager: crewManager, user: founderUser},
 		{name: "the marshal", manager: crewManager, user: marshalUser},
-		{name: "the person created in Ember", manager: crewManager, user: handUser},
+		{name: "the person seated in Ember alone", manager: crewManager, user: handUser},
 		{name: "the drifter, a member", manager: membersManager, user: drifterUser},
 		{name: "the commuter, a member", manager: membersManager, user: commuterUser},
 	} {
@@ -395,7 +396,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	}{
 		{name: "the crew's store, for Ember's founder", manager: crewManager, user: founderUser},
 		{name: "the crew's store, for the marshal", manager: crewManager, user: marshalUser},
-		{name: "the crew's store, for the person created in Ember", manager: crewManager, user: handUser},
+		{name: "the crew's store, for the person seated in Ember alone", manager: crewManager, user: handUser},
 		{name: "the members' store, for the drifter", manager: membersManager, user: drifterUser},
 		{name: "the members' store, for the commuter", manager: membersManager, user: commuterUser},
 	} {

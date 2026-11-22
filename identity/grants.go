@@ -55,14 +55,18 @@ type RoleGrants interface {
 	// away: the grant of the method that takes a role away admits it for that role.
 	MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
 	// CouldGive reports whether the caller could give the role in the scope by hand, to
-	// somebody: one of the methods a person gives a role with (the one that gives a
-	// person a role, the create and the invitation that start a person with one, the
-	// one that gives a group a role) does not refuse this caller the role. It is the
-	// question of a list a role is picked from (Manager.RolesToGive), asked before
-	// anybody is named: where what is left of a grant's condition reads the row a
-	// method names (the person, the group), the role could be given to some of them,
-	// and the answer is yes. It reads no row, and so takes no transaction.
-	CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
+	// somebody, with the method named: one of the methods a person gives a role with
+	// (the one that gives a person a role, the invitation that starts a person with
+	// one, the one that gives a group a role), by the name its grant is
+	// written under. The answer is that method's own and no other's: each has its own
+	// grant, and a role one of them takes from this caller another may refuse. It is the
+	// question of a list a role is picked from (Manager.GivableRoles,
+	// Manager.RolesToGive), asked for the method whose dialog picks, before anybody is
+	// named: where what is left of the grant's condition reads the row the method names
+	// (the person, the group), the role could be given to some of them, and the answer
+	// is yes. It reads no row, and so takes no transaction. A method that gives no role
+	// by hand where the request was made is an error and never an answer.
+	CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 }
 
 // WithRoleGrants hands the manager the answers of the role file's grants on the methods
@@ -224,6 +228,22 @@ func lengthens(had, next accesstypes.Period, now time.Time) bool {
 	}
 
 	return had.Upcoming(now) && (next.Start.IsZero() || next.Start.Before(had.Start))
+}
+
+// shortens reports whether an assignment that counts now would, given the period next,
+// stop counting at an instant from now on at which it counts with the period it had: a
+// start that has not come, and an end where it had none or one that came later. An
+// assignment that does not count now, because its period is over or has not begun, is
+// not shortened by any period: it gives nothing today that a new period could take.
+func shortens(had, next accesstypes.Period, now time.Time) bool {
+	if !had.Contains(now) {
+		return false
+	}
+	if !next.Contains(now) {
+		return true
+	}
+
+	return !next.End.IsZero() && (had.End.IsZero() || next.End.Before(had.End))
 }
 
 // refuseLongerForOneself is the rule that nobody lengthens their own holding: an act of

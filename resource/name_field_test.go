@@ -20,7 +20,7 @@ type nameFieldRequest struct {
 }
 
 // nameFieldResource is the resource behind nameFieldRequest: its columns, with no
-// column for the name.
+// column for the name, and the lookup the name is read through.
 type nameFieldResource struct {
 	ID         string `spanner:"Id"`
 	SquadronID string `spanner:"SquadronId"`
@@ -36,21 +36,41 @@ func (nameFieldResource) DefaultConfig() Config {
 	return Config{}
 }
 
-// TestQueryDecoder_nameFieldRefused pins what a request naming a name field is told
-// while no statement looks the name up: the decoder knows the request type's columns
-// alone, so the name is no column to select, no field to sort by and no field to filter
-// by, each a Bad Request that names it.
-func TestQueryDecoder_nameFieldRefused(t *testing.T) {
+// NameFields describes the resource's name field as the generator writes it.
+func (nameFieldResource) NameFields() []NameField {
+	return []NameField{
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+	}
+}
+
+// TestQueryDecoder_nameField pins what a request naming a name field is given: the
+// name is a column to ask for and a field to sort by, each kept apart from the
+// resource's own columns, since the statement looks it up. A name whose request
+// field carries no filter tag is no field to filter by, a Bad Request that names it.
+func TestQueryDecoder_nameField(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		query   url.Values
-		wantErr string
+		name        string
+		query       url.Values
+		wantColumns []accesstypes.Field
+		wantNames   []accesstypes.Field
+		wantSort    []SortField
+		wantErr     string
 	}{
-		{name: "selected", query: url.Values{"columns": []string{"id,squadronName"}}, wantErr: "unknown column: squadronName"},
-		{name: "sorted by", query: url.Values{"sort": []string{"squadronName:asc"}}, wantErr: "unknown sort field: squadronName"},
-		{name: "filtered by", query: url.Values{"filter": []string{"squadronName:eq:Red"}}, wantErr: "'squadronName' is not filterable"},
+		{
+			name:        "selected",
+			query:       url.Values{"columns": []string{"id,squadronName"}},
+			wantColumns: []accesstypes.Field{"ID"},
+			wantNames:   []accesstypes.Field{"SquadronName"},
+		},
+		{
+			name:     "sorted by",
+			query:    url.Values{"sort": []string{"squadronName:desc"}},
+			wantSort: []SortField{{Field: "SquadronName", Direction: SortDescending}},
+		},
+		{name: "filtered by, with no filter tag", query: url.Values{"filter": []string{"squadronName:eq:Red"}}, wantErr: "'squadronName' is not filterable"},
+		{name: "a name the request type does not carry", query: url.Values{"columns": []string{"id,wingName"}}, wantErr: "unknown column: wingName"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,12 +85,25 @@ func TestQueryDecoder_nameFieldRefused(t *testing.T) {
 				t.Fatalf("NewQueryDecoder() error = %v", err)
 			}
 
-			_, err = decoder.parseQuery(tt.query, nil, "")
-			if err == nil {
-				t.Fatal("parseQuery() expected an error, got nil")
+			parsed, err := decoder.parseQuery(tt.query, nil, "")
+			if tt.wantErr != "" {
+				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseQuery() error = %v, want Bad Request containing %q", err, tt.wantErr)
+				}
+
+				return
 			}
-			if !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("parseQuery() error = %v, want Bad Request containing %q", err, tt.wantErr)
+			if err != nil {
+				t.Fatalf("parseQuery() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantColumns, parsed.ColumnFields); diff != "" {
+				t.Errorf("parseQuery() columns mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantNames, parsed.NameFields); diff != "" {
+				t.Errorf("parseQuery() names mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantSort, parsed.SortFields); diff != "" {
+				t.Errorf("parseQuery() sort mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -119,5 +152,15 @@ func TestNameField_GoLiteral(t *testing.T) {
 	want := `{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"}`
 	if got := field.GoLiteral(); got != want {
 		t.Errorf("GoLiteral() = %s, want %s", got, want)
+	}
+
+	// A pointed-to resource that reaches its tenant through other tables carries the way.
+	field = NameField{
+		Field: "CrewName", Key: "CrewID", Resource: "Crews", Tag: "name", Table: "Crews", KeyColumn: "Id", NameColumn: "Name",
+		TenantColumn: "WingId", TenantPath: []BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "GroupId"}, {Table: "Groups", JoinColumn: "Id", Column: "SectorId"}},
+	}
+	want = `{Field: "CrewName", Key: "CrewID", Resource: "Crews", Tag: "name", Table: "Crews", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "GroupId"}, {Table: "Groups", JoinColumn: "Id", Column: "SectorId"}}}`
+	if got := field.GoLiteral(); got != want {
+		t.Errorf("GoLiteral() with a tenant path = %s, want %s", got, want)
 	}
 }

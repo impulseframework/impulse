@@ -97,6 +97,18 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 	}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows and sorts by. A name is looked up in
+// the pointed-to table by the id; it is no column of this resource.
+func (Mission) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "KindName", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "RequiredCertName", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
 // missionRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionReadSets holds one Set per read operation.

@@ -39,11 +39,11 @@ import (
 // and her session, a password's, does not enter Bastion: she is refused every act that
 // would change who administers Bastion or hand her its marshal's account. Those are
 // giving herself Bastion's marshal's role, taking it from the marshal Bastion has, an
-// account that starts with it, an invitation that carries it, giving it to Bastion's
-// group or taking it from the group, a place in the group or the marshal's place taken
-// from it, and for Bastion's marshal a password set, required to change or removed, a
-// new username, a new address, an identity unlinked, and the account disabled, enabled
-// or deleted, each in a sentence that says who does it. In Anvil, which admits her, she
+// invitation that carries it, giving it to Bastion's group or taking it from the group,
+// a place in the group or the marshal's place taken from it, and for Bastion's marshal
+// a password required to change or removed, a new username, a new address, an identity
+// unlinked, and the account disabled, enabled or deleted, each in a sentence that says
+// who does it. In Anvil, which admits her, she
 // names a marshal as Headquarters does, and the governor, a super administrator, gives
 // Bastion's role. A session established by an impersonation gains nothing either: one
 // that views the application as Bastion's marshal does not enter Bastion, and one the
@@ -244,17 +244,11 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	}{
 		{"giving herself Bastion's marshal's role", "assign-crew-role", map[string]any{"userId": pilotID, "role": "SectorMarshal", "domain": bastion}, roleKept},
 		{"taking the role from Bastion's marshal", "remove-crew-role", atBastion, roleKept},
-		{
-			"making an account that starts as Bastion's marshal", "create-crew-user",
-			map[string]any{"username": "pilots-friend", "password": "a password the pilot chose", "roles": []string{"SectorMarshal"}, "domain": bastion},
-			roleKept,
-		},
 		{"inviting someone to be Bastion's marshal", "invite-crew-user", map[string]any{"email": "friend@example.com", "roles": []string{"SectorMarshal"}, "domain": bastion}, roleKept},
 		{"giving Bastion's group the role", "give-crew-group-role", map[string]any{"groupId": wardroom, "role": "SectorMarshal", "domain": bastion}, roleKept},
 		{"taking the role from Bastion's group", "take-crew-group-role", map[string]any{"groupId": wardroom, "role": "SectorMarshal", "domain": bastion}, roleKept},
 		{"putting herself in Bastion's group, which holds the role", "add-crew-group-member", map[string]any{"groupId": wardroom, "userId": pilotID}, roleKept},
 		{"taking Bastion's marshal out of Bastion's group", "remove-crew-group-member", place, roleKept},
-		{"setting a password for Bastion's marshal", "set-crew-temporary-password", map[string]any{"userId": riggerID, "password": "a password the pilot chose"}, accountKept},
 		{"requiring Bastion's marshal to change her password", "require-crew-password-change", map[string]any{"userId": riggerID}, accountKept},
 		{"removing the password of Bastion's marshal", "remove-crew-password", map[string]any{"userId": riggerID}, accountKept},
 		{"renaming Bastion's marshal", "rename-crew-user", map[string]any{"userId": riggerID, "username": "rigger-renamed"}, accountKept},

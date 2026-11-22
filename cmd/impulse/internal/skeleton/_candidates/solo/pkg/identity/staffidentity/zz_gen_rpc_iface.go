@@ -7,13 +7,12 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AddStaffGroupMember | AssignStaffRole | CreateStaffGroup | CreateStaffUser |
-		DeleteStaffGroup | DeleteStaffUser | DescribeStaffGroup | DisableStaffUser | EnableStaffUser |
-		EndStaffSession | EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser |
-		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
-		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
+	AddStaffGroupMember | AssignStaffRole | CreateStaffGroup | DeleteStaffGroup |
+		DeleteStaffUser | DescribeStaffGroup | DisableStaffUser | EnableStaffUser | EndStaffSession |
+		EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser | MakeStaffInviteOnly |
+		OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole |
+		RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
 		RevokeStaffUserTrustedDevices | SendStaffUserPasswordResetLink |
-		SetStaffSelfServiceReset | SetStaffTemporaryPassword | SetStaffUserEmail |
-		SetStaffUserName | TakeStaffGroupRole | TakeStaffRole | UnlinkStaffSessionIdentity |
-		UnlockStaffSignIn | WithdrawStaffInvitation
+		SetStaffSelfServiceReset | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
+		TakeStaffRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation
 }

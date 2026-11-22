@@ -24,9 +24,15 @@ type Invitation struct {
 	// written on the account the acceptance creates when the sign-in asserts no name of
 	// its own, and on an existing account that holds none.
 	Name string
-	// TenantID is the tenant the invitation seats the person in, "" for the
-	// application's global surface.
+	// TenantID is the tenant the invitation seats the person in, "" for an invitation
+	// that names no one tenant.
 	TenantID string
+	// EveryTenant says the invitation's roles are held in every tenant. With TenantID
+	// it is where the roles are held, kept on the invitation when it is sent: in the
+	// tenant TenantID names, in every tenant when EveryTenant is set, and in the
+	// application's global surface when neither is. The acceptance gives each role
+	// there and nowhere else, whatever roles exist by then.
+	EveryTenant bool
 	// RoleNames are the roles the acceptance grants, as the application names them.
 	RoleNames []string
 	// InvitedByUserID is the user who sent it, null when unknown.
@@ -56,6 +62,12 @@ type Invitation struct {
 	// then.
 	SignInMethod     AuthMethod
 	SignInConnection string
+	// AddressProven is set by the library before the sign-in runs: the person entered,
+	// in this sign-in, the code the library mailed to Email. It is the proof an
+	// acceptance rests on when the sign-in's identity answers for no address to compare:
+	// it asserts none, or one its method did not verify (Identity.EmailVerified), as a
+	// sign-in through Microsoft Entra ID does.
+	AddressProven bool
 	// Accepted is set by the sign-in: whether this sign-in accepted the invitation.
 	Accepted bool
 }

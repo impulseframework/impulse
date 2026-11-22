@@ -29,9 +29,9 @@ type MethodList struct {
 	// that registers no password method may leave Confirm out: see PendingRoutes.
 	Pending PendingRoutes
 	// ChangePassword is the path of the password method's ChangeUserPassword handler,
-	// which the page needs when a sign-in finds the user must change a password an
-	// operator set. It is required when the password method is listed, since every
-	// user an operator gives a password must change it, and refused when it is not.
+	// which the page needs when a sign-in finds the user must change their password.
+	// It is required when the password method is listed, since a user under the change
+	// mark changes the password there, and refused when it is not.
 	ChangePassword string
 	// RemovePassword is the path of the password method's RemoveUserPassword handler,
 	// where a signed-in person's account page removes their password once they sign in
@@ -214,13 +214,15 @@ type standingInvitationAnswer struct {
 	DirectoryOnly   bool      `json:"directoryOnly"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	UsernameIsEmail bool      `json:"usernameIsEmail"`
-	// Methods are the names of the listed external registrations that could admit the
-	// invitation's address, empty when none could.
+	// Methods are the names of the listed external registrations through which the
+	// invitation can be accepted for its address (invitedAccount), empty when there is
+	// none.
 	Methods []string `json:"methods"`
 	// AccountExists says an account already holds the invited address, and HasPassword
 	// that it signs in with a password: the page offers that account's password form,
-	// and offers to create an account only where none holds the address. The link
-	// holder may know it, since following the link proved they own the address.
+	// and offers to create an account only where none holds the address. Whoever
+	// holds the link is told this much, so the page can offer the right form: the
+	// link proves nothing of who holds it, and nothing is accepted by it.
 	AccountExists bool `json:"accountExists"`
 	HasPassword   bool `json:"hasPassword"`
 }
@@ -378,7 +380,7 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 		return nil, nil
 	}
 
-	exists, hasPassword, err := a.invitedAccount(ctx, inv.Email)
+	invited, err := a.invitedAccount(ctx, inv.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -387,8 +389,8 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 
 	return &standingInvitationAnswer{
 		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
-		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
-		AccountExists: exists, HasPassword: hasPassword,
+		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: invited.methods,
+		AccountExists: invited.exists, HasPassword: invited.hasPassword,
 	}, nil
 }
 

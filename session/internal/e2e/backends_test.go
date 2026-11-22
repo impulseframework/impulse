@@ -37,6 +37,10 @@ type appDB interface {
 	attemptOutcome(ctx context.Context, t *testing.T, subject string) string
 	// disableUser disables a user.
 	disableUser(ctx context.Context, t *testing.T, userID impulse.UUID)
+	// requirePasswordChange marks a user as one an administrator required a new password
+	// of. The mark is the application's write (its own account management writes the
+	// column); the library reads it and clears it.
+	requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID)
 	// hasUser reports whether a user exists under username, as stored.
 	hasUser(ctx context.Context, t *testing.T, username string) bool
 	// heldWithProvidersWord rewrites the pending sign-ins as a release that kept every
@@ -253,6 +257,14 @@ func (d postgresDB) disableUser(ctx context.Context, t *testing.T, userID impuls
 	}
 }
 
+func (d postgresDB) requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID) {
+	t.Helper()
+
+	if _, err := d.Exec(ctx, `UPDATE "SessionUsers" SET "PasswordChangeRequired" = TRUE WHERE "Id" = $1`, userID); err != nil {
+		t.Fatalf("require a new password of the user: %v", err)
+	}
+}
+
 func (d postgresDB) heldWithProvidersWord(ctx context.Context, t *testing.T) {
 	t.Helper()
 
@@ -426,6 +438,15 @@ func (d spannerDB) disableUser(ctx context.Context, t *testing.T, userID impulse
 	m := spanner.Update("SessionUsers", []string{"Id", "Disabled"}, []any{userID.String(), true})
 	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		t.Fatalf("disable the user: %v", err)
+	}
+}
+
+func (d spannerDB) requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID) {
+	t.Helper()
+
+	m := spanner.Update("SessionUsers", []string{"Id", "PasswordChangeRequired"}, []any{userID.String(), true})
+	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("require a new password of the user: %v", err)
 	}
 }
 

@@ -38,7 +38,7 @@ type authSettings struct {
 	signInAttemptsTable *string
 	mailLinksTable      *string
 	signInMethodsTable  *string
-	// mail is how the Auth sends mail, nil when it sends none.
+	// mail is how the Auth sends mail: NewAuth's argument, validated.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
 	// sign-in.
@@ -307,12 +307,10 @@ type SuperAdministrators struct {
 // check reports. Pass signin.SuperAdministrators over the access library's user manager
 // (on Spanner over resource.SignInRoles of it, as the tenant policy is), built before
 // the Auth. The Auth then holds a holder's sign-in for the code it mails, whatever the
-// application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor), so
-// the Auth must send mail (WithMail): NewAuth refuses one that sends none, and a nil
-// check. A sign-in through a method that synchronizes roles is not held: there the
-// directory is the authority on who is a super administrator, and the application's own
-// rule is asked of that person as of anyone. NewAuth asks such an Auth for mail all the
-// same.
+// application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor).
+// NewAuth refuses a nil check. A sign-in through a method that synchronizes roles is
+// not held: there the directory is the authority on who is a super administrator, and
+// the application's own rule is asked of that person as of anyone.
 func SuperAdministratorsBy(check signin.SuperAdministratorCheck) SuperAdministrators {
 	return SuperAdministrators{none: false, checked: true, check: check}
 }
@@ -326,9 +324,8 @@ func NoSuperAdministrators() SuperAdministrators {
 }
 
 // validate refuses what NewAuth cannot build an Auth from: no word on the super
-// administrators at all, a word with no check behind it, and super administrators on an
-// Auth that cannot mail the code their second factor is.
-func (s SuperAdministrators) validate(mails bool) error {
+// administrators at all, and a word with no check behind it.
+func (s SuperAdministrators) validate() error {
 	switch {
 	case s.none:
 		return nil
@@ -337,9 +334,6 @@ func (s SuperAdministrators) validate(mails bool) error {
 			"so a holder of the Super Administrator role signs in with a second factor, or session.NoSuperAdministrators() for an application with no permission engine")
 	case s.check == nil:
 		return errors.New("session.SuperAdministratorsBy was given no check: pass signin.SuperAdministrators over the access library's user manager")
-	case !mails:
-		return errors.New("the Auth has super administrators and sends no mail: a super administrator signs in with a second factor, the code the Auth mails, " +
-			"and an Auth without mail could not send it, so a holder would never sign in; pass session.WithMail with the application's sender and its mail settings")
 	default:
 		return nil
 	}
@@ -348,7 +342,7 @@ func (s SuperAdministrators) validate(mails bool) error {
 // NewAuth creates an Auth session for the given storage. The storage's custom session
 // and user data configurations must be built for SessionData and UserData. Tx is
 // inferred from the storage: an application writes
-// NewAuth[SessionData, UserData](store, cookieKey, superAdministrators, options...).
+// NewAuth[SessionData, UserData](store, cookieKey, superAdministrators, mail, options...).
 //
 // superAdministrators says who holds the Super Administrator role
 // (SuperAdministratorsBy, or NoSuperAdministrators for an application with no permission
@@ -357,8 +351,13 @@ func (s SuperAdministrators) validate(mails bool) error {
 // rule asks anyone for one. A sign-in the rule allows, or any sign-in where no rule is
 // set, is held for the code the library mails when the person holds the role, unless
 // the sign-in already carries a second factor as any account's may (the directory's
-// attestation, or a browser the person asked to be remembered). So an Auth with super
-// administrators must send mail (WithMail), and NewAuth refuses one that does not.
+// attestation, or a browser the person asked to be remembered).
+//
+// mail is how the Auth sends mail (MailSettings: the sender, the application's name and
+// its login page). It is an argument and not an option because nothing works without
+// it: an invitation, a sign-up, a password reset, the code a sign-in is held for and the
+// notices that tell a person their account changed all go by mail. NewAuth refuses a nil
+// sender, an empty application name and a login URL that is not absolute.
 //
 // A sign-in is decided by the library's own checks: the user exists and is enabled,
 // the identity is linked or resolved, roles reconcile. An application with rules of
@@ -367,7 +366,7 @@ func (s SuperAdministrators) validate(mails bool) error {
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewAuth[SessionData, UserData, Tx any](
-	storage sessionstorage.AuthStore[Tx], cookieKey string, superAdministrators SuperAdministrators, options ...AuthOption,
+	storage sessionstorage.AuthStore[Tx], cookieKey string, superAdministrators SuperAdministrators, mail MailSettings, options ...AuthOption,
 ) (*Auth[SessionData, UserData, Tx], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
@@ -392,10 +391,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	if settings.pendingTimeout <= 0 {
 		return nil, errors.New("the pending timeout must be positive")
 	}
-	if settings.mail != nil {
-		if err := settings.mail.validate(); err != nil {
-			return nil, err
-		}
+	settings.mail = &mailSettings{sender: mail.Sender, settings: mail}
+	if err := settings.mail.validate(); err != nil {
+		return nil, err
 	}
 	if err := settings.tokens.validate(); err != nil {
 		return nil, err
@@ -403,7 +401,7 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err := settings.factors.validate(); err != nil {
 		return nil, err
 	}
-	if err := superAdministrators.validate(settings.mail != nil); err != nil {
+	if err := superAdministrators.validate(); err != nil {
 		return nil, err
 	}
 	if err := nameTables(storage, &settings); err != nil {
@@ -622,7 +620,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // Authenticated answers {"authenticated", "username", "name", "look",
 // "passwordChangeRequired", "email", "emailVerified", "emailHint", "invitedTenant", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
-// while the user must change a password an operator set (see "Users and the forced
+// while an administrator's required password change stands (see "Users and the forced
 // password change" in the README): the session read is answered under the mark, so the
 // login page can show the change form. email is the user's address when they hold one,
 // with emailVerified saying whether they have proven it; emailHint, present when the
@@ -742,8 +740,8 @@ func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 // ValidateSession validates the session and loads its user by UserId. A session
 // with no user, or whose user is missing or disabled, is refused with 401. The
 // user is available through sessioninfo.UserFromCtx. A foreign actor's
-// role-principal impersonation has no user and carries only its username. A user who
-// must change a password an operator set is refused with 403 and {"message", "code":
+// role-principal impersonation has no user and carries only its username. A user an
+// administrator required a new password of is refused with 403 and {"message", "code":
 // "password_change_required"} until the change: route the password change, the
 // session read and the logout outside this middleware, since they validate on their
 // own and are what the user reaches meanwhile. An impersonated session is not held to
@@ -822,7 +820,7 @@ type DirectorySeatedHook[Tx any] struct {
 // an invitation), with no account created. A person who has an account is no stranger.
 // One with a password confirms the link with it, and the default seat is given with the
 // link when they hold no role in the tenant. One with no password who has never signed
-// in (an account an administrator created ahead) is tied to the sign-in by nothing but
+// in (an account the application created ahead) is tied to the sign-in by nothing but
 // the name the directory asserts, so the identity is linked only when the directory is
 // that of the one tenant the person belongs to, holding a role there and nothing
 // anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation; any
@@ -966,7 +964,6 @@ type PendingHandlers struct {
 	sendCode            http.HandlerFunc
 	verifyCode          http.HandlerFunc
 	enrollEmail         http.HandlerFunc
-	requireMail         func(group string)
 }
 
 // Status returns {"reason", "email", "expiresAt", "returnUrl"[, "factors"]} for the
@@ -986,11 +983,8 @@ func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
 // user holds no address (the page then asks for one and posts it to EnrollEmail());
 // an address sent five codes within fifteen minutes and using none is refused with
 // too_many_emails and the wait; a code that is used resets the count. Route it
-// behind StartSession and ValidateXSRFToken; it panics at wiring on an Auth without
-// mail.
+// behind StartSession and ValidateXSRFToken.
 func (h *PendingHandlers) SendCode() http.HandlerFunc {
-	h.requireMail("Pending().SendCode()")
-
 	return h.sendCode
 }
 
@@ -1006,8 +1000,6 @@ func (h *PendingHandlers) SendCode() http.HandlerFunc {
 // last attempt or was mailed to an address the account no longer holds, is 401 with
 // {"code": "code_expired"}, and the page asks for a new one. Route it as SendCode.
 func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
-	h.requireMail("Pending().VerifyCode()")
-
 	return h.verifyCode
 }
 
@@ -1019,8 +1011,6 @@ func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
 // mail to that address, as the add-address step does, so the screen reveals nothing.
 // Route it as SendCode.
 func (h *PendingHandlers) EnrollEmail() http.HandlerFunc {
-	h.requireMail("Pending().EnrollEmail()")
-
 	return h.enrollEmail
 }
 
@@ -1043,7 +1033,6 @@ func (a *Auth[S, U, Tx]) Pending() *PendingHandlers {
 		sendCode:            a.serving(a.pendingSendCode()),
 		verifyCode:          a.serving(a.pendingVerifyCode()),
 		enrollEmail:         a.serving(a.pendingEnrollEmail()),
-		requireMail:         a.requireMail,
 	}
 }
 

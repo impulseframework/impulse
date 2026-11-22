@@ -64,8 +64,8 @@ func TestAuth_HashUpgradeFollowsTheProof(t *testing.T) {
 			t.Fatalf("ValidateCredentials() of a wrong password error = %v, want Unauthorized", err)
 		}
 		got, err := f.auth.API().ValidateCredentials(context.Background(), "pat", "pw")
-		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "Invalid Credentials" || got != impulse.NilUUID {
-			t.Errorf("ValidateCredentials() = %s, %v; want Unauthorized \"Invalid Credentials\" and no user: the password entered is no longer the user's", got, err)
+		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "The username or password is wrong. Check what you entered and try again" || got != impulse.NilUUID {
+			t.Errorf("ValidateCredentials() = %s, %v; want Unauthorized \"The username or password is wrong. Check what you entered and try again\" and no user: the password entered is no longer the user's", got, err)
 		}
 		if r := f.attemptsRecord("pat"); r == nil || r.Failures != 2 {
 			t.Errorf("attempts under the name = %+v, want two failures: the check counts as a wrong password does and resets nothing", r)

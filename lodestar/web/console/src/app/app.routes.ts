@@ -133,8 +133,8 @@ export const routes: Routes = [
           // The clients' accounts, the same pages over the other auth's management: the
           // console serves it because the generator program says the console manages the
           // members auth (Manages). A directory writes the members' roles at every sign-in, so
-          // the description names no method that gives or takes a role, creates an account or
-          // invites one, and the pages draw none.
+          // the description names no method that gives or takes a role or invites a person,
+          // and the pages draw none.
           //
           // Demonstrates: auth.generated-identity, auth.identity-pages.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),

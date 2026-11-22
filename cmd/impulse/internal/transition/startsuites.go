@@ -257,6 +257,11 @@ func (d *DirectoryStart) writeLoginPageSpec(a *app.App, ch *Change, spec []byte,
 // library builds for the auth.
 const menuSpec = "web/console/src/" + appMenusSpecFile
 
+// dialogsSpec is the test of the dialogs the library draws for the browser application's
+// generated methods. The base's also tests the dialog that invites a person, by the
+// auth's invite method.
+const dialogsSpec = "web/console/src/" + appDialogsSpecFile
+
 // absentPage is a page the base's routes carry and a start's do not, with what the page
 // is for and why the start has none.
 type absentPage struct{ label, why string }
@@ -312,6 +317,44 @@ func (d *DirectoryStart) editMenuSpec(a *app.App, ch *Change) error {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
 	ch.didf("%s: the pages the menu file's test expects of the routes lose the ones the %s auth has no route for: %s", menuSpec, d.Auth, strings.Join(gone, "; "))
+
+	return nil
+}
+
+// writeDialogsSpec writes the test of the dialogs again without its test of the dialog
+// that invites a person, where the directory gives every role and the application's test
+// is the base's still. The generator writes no invite method for such an auth, and the
+// base's test names the auth's, so it would not compile in the application's browser
+// tests as the application was made. It is written as the outlets reference's, which
+// holds every generated method's dialog and invites nobody. A test somebody changed that
+// still names the invite method is left as it is, and the change lists it among what is
+// left; any other, and an application with no such test, are left without a word.
+func (d *DirectoryStart) writeDialogsSpec(a *app.App, ch *Change) error {
+	if !d.syncsRoles() {
+		return nil
+	}
+	data, mode, err := readFile(a, dialogsSpec)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !asTheBaseRenders(a, dialogsSpec, d.Auth) {
+		if strings.Contains(string(data), "Invite"+names.Pascal(d.Auth)+"User") {
+			ch.Left = append(ch.Left, fmt.Sprintf("%s names the %s auth's invite method (Invite%sUser), which the generator does not write where the directory gives every role: take the test of the dialog that invites a person out of it", dialogsSpec, d.Auth, names.Pascal(d.Auth)))
+		}
+
+		return nil
+	}
+	reference, err := referenceText(ReferenceCandidate, appDialogsSpecFile)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(a.Abs(dialogsSpec), []byte(forAuth(reference, d.Auth)), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: written again without its test of the dialog that invites a person: the %s auth's directory gives every role, so the generator writes no method that invites a person, and the base's test names one", dialogsSpec, d.Auth)
 
 	return nil
 }

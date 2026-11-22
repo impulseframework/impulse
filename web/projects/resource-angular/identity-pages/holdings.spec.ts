@@ -418,19 +418,13 @@ describe("a person's roles, one list", () => {
     }
   });
 
-  it('is the one list in an application without tenants too, where a role is held said in words as before', () => {
+  it('is the one list in an application without tenants too, which says the role and not where', () => {
     const roles = under(page(withoutTenants, 'Accounts'), 'Roles held');
-    expect(shown(roles).map(([, header]) => header)).toEqual([
-      'Role',
-      'Comes from',
-      'Held in',
-      'Given',
-      'From',
-      'Until',
-      'Why',
-    ]);
-    // What the removal is filled from, and which rows are the person's own, are read with each row.
-    expect(hidden(roles)).toEqual(expect.arrayContaining(['kind', 'groupId']));
+    // An application without tenants holds every role in the one place: no column says where.
+    expect(shown(roles).map(([, header]) => header)).toEqual(['Role', 'Comes from', 'Given', 'From', 'Until', 'Why']);
+    // Which rows are the person's own is read with each row, and nothing of a place is.
+    expect(hidden(roles)).toContain('groupId');
+    expect(hidden(roles)).not.toContain('kind');
   });
 });
 

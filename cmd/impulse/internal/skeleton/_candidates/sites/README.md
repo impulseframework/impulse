@@ -142,12 +142,12 @@ turned on, since that takes a person who is signed in through the tenant's direc
   application manages its people. The portal's generator does not set the option and the
   portal serves none of it. The tree has two sides. The whole application's: the lists
   (`StaffSessionUsers`, `StaffUserRoles`, `StaffSessionMailLinks`, `StaffSessions` and the
-  rest) and the methods (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`,
-  `SetStaffTemporaryPassword` and the rest). A tenant's, under the tenant segment and
+  rest) and the methods (`InviteStaffUser`, `AssignStaffRole`,
+  `SendStaffUserPasswordResetLink` and the rest). A tenant's, under the tenant segment and
   named with the tenant record: the lists of its people, the roles held in it, its
   invitations, its people's sign-in identities and the roles it gives (`StaffTenantUsers`,
   `StaffTenantUserRoles`, `StaffTenantInvitations`, `StaffTenantIdentities`,
-  `StaffTenantRoles`), and the methods (`CreateStaffTenantUser`, `InviteStaffTenantUser`,
+  `StaffTenantRoles`), and the methods (`InviteStaffTenantUser`,
   `AssignStaffTenantRole` and the rest). All of it is served like every other resource
   and method and granted in the role file. The shared auth builds the client
   the console's handlers act through when it opens (`staff.New`, answered by
@@ -169,7 +169,7 @@ turned on, since that takes a person who is signed in through the tenant's direc
   role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
   the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
   and the development administrator's roles. The person opens the link and chooses a
-  password there, their address proven by the link. No account is made ahead of them and
+  password there, and enters the code mailed to the address. No account is made ahead of them and
   no password is generated. A release leaves an invitation that stands as it is, mails a new one once
   it has run out (seven days), and withdraws one for an address the placement no longer
   names; the migrate command's `-reinvite-administrator staff` withdraws the
@@ -221,11 +221,11 @@ turned on, since that takes a person who is signed in through the tenant's direc
   domain role is
   held in every tenant domain, so nothing provisions the file per tenant. An account is
   one row for the whole application, whichever tenants its person holds a role in, so
-  the methods a tenant changes an account through (a temporary password, a new name, a
-  delete and the rest) are granted to `TenantAdministrator` under a condition: the
+  the methods a tenant changes an account through (a new name, a new address, a delete
+  and the rest) are granted to `TenantAdministrator` under a condition: the
   tenant holds the person alone (`heldElsewhere = false AND heldGlobally = false`).
-  Without it one tenant's administrator could set a password on an account that also
-  manages another tenant or the application. The address and the directory's subject of
+  Without it one tenant's administrator could rename, disable or delete an account that
+  also manages another tenant or the application. The address and the directory's subject of
   a person another tenant holds too are left out of the tenant's lists the same way
   (`heldElsewhere = false`), a role held in every tenant is not one tenant's to take
   (`everyDomain = false`), and an invitation is withdrawn while it stands

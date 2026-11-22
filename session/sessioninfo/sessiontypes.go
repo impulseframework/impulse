@@ -122,8 +122,8 @@ type UserInfo struct {
 	ID       impulse.UUID `spanner:"Id"           db:"Id"`
 	Username string       `spanner:"Username"     db:"Username"`
 	Disabled bool         `spanner:"Disabled"     db:"Disabled"`
-	// PasswordChangeRequired is set while the user must change a password an operator
-	// set before anything else is served; Auth sessions only.
+	// PasswordChangeRequired is set while the user must choose a new password, which an
+	// administrator required, before anything else is served; Auth sessions only.
 	PasswordChangeRequired bool `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
 	// Email is the user's email address, nil for none, and EmailVerifiedAt when the
 	// person proved they read it, nil while it is unverified; Auth sessions only. An

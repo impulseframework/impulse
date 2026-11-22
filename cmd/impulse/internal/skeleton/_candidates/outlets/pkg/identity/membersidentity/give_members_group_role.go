@@ -40,14 +40,17 @@ import (
 // @class(access)
 type GiveMembersGroupRole struct {
 	// @target(MembersListedGroup)
-	GroupID impulse.UUID
-	// Role is the role the group is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder gives a group.
-	//
-	// @attribute(role)
-	Role        string `validate:"required"`
+	GroupID     impulse.UUID
 	Domain      *string
 	EveryDomain bool
+	// Role is the role the group is given, picked from the roles that exist where it is
+	// given that the caller could give there (MembersGivableRoles). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder gives
+	// a group.
+	//
+	// @attribute(role)
+	// @enumerate(MembersGivableRoles)
+	Role string `validate:"required"`
 	// StartsAt is the first instant it counts. Left out, it counts from now.
 	StartsAt *time.Time
 	// EndsAt is the first instant it no longer counts. Left out, it counts until it is

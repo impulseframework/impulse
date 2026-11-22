@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -64,7 +65,9 @@ func newTokenApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opts
 
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
+	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
 		append([]session.AuthOption{
 			session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
 			session.WithDeviceCodeLifetime(10*time.Minute, time.Second),

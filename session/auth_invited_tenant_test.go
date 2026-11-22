@@ -33,6 +33,15 @@ func TestAuth_InvitedTenant(t *testing.T) {
 	t.Run("an impersonated session is told nothing, and the tenant is left for the person's own session", authInvitedTenantImpersonated)
 }
 
+// patAtLakeside is the account that accepts an invitation by hand in these tests: it
+// holds the invited address, confirmed, which is the only account an acceptance by
+// hand is for.
+func patAtLakeside(userID impulse.UUID) *sessionstorage.SessionUser {
+	confirmed := time.Now().Add(-time.Hour)
+
+	return &sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu"), EmailVerifiedAt: &confirmed}
+}
+
 // sessionRead is the session read of sessionID with cookies.
 func sessionRead(f *authFixture, sessionID impulse.UUID, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	return f.asUser(f.auth.Authenticated(), sessionID, nil, cookies)
@@ -51,6 +60,22 @@ func carried(rr *httptest.ResponseRecorder) []*http.Cookie {
 	return kept
 }
 
+// signUpInvitedSeatsNobody is the sign-up with a password through the invitation
+// cookies carry, as signUpInvited holds it: a wait for the code mailed to the invited
+// address. It seats nobody, so the browser must carry no tenant after it.
+func signUpInvitedSeatsNobody(t *testing.T, f *authFixture, cookies []*http.Cookie) (pendingID impulse.UUID, after []*http.Cookie) {
+	t.Helper()
+
+	pendingID, after = signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	for _, c := range after {
+		if c.Name == invitedTenantCookie {
+			t.Fatalf("SignUp() set the cookie %+v, want none before the code: nothing is accepted yet", c)
+		}
+	}
+
+	return pendingID, after
+}
+
 func authInvitedTenantSignIn(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
@@ -59,18 +84,23 @@ func authInvitedTenantSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+	// The sign-up makes nobody and accepts nothing: it waits for the code mailed to
+	// the invited address, and the sign-in that carries the code seats the person.
+	pendingID, cookies := signUpInvitedSeatsNobody(t, f, cookies)
+	expectFactorCode(f, &pendingState{ID: pendingID})
+	f.expectConsume(pendingID)
 	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 		req.Invitation.Accepted = true
 	}, nil)
 
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+	rr := f.enterCode(cookies, standingCode)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
+		t.Fatalf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
 	}
 	if c := cookieNamed(rr, invitedTenantCookie); c == nil || c.Value == "" || !c.HttpOnly {
-		t.Fatalf("SignUp() set the cookie %+v, want the tenant the invitation seated the person in carried to the session read, out of the page's reach", c)
+		t.Fatalf("VerifyCode() set the cookie %+v, want the tenant the invitation seated the person in carried to the session read, out of the page's reach", c)
 	}
 
 	f.expectSession(sessionID, created)
@@ -90,12 +120,12 @@ func authInvitedTenantByHand(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})
+	f.expectSession(sessionID, patAtLakeside(userID))
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: lakesideTenant, RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "pat@lakeside.edu", gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ impulse.UUID, _, _ string, inv *sessioninfo.Invitation, _ signinflow.InvitationAcceptor[mockTx]) error {
 			inv.Accepted = true
 
@@ -126,6 +156,9 @@ func authInvitedTenantMade(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+	pendingID, cookies := signUpInvitedSeatsNobody(t, f, cookies)
+	expectFactorCode(f, &pendingState{ID: pendingID})
+	f.expectConsume(pendingID)
 	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
@@ -135,12 +168,12 @@ func authInvitedTenantMade(t *testing.T) {
 		req.Invitation.MadeTenantID = lakesideTenant
 	}, nil)
 
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+	rr := f.enterCode(cookies, standingCode)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
+		t.Fatalf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
 	}
 	if c := cookieNamed(rr, invitedTenantCookie); c == nil || c.Value == "" || !c.HttpOnly {
-		t.Fatalf("SignUp() set the cookie %+v, want the tenant the invitation made carried to the session read, out of the page's reach", c)
+		t.Fatalf("VerifyCode() set the cookie %+v, want the tenant the invitation made carried to the session read, out of the page's reach", c)
 	}
 
 	f.expectSession(sessionID, created)
@@ -159,12 +192,12 @@ func authInvitedTenantMadeByHand(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})
+	f.expectSession(sessionID, patAtLakeside(userID))
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}); err != nil {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "pat@lakeside.edu", gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ impulse.UUID, _, _ string, inv *sessioninfo.Invitation, _ signinflow.InvitationAcceptor[mockTx]) error {
 			inv.Accepted = true
 			inv.MadeTenantID = lakesideTenant
@@ -209,18 +242,21 @@ func authInvitedTenantNone(t *testing.T) {
 				t.Fatal(err)
 			}
 			cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+			pendingID, cookies := signUpInvitedSeatsNobody(t, f, cookies)
+			expectFactorCode(f, &pendingState{ID: pendingID})
+			f.expectConsume(pendingID)
 			created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
 			f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 				req.Invitation.Accepted = tt.accepted
 			}, nil)
 
-			rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+			rr := f.enterCode(cookies, standingCode)
 			if rr.Code != http.StatusOK {
-				t.Fatalf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
+				t.Fatalf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
 			}
 			if c := cookieNamed(rr, invitedTenantCookie); c != nil {
-				t.Errorf("SignUp() set the cookie %+v, want none: no tenant was entered by the invitation", c)
+				t.Errorf("VerifyCode() set the cookie %+v, want none: no tenant was entered by the invitation", c)
 			}
 			f.expectSession(sessionID, created)
 			if got, told := decoded(t, sessionRead(f, sessionID, carried(rr)))["invitedTenant"]; told {
@@ -235,13 +271,13 @@ func authInvitedTenantOtherPerson(t *testing.T) {
 	userID, sessionID := newIDs()
 	otherID, otherSession := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})
+	f.expectSession(sessionID, patAtLakeside(userID))
 	f.expectSession(otherSession, &sessionstorage.SessionUser{ID: otherID, Username: "sam"})
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: lakesideTenant, RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "pat@lakeside.edu", gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ impulse.UUID, _, _ string, inv *sessioninfo.Invitation, _ signinflow.InvitationAcceptor[mockTx]) error {
 			inv.Accepted = true
 
@@ -267,7 +303,7 @@ func authInvitedTenantImpersonated(t *testing.T) {
 	userID, sessionID := newIDs()
 	_, actingSession := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})
+	f.expectSession(sessionID, patAtLakeside(userID))
 	// Sam acts as Pat on the browser Pat accepted on.
 	f.store.EXPECT().Session(gomock.Any(), actingSession).DoAndReturn(func(context.Context, impulse.UUID) (*sessioninfo.SessionData, error) {
 		return &sessioninfo.SessionData{
@@ -280,7 +316,7 @@ func authInvitedTenantImpersonated(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "pat@lakeside.edu", gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ impulse.UUID, _, _ string, inv *sessioninfo.Invitation, _ signinflow.InvitationAcceptor[mockTx]) error {
 			inv.Accepted = true
 

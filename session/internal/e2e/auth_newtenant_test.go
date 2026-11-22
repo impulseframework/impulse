@@ -25,6 +25,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/oidctest"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -43,6 +44,8 @@ const takenDirectory = "Riverside High"
 type tenantInvitationApp[Tx any] struct {
 	*authApp[Tx]
 	google *oidctest.FakeIDP
+	// store is the Auth's store, where a scenario reads what the library counted.
+	store *sessionstorage.Auth[Tx]
 
 	mu sync.Mutex
 	// made are the invitations the hook was handed, as it was handed them.
@@ -57,11 +60,11 @@ func newTenantInvitationApp[Tx any](ctx context.Context, t *testing.T, be backen
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"})
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
-	a := &tenantInvitationApp[Tx]{google: googleIDP}
+	a := &tenantInvitationApp[Tx]{google: googleIDP, store: store}
 	auth.SetSignInPolicy(h.signInPolicy)
 	auth.SetInvitationAccepted(a.accepted)
 	password := session.PasswordSignIn(auth)
@@ -86,7 +89,7 @@ func newTenantInvitationApp[Tx any](ctx context.Context, t *testing.T, be backen
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
-	a.authApp = &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder}
+	a.authApp = &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail}
 
 	return a
 }
@@ -201,7 +204,7 @@ func runTenantInvitationSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantInvitationDirectoryOnly[Tx],
 		},
 		{
-			name: "a tenant anyone may enter is accepted by an account made with a password, the hook handed the password as how the person signed in",
+			name: "a tenant anyone may enter is accepted by an account made with a password once the code mailed to the invited address is entered, the hook handed the password as how the person signed in",
 			run:  seamTenantInvitationByPassword[Tx],
 		},
 		{
@@ -295,7 +298,7 @@ func seamTenantInvitationByPassword[Tx any](ctx context.Context, t *testing.T, b
 	if opened := a.openInvitation(ctx, t, b); opened["newTenant"] != true || opened["directoryOnly"] != false || opened["signUp"] != true {
 		t.Errorf("the opened invitation = %v, want a new tenant anyone may enter, with an account with a password offered", opened)
 	}
-	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation/sign-up", map[string]string{"username": "patl", "password": seedPassword}, b.xsrfToken())
+	a.signUpInvited(ctx, b, "patl", "pat@elsewhere.example")
 	signedInAs(ctx, t, b, "patl")
 	a.assertStanding(ctx, t, "after the acceptance")
 
@@ -372,18 +375,20 @@ func seamTenantInvitationHookRefuses[Tx any](ctx context.Context, t *testing.T, 
 	a.assertNoRow(ctx, t, b, "pat@lakeside.edu")
 	a.assertStanding(ctx, t, "after the hook refused", inv)
 
-	// An account with a password, where the invitation takes one: the account is made
-	// in a step of its own before the sign-in that carries the invitation to the hook,
-	// so the refusal leaves it, signed in nowhere, and the invitation stands, as for any
-	// invitation whose acceptance fails at a sign-up.
+	// An account with a password, where the invitation takes one: the sign-up waits for
+	// the code mailed to the invited address with nobody made, and the code makes the
+	// account in a step of its own before the sign-in that carries the invitation to
+	// the hook. The refusal leaves the account, signed in nowhere, and the invitation
+	// stands, as for any invitation whose acceptance fails at a sign-up.
 	open := a.inviteTenant(ctx, t, "lee@riverside.edu", takenDirectory, false)
 	lee := a.browser(t)
 	lee.prime(ctx)
 	a.openInvitation(ctx, t, lee)
+	code := a.signUpHeld(ctx, lee, "lee", "lee@riverside.edu")
 	var refused struct {
 		Code string `json:"code"`
 	}
-	if err := json.Unmarshal(lee.expect(ctx, http.StatusUnauthorized, http.MethodPost, "/invitation/sign-up", map[string]string{"username": "lee", "password": seedPassword}, lee.xsrfToken()), &refused); err != nil {
+	if err := json.Unmarshal(lee.expect(ctx, http.StatusUnauthorized, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}), &refused); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	if refused.Code != string(sessioninfo.RefusedOrganizationHasTenant) {
@@ -391,13 +396,14 @@ func seamTenantInvitationHookRefuses[Tx any](ctx context.Context, t *testing.T, 
 	}
 	lee.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 	if !a.db.hasUser(ctx, t, "lee") {
-		t.Error("no user exists under lee after the refused sign-up, want the account the sign-up made before the sign-in")
+		t.Error("no user exists under lee after the refused sign-up, want the account the code made before the sign-in")
 	}
 	a.assertStanding(ctx, t, "after the hook refused the sign-up", inv, open)
 
-	// A person signed in already accepts by hand: refused in words that say what to
-	// do and nothing of the tenant their organization has, the invitation standing.
-	a.seed(ctx, t, "sam")
+	// A person signed in already, whose account holds the invited address confirmed,
+	// accepts by hand: refused in words that say what to do and nothing of the tenant
+	// their organization has, the invitation standing.
+	a.confirmedAddress(ctx, t, a.seed(ctx, t, "sam"), "sam@lakeside.edu")
 	sam := a.browser(t)
 	sam.prime(ctx)
 	if status, _ := sam.loginAs(ctx, "sam"); status != http.StatusOK {

@@ -26,11 +26,8 @@ func TestGeneratedIdentityPersonOfAnotherAuth(t *testing.T) {
 	twin := accesstypes.User("twin-" + identitySuffix())
 
 	// The crew person, with the role that may disable and delete people of both auths.
-	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+string(twin)+`","roles":["Headquarters"]}`)
-	assertStatus(t, status, http.StatusOK, body)
-	crewID := cell[string](t, decodeRow(t, body), "id")
 	// A request made as the twin runs as the crew account: the session carries its id.
-	knownAs(t, twin, impulse.Must(impulse.UUIDFromString(crewID)))
+	crewID := w.seedCrewUser(ctx, t, string(twin), "Headquarters").String()
 
 	// The member of the same username: a row of the members' own users table, as the
 	// directory's sign-in writes one.
@@ -47,7 +44,7 @@ func TestGeneratedIdentityPersonOfAnotherAuth(t *testing.T) {
 
 	// On the console the caller is a crew person: their own crew account is refused.
 	for _, method := range []string{"disable-crew-user", "delete-crew-user"} {
-		status, body = doRequestAs(t, h, twin, http.MethodPost, consoleAPI+"/"+method, `{"userId":"`+crewID+`"}`)
+		status, body := doRequestAs(t, h, twin, http.MethodPost, consoleAPI+"/"+method, `{"userId":"`+crewID+`"}`)
 		if status != http.StatusForbidden || !strings.Contains(string(body), "your own account") {
 			t.Errorf("%s on the caller's own crew account: status %d, want 403 naming their own account: %s", method, status, body)
 		}
@@ -55,7 +52,7 @@ func TestGeneratedIdentityPersonOfAnotherAuth(t *testing.T) {
 
 	// The member of the same name is another person: the same caller disables the
 	// account, enables it again, and deletes it.
-	status, body = doRequestAs(t, h, twin, http.MethodPost, consoleAPI+"/disable-members-user", `{"userId":"`+memberID+`"}`)
+	status, body := doRequestAs(t, h, twin, http.MethodPost, consoleAPI+"/disable-members-user", `{"userId":"`+memberID+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	if !readColumn[bool](ctx, t, w.db, "MembersSessionUsers", spanner.Key{memberID}, "Disabled") {
 		t.Error("the member after the disable: Disabled = false, want the account disabled")

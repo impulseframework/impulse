@@ -210,7 +210,7 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 		return impulse.NilUUID, errors.Wrap(err, "json.Marshal()")
 	}
 	req := &session.InvitationRequest{
-		Email: email, Name: "", TenantID: "", RoleNames: nil, InvitedByUserID: m.callerAccount(ctx, txn),
+		Email: email, Name: "", TenantID: "", EveryTenant: false, RoleNames: nil, InvitedByUserID: m.callerAccount(ctx, txn),
 		NewTenant: &sessioninfo.NewTenant{Name: tenantName, DirectoryOnly: inv.DirectoryOnly, Details: details},
 	}
 	if inv.Name != nil {
@@ -234,7 +234,7 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 	if err := resource.AfterCommit(txn, func(ctx context.Context) {
 		err := prepared.Send(ctx)
 		if err != nil {
-			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is withdrawn: %v", row.ID, row.Email, err)
+			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is ended, not mailed: %v", row.ID, row.Email, err)
 		}
 		if sent != nil {
 			sent(err == nil)

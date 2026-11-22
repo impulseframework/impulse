@@ -1020,7 +1020,9 @@ func Test_identityInstance_roleGrantsOfADirectorySeat(t *testing.T) {
 		{name: "no default seat: the list a tenant's role is picked from asks", tenant: unseated, tables: []identityTable{identityUsers, identityMemberships}, want: true},
 		{name: "roles a directory writes: nobody gives one by hand", tenant: seated, tables: []identityTable{identityUsers, identityMemberships}, rolesSynced: true},
 		{name: "no memberships: nobody holds a role", tenant: seated, tables: []identityTable{identityUsers}},
-		{name: "no tenant record", tables: []identityTable{identityUsers, identityMemberships}},
+		// The whole application's role fields pick from the roles the caller could give,
+		// with tenants or without.
+		{name: "no tenant record: the list the whole application's roles are picked from asks", tables: []identityTable{identityUsers, identityMemberships}, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

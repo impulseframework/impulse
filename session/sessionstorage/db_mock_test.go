@@ -642,6 +642,20 @@ func (mr *MockdbMockRecorder) FactorCodeByPending(ctx, pendingID, now any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FactorCodeByPending", reflect.TypeOf((*Mockdb)(nil).FactorCodeByPending), ctx, pendingID, now)
 }
 
+// FailMailLink mocks base method.
+func (m *Mockdb) FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailMailLink", ctx, id, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailMailLink indicates an expected call of FailMailLink.
+func (mr *MockdbMockRecorder) FailMailLink(ctx, id, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailMailLink", reflect.TypeOf((*Mockdb)(nil).FailMailLink), ctx, id, now)
+}
+
 // IdentitiesByUser mocks base method.
 func (m *Mockdb) IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error) {
 	m.ctrl.T.Helper()
@@ -947,20 +961,6 @@ func (m *Mockdb) RemoveUserPassword(ctx context.Context, userID impulse.UUID, st
 func (mr *MockdbMockRecorder) RemoveUserPassword(ctx, userID, standing any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveUserPassword), ctx, userID, standing)
-}
-
-// ReplaceUserPassword mocks base method.
-func (m *Mockdb) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceUserPassword", ctx, id, hash, changeRequired)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReplaceUserPassword indicates an expected call of ReplaceUserPassword.
-func (mr *MockdbMockRecorder) ReplaceUserPassword(ctx, id, hash, changeRequired any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceUserPassword", reflect.TypeOf((*Mockdb)(nil).ReplaceUserPassword), ctx, id, hash, changeRequired)
 }
 
 // RevokeMailLink mocks base method.

@@ -90,14 +90,14 @@ type Ship struct { ... }
 | `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, the two optional parts `who: <tests>` and `where: <condition>`, on a global-scoped anchor `domain: Field` or `domain: Field.Path`, and in an application with several auths `auth: <the auth's name>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Where a global table's rows still belong to tenants, the set says where a row's tenant is found, `domain:`. Where the row carries its tenant's key itself, `domain:` names that column (`domain: TenantID`), and `zz_gen_bindings.dot` lists it under the set in the anchor's box (`subject.keys domain: TenantId`). Where a row belongs to a tenant through a parent (a person's place in a group, the group being kept in one tenant or in none), it names a foreign key of the row and then the path to the column that holds the tenant's key (`domain: GroupID.DomainID`), validated many-to-one as `via:` is, and drawn in `zz_gen_bindings.dot` as an `@domain` path is, dotted, under the set's name (`crewGroups domain: GroupId ⇒ DomainId`). In a request that has a tenant the set then holds that tenant's rows alone, and a row that names another tenant, or none, is left out; in a request that has no tenant it holds every row. Generation refuses a `domain:` on a domain-scoped anchor (its own `@domain` is the filter), on a `@subjectValue`, on a path that does not start at a foreign key of the row, and on a column or a path's end that is not text. Text is all a column's type says, so where generation knows which column of the table a `domain:` ends on holds its tenant, the end must be that column, and the refusal names it: on a domain-scoped table, the column its bare `@domain` sits on (a table that finds its tenant through `@domain(via: ...)` holds no tenant's key, so the path goes on through that foreign key); on the `@tenant` record, its key; on an auth's groups table, the store's `DomainId`. A global table that is none of these tells generation nothing of a tenant, so there the end is held to text alone, and that the column holds a tenant's key is the author's word. `NewGeneratedCollection` refuses a collection built by hand that gives a set a domain on a domain-scoped resource, or gives one to a subject value, so nothing takes the place of a resource's own tenant filter. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Whose people:** a set describes the people of one auth: its user column holds that auth's people and the set is looked up by their ids, so an engine opened for another auth takes no grant that reads it: one in its role file is refused when the file is loaded (`access.WithDefaultRoles`, `access.ValidateRoles`), one written to a custom role is refused, and one found in the store is left out and reported. An application with one auth need not say, and every set is that auth's. An application with several says which on every set it writes, `auth: crew`, the auth's name as its package names it (`@subjectSet(squadrons, value: SquadronID, auth: crew)`), since nothing in a schema says whose ids a user column holds: a table one auth's staff keep about another auth's people is served to the first and names the second. Generation refuses a set that says none where the application has several auths, naming them, and a name that is no auth of the application; a `@subjectValue` takes none, and the set of a person's groups that the generator declares for an auth names that auth itself, in an application with one auth too. A set follows a person through sets of its own auth alone: generation refuses a `who:` that tests a set labeled for another auth, the set of another auth's groups included, since through that test the set would hold rows for people it does not describe. The generated collection carries the name (`SubjectBindingData.Auth`) and the names of the auths its run knew (`CollectionData.Auths`), which the permission engine holds the name a role file is handed over under to, and the role-file check of an auth looks at that auth's sets and at no other auth's (`access.UnreadSetWarning`; `GeneratedCollection.SubjectSets(auth)`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row unless it writes a `domain:`, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; a `who:` naming a set that describes another auth's people where both sets say whose they are, the generated set of another auth's groups included (the message names both auths and where each is said); sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. **Impersonation:** the record decides what a person may do, so its generated write refuses the real person behind an impersonated session a row that names them, by the annotated column or a column a `who:` compares to the requester, before the write and after it (section 21, "The rules on who is asking"). |
 | `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. **Impersonation:** as for a `@subjectSet`, the record's generated write refuses the real person behind an impersonated session the row that names them (section 21, "The rules on who is asking"). |
 | `@manualAddResource` | `accesstypes.Resource` constant | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. |
-| `@class` | `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource(Execute)` | comma list of class names, `credential`, `access` | Marks the action with the classes it carries, which a permission mask refers to: the mask of an impersonated session that refuses a class (`accesstypes.RefuseClass`) refuses every action that carries it, the ones declared after the mask was written among them, so nobody keeps a list of actions in step with the application (section 6). Repeatable, and a list and repeated annotations mean the same. A class is named by a lowercase letter, then lowercase letters, digits and underscores (`money_movement`); the library names two, which its generated identity methods carry (section 21): `credential` (`accesstypes.ClassCredential`), on the methods that change how a person signs in (a password set, required anew or removed, a reset link sent, a sign-in identity unlinked, a username or an address changed), and `access` (`accesstypes.ClassAccess`), on the methods that give or take away what someone may do (a role given or removed, a group and who is in it and what it holds, an invitation, an account made, and what a sign-in method or a tenant's directory gives everyone who arrives through it; an account disabled, enabled or deleted carries neither class, section 21). An application marks its own actions with either or with a class it names. The generated Collection carries each action's classes (`CollectionResource.Classes`, read back with `ActionClasses`), which is where the masked check reads them, and the collection file declares a constant for each class in use (`ClassCredential`, `ClassAccess`, `ClassMoneyMovement`), so a mask is written against a name the compiler knows and one that names a class no action carries any more does not compile. A registration declared with `WithManualResources` carries its classes in `ManualRegistration.Classes`. A class is an action's alone, a name that registers Execute and nothing else. **Refused at generation:** a name no class may carry, a class named twice on one action, the annotation on a `@resource`, `@virtual` or `@computed` struct (the annotation marks an action; a record's writes are given the class `access` by the generator alone, where the record decides what a person may do, and a mask holds a session off any other record by naming it, `accesstypes.RefuseWrites`), the annotation on a constant that registers nothing, the annotation beside a registration of a permission other than Execute, on a constant or in `ManualRegistration.Classes` (`constant "LedgerRows": @class(sensitive) marks an action, and the registration is of List, which is no action's permission: a class is carried by a registration of Execute alone. …`), a name that carries a class and registers another permission beside Execute (`"ResetLogin" carries the class credential and registers Update beside Execute: …`; the collection refuses the same when the application starts, so a collection file written before the rule is not served), the annotation on a method that registers no action (its handler suppressed with `@suppress`, or a generation that writes no routes: the class rides the registration, so it goes on the constant that registers the action by hand, and is never dropped without a word), and two classes whose constants would share a name. A name registered twice, by a method and by hand, carries the classes of both. Example: [ScrapShip](../lodestar/pkg/rpc/scrap_ship.go). |
+| `@class` | `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource(Execute)` | comma list of class names, `credential`, `access` | Marks the action with the classes it carries, which a permission mask refers to: the mask of an impersonated session that refuses a class (`accesstypes.RefuseClass`) refuses every action that carries it, the ones declared after the mask was written among them, so nobody keeps a list of actions in step with the application (section 6). Repeatable, and a list and repeated annotations mean the same. A class is named by a lowercase letter, then lowercase letters, digits and underscores (`money_movement`); the library names two, which its generated identity methods carry (section 21): `credential` (`accesstypes.ClassCredential`), on the methods that change how a person signs in (a new password required, a password removed, a reset link sent, a sign-in identity unlinked, a username or an address changed), and `access` (`accesstypes.ClassAccess`), on the methods that give or take away what someone may do (a role given or removed, a group and who is in it and what it holds, an invitation, and what a sign-in method or a tenant's directory gives everyone who arrives through it; an account disabled, enabled or deleted carries neither class, section 21). An application marks its own actions with either or with a class it names. The generated Collection carries each action's classes (`CollectionResource.Classes`, read back with `ActionClasses`), which is where the masked check reads them, and the collection file declares a constant for each class in use (`ClassCredential`, `ClassAccess`, `ClassMoneyMovement`), so a mask is written against a name the compiler knows and one that names a class no action carries any more does not compile. A registration declared with `WithManualResources` carries its classes in `ManualRegistration.Classes`. A class is an action's alone, a name that registers Execute and nothing else. **Refused at generation:** a name no class may carry, a class named twice on one action, the annotation on a `@resource`, `@virtual` or `@computed` struct (the annotation marks an action; a record's writes are given the class `access` by the generator alone, where the record decides what a person may do, and a mask holds a session off any other record by naming it, `accesstypes.RefuseWrites`), the annotation on a constant that registers nothing, the annotation beside a registration of a permission other than Execute, on a constant or in `ManualRegistration.Classes` (`constant "LedgerRows": @class(sensitive) marks an action, and the registration is of List, which is no action's permission: a class is carried by a registration of Execute alone. …`), a name that carries a class and registers another permission beside Execute (`"ResetLogin" carries the class credential and registers Update beside Execute: …`; the collection refuses the same when the application starts, so a collection file written before the rule is not served), the annotation on a method that registers no action (its handler suppressed with `@suppress`, or a generation that writes no routes: the class rides the registration, so it goes on the constant that registers the action by hand, and is never dropped without a word), and two classes whose constants would share a name. A name registered twice, by a method and by hand, carries the classes of both. Example: [ScrapShip](../lodestar/pkg/rpc/scrap_ship.go). |
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
 | `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant's declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenant` | `@resource` struct | none, or `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); what makes a tenant (the generated `New<Record>Maker`, at the first sign-in of a person staff invited, and the create-your-tenant route) and the record's generated delete path reread the roster after their commit and signal the tenants kind, so a tenant made at run time is served by every instance without a restart or a release. Nobody creates a tenant directly: the record's create op is refused with how one is made (section 16). The record must be global, table-backed, and keyed by one generated id (`ID impulse.UUID`, whose text is the domain in every tenant-scoped URL; what people call the tenant is its `@tenantName` column, changed like any field): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not a generated id (a typed string, a foreign key, an interleaved table), on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directory only: a tenant whose flag is true admits a sign-in through its own directory and nothing else, so a password, a personal account and a sign-in through another organization's directory do not reach it. Two people are not held to it: a super administrator, and an administrator of the tenant itself, who enters with a password and a second factor so that a tenant whose directory is broken can be mended from inside (section 16, "Directory only"). The flag restricts that tenant's own door alone: a tenant whose flag is false admits everyone it seats, however they signed in, and a person the flag keeps out of one tenant still enters every other tenant that seats them. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directory only needs a directory to enter through, and the directory of such a tenant is not removed until the flag is turned off. The switch is the tenant's own: the generator writes two methods in the tenant's scope, `Make<Record>DirectoryOnly` and `End<Record>DirectoryOnly`, which the tenant's administrator runs under an Execute grant on each; turning the flag on is held to three rules (the tenant has its directory, the caller is signed in through it, and the caller has a password where their auth has passwords; section 16, "Directory only"). The record's own write paths, which are global, show the flag and never write it: the field is output only on the wire, at create and at update, and the record's change events are the audit. The generated create-your-tenant route leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name and the people pages name the tenant a role or an invitation is in. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@name` | field of a `@resource` or `@virtual` struct, a `string` or `*string` | none | The field the resource's rows are known by. Beside every id field that points to one of its rows, by a foreign key or a field-scope `@enumerate`, the generator adds a name field for the name of that row, spelled as the id field with a trailing `Id` dropped, then `Name` (`SquadronID` gives `SquadronName`, `squadronName` on the wire): read-only and stored nowhere, with no column and no schema change. It is declared on the list's and the row's request types marked `nameof:"<the id field>"`, on the TypeScript row type and its field-name constants (among the PII names where the pointed-to name is `pii`), and in the metadata's `nameFields`. A name field is no column of the resource and takes no grant of its own, so the runtime keeps it out of every statement and every field a request may name: until the list's statement looks it up, a request that names one in `columns`, `sort` or `filter` is refused as naming a field the resource does not have. A resource that marks no name is not refused: a field pointing to it gets no name field and stays an ordinary field showing its stored value. The tenant record is known by its `@tenantName` and an enumeration table by its `Description` column; neither needs `@name`. No name field is added for the name of a tenant's row on a list asked outside one tenant (a global resource's, and both lists of a resource declared `@listAcrossTenants`), where the pointed-to resource reaches its tenant through a join path or is a tenant-scoped view, where it is a `@computed` resource, or beside a field called `Id` alone. Refused on a field that is not a string, on a second field, on a field the resource never returns (a `conditions:"secret"` or `conditions:"input_only"` field, or a `@file` store key: a row's name is shown to everyone who may read the resource's names), on the tenant record (write `@tenantName`), on an enumeration table's struct and on a `@computed` resource; and a name field that would take the name of a field the struct declares, or of another name field, is refused, naming the field to remove or rename. Example: [the fixture](../generation/testdata/namefixture/fixture.go). |
+| `@name` | field of a `@resource` or `@virtual` struct, a `string` or `*string` | none | The field the resource's rows are known by. Beside every id field that points to one of its rows, by a foreign key or a field-scope `@enumerate`, the generator adds a name field for the name of that row, spelled as the id field with a trailing `Id` dropped, then `Name` (`SquadronID` gives `SquadronName`, `squadronName` on the wire): read-only and stored nowhere, with no column and no schema change. It is declared on the list's and the row's request types marked `nameof:"<the id field>"`, in the resource's generated `NameFields()` with the table and columns the name is looked up in, on the TypeScript row type and its field-name constants (among the PII names where the pointed-to name is `pii`), and in the metadata's `nameFields`. A name field is no column of the resource: the statement looks it up by the id, in one scalar subquery held to the request's tenant where the pointed-to row belongs to one (by its tenant column, or by the way it reaches its tenant through other tables), so a row of another tenant gives no name, and neither does a row whose id is masked. Reading a name takes two grants: the request's own grant on the id field, and the List grant on the pointed-to resource's name field, asked in the request's tenant where the pointed-to resource belongs to a tenant and globally where it does not. An enumeration table's names take the first alone. Where the second is held under a condition, a row gives the name only where the condition holds for the row it points to. A request may name a name field in `columns`, and a request that names no columns is given the name beside every id it returns, less the names the person may not read; a row carries the name under its wire name and leaves it out where there is none. A person without the second grant who names the field in `columns` or `sort` is refused in the words of any field they may not read ("You may not sort or filter hangar passes by the squadron name here."), and a declared `@order` by a name they may not read orders their list as if no row had that name. So does a row whose id they may not read: under a declared `@order` by the name it sorts as a row with no name. `sort` and `@order` may name one, which orders the list by the names, the key breaking ties, and pages by them; no index serves such an order. `@order` naming a name the generator adds no field for is refused, saying to declare the pointed-to resource's `@name`. A name field is not yet a field to filter by: a filter naming one is refused as not filterable. A column or field that begins with `zzName`, the prefix a statement selects the names under, is refused, saying to rename it. A resource that marks no name is not refused: a field pointing to it gets no name field and stays an ordinary field showing its stored value. The tenant record is known by its `@tenantName` and an enumeration table by its `Description` column; neither needs `@name`. No name field is added for the name of a tenant's row on a list asked outside one tenant (a global resource's, and both lists of a resource declared `@listAcrossTenants`), where the pointed-to resource is a view (`@virtual`: its rows are a query of the application's, which a lookup does not read yet) or a `@computed` resource, or beside a field called `Id` alone. Refused on a field that is not a string, on a second field, on a field the resource never returns (a `conditions:"secret"` or `conditions:"input_only"` field, or a `@file` store key: a row's name is shown to everyone who may read the resource's names), on the tenant record (write `@tenantName`), on an enumeration table's struct and on a `@computed` resource; and a name field that would take the name of a field the struct declares, or of another name field, is refused, naming the field to remove or rename. Example: [the fixture](../generation/testdata/namefixture/fixture.go). |
 | `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the record's generated create sets both from the directory the caller is signed in through and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account), and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator sets and removes its own directory under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy` (a package that declares no directories record and makes the tenant record's rows itself is given the reader too, one that answers nothing for every tenant: "No directories", section 16), the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure`, `workos` or `oidc` (an organization's own OpenID Connect provider, named by its registration's connection). The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. The column is output-only, as the method is. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
@@ -179,9 +179,8 @@ Values recognized in a `conditions` tag:
   `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
   refusal names the type to give it), and on a column that is not `BYTES` with room for
   the 42 bytes sealing adds. A method's request field takes the same word, unchanged: text
-  or bytes, no picker, and the method's dialog draws the same masked input (the generated
-  temporary-password methods declare theirs so). That value is never stored, so it is
-  never sealed, and a request field typed `resource.Secret` is refused.
+  or bytes, no picker, and the method's dialog draws the same masked input. That value is
+  never stored, so it is never sealed, and a request field typed `resource.Secret` is refused.
   Example:
   [Ship.TransponderKey](../lodestar/pkg/resources/ships.go).
 - `output_only` — the server owns the value: returned to clients but never accepted from
@@ -744,7 +743,7 @@ about it:
   the same check are answered as policy answers them. Each denial is logged as the
   mask's, with the mask, the person, the resource and the reason
   (`impersonation: Execute denied by mask (*;-class:credential) for … on
-  SetStaffTemporaryPassword: the mask refuses the class credential`), and the
+  SendStaffUserPasswordResetLink: the mask refuses the class credential`), and the
   permission digest drops the same entries, so the frontend's digest agrees with what
   `Check` enforces and no page offers what the session is refused. A field is judged
   by its record. `classes` is where the check reads an action's classes
@@ -1217,8 +1216,8 @@ was issued, echoed in the header. The methods route names the reset paths
 themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
 password?" from the list it already reads. The password change
 (`PasswordChange`, the password method's `ChangeUserPassword`) validates the session
-itself, so it sits outside `ValidateSession`: a person whose operator-set password must
-change before anything else is served reaches it, and the methods route tells the login
+itself, so it sits outside `ValidateSession`: a person an administrator required a new
+password of, who chooses it before anything else is served, reaches it, and the methods route tells the login
 page where (`changePassword`), which renders the change form before the signed-in page
 (section 21). The removal of a person's own password (`PasswordRemove`, the password
 method's `RemoveUserPassword`) is mounted beside it the same way, and the methods route
@@ -3697,8 +3696,8 @@ exception (`accesstypes.ExceptPermission`).
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's
 tenant in by inviting its first administrator and holds no role in it: the tenant is its
-administrator's from its first moment, and is never left with nobody to give the next
-role.
+administrator's from its first moment, and its last administrator cannot leave it with
+nobody to give the next role.
 
 **Tests.** The generated authorization matrix drives domain-scoped routes with one
 tenant, the generated router's `TestDomain` constant (an id's text), and the
@@ -3908,10 +3907,10 @@ declares as code of the application: a resource declaration over each table the 
 keeps, and the methods that change them. The lists are read through the application's
 permission surface like any resource, each method is a route behind an Execute grant, and
 the same method is a Go call the application makes in a transaction of its own, so a
-person is created and seated beside the application's own rows and committed with them.
+person is given a role beside the application's own rows and committed with them.
 The option requires `GenerateRoutes` and `GenerateHandlers`, and a program that declares
 at least one `Auth`. It is the user management of the whole application: accounts, roles,
-temporary passwords, the second factor's reset, lockouts and invitations. In an
+password reset links, the second factor's reset, lockouts and invitations. In an
 application with a tenant record it is also one tenant's management of the people who
 hold a role in it: the tenant's lists (its people, the roles held there, its invitations)
 and the methods the tenant changes them through, both below; and, for the Auth a tenant
@@ -3967,6 +3966,7 @@ GET  <prefix>/crew-takeable-roles                          List on CrewTakeableR
 GET  <prefix>/crew-take-lengths                            List on CrewTakeLengths (the lengths a role is taken for)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
 GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
+GET  <prefix>/crew-givable-roles                           List on CrewGivableRoles (the roles one of the whole application's methods gives, by where they are held)
 GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
 GET  <prefix>/crew-group-members                           List on CrewGroupMembers
 GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
@@ -3986,16 +3986,14 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, 
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
-POST <prefix>/create-crew-user                {"username","name","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
 POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
-POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
-POST <prefix>/invite-crew-user                {"email","name","roles","domain"} → {"id","sent"}   Execute on InviteCrewUser
+POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
@@ -4021,7 +4019,6 @@ POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyD
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
 POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
-POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
@@ -4036,7 +4033,7 @@ POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","u
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
-     set-crew-sector-temporary-password, send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
+     send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
      revoke-crew-sector-user-trusted-devices, end-crew-sector-user-sessions
                                               the whole application's bodies and answers    Execute on each, targeting CrewSectorUsers
 ```
@@ -4044,17 +4041,21 @@ POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-�
 The names are table-derived: the Auth's package name in PascalCase and the library's own
 name for the table, with the tenant record's name between them for a tenant's list
 (`Sector` in the ones under the domain pair, which exist only where the application has
-a tenant record). Every resource over a table is global, none has a write route, and none
+a tenant record). In an application without tenants the six methods of the whole
+application that say where (`invite-crew-user`, `assign-crew-role`, `remove-crew-role`,
+`create-crew-group`, `give-crew-group-role`, `take-crew-group-role`) have neither `domain`
+nor `everyDomain`: every role is held and every group kept for the whole application, and
+a request that names either field is refused as any field the method does not have (400).
+Every resource over a table is global, none has a write route, and none
 carries a password hash or a token hash: no declaration has such a field. A method that
 targets a resource is listed in that resource's rows' Execute answer
 (`capabilities=Execute`), so a page draws its buttons from the row. The Auth's shape
-decides which methods exist: the two role methods, the two invitation methods, the
-create, and the list and the two methods of the sign-in methods ("Who may sign up",
-below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
-directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`), the method that mails a reset link and the one
-that says whether a person may ask for one themselves for an Auth with no password
-method, as are the
+decides which methods exist: the two role methods, the two invitation methods, and the
+list and the two methods of the sign-in methods ("Who may sign up", below) are left out
+for an Auth whose roles a directory writes (`SyncsRoles`), where the directory admits its
+own members and the first sign-in creates the row, the method that requires a new
+password, the method that mails a reset link and the one that says whether a person may
+ask for one themselves for an Auth with no password method, as are the
 method that removes a person's password and the list of how a person signs in, which are
 also written only where the schema holds the identities table (the rule they keep reads a
 person's identity links), the rename and
@@ -4093,8 +4094,7 @@ which refuses every session that acts as someone else by itself as well), a grou
 `remove-crew-group-member`), a role given to a group or taken from it
 (`give-crew-group-role`, `take-crew-group-role`), an invitation sent or withdrawn, the
 one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
-`invite-crew-sector`, `withdraw-crew-invited-sector`), an account made, which is made
-with the roles its person holds (`create-crew-user`), a sign-in method opened to sign-up
+`invite-crew-sector`, `withdraw-crew-invited-sector`), a sign-in method opened to sign-up
 or made invite only
 (`open-crew-sign-up`, `make-crew-invite-only`), and the switch that lets people ask at
 the sign-in page for a link that resets their own password
@@ -4248,46 +4248,106 @@ query selects it. It serves a list and no read, under the domain pair, and the r
 grants it like any resource.
 
 The role field of each method a person gives a role with in a tenant names the list
-(`@enumerate`): `AssignCrewSectorRole`, the create and the invitation that start a person
-with a role (`CreateCrewSectorUser`, `InviteCrewSectorUser`), and
-`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a page offers what
-the caller may do, so the list holds the roles the caller could give and no other. A
-role file says which roles a person hands out once, on the methods' Execute grants,
-where a condition reads the role:
+(`@enumerate`): `AssignCrewSectorRole`, the invitation that starts a person with a role
+(`InviteCrewSectorUser`), and `GiveCrewSectorGroupRole`. A page draws the field as a picker, and a dialog offers what
+its own method takes from the caller, so the list is asked for one method at a time and
+holds the roles the caller could give with it and no other. A role file says which
+roles a person hands out once, on each method's Execute grant, where a condition reads
+the role:
 
 ```json
 "Execute": [{ "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" }]
 ```
 
-For each role of the tenant the list asks the grant of every one of those methods, with
-the role and nobody named (`identity.Manager.RolesToGive`, which asks the generated
-`CouldGive` of `identity.RoleGrants`), and leaves out a role every one of them refuses
-the caller: Lodestar's Sector Marshal is offered every role of the sector but the
-Marshal's own. A grant whose condition also reads the row the method names (the person,
-the group) could admit the role for some of them, so the role is offered and the method
-decides. One list serves all four pickers, so it holds a role that one method takes
-and another refuses, which the method then says; a role file that gives the methods the
-same limit, as Lodestar's does, has a picker that offers exactly what each takes. A
-request that names a role the list left out is refused by the method's own grant, as
-before.
+A row carries a third field for this, `method`: a filter key, and nothing a page shows.
+A request names the method whose dialog is picking
+(`filter=method:eq:AssignCrewSectorRole`), and for each role of the tenant the list asks
+that method's grant, with the role and nobody named (`identity.Manager.RolesToGive`,
+which asks the generated `CouldGive` of `identity.RoleGrants`), and leaves out a role it
+refuses the caller: Lodestar's Sector Marshal is offered every role of the sector but
+the Marshal's own. A grant whose condition also reads the row the method names (the
+person, the group) could admit the role for some of them, so the role is offered and
+the method decides. A role one method takes and another refuses is in the first one's
+list and not in the second's, so each of the four pickers offers exactly what its own
+method takes. A request that names no method is answered no role: a picker that does
+not say which method it serves is empty, never wider than the method. One that names a
+method whose role field does not pick from the list, or names methods any other way
+(`in`, `ne`, two conditions), is refused (400) with the names it may send. A request
+that names a role the list left out is refused by the method's own grant, as before.
 
 The list's own List grant may carry a condition too, which narrows it further. The
 role's name is declared for conditions (`@attribute(name)` on the field), and the library
 judges the condition over each role the list answers (a computed resource's rows,
 section 2); a request for the names alone and the list's count are trimmed the same way.
 Lodestar keeps one, which says nothing its methods' grants do not, to show a condition
-judged over a computed resource's rows:
+judged over a computed resource's rows. A caller filters by the fields they may read,
+and a computed list filters only by a field granted with no condition (section 2), so a
+role is granted `method` with the list: among the fields of a grant that carries no
+condition, or, beside a grant that carries one, as a grant of the field alone:
 
 ```json
-"List": [{ "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" }]
+"List": [
+  { "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" },
+  { "resource": "CrewSectorRoles.method" }
+]
 ```
 
-An Auth whose directory writes the roles gives none by hand and has no such list. The
-roles of the whole application are given by a field a person types, with no list to
-pick from, and the two other lists a role is picked from are limited the same way: the
-default role of a method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is
-opened to its directory's people with (`CrewSectorDirectoryRoles`) each hold the roles
-the caller may give by the method that gives one (`MayGive`).
+**The roles the whole application gives.** The whole application's methods pick their
+role the same way, from one more list per Auth, `CrewGivableRoles`, declared beside the
+methods and served on their outlets (a list and no read). Its rows are the roles that
+exist where the role is to be held, each with its `name` and `description`, the
+`method` it is listed for, and, in an application with tenants, where it is held:
+`domain`, the one tenant ("" for the whole application or every tenant), and
+`everyDomain`. The three are filter keys. Filtered by
+one tenant (`domain:eq:<id>`) the list holds that tenant's roles; otherwise it holds the
+roles held for the whole application (`everyDomain` false) and those held in every
+tenant (`everyDomain` true), which a filter on `everyDomain` narrows. A filter that
+names tenants any other way beside its other conditions (`in`, `ne`, a range, two
+conditions on `domain`) is refused (400), in the application's word for a tenant; one
+that joins its conditions with `or` names no method the list can read apart from the
+rest, and is answered no role. A role is listed once for each place, so a custom role held both for the whole
+application and in every tenant is two rows under one name until the request names a
+place, as the dialogs always do. In an application without tenants the list holds the
+whole application's roles and has neither field of a place.
+
+The role fields that name it (`@enumerate`) are those of `AssignCrewRole`,
+`InviteCrewUser` and `GiveCrewGroupRole`, each written where the Auth has the method. Each request asks where the role is held first (`domain`, then
+`everyDomain`, before the role), so a dialog drawn from the metadata asks where, then
+offers the roles that exist there. As for a tenant, the list is asked for one method at
+a time, named beside the place (`filter=method:eq:InviteCrewUser,domain:eq:<id>`): a
+role is listed where that method's grant could let the caller give it there, with the
+role, the place and nobody named (`identity.Manager.GivableRoles`, over the generated
+`CouldGive`), and left out where it refuses. A role only the invitation's grant admits
+is in the invitation's picker and in no other, and a request that names no method is
+answered no role. The list's own List grant may carry a
+condition on `name` that narrows it further. Two rules hold whatever the grants say: the
+Super Administrator role is listed for the whole application alone, and only to a
+caller who holds it, since only a super administrator gives it; and a tenant's
+administrator's role of a tenant that is directory only is listed only to a caller the
+tenant admits (section "Directory only", the rule the methods keep).
+
+Where the Auth keeps groups, the list has one more filter key, `group`. The method
+that gives a group a role is asked with the group beside it
+(`filter=method:eq:GiveCrewGroupRole,group:eq:<id>,domain:eq:<id>`), and the list then
+holds the roles that group may hold there (`identity.Manager.GivableGroupRoles`), by
+the rule the method holds the group to (`access.GroupMayHold`): never the Super
+Administrator role, and for a group kept in one tenant that tenant's roles alone, so
+no role for the whole application, in every tenant or in another tenant. Asked with no
+group, `GiveCrewGroupRole` is answered no role, and so is an id that is no group's,
+as a group that may hold no role there is: the list never says whether an id is a
+group's. A group named beside another method, or any other way than by one id, is
+refused (400). The role file grants the list to the roles that give one, `group`
+among its fields where the role gives a group a role:
+
+```json
+"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "method", "group", "domain", "everyDomain"] }]
+```
+
+An Auth whose directory writes the roles gives none by hand and has neither list. The
+two other lists a role is picked from are limited the same way: the default role of a
+method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is opened to its
+directory's people with (`CrewSectorDirectoryRoles`) each hold the roles the caller may
+give by the method that gives one (`MayGive`).
 
 **A tenant's methods.** Beside the lists the generated management writes the methods a
 tenant changes its people through. Each is a method of the tenant's scope
@@ -4296,8 +4356,8 @@ tenant's roles, and is named as the whole application's method with the tenant r
 name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 
 - The tenant is the one the request was made under. No body carries a tenant, so no
-  request names another: the create and the invitation have no `domain`, and a role is
-  given and taken in that tenant alone. A tenant's method acts for a request, so one run
+  request names another: the invitation has no `domain`, and a role is given and taken
+  in that tenant alone. A tenant's method acts for a request, so one run
   in a transaction of the application's own, outside any request, is an error: there the
   application runs the whole application's method and names the tenant.
 - A method that names something names a row of one of the tenant's lists (`@target` on
@@ -4317,12 +4377,23 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   tenant's list and is not the tenant's to take: `RemoveCrewSectorRole` refuses it (409)
   whatever the role file says.
 - The rules are the whole application's, in the same code: nobody disables or deletes
-  their own account, the tenant's last administrator keeps the role, a rename moves the
-  roles, the last role a person holds anywhere takes the account with it, a create and an
-  invitation give at least one role. A refusal that speaks of a tenant says the
-  application's word for one, the tenant record's label or its name in words ("you are
-  the last administrator of this sector"): the generated client hands it to the rules
-  (`identity.WithTenantWord`).
+  their own account, the last administrator of a tenant's own cannot leave it or give
+  up the role (someone whose role lets them take the role away may), a rename moves the
+  roles, the last role a person holds anywhere takes the account with it, an
+  invitation gives at least one role. A tenant's administrators are counted as the
+  permission engine counts them (`access.AdministersTenant`): the people who hold an
+  administrator's role in the tenant itself, themselves or through a group kept in the
+  tenant. A person who holds the role in every tenant, or through a group kept for the
+  whole application, does not stand in for the tenant's last one, since a tenant that
+  admits its people through its directory only keeps that person out with everyone
+  else. A holding counts while it is in force: one whose period is over, or has not
+  begun, makes nobody an administrator, and a person removes their own freely. A
+  holder whose account is disabled is not counted either: the account keeps its roles
+  and administers nothing until it is enabled again, so the person beside it is the
+  tenant's last administrator and keeps the role. A
+  refusal that speaks of a tenant says the application's word for one, the tenant
+  record's label or its name in words ("you are the last administrator of this
+  sector"): the generated client hands it to the rules (`identity.WithTenantWord`).
 
 What a tenant may do to a person who also holds a role outside it, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
@@ -4336,7 +4407,7 @@ gives no Marshal's role:
 "Execute": [
   { "resource": "DisableCrewSectorUser", "condition": "heldElsewhere = false AND heldGlobally = false" },
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
-  { "resource": "CreateCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
+  { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
   { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" }
 ]
@@ -4344,7 +4415,7 @@ gives no Marshal's role:
 
 A grant with no condition on an account method lets a tenant's administrator rename,
 disable or delete a person another tenant also holds: the account is one row for the
-whole application. `roles` is a list, judged role by role, and a create or an invitation
+whole application. `roles` is a list, judged role by role, and an invitation
 with no role is refused by a grant that reads `new.role`, since no value never permits.
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
@@ -4368,8 +4439,8 @@ schema without it is refused at generation, naming the column.
   carries the switch (`sectorDirectoryOnly`), and where the directories record carries
   `@directoryDefaultSeat` it carries the role the people of the tenant's directory
   start with (`defaultRole`). It answers the invitation's id and whether its message
-  went (`{"id","sent"}`); an invitation whose message did not go is withdrawn, so no
-  link stands that nobody holds.
+  went (`{"id","sent"}`); an invitation whose message did not go is ended, not
+  mailed, so no link stands that nobody holds.
 - `<Auth>Invited<Record>s` (`CrewInvitedSectors`) lists the invitations that make a
   tenant and still stand: not one that was accepted or withdrawn, not one that expired,
   and not an invitation into a tenant that exists. A row carries the address, the
@@ -4619,7 +4690,12 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   own role or the caller's own place in a group that ends later, or never, or begins
   sooner while it has not begun, and the same for a role of a group the caller is in.
   It holds for a period that has ended too, while its row stands. Someone else who may
-  give the role gives it its new period; the caller shortens their own freely.
+  give the role gives it its new period. The caller shortens their own, with one
+  exception: the last administrator of a tenant's own does not cut the role short
+  there. A period that takes it away from now on, or from a sooner end, is refused
+  (403) in the words that refuse them the role's removal, on their own role, on their
+  place in the group that gives it and on that group's role, until another person
+  administers the tenant.
 - The Super Administrator role takes no period (400): there is always a super
   administrator, and a period could leave none.
 - The permission engine applies the period at the instant a check is made with, the
@@ -4688,9 +4764,11 @@ every policy store's schema holds it).
   administrator always holds. `CrewTakeableRoles` lists the roles the caller could take,
   so a page offers what the caller may do. The one rule taking sets aside is that
   nobody lengthens their own holding: taking a role the caller holds there already
-  writes the new time and the new reason over the old ones, and nothing is refused. A
-  session that views as someone else takes nothing (403), and neither does a caller who
-  is not a person of the Auth.
+  writes the new time and the new reason over the old ones. The last administrator of a
+  tenant's own is refused the taking of the role they hold there where its time ends
+  sooner than their holding (403), since the tenant would have no administrator once the
+  time is over. A session that views as someone else takes nothing (403), and neither
+  does a caller who is not a person of the Auth.
 - Ending a taken role early is taking it away, by whoever may: a tenant's administrators
   by the role file's grant on `RemoveCrewSectorRole`, headquarters by `RemoveCrewRole`.
   Nothing here is permission code of its own.
@@ -4704,15 +4782,12 @@ every policy store's schema holds it).
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:
 
-- A new user holds at least one role (400 without one) and, where the create carries
-  one, a temporary password: required where the password is the Auth's one way in,
-  optional beside another registration, whose people may sign in through it instead. A username or an address another user holds is refused at the
-  commit.
-- A temporary password, given at the create or set on an account, is hashed by the
-  session library and marks the account: the person chooses a password of their own
-  before anything else is served. Set on an account, it also ends every session the
-  person holds and clears the count of failed sign-ins under their name, so a person
-  locked out signs in with it at once.
+- A person is added by an invitation, which gives at least one role (400 without one).
+  Nobody creates an account for someone else: the account is made when the person
+  accepts, with a password they choose there or through a directory.
+- Nobody chooses a password for someone else. A person who has lost theirs is mailed a
+  reset link and chooses the next one themselves, and a person required to change
+  theirs chooses another before anything else is served (both below).
 - A rename takes with it what is held under the old name: the person's sessions, the
   sessions they hold as someone else with their impersonation records, and every role
   membership. A name another user holds is refused (409).
@@ -4720,7 +4795,7 @@ every policy store's schema holds it).
   method mails a link to the new address once the transaction has committed, and the
   account keeps the address it has until the person follows that link from the new
   mailbox (`POST user/email/confirm`, which the login page reaches with
-  `?address=<token>`). The old address is told once the change is made, and never asked
+  `#address=<token>`). The old address is told once the change is made, and never asked
   to allow it. One change stands at a time: a second request withdraws the first one's
   link. An account always keeps an address, so the method replaces one and never takes
   one off, and the answer says whether the link went (`sent`) and, where it did not,
@@ -4733,7 +4808,9 @@ every policy store's schema holds it).
   whether the link went and why not (the account has no password or no confirmed
   address, or the address was sent too many reset links: five in fifteen minutes, the
   person's own requests counted with the administrators' and apart from sign-in codes).
-  The role file decides who may send one, as for every method of the set.
+  The role file decides who may send one, as for every method of the set, and a link to
+  a super administrator's account is sent by a super administrator alone, whatever the
+  role file grants: the link changes how the account signs in.
 - Deleting a user removes their role memberships, ends their sessions, and removes
   their identity links and the account; whatever else the Auth keeps for the person
   goes with the row.
@@ -4813,8 +4890,8 @@ every policy store's schema holds it).
   written in the caller's transaction, beside whatever else the transaction writes, and
   the link is mailed once the transaction has committed (`resource.AfterCommit`). The
   answer's `sent` says whether the message went: an invitation whose message could not
-  be sent is withdrawn, so no link stands that nobody received, and the caller invites
-  again.
+  be sent is ended, not mailed, so no link stands that nobody received, and the caller
+  invites again.
 - Withdrawing holds to invitations. A mail link of another kind (a verification, a
   sign-up) is not found, and neither is an invitation that was accepted, withdrawn or
   has expired (404).
@@ -4852,9 +4929,10 @@ assigns the page's two halves, with nothing written by the application:
   it is on, the login page offers "Forgot your password?" from it, and the request's
   route answers 404 while it is off. A link asked for while it was on still works once
   it is off, until it is used or runs out, and a link an administrator sends is never
-  held to the choice. An Auth with a password and no list of sign-in methods (one whose
-  application lets nobody sign up to it) has no such method: its people are sent a
-  reset link by an administrator.
+  held to the choice. Every Auth that declares the password method has the method and
+  the list of its sign-in methods, whether or not it carries the choice of who may sign
+  up: an Auth that carries none (its people join a tenant somebody else made) has the
+  Sign-in page for this switch alone.
 
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without
@@ -4930,6 +5008,7 @@ and handed to the handler type, which returns it from an accessor named for the 
 identityClient, err := crewidentity.NewClient(accessClient,  // the Auth's permission engine
 	authSession.API(),                                        // the API of the session.Auth that signs its people in
 	settings.TenantMaker,                                     // what makes a tenant, for the Auth a tenant is made through
+	identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), // the first administrator's roles, by where they are held
 	identity.WithAdministratorRoles(tenantAdministrators))    // the roles that administer a tenant
 
 // In the handler type's package.
@@ -4947,8 +5026,11 @@ Auth is built, so the roster is built before that Auth; the client hands it to t
 `identity` package (`identity.WithTenantMaker`), which an application never calls. The
 same client needs the roles that administer a tenant
 (`identity.WithAdministratorRoles`): the person who accepts is seated with them, and an
-invitation is refused while the Auth names none. The client of every other Auth takes
-the engine and the session API alone.
+invitation is refused while the Auth names none. An Auth whose first administrator the
+deployment invites hands its client the roles that person is given, by where they are
+held (`identity.WithFirstAdministratorRoles`, handed the two lists the foothold's
+`FirstAdministratorRoles` returns; "At a sign-in", below). The client of every other Auth
+takes the engine and the session API alone.
 
 The generated `zz_gen_identity.go` in the handlers package asserts the accessor
 (`var _ crewhandlers.Deps = (*App)(nil)`) and holds the Auth package's `TablePrefix` equal
@@ -4984,11 +5066,40 @@ authSession.SetSignUpSeated(identityClient.SignedUp())
 authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 ```
 
-An invitation into a tenant gives its roles in that tenant; one into the application
-gives each role where the role is held, the global scope or every tenant; one that makes
-a tenant makes it there, in the same transaction, and gives the person the roles that
-administer it ("The invitation that makes a tenant", below). A role that can
-no longer be given (the role file changed since the invitation was sent) fails the
+An invitation into a tenant gives its roles in that tenant; one into every tenant gives
+them in every tenant; one into the whole application gives them in the global scope; one
+that makes a tenant makes it there, in the same transaction, and gives the person the
+roles that administer it ("The invitation that makes a tenant", below). The sender says
+where the roles go: `domain` for one tenant, `everyDomain` for every tenant, or
+neither, which is the whole application. The invitation's row keeps that place
+(`TenantId` for one tenant, the boolean `EveryTenant` for every tenant, neither for the
+whole application), and the acceptance gives each role there and nowhere else, whatever
+another place holds under the same name by then. The mail links table of every Auth
+therefore carries the column (`EveryTenant BOOL NOT NULL DEFAULT (false)`, which the
+session migration `impulse` renders has), and a schema without it is refused at
+generation, naming the column and the statement that adds it. The Auth's list of its
+mail links serves the place as two fields (`tenantId` and `everyTenant`), so a page tells
+an invitation into every tenant from one into the whole application. A link whose message
+could not be mailed ends where the mail failed, and its row says so: the table carries
+`MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true)`, a schema without it is
+refused at generation the same way, and the list serves it as `mailFailedAt`, so a page
+tells such a link from one that was used or withdrawn. An invitation is held to
+its place when it is sent. One that says every tenant takes roles that exist in every
+tenant: a role of the whole application alone is refused (400), and a custom role whose
+name a role of the whole application carries too is invited like any other, the person
+being given the tenants' one. One that says neither takes roles of the
+whole application alone: a role that exists only in the tenants is refused (400), in
+words that say to choose the tenant it is for, or every tenant. The first
+administrator's invitation is the one invitation whose roles are held in two places.
+The deployment sends it for the whole application, and the acceptance gives each of its
+roles where the Auth's first-administrator setup declares it
+(`identity.WithFirstAdministratorRoles`): the roles the setup names for the whole
+application there, with the Super Administrator role, and the roles it names for the
+tenants in every tenant. No other invitation reads that declaration, and a client built
+without it gives the first administrator's roles in the whole application alone. A role
+that its place
+no longer holds when the person accepts (the role file changed, or a custom role was
+deleted, since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is
 told once the transaction has committed, before the sign-in policy decides. The client
 of an Auth whose roles a directory writes has none of the hooks: the directory's answer at
@@ -5015,35 +5126,25 @@ application runs it wherever it holds a transaction, beside its own writes:
 ```go
 err := resourceClient.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 	sector := anvil.String() // the tenant's id
-	created, err := (&crewidentity.CreateCrewUser{Username: "ada", Roles: []string{"Dispatcher"}, Domain: &sector}).Execute(ctx, txn, a.CrewIdentity())
-	if err != nil {
-		return err
-	}
-	// A further role for the person just created, by the client's own call: it looks
-	// nobody up, and the new user is not readable until the commit.
-	if err := a.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), identity.User(created.ID), "CrewCommon"); err != nil {
+	posting := &crewidentity.AssignCrewRole{UserID: ada, Role: "Dispatcher", Domain: &sector}
+	if err := posting.Execute(ctx, txn, a.CrewIdentity()); err != nil {
 		return err
 	}
 
-	return recordHire(ctx, txn, created.ID) // the application's own rows, in the same commit
+	return recordPosting(ctx, txn, ada) // the application's own rows, in the same commit
 })
 ```
 
-The served method that gives a role (`AssignCrewRole`) names a person a request gave it,
-so it reads the user first and answers 404 for an id no user holds; run in the transaction
-that creates the user it would not find it, which is why the example gives the further
-role through the client.
-
-A person is created holding a role: `Roles` names at least one, all held in one place
-(the global scope, the one tenant `Domain` names, or every tenant with `EveryDomain`),
-and the memberships are written in the transaction that writes the user. A create
-without a role is refused, since an account that holds no role anywhere is not kept. A
-role held somewhere else is one more `AssignCrewRole` beside it, as above.
+The method that gives a role (`AssignCrewRole`) names a person who has an account
+already: it reads the user first and answers 404 for an id no user holds. A role is held
+in one place (the global scope, the one tenant `Domain` names, or every tenant with
+`EveryDomain`), and a role held somewhere else is one more `AssignCrewRole` beside it. A
+person new to the application is invited (`InviteCrewUser`), and holds the invitation's
+roles once they accept.
 
 Nothing is written until the commit, so a method does not read what an earlier method of
-the same transaction buffered: a role is given to a person who has an account already
-(a person new to the application is created holding their roles), and one identity link
-is removed per user per transaction.
+the same transaction buffered: a role is given to a person who has an account already,
+and one identity link is removed per user per transaction.
 
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
@@ -5053,8 +5154,7 @@ committed too: who is in it and what it holds, so a person put in a group and a 
 given to the group in one transaction of the application's are each judged without the
 other. Every generated route runs one method, which
 names one person, in a transaction of its own, so no request puts two in one; the limit
-is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
-operator chooses it and passes it on.
+is for an application that runs the methods in a transaction it opens itself.
 
 **The rules on who is asking.** Who may run a method is the role file's to say. Five
 rules of the user management are the methods' own, whatever the role file grants, and
@@ -5079,7 +5179,7 @@ own, outside any request, has no caller and is the application's act):
   account: a person who acts as an administrator holds, for the length of the session,
   what the administrator may do, and an act on their own account would leave them
   holding it afterward. The real person behind the session is refused a role given to
-  them or taken from them, a place in a group, a password set, required anew or
+  them or taken from them, a place in a group, a new password required, a password
   removed, a reset link, an address, a name, a rename, a disable, an enable, a delete,
   the end of their own sessions, their remembered browsers, a sign-in identity and a
   token of theirs, the
@@ -5172,8 +5272,8 @@ own, outside any request, has no caller and is the application's act):
   follows is held to its tenant as ever.
 
   What the rule cannot see is whatever reaches the person by another road: a role
-  given to a group they are in, an account made for another address of theirs, an
-  invitation to an address they hold and never confirmed on the account, a colleague
+  given to a group they are in, an invitation to an address they hold and never
+  confirmed on the account, a colleague
   who returns the favor, and an action of the application's own that does not ask.
   These are the rule's stated limits. A session whose mask does not refuse the class
   `access` gives such a role. To let someone act as a person with no mask is to give
@@ -5271,7 +5371,7 @@ own, outside any request, has no caller and is the application's act):
   which makes one who can sign in. A caller who came
   through another Auth (`Manages`) holds no role of this one. Only a holder changes how
   another signs in, since each such act is a way to become the person or to shut them
-  out: setting a holder's temporary password, removing their password, requiring them to
+  out: sending a holder a password reset link, removing their password, requiring them to
   change it, renaming them, setting their email address (where the code of their second
   factor is mailed) and unlinking one of their sign-in identities each take a caller who
   holds the role, whatever the role file grants; a holder acts on themselves and on
@@ -5316,8 +5416,8 @@ own, outside any request, has no caller and is the application's act):
   role there is changed by one of its administrators, or by a super administrator". The
   account of a person who holds such a role there, of their own or through a group kept
   in that tenant, in an assignment that has not ended, is held to the same judgment,
-  since each act on it is a way to become the person or to shut them out: a temporary
-  password, a required change of password, a removed password, a new sign-in name, an
+  since each act on it is a way to become the person or to shut them out: a required
+  change of password, a removed password, a new sign-in name, an
   address set, an identity unlinked, the account disabled, enabled or deleted are
   refused with a sentence that says the same of the account. A person who administers
   more than one tenant is changed by a caller every one of them admits, and the refusal
@@ -5418,10 +5518,10 @@ description (`zz_gen_api.ts`) carries an `identity` block beside its resources a
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
 the tenant record's name where the application has one, and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
-each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
-`sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
+each holds (`users`, `roles`, `rolesToGive` (the list a role is picked from by the methods that give one), `identities`, `signInWays`, `invitations`, and for the whole application
+`sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
-`rename`, `setEmail`, `setTemporaryPassword`, `sendPasswordResetLink`, `requirePasswordChange`,
+`rename`, `setEmail`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
 the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
@@ -5463,9 +5563,9 @@ holds a sector's lists (each sector's rows, a person of two sectors in each, the
 facts, and the grants that carry a condition on one),
 `generated_identity_tenant_methods_test.go` a sector's methods (each account method
 allowed on a person the sector holds alone, refused on one it shares and not found for
-another sector's; the roles given and taken; the create; the identities and the unlink) with
+another sector's; the roles given and taken; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
-(the invitation, its withdrawal, the temporary password),
+(the invitation, its withdrawal, the required password change),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
 sector and the list of how a person signs in beside it (the password and the identities
 that count, an identity of a retired sign-in left out, the sector's people alone), and

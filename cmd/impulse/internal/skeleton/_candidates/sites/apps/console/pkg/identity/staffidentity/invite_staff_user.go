@@ -17,16 +17,18 @@ type (
 	// InviteStaffUser invites an address to the Staff auth: a link is
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
-	// every role is held there, or into the application, where a role of the global
-	// scope is held there and a role of the domain kind in every tenant. Name is the
-	// name the sender gives the person: whoever accepts the invitation takes it where
-	// their account holds none.
+	// every role is held there; into every tenant (EveryDomain), where every role is
+	// one of the domain kind and none carries the name of a role of the global scope;
+	// or with neither, into the whole application, where every role is one of the
+	// global scope: a role that exists only in the tenants is refused there, with what
+	// to choose. Name is the name the sender gives the person: whoever accepts the
+	// invitation takes it where their account holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
 	// cannot be taken back. The answer says whether the message went (Sent). When it
-	// did not, the invitation is withdrawn, so no link stands that nobody holds:
-	// invite again.
+	// did not, the invitation is ended, not mailed, so no link stands that nobody
+	// holds: invite again.
 	//
 	// @rpc
 	// @outlet(default)
@@ -34,16 +36,20 @@ type (
 	InviteStaffUser struct {
 		Email string `validate:"required"`
 		Name  *string
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles []string
 		// Domain is the one Tenant the roles are given in, picked from the
 		// Tenant records the caller may list.
 		//
 		// @enumerate(Tenants)
-		Domain *string
+		Domain      *string
+		EveryDomain bool
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there (StaffGivableRoles). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate(StaffGivableRoles)
+		Roles []string
 	}
 	// InviteStaffUserResult answers the invitation's id and whether its message
 	// went. Sent is set once the transaction has committed: a caller that runs the
@@ -57,7 +63,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *InviteStaffUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*InviteStaffUserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain, EveryDomain: m.EveryDomain}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

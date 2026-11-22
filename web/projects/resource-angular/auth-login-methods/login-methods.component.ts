@@ -10,19 +10,21 @@ import {
   PendingTasks,
   signal,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import {
   EmailCodeResult,
   EmailCodeStep,
   invitationAddressCode,
   LoginMethod,
   LoginMethods,
+  MailedLink,
+  mailedLink,
   OpenedInvitation,
   passwordChangeRequiredCode,
   PendingSignIn,
@@ -35,7 +37,7 @@ import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular
 import { FRONTEND_LOGIN_PATH, FRONTEND_SIGN_OUT_PATH, SessionInfo } from '@impulseframework/resource-angular/types';
 import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { firstValueFrom } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { filter, map } from 'rxjs/operators';
 
 /**
  * The form an account with a password is created on: from an opened invitation, which the
@@ -135,8 +137,20 @@ export interface Landing {
  * renders are declared in `SIGN_IN_STEPS` and, for the framework's release check, under
  * `impulseframework.signInSteps` in the package's package.json.
  *
- * The mailed links the server sends all lead here, each with its token in the URL. An
- * invitation (`?invitation=`) is opened through the client on arrival and the card becomes
+ * The mailed links the server sends all lead here, each with its token in the URL's
+ * fragment, which a browser sends to no server, so the token is in no request line and no
+ * request log. On arrival the component reads the link (`mailedLink`), takes it out of the
+ * address at once (`dropLink`), and posts the token in the body of the request that uses
+ * it. A link opened in a tab that already shows the page changes the fragment alone and
+ * loads nothing, so the page loads itself again for it (`loadAgain`) and arrives as on a
+ * first load. From then on the address the tab shows, the entry Back returns to, and an address or
+ * bookmark a person takes from the page carry no token. The browser's own history of the
+ * pages it has visited is not the page's to clear, and it keeps the address the mail
+ * opened, token and all: a link opened and not used can be opened again from that
+ * browser's history until it is used or expires. The fragment is the only place a link is
+ * read from: a parameter of a link's name in the address's query is not a link, so the
+ * page sends its value nowhere and leaves the address as it came. An
+ * invitation (`#invitation=`) is opened through the client on arrival and the card becomes
  * the invitation screen: "You're invited to <the tenant's name>" and the address, over every way that
  * can accept this invitation for that address and none that cannot (`invitationPaths`). The
  * browser now carries the invitation, so the sign-in that follows accepts it and seats the
@@ -147,9 +161,10 @@ export interface Landing {
  * `invitation_address`, and the screen then says so, naming the address. The password form
  * shows when an account with a password holds the address (`accountExists`, `hasPassword`),
  * with a note saying it accepts; and where no account holds the address and the server
- * offers a password method, the account form opens by itself, without a Cancel, but only
- * where no directory could admit the address, since the invited person has that account
- * already. "Use a different account" is not offered while an invitation stands: the
+ * offers a password method, the person may create an account with a password: the account
+ * form opens by itself, without a Cancel, where it is the one way to accept, and stands
+ * behind a "Create an account with a password" button under the directory buttons where
+ * a directory could admit the address too. "Use a different account" is not offered while an invitation stands: the
  * invitation names the account. An invitation that makes a tenant (`newTenant`: staff
  * bring an organization in by inviting one person, and that person's first sign-in makes
  * the tenant) is headed "You're invited to set up <the tenant's name>", over the same
@@ -160,25 +175,35 @@ export interface Landing {
  * holds the address; a sign-in the server refuses for it comes back with
  * `organization_account_required`, or with `organization_has_tenant` where the
  * organization the person signed in through already has a tenant, each with its
- * sentence and the invitation still standing. A person the page finds already signed in accepts it with
- * one click, from a button under the heading, when their account holds the invited address
- * or none; signed in as an account that holds another address, they are told whose the
- * invitation is and how to accept it, since the server refuses that acceptance too
- * (`acceptOffered`). Under an older server that does not say what
- * holds the address every path is offered, the account form behind a "Create an account
- * with a password" button that comes last, under the password form and the redirect
- * buttons, where the open "Create an account" step stands when no invitation does. The
+ * sentence and the invitation still standing. The link only opens the invitation, and
+ * nothing is accepted by it: every sign-in that does not itself prove the invited address
+ * is held for a code mailed to that address, which the pending step asks for as it does
+ * for any sign-in code. The account form is such a sign-in too: the server makes nobody
+ * until the code is entered. A person the page finds already signed in accepts it with
+ * one click, from a button under the heading, when their account holds the invited
+ * address confirmed, which is the one acceptance by hand the server takes
+ * (`acceptOffered`). Signed in as an account that holds no address yet, or that holds the
+ * invited one and has not confirmed it, they are told to sign in again, over the ways to
+ * sign in: the code mailed to the invited address is what shows it to be theirs
+ * (`signedInUnproven`). Signed in as an account that holds another address, they are told
+ * whose the invitation is and how to accept it, since the server refuses that acceptance
+ * too. Where people choose their username
+ * and no account holds the invited address, an account may hold no address yet, so the
+ * card also offers "Sign in with an account you already have", which shows the password
+ * form (`existing`). The
  * browser keeps carrying the invitation when a redirect method refuses the sign-in and
  * brings it back here with `?code=` and no token; the methods list then names the
  * invitation under `invitation.standing`, and the screen stands again, with the refusal's
  * sentence under it, so the person sees what they were invited to, the ways to sign in, and
- * why the last attempt was refused, together. A token in the URL is opened instead, which
+ * why the last attempt was refused, together. A link's token is opened instead, which
  * also refreshes what the browser carries. A sign-up link
- * (`?signUp=`) is opened the same way and renders the account form in the list's place; the
+ * (`#signUp=`) is opened the same way and renders the account form in the list's place; the
  * list of a server whose password method offers sign-up also carries the "Create an account"
- * step, which asks for an address and mails it the link. A confirmation link (`?verify=`) is
+ * step, which asks for an address and mails it the link. A confirmation link (`#verify=`) is
  * posted once a session stands, on arrival when the page finds one, else after the
- * sign-in it waits for (a redirect method returns to this page with the token); the
+ * sign-in it waits for. A redirect method's round trip reloads the application, and the
+ * token waits for it in the browser's session storage, never in the address the method
+ * returns to; the
  * component then shows what happened and emits `signedIn` on Continue. On every arrival
  * the component renders nothing until the reads have answered (`arriving`, which a page
  * holds its card back on, so a load shows nothing and then the whole card), so the form
@@ -188,9 +213,9 @@ export interface Landing {
  * render the sentence held for `unreachable` and a Try again button in the list's place,
  * never the status; Try again runs the arrival again, the card held back meanwhile.
  *
- * A session the sign-in establishes may carry `passwordChangeRequired`: an operator set
- * the password, and the server serves nothing but the password change until the person
- * sets one of their own. The component then renders the change form in the list's place,
+ * A session the sign-in establishes may carry `passwordChangeRequired`: the person must
+ * change their password, and the server serves nothing but the password change until
+ * they set a new one. The component then renders the change form in the list's place,
  * with the sentence the application holds for `password_change_required` over it, posts
  * the old and the new password through the client to the change path the methods list
  * names, checks the session again and emits `signedIn` with the page recorded at the
@@ -210,6 +235,7 @@ export class LoginMethodsComponent implements OnInit {
   private auth = inject(AuthService);
   private ui = inject(UiCoreService);
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private document = inject(DOCUMENT);
   private loginPath = inject(FRONTEND_LOGIN_PATH);
   private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
@@ -279,23 +305,27 @@ export class LoginMethodsComponent implements OnInit {
   /** The redirect methods, one button each, in the server's order. */
   redirectMethods = computed(() => this.methods().filter((method) => method.kind === 'redirect'));
   /**
-   * The redirect methods offered on screen: while an invitation stands that names the
-   * registrations able to admit the invited address (`methods`), those alone, in the
-   * server's order, and none when it names none; every redirect method otherwise.
+   * The redirect methods offered on screen: while an invitation stands, the registrations
+   * it names as able to admit the invited address (`methods`) alone, in the server's
+   * order, and none when it names none; every redirect method while none stands.
    */
   offeredRedirectMethods = computed(() => {
-    const admitting = this.invitation()?.methods;
+    const invited = this.invitation();
     const redirects = this.redirectMethods();
-    return admitting ? redirects.filter((method) => admitting.includes(method.name)) : redirects;
+    return invited ? redirects.filter((method) => invited.methods.includes(method.name)) : redirects;
   });
   /**
    * What the card offers for the invitation it carries, from what the server said of the
    * invited address: the directory buttons that could admit it (`redirects`); the password
    * form when an account with a password holds the address (`password`); and the account
-   * form when no account holds it and the server offers a password method, only where no
-   * directory could admit it, since the invited person has that account already (`create`).
-   * `known` is false under an older server that did not say whether an account exists:
-   * every path is then offered, as before. An invitation that makes a tenant entered
+   * form when no account holds it and the server offers a password method, whether or not
+   * a directory could admit the address too: a new person chooses how they sign in (`create`).
+   * Where people choose their username, an account may hold no address at all, and such an
+   * account accepts by signing in with its password and entering the code mailed to the
+   * invited address: the password form is then offered behind a button while no account
+   * holds the address (`existing`), and shown once the person asks for it, or at once to a
+   * person found signed in as an account with no address (`signedInUnproven`).
+   * An invitation that makes a tenant entered
    * through its directory only (`directoryOnly`) is accepted through an organization's
    * directory alone, so neither the password form nor the account form is offered, whatever
    * holds the address: the server refuses both. Undefined while no invitation stands.
@@ -306,16 +336,17 @@ export class LoginMethodsComponent implements OnInit {
       return undefined;
     }
     const redirects = this.offeredRedirectMethods();
-    const known = invited.accountExists !== undefined;
     const passwordListed = this.passwordMethod() !== undefined;
     if (invited.directoryOnly === true) {
-      return { known, redirects, password: false, create: false };
+      return { redirects, password: false, create: false, existing: false };
     }
+    const addressless = this.signedInUnproven() === 'none';
+    const existing = passwordListed && !invited.accountExists && !invited.usernameIsEmail;
     return {
-      known,
       redirects,
-      password: passwordListed && (!known || invited.hasPassword === true),
-      create: invited.signUp && (!known || (!invited.accountExists && redirects.length === 0)),
+      password: passwordListed && (invited.hasPassword || addressless || (existing && this.signingInExisting())),
+      create: invited.signUp && !invited.accountExists,
+      existing: existing && !addressless && !this.signingInExisting(),
     };
   });
   /** The password method's username is the person's email address: the form asks for the address. */
@@ -366,20 +397,44 @@ export class LoginMethodsComponent implements OnInit {
   signedInAs = signal<string | undefined>(undefined);
   /** The address the signed-in person's account holds, if any: with an invitation, whether they may accept it as they are. */
   signedInEmail = signal<string | undefined>(undefined);
+  /** The signed-in person's account has confirmed the address it holds. */
+  signedInVerified = signal(false);
   /**
    * The person found signed in may accept the invitation as they are: their account holds
-   * the invited address, or no address at all (it takes the invited one by accepting). An
-   * account that holds another address may not, and the server refuses it too: the screen
-   * says so and offers the ways to sign in as the invited account instead.
+   * the invited address, confirmed. That is the one acceptance by hand the server takes.
+   * The link proves nothing of who holds it, so an account that holds no address, or has
+   * not confirmed the invited one, accepts by the code instead (`signedInUnproven`), and
+   * an account that holds another address may not accept at all: the screen says so and
+   * offers the ways to sign in.
    */
   acceptOffered = computed(() => {
     const invited = this.invitation();
-    if (!this.signedInAs() || !invited) {
+    const email = this.signedInEmail();
+    if (!this.signedInAs() || !invited || !email) {
       return false;
     }
-    const email = this.signedInEmail();
-    return email === undefined || email === '' || sameAddress(email, invited.email);
+    return this.signedInVerified() && sameAddress(email, invited.email);
   });
+  /**
+   * The person found signed in can accept the invitation as this account, though not with
+   * a click: the account holds no address yet (`none`), or holds the invited one and has
+   * not confirmed it (`unconfirmed`). It accepts by signing in again and entering the code
+   * mailed to the invited address, and the note over the ways to sign in says so.
+   * Undefined for anyone else.
+   */
+  signedInUnproven = computed<'none' | 'unconfirmed' | undefined>(() => {
+    const invited = this.invitation();
+    if (!this.signedInAs() || !invited) {
+      return undefined;
+    }
+    const email = this.signedInEmail();
+    if (!email) {
+      return 'none';
+    }
+    return sameAddress(email, invited.email) && !this.signedInVerified() ? 'unconfirmed' : undefined;
+  });
+  /** "Sign in with an account you already have" was chosen on the invitation screen: the password form is shown. */
+  signingInExisting = signal(false);
   /** The username of a session found standing with nothing in the URL to act on: Continue and Sign out take the list's place. */
   signedInAlone = computed(() => (this.invitation() ? undefined : this.signedInAs()));
   /** The account form, taking the list's place: an account with a password, from the invitation or a sign-up link. */
@@ -411,6 +466,13 @@ export class LoginMethodsComponent implements OnInit {
   readonly unreachableNote = this.ui.loginMessage('unreachable');
   /** The confirmation link's token, posted once a session stands. */
   private verifyToken = '';
+  /**
+   * The mailed link the page was opened with, read once: the address no longer carries it
+   * after the first arrival, and Try again runs the arrival again.
+   */
+  private link: MailedLink | undefined;
+  /** The address has been read for a mailed link, and the link taken out of it. */
+  private linkRead = false;
   /**
    * The browser path this page's URL named to return to (`returnUrl`), kept through the
    * sign-in's steps; undefined when the URL names none the server would keep, or names
@@ -454,6 +516,24 @@ export class LoginMethodsComponent implements OnInit {
    * no click.
    */
   choosing = computed(() => this.afterRefusal() || this.differentAccount());
+
+  constructor() {
+    // A mailed link opened in the tab that already shows this page changes the fragment
+    // alone: nothing loads and no arrival runs, so the page loads itself again for it. The
+    // link the page was opened with is the arrival's to read, so an address is looked at
+    // here only once the arrival has read its own; taking that link out leaves an address
+    // with no link in it.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => {
+        if (this.linkRead && mailedLink(this.router.parseUrl(this.router.url).fragment) !== undefined) {
+          this.loadAgain();
+        }
+      });
+  }
 
   ngOnInit(): void {
     void this.tracked(() => this.arrive());
@@ -500,22 +580,15 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * The sentence under the heading: the address the invitation is for, and, under an older
-   * server that did not say what holds the address, what accepts it. An invitation that is
-   * accepted through an organization's directory alone says so, since the page offers no
+   * The sentence under the heading: the address the invitation is for. An invitation that
+   * is accepted through an organization's directory alone says so, since the page offers no
    * password for it.
    */
   invitationNote(invitation: OpenedInvitation): string {
     if (invitation.directoryOnly === true) {
       return `The invitation is for ${invitation.email}. ${ORGANIZATION_ACCOUNT_ACCEPTS}`;
     }
-    if (invitation.accountExists !== undefined) {
-      return `The invitation is for ${invitation.email}.`;
-    }
-    const accepts = invitation.signUp
-      ? 'Sign in to accept it, or create an account with a password.'
-      : 'Sign in to accept it.';
-    return `The invitation is for ${invitation.email}. ${accepts}`;
+    return `The invitation is for ${invitation.email}.`;
   }
 
   /** The sentence over the account form: what the person chooses, and the address the account holds. */
@@ -608,9 +681,11 @@ export class LoginMethodsComponent implements OnInit {
 
   /**
    * Sends the browser to a redirect method's path, naming the page the sign-in returns to:
-   * the address the URL named, the page the guard recorded, or this page with the
-   * confirmation link's token when one waits to be posted, since the round trip through
-   * the identity provider reloads the application. The provider is asked for its account
+   * the address the URL named, the page the guard recorded, or this page when a
+   * confirmation link's token waits to be posted, since the round trip through
+   * the identity provider reloads the application. The token itself is kept in the
+   * browser's session storage for the return (`keepVerifyToken`) and is in no address:
+   * the page a method returns to is named in a request line. The provider is asked for its account
    * chooser while the card is choosing (after a refusal, or once "Use a different account"
    * was pressed), and is told the account to take while an invitation stands: the invited
    * address, as its login hint.
@@ -619,10 +694,14 @@ export class LoginMethodsComponent implements OnInit {
     if (this.busy()) {
       return;
     }
-    const page: Landing =
-      this.verifyToken === ''
-        ? this.landing()
-        : { url: `${this.loginPath}?verify=${encodeURIComponent(this.verifyToken)}`, load: false };
+    let page: Landing;
+    if (this.verifyToken === '') {
+      page = this.landing();
+    } else {
+      // The token waits in the browser, and the method returns to this page without it.
+      this.keepVerifyToken(this.verifyToken);
+      page = { url: this.loginPath, load: false };
+    }
     const invited = this.invitation();
     this.leaveFor(
       this.client.auth.signInUrl(method, this.returnTo(page), {
@@ -666,7 +745,10 @@ export class LoginMethodsComponent implements OnInit {
    * session and hands the page on. A refusal for who the person is signed in as (403) and
    * a refusal to make what the invitation carries as it stands (409, a name that is taken)
    * both leave the invitation standing on the server, so the page keeps it and shows the
-   * server's sentence; any other refusal means the invitation is gone.
+   * refusal's sentence; any other refusal means the invitation is gone. A refusal for the
+   * account's address is shown in the server's own words, which say which it is: the
+   * invitation is another account's, or this account has yet to confirm the address and
+   * signs in again for the code.
    */
   accept(): Promise<void> {
     if (this.busy() || !this.acceptOffered()) {
@@ -676,7 +758,7 @@ export class LoginMethodsComponent implements OnInit {
       const result = await this.client.auth.acceptInvitation();
       if (result.outcome === 'refused') {
         if (result.status === 403 || result.status === 409) {
-          this.refusal.set(this.sentenceOf(result));
+          this.refusal.set(result.code === invitationAddressCode ? result.message : this.sentenceOf(result));
           return;
         }
         this.leaveInvitation(result);
@@ -686,9 +768,41 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
-  /** The sentence for a person signed in as an account that may not accept the invitation: whose it is, and how to accept it. */
+  /**
+   * The sentence for a person signed in as an account that may not accept the invitation
+   * as it is: whose it is, and how to accept it. An account that holds no address, or has
+   * not confirmed the invited one, accepts by signing in again, for the code mailed to the
+   * invited address.
+   */
   signedInOtherNote(name: string, invitation: OpenedInvitation): string {
-    return `You are signed in as ${name}. To accept this invitation, sign in as ${invitation.email}.`;
+    switch (this.signedInUnproven()) {
+      case 'none':
+        return `You are signed in as ${name}, and that account has no email address yet. To accept this invitation, sign in again. A code will be sent to ${invitation.email} to confirm the address is yours.`;
+      case 'unconfirmed':
+        return `You are signed in as ${name}, and that account has not confirmed ${invitation.email} yet. To accept this invitation, sign in again. A code will be sent to that address to confirm it is yours.`;
+      default:
+        return `You are signed in as ${name}. To accept this invitation, sign in as ${invitation.email}.`;
+    }
+  }
+
+  /** The sentence over the password form on the invitation screen: what signing in does. */
+  passwordNote(invitation: OpenedInvitation): string {
+    return this.signingInExisting()
+      ? `Sign in with your password to accept it. A code will be sent to ${invitation.email} to confirm the address is yours.`
+      : 'Sign in with your password to accept it.';
+  }
+
+  /**
+   * Shows the password form on the invitation screen for a person who already has an
+   * account that holds no address yet, leaving the account form when it stands.
+   */
+  signInWithExistingAccount(): void {
+    if (this.busy() || !this.invitation()) {
+      return;
+    }
+    this.clearAccountForm();
+    this.refusal.set(undefined);
+    this.signingInExisting.set(true);
   }
 
   /**
@@ -703,6 +817,7 @@ export class LoginMethodsComponent implements OnInit {
       return;
     }
     this.refusal.set(undefined);
+    this.signingInExisting.set(false);
     this.accountOpenedItself.set(itself);
     this.account.set({ source: 'invitation', email: invitation.email, usernameIsEmail: invitation.usernameIsEmail });
   }
@@ -712,6 +827,8 @@ export class LoginMethodsComponent implements OnInit {
    * chooses one. Two passwords that differ are refused here, with no request; the server's
    * refusal is rendered in place, and one that says the link is gone returns to the list.
    * An account the server creates is signed in, and the sign-in is followed as any other.
+   * An invitation's account is not created yet: the server holds it for the code mailed to
+   * the invited address, and the code step takes the form's place.
    */
   createAccount(): Promise<void> {
     const form = this.account();
@@ -899,6 +1016,7 @@ export class LoginMethodsComponent implements OnInit {
       await firstValueFrom(this.auth.logout());
       this.signedInAs.set(undefined);
       this.signedInEmail.set(undefined);
+      this.signedInVerified.set(false);
     });
   }
 
@@ -929,7 +1047,7 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
-  /** Leaves the password as the operator set it: ends the session and shows the list again. */
+  /** Leaves the password as it is: ends the session and shows the list again. */
   cancelChange(): Promise<void> {
     if (this.busy() || !this.changing()) {
       return Promise.resolve();
@@ -964,24 +1082,23 @@ export class LoginMethodsComponent implements OnInit {
    */
   private async arrive(): Promise<void> {
     const params = this.route.snapshot.queryParamMap;
-    const invitation = params.get('invitation') ?? '';
-    const signUp = params.get('signUp') ?? '';
-    const reset = params.get('reset') ?? '';
-    const address = params.get('address') ?? '';
-    this.verifyToken = params.get('verify') ?? '';
-    this.returnAddress = this.addressNamed(params.get('returnUrl'));
-    const linked =
-      params.has('pending') ||
-      invitation !== '' ||
-      signUp !== '' ||
-      this.verifyToken !== '' ||
-      reset !== '' ||
-      address !== '';
-    const refused = (params.get('code') ?? '') !== '';
-    let forwarded = false;
     this.arriving.set(true);
     this.unreachable.set(false);
     this.refusal.set(undefined);
+    const link = await this.takeLink();
+    const tokenOf = (kind: MailedLink['kind']): string => (link?.kind === kind ? link.token : '');
+    const invitation = tokenOf('invitation');
+    const signUp = tokenOf('signUp');
+    const reset = tokenOf('reset');
+    const address = tokenOf('address');
+    // The token kept for a round trip is taken back on every arrival, used or not, so
+    // that none outlives the page it was kept for.
+    const kept = this.takeKeptVerifyToken();
+    this.verifyToken = tokenOf('verify') || this.verifyToken || kept;
+    this.returnAddress = this.addressNamed(params.get('returnUrl'));
+    const linked = params.has('pending') || link !== undefined || this.verifyToken !== '';
+    const refused = (params.get('code') ?? '') !== '';
+    let forwarded = false;
     try {
       const list = await this.client.auth.methods();
       const carried = this.carriedInvitation(list, invitation);
@@ -1027,6 +1144,71 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
+   * Reads the mailed link the page was opened with, from the address's fragment alone, and
+   * takes it out of the address, once: a later arrival (Try again) answers the link read
+   * then. The fragment is cleared before the page's first request; an address that carries
+   * no link there is left as it came.
+   */
+  private async takeLink(): Promise<MailedLink | undefined> {
+    if (this.linkRead) {
+      return this.link;
+    }
+    this.link = mailedLink(this.route.snapshot.fragment);
+    this.linkRead = true;
+    if (this.link !== undefined) {
+      try {
+        await this.dropLink();
+      } catch {
+        // The router would not move: the link is used all the same, and the address keeps it until the page is left.
+      }
+    }
+    return this.link;
+  }
+
+  /**
+   * Takes a mailed link out of the address: the fragment that carries its token goes, the
+   * query stays as it came, and the tab's history entry is replaced, so the address the
+   * tab shows, the entry Back returns to and an address a person copies from here on carry
+   * no token. The router is asked to, so its own record of the address loses the token too
+   * and nothing writes it back; the route stays, and a change of fragment alone runs no
+   * guard again. Replacing the entry does not reach the browser's history of visited pages,
+   * which keeps the address the mail opened.
+   */
+  protected async dropLink(): Promise<void> {
+    await this.router.navigate([], {
+      relativeTo: this.route,
+      queryParamsHandling: 'preserve',
+      replaceUrl: true,
+    });
+  }
+
+  /**
+   * Keeps a confirmation link's token while the browser is away at an identity provider,
+   * in the tab's session storage, which only this origin's pages in this tab read. A
+   * browser that refuses the storage keeps nothing: the person opens the link again once
+   * signed in.
+   */
+  protected keepVerifyToken(token: string): void {
+    try {
+      this.document.defaultView?.sessionStorage.setItem(VERIFY_TOKEN_KEY, token);
+    } catch {
+      // Storage is blocked: nothing is kept.
+    }
+  }
+
+  /** Takes back the confirmation link's token kept for a redirect method's round trip, leaving none behind; empty when none was kept. */
+  protected takeKeptVerifyToken(): string {
+    try {
+      const storage = this.document.defaultView?.sessionStorage;
+      const token = storage?.getItem(VERIFY_TOKEN_KEY) ?? '';
+      storage?.removeItem(VERIFY_TOKEN_KEY);
+      return token;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * The redirect method a deep link is forwarded to: the list's only method, when it is a
    * redirect, the URL named an address to return to or the guard recorded a page other
    * than this one or the sign-out page, and no session was found standing; undefined when
@@ -1048,7 +1230,7 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * Opens the invitation the URL's token names and keeps it over the list; a person found
+   * Opens the invitation the link's token names and keeps it over the list; a person found
    * signed in is offered to accept it as they are. A link the server refuses renders its
    * words, and the list alone.
    */
@@ -1066,10 +1248,9 @@ export class LoginMethodsComponent implements OnInit {
       expiresAt: result.expiresAt,
       signUp: result.signUp,
       usernameIsEmail: result.usernameIsEmail,
-      ...(result.methods === undefined ? {} : { methods: result.methods }),
-      ...(result.accountExists === undefined
-        ? {}
-        : { accountExists: result.accountExists, hasPassword: result.hasPassword === true }),
+      methods: result.methods,
+      accountExists: result.accountExists,
+      hasPassword: result.hasPassword,
     });
   }
 
@@ -1094,10 +1275,9 @@ export class LoginMethodsComponent implements OnInit {
       expiresAt: standing.expiresAt,
       signUp: block.signUp !== undefined && standing.directoryOnly !== true,
       usernameIsEmail: standing.usernameIsEmail,
-      ...(standing.methods === undefined ? {} : { methods: standing.methods }),
-      ...(standing.accountExists === undefined
-        ? {}
-        : { accountExists: standing.accountExists, hasPassword: standing.hasPassword === true }),
+      methods: standing.methods,
+      accountExists: standing.accountExists,
+      hasPassword: standing.hasPassword,
     };
   }
 
@@ -1105,15 +1285,17 @@ export class LoginMethodsComponent implements OnInit {
    * Keeps the invitation over the list and reads the session: a person found signed in is
    * offered to accept it as they are. For a person signed out whose one way to accept is a
    * new account with a password (no account holds the address and no directory could admit
-   * it), the account form opens by itself.
+   * it), the account form opens by itself; where a directory could admit the address too,
+   * the form stands behind its button, under the directory's.
    */
   private async keepInvitation(invitation: OpenedInvitation): Promise<void> {
     this.invitation.set(invitation);
     const session = await this.sessionStanding();
     this.signedInAs.set(session?.username);
     this.signedInEmail.set(session?.email ?? undefined);
+    this.signedInVerified.set(session?.emailVerified === true);
     const paths = this.invitationPaths();
-    if (!session?.username && paths?.known && paths.create) {
+    if (!session?.username && paths?.create && paths.redirects.length === 0) {
       this.openAccountForm(true);
     }
   }
@@ -1155,6 +1337,7 @@ export class LoginMethodsComponent implements OnInit {
     }
     this.signedInAs.set(session.username);
     this.signedInEmail.set(session.email ?? undefined);
+    this.signedInVerified.set(session.emailVerified === true);
   }
 
   /** The session the browser arrived with, when one stands and may act; undefined otherwise. */
@@ -1211,6 +1394,8 @@ export class LoginMethodsComponent implements OnInit {
         // The server took the password, and no later step posts it: each posts its own
         // fields. The page holds it no longer than that.
         this.password = '';
+        this.accountPassword = '';
+        this.accountPasswordAgain = '';
         if (result.redirectUrl) {
           this.leaveFor(result.redirectUrl);
           return;
@@ -1291,8 +1476,10 @@ export class LoginMethodsComponent implements OnInit {
   /** Renders the refusal of an invitation that is gone and drops its note: the list stands alone. */
   private leaveInvitation(refusal: SignInRefusal): void {
     this.invitation.set(undefined);
+    this.signingInExisting.set(false);
     this.signedInAs.set(undefined);
     this.signedInEmail.set(undefined);
+    this.signedInVerified.set(false);
     this.refusal.set(this.sentenceOf(refusal));
   }
 
@@ -1321,8 +1508,10 @@ export class LoginMethodsComponent implements OnInit {
     this.clearCodeForm();
     this.pending.set(undefined);
     this.invitation.set(undefined);
+    this.signingInExisting.set(false);
     this.signedInAs.set(undefined);
     this.signedInEmail.set(undefined);
+    this.signedInVerified.set(false);
     this.clearAccountForm();
     this.refusal.set(undefined);
     if (session.passwordChangeRequired) {
@@ -1338,10 +1527,15 @@ export class LoginMethodsComponent implements OnInit {
     this.land(page);
   }
 
-  /** Posts the confirmation link's token for the session that stands, and keeps the page for Continue. */
+  /**
+   * Posts the confirmation link's token for the session that stands, and keeps the page for
+   * Continue. The token is spent by the post: a copy kept for a round trip that never came
+   * back to a new page (the person went back and signed in here) is dropped with it.
+   */
   private async verify(page: Landing): Promise<void> {
     const token = this.verifyToken;
     this.verifyToken = '';
+    this.takeKeptVerifyToken();
     const result = await this.client.auth.verifyEmail(token);
     if (result.outcome === 'refused') {
       this.refusal.set(this.sentenceOf(result));
@@ -1459,7 +1653,21 @@ export class LoginMethodsComponent implements OnInit {
   protected leaveFor(url: string): void {
     this.document.location.assign(url);
   }
+
+  /**
+   * Loads the page again at the address the tab shows. A mailed link opened in a tab that
+   * already shows this page changes the address's fragment alone, which loads nothing, so
+   * the page loads itself for it: the page that comes reads the link and takes it out of
+   * the address as on any arrival, and nothing done here before the link stands in its
+   * way. A fragment goes to no server, on this load as on the first.
+   */
+  protected loadAgain(): void {
+    this.document.location.reload();
+  }
 }
+
+/** Where a confirmation link's token waits, in the tab's session storage, while the browser is away at an identity provider. */
+const VERIFY_TOKEN_KEY = 'impulse.login.verify';
 
 /** The sentence for a new password typed differently the second time; nothing is posted. */
 export const PASSWORDS_DIFFER = 'The new passwords do not match. Type the same password twice.';

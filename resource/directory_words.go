@@ -25,7 +25,9 @@ import (
 // DirectoryNamer answers what the sign-in registrations of one auth call a directory:
 // name is the name a registration that takes the directory's connection gives it, ""
 // where none names it, and label is the label of the button of the registration a
-// person signs in to it through, "" where the auth's login page offers none. The
+// person signs in to it through, "" where the auth's login page offers none. An
+// organization's own identity provider is named by that label: its connection is the
+// key the application registered it under, which is never said to a person. The
 // generated identity client of an auth supplies it (DirectoryName), from the session
 // library's own answer (session.AuthAPI.DirectoryName); an application names none.
 type DirectoryNamer func(directory signin.Directory) (name, label string)
