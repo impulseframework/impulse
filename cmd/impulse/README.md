@@ -1480,9 +1480,10 @@ method's grant and the Create grant on the record, and a name a tenant holds is 
 there. The invited person's first sign-in makes the tenant, seats them with the roles
 that administer a tenant in the auth and, where they came through an organization's
 directory, makes it the tenant's own, in one transaction; `<Auth>Invited<Record>s` lists
-the invitations that still stand and `Withdraw<Auth>Invited<Record>` withdraws one. The
+the invitations that still stand, `Withdraw<Auth>Invited<Record>` withdraws one, and
+`<Auth>Invited<Record>Roles` lists the roles the starting role is picked from. The
 library draws the page from the generated description, and each tenanted skeleton's role
-file gives its `Administrator` role the three, beside Create on the record. A person who
+file gives its `Administrator` role the four, beside Create on the record. A person who
 signs up creates their own while an administrator has a sign-in
 method open to sign-up: every method starts invite only, and an administrator opens one on
 the auth's Sign-in page in the running application (`Open sign-up`, behind a warning that
