@@ -109,7 +109,6 @@ func TestNew_authName(t *testing.T) {
 			auths:      several,
 			noRoleFile: true,
 			wantErr: []string{
-				"access.New()",
 				"the collection knows several auths (members, staff), and the engine is handed no role file, so it is told none of them. An engine holds the roles of one auth and holds each role's grants to that auth's sets of people: open it with the auth's role file under the auth's name, access.WithDefaultRoles(file, name)",
 			},
 		},

@@ -936,10 +936,13 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 //     (unlistedName), a scope-wide grant's permission among them.
 //   - A condition text that does not parse, so a check never meets an
 //     unparseable condition.
-//   - A row-referencing condition (a binding-name attribute or new. reference)
-//     on a scope-wide grant, which has no row for it to see; only row-free
-//     conditions (environment and subject attributes) are valid there, folding
-//     at check time (design plan §05, revised 2026-08-31).
+//   - A condition on a scope-wide grant that no scope-wide check could settle:
+//     one that reads a row (a binding-name attribute or a new. reference),
+//     since the grant has no row for it to see; one that compares now with a
+//     subject value, which only the database compares; and one whose time the
+//     check cannot read, said as the role file's validation says it of a grant
+//     on a resource (validateConditionTypes). Only a condition about the time
+//     of the request is valid there, folding at check time.
 //   - For a grant a role holds on a resource in the store, anything else the
 //     write that adds the grant is refused for (grantRule.refusal): a resource
 //     of another scope than the role's, Update on what the release marks

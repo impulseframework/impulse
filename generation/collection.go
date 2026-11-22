@@ -32,8 +32,13 @@ const accesstypesPermissionType = "github.com/impulseframework/impulse/accesstyp
 
 // readManualDeclarations reads what the resources package's constants declare by hand:
 // the registrations of @manualAddResource, added to the ones the application passed
-// with WithManualResources, and the permissions of @manualAddPermission.
+// with WithManualResources, and the permissions of @manualAddPermission. An annotation
+// in the comment above a const group, which nothing reads, is refused first
+// (annotationAboveConstGroup).
 func (r *resourceGenerator) readManualDeclarations(constants []*parser.Constant) error {
+	if err := annotationAboveConstGroup(constants); err != nil {
+		return err
+	}
 	registrations, err := manualRegistrationsFromConstants(constants)
 	if err != nil {
 		return err
@@ -43,6 +48,39 @@ func (r *resourceGenerator) readManualDeclarations(constants []*parser.Constant)
 	r.manualPermissions, err = manualPermissionsFromConstants(constants)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// annotationAboveConstGroup refuses an annotation written in the comment above a
+// const ( ... ) group (parser.Constant.GroupComments), which nothing reads: an
+// annotation is read from the comment of the constant it stands above. A resource's or
+// a permission's constant is refused any line there that starts with @, since every
+// such line on its own comment is read as an annotation; a constant of another type is
+// refused a line that starts with @manualAddPermission, as its own comment is
+// (commentDeclaresPermission). The first constant that matches, in the parser's order,
+// and the first such line of its group's comment are said.
+func annotationAboveConstGroup(constants []*parser.Constant) error {
+	for _, c := range constants {
+		annotated := commentDeclaresPermission
+		if c.TypeName() == accesstypesResourceType || c.TypeName() == accesstypesPermissionType {
+			annotated = func(line string) bool {
+				return strings.HasPrefix(strings.TrimLeft(line, " \t"), "@")
+			}
+		}
+		for line := range strings.Lines(c.GroupComments()) {
+			if !annotated(line) {
+				continue
+			}
+
+			return errors.Newf(
+				"constant %q: the comment above its const group holds the line %q, and nothing reads an annotation there: "+
+					"an annotation is read from the comment of the constant it stands above. "+
+					"Write the line above each constant it is meant for, inside the group; if the line is prose, start it with another word",
+				c.Name(), strings.TrimSpace(line),
+			)
+		}
 	}
 
 	return nil
@@ -324,7 +362,8 @@ func scopeOrGlobal(scope accesstypes.PermissionScope) accesstypes.PermissionScop
 // collection finds a resource's scope by its name alone
 // (resource.GeneratedCollection.Scope), which is how a role's grant is held to its scope
 // and how a check finds what binds the resource to a tenant, so a name of two scopes
-// would be answered with either, one run to the next.
+// would be answered with either, one run to the next. A collection made from data built
+// by hand is refused the same (resource.NewGeneratedCollection).
 func oneScopePerName(data resource.CollectionData) error {
 	global := make(map[accesstypes.Resource]*resource.CollectionResource)
 	for i := range data.Resources {
@@ -757,6 +796,14 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 
 func (r *resourceGenerator) collectManualRegistrations(b *resource.CollectionBuilder) error {
 	for _, reg := range r.manualRegistrations {
+		if strings.ContainsRune(string(reg.Resource), '.') {
+			return errors.Newf(
+				"manual registration for resource %q: a resource's name holds no dot. "+
+					"A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. "+
+					"Give the registration a name without a dot; a field's permissions are registered with its resource",
+				reg.Resource,
+			)
+		}
 		scope := reg.Scope
 		if scope == "" {
 			scope = accesstypes.GlobalPermissionScope

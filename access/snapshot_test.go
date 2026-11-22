@@ -530,19 +530,30 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 	}
 }
 
+// scopeWideSubjectValueReason is why a load leaves out a scope-wide grant whose
+// condition reads the subject value shiftEnd.
+const scopeWideSubjectValueReason = "the condition reads subject.shiftEnd on a scope-wide grant: only the database compares a subject value, and a grant attached to no resource is checked without it, so no check could settle that comparison; a scope-wide grant's condition reads the time of the request alone"
+
 // Test_newSnapshot_skipsGrantsTheReleaseCannotUse pins the load-time rule for
 // a grant the running release cannot use: it is left out of the snapshot and
 // reported, so the permission it would grant is denied while the role's other
 // grants hold and the load completes. Three of the things that make a grant
 // unusable are pinned here: a
-// condition text that does not parse, a row-referencing condition on a
-// scope-wide grant (a grant attached to no resource has no row for it to see),
-// and a permission, resource or field the release does not declare. A
+// condition text that does not parse, a condition on a scope-wide grant that
+// no scope-wide check could settle (one that reads a row or a subject value, or
+// whose time the check cannot read: a grant attached to no resource is checked
+// with no row and no subject value), and a permission, resource or field the
+// release does not declare. A
 // scope-wide grant names a permission and nothing else, and is held to the
 // permission: one the collection does not list is skipped, as the write that
 // would add it is refused (UserManager.AddRolePermission). What else a role's
 // stored grant on a resource is held to, its place and what its condition
 // reads, is pinned in Test_newSnapshot_holdsARolesStoredGrantsToTheWritesRule.
+//
+// A scope-wide grant's condition is held whatever its holder, a role or a
+// person: a sound term beside a bad one hides nothing, and a condition the check
+// can settle (the time against an instant, a time of day or a day name, in a
+// named zone or the request's) is kept.
 func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	t.Parallel()
 
@@ -569,8 +580,70 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 			wantReason: "row-referencing condition on a scope-wide grant",
 		},
 		{
+			name:       "an instant that is not RFC 3339 on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "now >= '2026'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "now >= '2026'"},
+			wantReason: `"2026" is not an RFC 3339 timestamp`,
+		},
+		{
+			name:       "a zone the timezone database does not know on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "timeOfDay(now, 'Mars/Olympus') = '08:04'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "timeOfDay(now, 'Mars/Olympus') = '08:04'"},
+			wantReason: "is not a timezone name the timezone database knows",
+		},
+		{
+			name:       "a time of day that is none on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "timeOfDay(now, 'UTC') < '25:99'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "timeOfDay(now, 'UTC') < '25:99'"},
+			wantReason: "is not a 24-hour HH:MM time of day",
+		},
+		{
+			name:       "a day name that is none on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "dayOfWeek(now, 'UTC') = 'saturday'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "dayOfWeek(now, 'UTC') = 'saturday'"},
+			wantReason: "is not a day name",
+		},
+		{
+			name:       "a day name that is none in a list on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "dayOfWeek(now, 'UTC') IN ('sat', 'someday')"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "dayOfWeek(now, 'UTC') IN ('sat', 'someday')"},
+			wantReason: "is not a day name",
+		},
+		{
+			name:       "a subject value on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "now < subject.shiftEnd"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "now < subject.shiftEnd"},
+			wantReason: scopeWideSubjectValueReason,
+		},
+		{
+			name:       "a sound first term hides nothing on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "now >= '2026-01-01T00:00:00Z' OR now >= '2026'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "now >= '2026-01-01T00:00:00Z' OR now >= '2026'"},
+			wantReason: `"2026" is not an RFC 3339 timestamp`,
+		},
+		{
+			name:       "a subject value and a bad instant on a scope-wide grant: the subject value said first",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "now >= '2026' AND now < subject.shiftEnd"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "now >= '2026' AND now < subject.shiftEnd"},
+			wantReason: scopeWideSubjectValueReason,
+		},
+		{
 			name:  "a row-free condition on a scope-wide grant is kept",
 			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
+		},
+		{
+			name:  "a time of day in the request's zone on a scope-wide grant is kept",
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "timeOfDay(now, local) = '08:04'"},
+		},
+		{
+			name:  "day names in a named zone on a scope-wide grant are kept",
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "dayOfWeek(now, 'America/Denver') IN ('mon', 'tue')"},
+		},
+		{
+			name:       "a person's own scope-wide grant is held the same and reported as the person's",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: userSubject("cleo"), Perm: "Delete", Resource: "", Condition: "now >= '2026'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "user cleo", Permission: "Delete", Resource: "", Condition: "now >= '2026'"},
+			wantReason: `"2026" is not an RFC 3339 timestamp`,
 		},
 		{
 			name:  "a conditional field grant is kept",

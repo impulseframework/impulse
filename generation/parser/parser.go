@@ -290,7 +290,9 @@ func TypeSpecOf(pkg *packages.Package, name string) *ast.TypeSpec {
 }
 
 // packageConstants returns every package-level constant with its comments, so godoc
-// annotations on constants (e.g. @manualAddResource) can be scanned.
+// annotations on constants (e.g. @manualAddResource) can be scanned. A group's own
+// comment is kept apart (Constant.GroupComments): an annotation there is refused, not
+// read.
 func packageConstants(pkg *packages.Package) []*Constant {
 	constants := make([]*Constant, 0, 64)
 	for _, file := range pkg.Syntax {
@@ -318,6 +320,10 @@ func packageConstants(pkg *packages.Package) []*Constant {
 				if valueSpec.Comment != nil {
 					comments += valueSpec.Comment.Text()
 				}
+				var groupComments string
+				if genDecl.Doc != nil && (len(genDecl.Specs) > 1 || valueSpec.Doc != nil) {
+					groupComments = genDecl.Doc.Text()
+				}
 
 				for _, name := range valueSpec.Names {
 					obj, ok := pkg.TypesInfo.ObjectOf(name).(*types.Const)
@@ -331,10 +337,11 @@ func packageConstants(pkg *packages.Package) []*Constant {
 					}
 
 					constants = append(constants, &Constant{
-						name:     name.Name,
-						typeName: obj.Type().String(),
-						value:    value,
-						comments: comments,
+						name:          name.Name,
+						typeName:      obj.Type().String(),
+						value:         value,
+						comments:      comments,
+						groupComments: groupComments,
 					})
 				}
 			}

@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"fmt"
 	"go/format"
 	"os"
 	"path/filepath"
@@ -1183,6 +1184,123 @@ func Test_manualPermissionsFromConstants(t *testing.T) {
 	}
 }
 
+// Test_readManualDeclarations_annotationAboveAConstGroup pins that an annotation in the
+// comment above a const group, which nothing reads, is refused with where to write it:
+// any line that starts with @ above a group of resources' or permissions' constants, and
+// a declaration of a permission above a group of any constants. The first constant of
+// the group and the first such line are said. Prose above a group, another word after
+// the @ above constants no annotation is read on, and the comment above a single
+// constant are taken as before.
+func Test_readManualDeclarations_annotationAboveAConstGroup(t *testing.T) {
+	t.Parallel()
+
+	named := permissionFixtureConstants(t)
+	refusal := func(constant, line string) string {
+		return fmt.Sprintf("constant %q: the comment above its const group holds the line %q, and nothing reads an annotation there: "+
+			"an annotation is read from the comment of the constant it stands above. "+
+			"Write the line above each constant it is meant for, inside the group; if the line is prose, start it with another word", constant, line)
+	}
+
+	refused := []struct {
+		name      string
+		constants []string
+		wantErr   string
+	}{
+		{
+			name:      "a declaration above a group of two permissions",
+			constants: []string{"GroupedExport", "GroupedApprove"},
+			wantErr:   refusal("GroupedExport", "@manualAddPermission"),
+		},
+		{
+			name:      "a registration above a group of two resources",
+			constants: []string{"GroupedLedgers", "GroupedJournals"},
+			wantErr:   refusal("GroupedLedgers", "@manualAddResource(Read)"),
+		},
+		{
+			name:      "a misspelled registration above a group of resources",
+			constants: []string{"MisspelledAccounts", "MisspelledBudgets"},
+			wantErr:   refusal("MisspelledAccounts", "@manualAddResurce(Read)"),
+		},
+		{
+			name:      "a declaration above a group of two untyped constants",
+			constants: []string{"UntypedFirst", "UntypedSecond"},
+			wantErr:   refusal("UntypedFirst", "@manualAddPermission"),
+		},
+		{
+			name:      "a declaration above a group of one permission that has a comment of its own",
+			constants: []string{"LoneExport"},
+			wantErr:   refusal("LoneExport", "@manualAddPermission"),
+		},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			if err := r.readManualDeclarations(named(tt.constants...)); err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("readManualDeclarations() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	taken := []struct {
+		name            string
+		constants       []string
+		wantPermissions []accesstypes.Permission
+	}{
+		{
+			name:            "prose above a group and a declaration above each constant inside it",
+			constants:       []string{"SettledExport", "SettledApprove"},
+			wantPermissions: []accesstypes.Permission{"SettledExport", "SettledApprove"},
+		},
+		{
+			name:      "another word after the @ above a group of untyped constants",
+			constants: []string{"LabelFirst", "LabelSecond"},
+		},
+		{
+			name:            "a declaration above a single constant with no parentheses",
+			constants:       []string{"SingleExport"},
+			wantPermissions: []accesstypes.Permission{"SingleExport"},
+		},
+	}
+	for _, tt := range taken {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			if err := r.readManualDeclarations(named(tt.constants...)); err != nil {
+				t.Fatalf("readManualDeclarations() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantPermissions, r.manualPermissions); diff != "" {
+				t.Errorf("the declared permissions mismatch (-want +got):\n%s", diff)
+			}
+			if len(r.manualRegistrations) != 0 {
+				t.Errorf("the registrations = %v, want none", r.manualRegistrations)
+			}
+		})
+	}
+
+	t.Run("the comment of a group and of a single constant", func(t *testing.T) {
+		t.Parallel()
+
+		constants := named("GroupedExport", "SingleExport")
+		grouped, single := constants[0], constants[1]
+		wantGroup := "GroupedExport and GroupedApprove carry the declaration in the comment above their\ngroup, where nothing reads it.\n\n@manualAddPermission\n"
+		if got := grouped.GroupComments(); got != wantGroup {
+			t.Errorf("GroupComments() of a grouped constant = %q, want %q", got, wantGroup)
+		}
+		if got := grouped.Comments(); got != "" {
+			t.Errorf("Comments() of a grouped constant = %q, want none", got)
+		}
+		if got := single.GroupComments(); got != "" {
+			t.Errorf("GroupComments() of a single constant = %q, want none", got)
+		}
+		if got := single.Comments(); !strings.Contains(got, "@manualAddPermission") {
+			t.Errorf("Comments() of a single constant = %q, want its own comment", got)
+		}
+	})
+}
+
 // Test_computeCollectionData_oneScopePerName pins that the collection the generator
 // computes registers a name in one scope. A constant that registers a permission for the
 // whole application and another for a tenant, a registration made by hand for the whole
@@ -1235,6 +1353,53 @@ func Test_computeCollectionData_oneScopePerName(t *testing.T) {
 		{
 			name: "a second registration in the scope the name is registered in",
 			add:  ManualRegistration{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.Update, Resource: "ScopedThings"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := collectionFixtureGenerator(t)
+			r.manualRegistrations = append(r.manualRegistrations, tt.add)
+
+			_, err := r.computeCollectionData()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("computeCollectionData() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("computeCollectionData() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_computeCollectionData_noDotInAManualName pins that a resource registered by hand,
+// by a constant's @manualAddResource or by WithManualResources, is refused a name with
+// a dot: a dot separates a resource from one of its fields, so the name would be read
+// as a field of another resource and would answer for it. The same registration under
+// a name without one is taken.
+func Test_computeCollectionData_noDotInAManualName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		add     ManualRegistration
+		wantErr string
+	}{
+		{
+			name: "a name with a dot",
+			add:  ManualRegistration{Permission: accesstypes.Read, Resource: "Vaults.name"},
+			wantErr: `manual registration for resource "Vaults.name": a resource's name holds no dot. ` +
+				`A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. ` +
+				`Give the registration a name without a dot; a field's permissions are registered with its resource`,
+		},
+		{
+			name: "the same registration under a name without a dot",
+			add:  ManualRegistration{Permission: accesstypes.Read, Resource: "VaultNames"},
 		},
 	}
 	for _, tt := range tests {
