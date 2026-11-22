@@ -1045,7 +1045,9 @@ jobs:
         # nearly twice that, and an application has taken a quarter longer from one run to
         # the next (an auth added to a second browser application: 365 seconds of test,
         # then 452). The last job has the same fifteen for an application added to the test
-        # later; three made there together took thirteen of them.
+        # later; three made there together took thirteen of them. Twenty since each
+        # application with no password sign-in is also regenerated, checked, tested under no
+        # tag and started in development.
         if: ${{ env.RUN == 'true' }}
         working-directory: impulse
         env:
@@ -1064,7 +1066,7 @@ jobs:
           else
             pick=(-run "^TestAuthoredApplication\$/^${APPLICATION// /_}\$")
           fi
-          go test ./cmd/impulse/internal/cli "${pick[@]}" -count=1 -v -timeout 15m | tee "$RUNNER_TEMP/authored"
+          go test ./cmd/impulse/internal/cli "${pick[@]}" -count=1 -v -timeout 20m | tee "$RUNNER_TEMP/authored"
           # What the test made, from its own lines. A pattern that matches no subtest
           # passes having made nothing, so a job that names its application is held to
           # having made that one and no other.
