@@ -26,9 +26,10 @@
 // whole password.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
-// ASCII alone, one character for each character typed but a ß, which is read as ss: an
-// accented letter is read as its letter, a dotless ı as i, and any other character outside
-// ASCII as one stand-in, the same for the same letter, with or without its marks and in
+// ASCII alone, one character for each character typed but a letter read as two (ß, æ, œ, þ):
+// an accented letter is read as its letter, a dotless ı as i, a letter people also write in
+// plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), and any other character
+// outside ASCII as one stand-in, the same for the same letter, with or without its marks and in
 // either case, throughout one judgment. A vowel sign or tone mark that a script types as a
 // character of its own, as Thai and Hindi do, is a character: it counts toward the password's
 // strength, and a name written with it counts against a password built on it. A point a
@@ -173,7 +174,7 @@ func Judge(password string, who Details, minimum int) Judgment {
 	}
 
 	read := newReading()
-	// A ß reads as two characters, so the reading is cut as well.
+	// A letter read as two (ß, æ, œ, þ) makes the reading longer, so it is cut as well.
 	judged := firstRunes(read.of(firstRunes(password, MaxJudged)), MaxJudged)
 	inputs := inputsOf(who, read)
 	bits := estimate(judged, inputs)
@@ -362,7 +363,7 @@ func notLetterDigitOrMark(r rune) bool {
 }
 
 // reading makes the text the library is asked about from what a person typed, in ASCII alone
-// and one character for each character typed but a ß, read as two. One reading serves one
+// and one character for each character typed but a letter read as two (ß, æ, œ, þ). One reading serves one
 // judgment, the password first and then the person's details, so a character outside ASCII
 // has one stand-in throughout.
 type reading struct {
@@ -375,12 +376,12 @@ func newReading() *reading {
 }
 
 // of is typed in NFC as the library is to read it: a character in ASCII as it is; outside
-// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a ß as
-// ss and a capital ẞ as SS, a letter whose capital is in ASCII (the dotless ı) as that
-// letter in lower case, a mark NFC left on its own dropped when it is one a person may leave
-// off (leftOff), a chandrabindu as an anusvara, and any other character as its stand-in, a
-// vowel sign or tone mark that a script types as a character of its own (Thai, Hindi) among
-// them.
+// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a letter
+// people also write in plain letters as that spelling (spelledInASCII), a letter whose capital
+// is in ASCII (the dotless ı) as that letter in lower case, a mark NFC left on its own dropped
+// when it is one a person may leave off (leftOff), a chandrabindu as an anusvara, and any
+// other character as its stand-in, a vowel sign or tone mark that a script types as a
+// character of its own (Thai, Hindi) among them.
 func (r *reading) of(typed string) string {
 	var text strings.Builder
 	for _, c := range norm.NFC.String(typed) {
@@ -426,9 +427,20 @@ func leftOff(c rune) bool {
 		norm.NFC.PropertiesString(string(c)).CCC() == nuktaClass
 }
 
-// spelledInASCII are the letters a person spells with two ASCII letters: the sharp s (ß) as ss,
-// and its capital (ẞ) as SS.
-var spelledInASCII = map[rune]string{'ß': "ss", 'ẞ': "SS"}
+// spelledInASCII are the letters Unicode does not take apart that people also write in plain
+// letters, with that spelling, in either case: one letter for ł, ø, đ, ð and ħ, two for ß, æ,
+// œ and þ (the letters read as two).
+var spelledInASCII = map[rune]string{
+	'ß': "ss", 'ẞ': "SS",
+	'ł': "l", 'Ł': "L",
+	'ø': "o", 'Ø': "O",
+	'đ': "d", 'Đ': "D",
+	'ð': "d", 'Ð': "D",
+	'ħ': "h", 'Ħ': "H",
+	'æ': "ae", 'Æ': "AE",
+	'œ': "oe", 'Œ': "OE",
+	'þ': "th", 'Þ': "TH",
+}
 
 // standInOf is c's stand-in, the same in either case and with or without c's marks: the one
 // c's letter was given in this reading, or else the next of standIns. A stand-in is kept
