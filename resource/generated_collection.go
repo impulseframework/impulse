@@ -250,6 +250,13 @@ type CollectionResource struct {
 	// and evaluates them there (design plan §12).
 	Target accesstypes.Resource
 
+	// CallerEnters marks an RPC method that names a row (@callerEnters): a
+	// row offers it only to a caller whose session enters every tenant the
+	// row's struct names (TenantsToEnter), and capabilities=Execute leaves it
+	// out of the row for anyone else. The method's own code refuses the call;
+	// the mark shapes what a page offers. Only a method with a Target carries it.
+	CallerEnters bool
+
 	// Parent is a workflow member's immediate parent: the resource its
 	// @stateRoot foreign key references (the root, or another member on the
 	// chain); empty for everything else. The create-under-parent affordance
@@ -436,6 +443,13 @@ func (b *CollectionBuilder) SetMethodTarget(scope accesstypes.PermissionScope, m
 	b.g.setMethodTarget(scope, method, target)
 }
 
+// SetMethodCallerEnters marks an RPC method resource within scope as offered on
+// its row only to a caller whose session enters the tenants the row names
+// (@callerEnters).
+func (b *CollectionBuilder) SetMethodCallerEnters(scope accesstypes.PermissionScope, method accesstypes.Resource) {
+	b.g.setMethodCallerEnters(scope, method)
+}
+
 // SetResourceParent records a workflow member's immediate parent within scope:
 // the resource its @stateRoot foreign key references.
 func (b *CollectionBuilder) SetResourceParent(scope accesstypes.PermissionScope, member, parent accesstypes.Resource) {
@@ -484,6 +498,9 @@ type GeneratedCollection struct {
 	parents         map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource
 	masking         map[accesstypes.PermissionScope]maskingMap
 	queryKeys       map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys
+	// callerEnters are the targeted methods a row offers only to a caller whose
+	// session enters the row's tenants, within scope.
+	callerEnters map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
 	// requiredTags are the fields a create of a resource must be given by the client.
 	requiredTags map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag
 	// formerTags are the renamed fields' former wire names by tag, and formerNames
@@ -519,6 +536,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		computed:        make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
 		transitions:     make(map[accesstypes.PermissionScope]map[accesstypes.Resource]TransitionData, 2),
 		targets:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
+		callerEnters:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
 		parents:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		masking:         make(map[accesstypes.PermissionScope]maskingMap, 2),
 		queryKeys:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys, 2),
@@ -656,6 +674,13 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 
 	if res.Target != "" {
 		g.setMethodTarget(res.Scope, res.Name, res.Target)
+	}
+
+	if res.CallerEnters {
+		if res.Target == "" && res.Transition == nil {
+			return errors.Newf("method resource %q is offered only to a caller who enters its row's tenants but names no target row", res.Name)
+		}
+		g.setMethodCallerEnters(res.Scope, res.Name)
 	}
 
 	if res.Parent != "" {
@@ -1266,6 +1291,15 @@ func (g *GeneratedCollection) setMethodTarget(scope accesstypes.PermissionScope,
 	g.targets[scope][method] = target
 }
 
+// setMethodCallerEnters marks an RPC method resource within scope as offered on
+// its row only to a caller whose session enters the row's tenants.
+func (g *GeneratedCollection) setMethodCallerEnters(scope accesstypes.PermissionScope, method accesstypes.Resource) {
+	if g.callerEnters[scope] == nil {
+		g.callerEnters[scope] = make(map[accesstypes.Resource]struct{})
+	}
+	g.callerEnters[scope][method] = struct{}{}
+}
+
 // setResourceParent records a workflow member's immediate parent within scope.
 func (g *GeneratedCollection) setResourceParent(scope accesstypes.PermissionScope, member, parent accesstypes.Resource) {
 	if g.parents[scope] == nil {
@@ -1334,11 +1368,14 @@ type TransitionMethod struct {
 
 // TargetedMethod pairs an RPC method resource with the row resource its
 // @target field addresses; Transition carries the declared edge when the
-// method is a transition, nil for the plain located-row form.
+// method is a transition, nil for the plain located-row form. CallerEnters
+// says the row offers the method only to a caller whose session enters the
+// tenants the row names (@callerEnters).
 type TargetedMethod struct {
-	Method     accesstypes.Resource
-	Target     accesstypes.Resource
-	Transition *TransitionData
+	Method       accesstypes.Resource
+	Target       accesstypes.Resource
+	Transition   *TransitionData
+	CallerEnters bool
 }
 
 // MethodsTargeting lists the RPC method resources whose @target field
@@ -1357,6 +1394,9 @@ func (g *GeneratedCollection) MethodsTargeting(target accesstypes.Resource) []Ta
 			tm := TargetedMethod{Method: method, Target: methodTarget}
 			if transition, ok := g.transitions[scope][method]; ok {
 				tm.Transition = &transition
+			}
+			if _, ok := g.callerEnters[scope][method]; ok {
+				tm.CallerEnters = true
 			}
 			methods = append(methods, tm)
 		}
@@ -1726,6 +1766,9 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 
 		if target, ok := g.targets[key.scope][key.name]; ok {
 			res.Target = target
+		}
+		if _, ok := g.callerEnters[key.scope][key.name]; ok {
+			res.CallerEnters = true
 		}
 
 		if parent, ok := g.parents[key.scope][key.name]; ok {

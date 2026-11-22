@@ -19,6 +19,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -67,6 +68,10 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
+	// A row of the auth's people offers the methods that change how a sector's
+	// administrator signs in only to a caller who enters the sectors the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	membersresources.SetMembersSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
 
 	return &Client{manager: manager}, nil
 }

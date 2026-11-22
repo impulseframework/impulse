@@ -626,6 +626,10 @@ type rpcMethodInfo struct {
 	// targeted method (a transition's Target aliases its embedded rpcTarget);
 	// nil for a method with no target row.
 	Target *rpcTarget
+	// CallerEnters is the method's validated @callerEnters: its row offers it only to a
+	// caller whose session enters every tenant the row names, which the target's struct
+	// names (TenantsToEnter). Only a method with a Target carries it.
+	CallerEnters bool
 	// Statuses is the method's validated @answers declaration: the statuses
 	// its result may choose per response, in declaration order. Nil for a
 	// method that answers 200.
@@ -2569,6 +2573,7 @@ const (
 	stateRootKeyword            string = "stateRoot"            // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
 	transitionKeyword           string = "transition"           // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
 	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
+	callerEntersKeyword         string = "callerEnters"         // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter)
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
 	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
@@ -2623,6 +2628,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		stateRootKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		transitionKeyword:           {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
+		callerEntersKeyword:         {genlang.ScanStruct: genlang.Exclusive},
 		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
