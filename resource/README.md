@@ -710,7 +710,9 @@ that is not there for the caller is answered "A record this one refers to does n
 exist." A record that reads its tenant through other rows (`@domain(via: ...)`) is
 answered so on both writes: when it is created under a row of another tenant, and when
 an update moves it under one. The answer is given before any condition of a grant is
-judged, so a row of another tenant is answered exactly as no row is.
+judged, so a row of another tenant is answered exactly as no row is. On a create, a
+condition that reads through a row the record names reads it only where it is the
+request's tenant's; a row of another tenant reads as no row.
 
 A method can also be held to where its caller's session may go. `@callerEnters` on the method
 says a row offers it only to a caller whose session enters every tenant the row names, and the
