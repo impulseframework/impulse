@@ -60,7 +60,8 @@ on the console's Invited tenants page (System), which the library draws from the
 auth's generated `InviteStaffTenant`, `StaffInvitedTenants` and
 `WithdrawStaffInvitedTenant`: the invitation carries the tenant's name and, where the
 administrator says so, that the tenant is entered through its directory only and the role
-its directory's people start with. Sending it takes the `Administrator` role's Create
+its directory's people start with, picked from the roles the administrator could give
+them (`StaffInvitedTenantRoles`). Sending it takes the `Administrator` role's Create
 grant on the record, and a name a tenant holds is refused there. No tenant exists while
 the invitation waits; the invited person's first sign-in makes it under an id the server
 generates, gives them the roles the App names in `TenantAdministratorRoles`

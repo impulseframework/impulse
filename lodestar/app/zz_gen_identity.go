@@ -232,6 +232,10 @@ func (a *App) CrewInvitedSectors() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewInvitedSectors()
 }
 
+func (a *App) CrewInvitedSectorRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewInvitedSectorRoles()
+}
+
 func (a *App) CrewListedRoleGrants() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedRoleGrants()
 }

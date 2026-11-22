@@ -1397,6 +1397,13 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // ({{ Pluralize .GivableRole }}), asked the same way, with the role{{ if .HasTenant }} and where it is held{{ end }}:
 //
 //	{{ .GlobalGivingMethods }}
+{{- if .PicksStartingRole }}
+//
+// The invitation that makes a {{ .TenantWord }} ({{ .InviteTenant }}) is asked the same
+// way for the list its starting role is picked from
+// ({{ Pluralize .InvitedTenantRole }}), with the role alone: the {{ .TenantWord }} does
+// not exist yet, so the request names no place.
+{{- end }}
 //
 // A method that is none of them gives no role by hand where the request was made, and
 // is an error.
@@ -1431,6 +1438,10 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 	{{- range .GlobalGivings }}
 	case {{ .Method }}{}.Method():
 		return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
+	{{- end }}
+	{{- if .PicksStartingRole }}
+	case {{ .InviteTenant }}{}.Method():
+		return couldGiveBy(ctx, caller, method, &{{ .InviteTenant }}{DefaultRole: new(string(role))})
 	{{- end }}
 	}
 

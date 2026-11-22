@@ -388,6 +388,11 @@ export interface StaffInvitedTenants {
   expiresAt?: Date;
 }
 
+export interface StaffInvitedTenantRoles {
+  name: string;
+  description?: string;
+}
+
 export interface StaffListedRoleGrants {
   kind: string;
   axis: string;
@@ -1063,6 +1068,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffInvitedTenantRoles]: {
+    route: 'staff-invited-tenant-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffListedRoleGrants]: {
     route: 'staff-listed-role-grants',
     readDisabled: true,
@@ -1271,6 +1290,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.TenantDirectories]: PermissionScopes.domain,
   [Resources.StaffGivableRoles]: PermissionScopes.global,
   [Resources.StaffInvitedTenants]: PermissionScopes.global,
+  [Resources.StaffInvitedTenantRoles]: PermissionScopes.global,
   [Resources.StaffListedRoleGrants]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,

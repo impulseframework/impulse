@@ -26,6 +26,7 @@ export const Resources = {
   StaffGroupUsers: 'StaffGroupUsers' as Resource,
   StaffGroups: 'StaffGroups' as Resource,
   StaffHeldRoles: 'StaffHeldRoles' as Resource,
+  StaffInvitedTenantRoles: 'StaffInvitedTenantRoles' as Resource,
   StaffInvitedTenants: 'StaffInvitedTenants' as Resource,
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
@@ -291,6 +292,17 @@ export namespace StaffHeldRoles {
     startsAt: 'StaffHeldRoles.startsAt' as Resource,
     userId: 'StaffHeldRoles.userId' as Resource,
     username: 'StaffHeldRoles.username' as Resource,
+  };
+}
+
+export namespace StaffInvitedTenantRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'StaffInvitedTenantRoles.description' as Resource,
+    name: 'StaffInvitedTenantRoles.name' as Resource,
   };
 }
 

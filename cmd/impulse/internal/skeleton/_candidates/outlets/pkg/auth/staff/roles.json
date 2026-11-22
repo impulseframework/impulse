@@ -227,6 +227,12 @@
               ]
             },
             {
+              "resource": "StaffInvitedTenantRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
               "resource": "StaffSessionSignInAttempts",
               "fields": [
                 "failures",

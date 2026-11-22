@@ -390,8 +390,10 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 	}
 
 	// The tenant record is served on the default outlet, the crew's, so the crew's
-	// management carries the three; the members sign in on the portal and carry none.
+	// management carries the three and the list the starting role is picked from; the
+	// members sign in on the portal and carry none.
 	want := []string{
+		"crewidentity/crew_invited_citadel_roles.go",
 		"crewidentity/crew_invited_citadels.go",
 		"crewidentity/invite_crew_citadel.go",
 		"crewidentity/withdraw_crew_invited_citadel.go",
@@ -418,7 +420,9 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 		// What the invitation says beyond the record's fields, each named for a grant's
 		// condition: no Create grant covers either.
 		"// @attribute(directoryOnly)\n CitadelDirectoryOnly bool\n",
-		"// @attribute(role)\n DefaultRole *string\n",
+		// The starting role is picked from the roles the sender could start a new
+		// citadel's people with.
+		"// @attribute(role)\n // @enumerate(CrewInvitedCitadelRoles)\n DefaultRole *string\n",
 		"\"cloud.google.com/go/civil\"",
 		"\"example.com/acme/beacon/pkg/resources\"",
 		// A required field is carried as given, and any other where it was given.
@@ -471,6 +475,22 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 		"if value, ok := carried[\"Name\"]; ok && readable[\"Name\"] {\n if err := json.Unmarshal(value, &r.CitadelName); err != nil {",
 		"if value, ok := carried[\"Towers\"]; ok && readable[\"Towers\"] {",
 	}, append([]string{"carried[\"Closed\"]"}, notCarried...))
+
+	// The list the starting role is picked from: the roles held in every citadel the
+	// caller could start a new one's people with, which the manager answers.
+	assertContains(t, "crew_invited_citadel_roles.go", identitySource(t, "crewidentity/crew_invited_citadel_roles.go"), []string{
+		generationHeader,
+		"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewInvitedCitadelRole struct {",
+		"// @primarykey\n // @attribute(name)\n // @roleOf(Crew)\n Name string `spanner:\"Name\"`\n Description string `spanner:\"Description\"`\n}",
+		"return \"CrewInvitedCitadelRoles\"",
+		"func ListCrewInvitedCitadelRole(ctx context.Context, _ *resource.QuerySet[CrewInvitedCitadelRole], _ resource.Client, client *Client) iter.Seq2[*CrewInvitedCitadelRole, error] {",
+		"roles, err := client.manager.StartingRoles(ctx, InviteCrewCitadel{}.Method())",
+	}, nil)
+	// The invitation's own grant is asked for that list with the role alone: the citadel
+	// does not exist yet.
+	assertContains(t, "crewidentity/grants.go", identitySource(t, "crewidentity/grants.go"), []string{
+		"case InviteCrewCitadel{}.Method():\n return couldGiveBy(ctx, caller, method, &InviteCrewCitadel{DefaultRole: new(string(role))})",
+	}, nil)
 
 	withdraw := identitySource(t, "crewidentity/withdraw_crew_invited_citadel.go")
 	assertContains(t, "withdraw_crew_invited_citadel.go", withdraw, []string{
@@ -527,10 +547,17 @@ func Test_prepareIdentity_invitedTenant_shapes(t *testing.T) {
 		// one field is a plain type, so the sources import nothing for it.
 		assertContains(t, "invite_crew_citadel.go", identitySource(t, "crewidentity/invite_crew_citadel.go"),
 			[]string{"CitadelName string `validate:\"required\"`\n", "TenantName: fmt.Sprint(\"citadel\"),"},
-			[]string{"DirectoryOnly", "DefaultRole", "@attribute(role)", "@attribute(directoryOnly)", "pkg/resources\""})
+			[]string{"DirectoryOnly", "DefaultRole", "@attribute(role)", "@attribute(directoryOnly)", "@enumerate", "pkg/resources\""})
 		assertContains(t, "crew_invited_citadels.go", identitySource(t, "crewidentity/crew_invited_citadels.go"),
 			[]string{"var crewInvitedCitadelFields = map[string]accesstypes.Tag{\n \"Name\": \"name\",\n}"},
 			[]string{"DirectoryOnly", "DefaultRole"})
+		// No directory keeps a starting role, so no list is written to pick one from,
+		// and the invitation's grant is asked for none.
+		if roles := identitySource(t, "crewidentity/crew_invited_citadel_roles.go"); roles != "" {
+			t.Errorf("crew_invited_citadel_roles.go was written where no directory keeps a starting role")
+		}
+		assertContains(t, "crewidentity/grants.go", identitySource(t, "crewidentity/grants.go"), nil,
+			[]string{"InviteCrewCitadel{}", "CrewInvitedCitadelRoles"})
 	})
 
 	t.Run("a field's type reached through an alias is written through it, and the written source resolves it", func(t *testing.T) {

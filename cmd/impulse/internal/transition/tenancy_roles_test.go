@@ -313,7 +313,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 			roles + ": the role TenantAdministrator, a domain role":                                              {"a tenant's administrator holds", "the tenanted skeleton's TenantAdministrator", strconv.Itoa(len(held)) + " of them under the condition the skeleton holds each to"},
 			tenantPeopleTest + ": the test that proves each of the " + strconv.Itoa(len(held)) + " condition(s)": {"conditions-proven", "a person the tenant holds alone"},
 			integrationHarness + ": written again with its provesGrant marked for the application's lint":        {"//nolint:unparam", "the TenantAdministrator role's"},
-			roles + ": the role Administrator gained the 8 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants"},
+			roles + ": the role Administrator gained the 9 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants", "List on StaffInvitedTenantRoles"},
 			foothold + ": AdministratorRoles() and FirstAdministratorRoles() name TenantAdministrator":           {"TenantAdministratorRoles()", "the application's router is built"},
 			deployTest + ": the test of the first administrator's roles":                                         {"every tenant"},
 		} {
@@ -517,6 +517,43 @@ func TestTenancy_Apply_regeneratesWithTheRole(t *testing.T) {
 	}
 	if got := linesWith(ch.Did, "ran go generate ./... again once the role file held TenantAdministrator", nil); len(got) != 1 {
 		t.Errorf("the change does not say once that it regenerated with the role: %q", ch.Did)
+	}
+}
+
+// TestTenancy_grantTenantMaking_namesWhatItCouldNotGive pins the hand step the tenancy
+// step leaves where no role the foothold names is in the role file: it names the lists a
+// tenant is made with, the list of the roles a new tenant's people may start with only
+// where a tenant can have a directory, since only there is that list served.
+func TestTenancy_grantTenantMaking_namesWhatItCouldNotGive(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	tests := []struct {
+		name    string
+		tenancy Tenancy
+		want    string
+	}{
+		{
+			name:    "a tenant can have a directory",
+			tenancy: Tenancy{Table: "Tenants"},
+			want:    "and List on StaffInvitedTenants and StaffInvitedTenantRoles, as the tenanted skeleton's Administrator holds them",
+		},
+		{
+			name:    "no tenant has a directory",
+			tenancy: Tenancy{Table: "Tenants", NoDirectories: true},
+			want:    "and List on StaffInvitedTenants, as the tenanted skeleton's Administrator holds them",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ch := &Change{}
+			tt.tenancy.grantTenantMaking(&roleFile{}, &roleFile{}, nil, "staff", roles, &footholdRoles{}, ch)
+			if got := skippedLine(ch, roles+": no global role the staff auth's", tt.want); len(got) != 1 {
+				t.Errorf("Tenancy.grantTenantMaking() skipped %q, want one line holding %q", ch.Skipped, tt.want)
+			}
+		})
 	}
 }
 

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
@@ -341,9 +343,9 @@ func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransa
 	if err != nil {
 		return errors.Wrap(err, "impulse.NewUUID()")
 	}
-	may, err := m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String())), impulse.NilUUID, role)
+	may, err := m.mayGiveInTenantToBe(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String())), role)
 	if err != nil {
-		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
+		return err
 	}
 	if !may {
 		return httpio.NewForbiddenMessageWithError(
@@ -353,6 +355,78 @@ func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransa
 	}
 
 	return nil
+}
+
+// StartingRoles lists the roles the people of a new tenant's directory may start with,
+// as the dialog of the invitation that makes a tenant offers them (method: the
+// invitation's method, by the name its grant is written under). They are the roles
+// InviteTenant takes from the request's caller and no other: a role held in every
+// tenant, the role file's or a custom one, never the Super Administrator role, that the
+// caller could give a person in a tenant no row names yet (RoleGrants.MayGive, asked of
+// nobody in particular) and that the invitation's own grant does not refuse
+// (RoleGrants.CouldGive). A page offers what the caller may do: a role the list leaves
+// out is one the invitation refuses, and one it offers is one the invitation takes.
+// Where a tenant's directory keeps no starting role the list is empty. A call outside
+// any request is the application's own and lists every role held in every tenant; a
+// manager a request reaches without the role grants cannot judge it, which is an error
+// and never a list.
+//
+// It is a list's read, called outside any transaction, and opens none: the whole
+// application's methods name no row, so their grants are settled without one.
+func (m *Manager) StartingRoles(ctx context.Context, method accesstypes.Resource) ([]access.RoleInfo, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := m.requireTenantMaker(); err != nil {
+		return nil, err
+	}
+	if !m.tenants.SeatsDefaultRole() {
+		return []access.RoleInfo{}, nil
+	}
+	roles, err := m.access.UserManager().Roles(ctx, accesstypes.EveryDomainPolicyScope())
+	if err != nil {
+		return nil, errors.Wrap(err, "access.UserManager.Roles()")
+	}
+	roles = slices.DeleteFunc(roles, func(role access.RoleInfo) bool { return role.Name == accesstypes.SuperAdministrator })
+	if resource.CallerFrom(ctx).IsZero() {
+		return roles, nil
+	}
+	if m.grants == nil {
+		return nil, errors.New("a request lists the roles the people of a new tenant's directory may start with and the manager holds no role grants to judge them by: " +
+			"build it with identity.WithRoleGrants, as the generated client does")
+	}
+	placeholder, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+	scope := accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String()))
+
+	return rolesOffered(roles, func(role accesstypes.Role) (bool, error) {
+		may, err := m.mayGiveInTenantToBe(ctx, nil, scope, role)
+		if err != nil || !may {
+			return false, err
+		}
+		could, err := m.grants.CouldGive(ctx, method, scope, role)
+		if err != nil {
+			return false, errors.Wrap(err, "identity.RoleGrants.CouldGive()")
+		}
+
+		return could, nil
+	})
+}
+
+// mayGiveInTenantToBe reports whether the request's caller could give the role to a
+// person in a tenant that does not exist yet (scope: one no row names), by the grant of
+// the method that gives a role, asked of nobody in particular. The invitation that makes
+// a tenant (mayStartWith) and the list its starting role is picked from (StartingRoles)
+// ask it alike, so the two cannot drift.
+func (m *Manager) mayGiveInTenantToBe(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.RoleGrants.MayGive()")
+	}
+
+	return may, nil
 }
 
 // refuseInvitedWithATenant is the rule of one tenant per person on an invitation that

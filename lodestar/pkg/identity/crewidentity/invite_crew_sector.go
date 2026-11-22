@@ -61,10 +61,12 @@ type (
 		SectorDirectoryOnly bool
 		// DefaultRole is the role a person from the sector's directory starts with,
 		// where the first sign-in sets one; empty, the sector admits its
-		// directory's people by invitation. It is a role the caller could give a person
-		// directly, and a grant's condition reads it as new.role.
+		// directory's people by invitation. It is picked from the roles the caller could
+		// start a new sector's people with (CrewInvitedSectorRoles),
+		// and a grant's condition reads it as new.role.
 		//
 		// @attribute(role)
+		// @enumerate(CrewInvitedSectorRoles)
 		DefaultRole *string
 	}
 	// InviteCrewSectorResult answers the invitation's id and whether its message went.

@@ -88,6 +88,11 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 //
 //	AssignStaffRole, InviteStaffUser, GiveStaffGroupRole
 //
+// The invitation that makes a tenant (InviteStaffTenant) is asked the same
+// way for the list its starting role is picked from
+// (StaffInvitedTenantRoles), with the role alone: the tenant does
+// not exist yet, so the request names no place.
+//
 // A method that is none of them gives no role by hand where the request was made, and
 // is an error.
 func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
@@ -117,6 +122,8 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 		return couldGiveBy(ctx, caller, method, &InviteStaffUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case GiveStaffGroupRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &GiveStaffGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	case InviteStaffTenant{}.Method():
+		return couldGiveBy(ctx, caller, method, &InviteStaffTenant{DefaultRole: new(string(role))})
 	}
 
 	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignStaffRole, InviteStaffUser, GiveStaffGroupRole", method)
