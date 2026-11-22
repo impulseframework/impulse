@@ -2,6 +2,7 @@ package generation
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -534,6 +535,166 @@ func Test_removeGeneratedFiles(t *testing.T) {
 			slices.Sort(tt.wantKept)
 			if diff := cmp.Diff(tt.wantKept, kept); diff != "" {
 				t.Errorf("removeGeneratedFiles() kept files mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// sharedColumnTable is a table of the given columns and foreign keys for
+// Test_deriveSharedColumnReferences. Every column a foreign key holds starts with a
+// reference no foreign key names, so a reference the test reads back was either written
+// by the function or left as it was.
+func sharedColumnTable(columns []string, keys ...foreignKeyMeta) *tableMetadata {
+	table := &tableMetadata{Columns: make(map[string]columnMeta, len(columns)), ForeignKeys: keys}
+	for _, column := range columns {
+		table.Columns[column] = columnMeta{}
+	}
+	for _, key := range keys {
+		for _, column := range key.Columns {
+			table.Columns[column] = columnMeta{IsForeignKey: true, ReferencedTable: "Wrong", ReferencedColumn: "Wrong", DeleteRule: "NO ACTION"}
+		}
+	}
+
+	return table
+}
+
+// cloneTableMap copies a table map deep enough that a change the function makes to a
+// column of the one does not show in the other.
+func cloneTableMap(tableMap map[string]*tableMetadata) map[string]*tableMetadata {
+	clone := make(map[string]*tableMetadata, len(tableMap))
+	for name, table := range tableMap {
+		copied := *table
+		copied.Columns = maps.Clone(table.Columns)
+		copied.ForeignKeys = slices.Clone(table.ForeignKeys)
+		clone[name] = &copied
+	}
+
+	return clone
+}
+
+func Test_deriveSharedColumnReferences(t *testing.T) {
+	t.Parallel()
+
+	harbors := func() *tableMetadata {
+		return sharedColumnTable([]string{"Id"})
+	}
+	wharves := func() *tableMetadata {
+		return sharedColumnTable([]string{"Id", "HarborId"},
+			foreignKeyMeta{Name: "FK_Wharves_HarborId", Columns: []string{"HarborId"}, ReferencedTable: "Harbors", ReferencedColumns: []string{"Id"}},
+		)
+	}
+	yards := func() *tableMetadata {
+		return sharedColumnTable([]string{"Id", "HarborId", "WharfId"},
+			foreignKeyMeta{Name: "FK_Yards_HarborId", Columns: []string{"HarborId"}, ReferencedTable: "Harbors", ReferencedColumns: []string{"Id"}},
+			foreignKeyMeta{Name: "FK_Yards_HarborIdWharfId", Columns: []string{"HarborId", "WharfId"}, ReferencedTable: "Wharves", ReferencedColumns: []string{"HarborId", "Id"}},
+		)
+	}
+
+	tests := []struct {
+		name     string
+		tableMap map[string]*tableMetadata
+		// want maps each column the function changes, as Table.Column, to the table and
+		// column it then references; every other fact of the map stays as it was.
+		want map[string]string
+	}{
+		{
+			name:     "a column with a foreign key of its own and a key of two columns reads its own",
+			tableMap: map[string]*tableMetadata{"Harbors": harbors(), "Wharves": wharves(), "Yards": yards()},
+			want:     map[string]string{"Yards.HarborId": "Harbors.Id"},
+		},
+		{
+			name: "a column with a foreign key of its own, a key of two columns to another table and one to its own table reads its own",
+			tableMap: map[string]*tableMetadata{
+				"Harbors": harbors(), "Wharves": wharves(), "Yards": yards(),
+				"Zones": sharedColumnTable([]string{"Id", "HarborId", "YardId", "InsideZoneId"},
+					foreignKeyMeta{Name: "FK_Zones_HarborId", Columns: []string{"HarborId"}, ReferencedTable: "Harbors", ReferencedColumns: []string{"Id"}},
+					foreignKeyMeta{Name: "FK_Zones_HarborIdYardId", Columns: []string{"HarborId", "YardId"}, ReferencedTable: "Yards", ReferencedColumns: []string{"HarborId", "Id"}},
+					foreignKeyMeta{Name: "FK_Zones_HarborIdInsideZoneId", Columns: []string{"HarborId", "InsideZoneId"}, ReferencedTable: "Zones", ReferencedColumns: []string{"HarborId", "Id"}},
+				),
+			},
+			want: map[string]string{"Yards.HarborId": "Harbors.Id", "Zones.HarborId": "Harbors.Id"},
+		},
+		{
+			// The wharf's HarborId keeps its wrong reference, being in one foreign key, so
+			// the step on reads the wharf's foreign key, not the wharf's column.
+			name: "a column in two keys of two columns and none of its own reads the first by name, then one step on",
+			tableMap: map[string]*tableMetadata{
+				"Harbors": harbors(), "Wharves": wharves(), "Yards": yards(),
+				"Piers": sharedColumnTable([]string{"Id", "HarborId", "WharfId", "YardId"},
+					foreignKeyMeta{Name: "FK_Piers_HarborIdYardId", Columns: []string{"HarborId", "YardId"}, ReferencedTable: "Yards", ReferencedColumns: []string{"HarborId", "Id"}},
+					foreignKeyMeta{Name: "FK_Piers_HarborIdWharfId", Columns: []string{"HarborId", "WharfId"}, ReferencedTable: "Wharves", ReferencedColumns: []string{"HarborId", "Id"}},
+				),
+			},
+			want: map[string]string{"Yards.HarborId": "Harbors.Id", "Piers.HarborId": "Harbors.Id"},
+		},
+		{
+			// By name the key to the zone's own rows comes first, and it is passed over.
+			name: "a key that pairs the column with itself is passed over when another holds it",
+			tableMap: map[string]*tableMetadata{
+				"Harbors": harbors(), "Wharves": wharves(), "Yards": yards(),
+				"Zones": sharedColumnTable([]string{"Id", "HarborId", "YardId", "InsideZoneId"},
+					foreignKeyMeta{Name: "FK_Zones_HarborIdInsideZoneId", Columns: []string{"HarborId", "InsideZoneId"}, ReferencedTable: "Zones", ReferencedColumns: []string{"HarborId", "Id"}},
+					foreignKeyMeta{Name: "FK_Zones_HarborIdYardId", Columns: []string{"HarborId", "YardId"}, ReferencedTable: "Yards", ReferencedColumns: []string{"HarborId", "Id"}},
+				),
+			},
+			want: map[string]string{"Yards.HarborId": "Harbors.Id", "Zones.HarborId": "Harbors.Id"},
+		},
+		{
+			name:     "a column in one foreign key is left as the read gave it",
+			tableMap: map[string]*tableMetadata{"Harbors": harbors(), "Wharves": wharves()},
+			want:     map[string]string{},
+		},
+		{
+			name: "a column in one resolved foreign key and one unresolved is left as the read gave it",
+			tableMap: map[string]*tableMetadata{
+				"Harbors": harbors(), "Wharves": wharves(),
+				"Sheds": sharedColumnTable([]string{"Id", "HarborId", "WharfId", "DockId"},
+					foreignKeyMeta{Name: "FK_Sheds_HarborId", Columns: []string{"HarborId"}, ReferencedTable: "Harbors", ReferencedColumns: []string{"Id"}},
+					foreignKeyMeta{Name: "FK_Sheds_HarborIdDockId", Columns: []string{"HarborId", "DockId"}},
+					foreignKeyMeta{Name: "FK_Sheds_HarborIdWharfId", Columns: []string{"HarborId", "WharfId"}, ReferencedTable: "Wharves", ReferencedColumns: []string{"Id"}},
+				),
+			},
+			want: map[string]string{},
+		},
+		{
+			// The pier's HarborId reads the wharf's HarborId by name, which reads the dock's
+			// HarborId, which reads the harbor's Id: the read goes one step on and stops.
+			name: "a column goes one step on, never two",
+			tableMap: map[string]*tableMetadata{
+				"Harbors": harbors(),
+				"Docks": sharedColumnTable([]string{"Id", "HarborId"},
+					foreignKeyMeta{Name: "FK_Docks_HarborId", Columns: []string{"HarborId"}, ReferencedTable: "Harbors", ReferencedColumns: []string{"Id"}},
+				),
+				"Wharves": sharedColumnTable([]string{"Id", "HarborId", "DockId"},
+					foreignKeyMeta{Name: "FK_Wharves_HarborIdDockId", Columns: []string{"HarborId", "DockId"}, ReferencedTable: "Docks", ReferencedColumns: []string{"HarborId", "Id"}},
+				),
+				"Yards": sharedColumnTable([]string{"Id", "HarborId"}),
+				"Piers": sharedColumnTable([]string{"Id", "HarborId", "WharfId", "YardId"},
+					foreignKeyMeta{Name: "FK_Piers_HarborIdWharfId", Columns: []string{"HarborId", "WharfId"}, ReferencedTable: "Wharves", ReferencedColumns: []string{"HarborId", "Id"}},
+					foreignKeyMeta{Name: "FK_Piers_HarborIdYardId", Columns: []string{"HarborId", "YardId"}, ReferencedTable: "Yards", ReferencedColumns: []string{"HarborId", "Id"}},
+				),
+			},
+			want: map[string]string{"Piers.HarborId": "Docks.HarborId"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			want := cloneTableMap(tt.tableMap)
+			for column, reference := range tt.want {
+				table, name, _ := strings.Cut(column, ".")
+				referencedTable, referencedColumn, _ := strings.Cut(reference, ".")
+				meta := want[table].Columns[name]
+				meta.ReferencedTable, meta.ReferencedColumn = referencedTable, referencedColumn
+				want[table].Columns[name] = meta
+			}
+
+			deriveSharedColumnReferences(tt.tableMap)
+
+			if diff := cmp.Diff(want, tt.tableMap); diff != "" {
+				t.Errorf("deriveSharedColumnReferences() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

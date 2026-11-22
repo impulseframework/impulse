@@ -8,6 +8,7 @@ package generation
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -575,6 +576,82 @@ func (t *tableMetadata) deriveIndexFlags() {
 		}
 		t.Columns[leading] = column
 	}
+}
+
+// deriveSharedColumnReferences sets the table and column a column references where two
+// or more foreign keys of its table hold it. The column query answers, for each column, the
+// largest table name and the largest column name among everything the column leads to,
+// each taken on its own: exact for a column in one foreign key, but for a tenant column
+// that has a foreign key of its own to the tenant record and is also part of foreign keys
+// of two columns, a table and a column that may not belong together. Such a column reads
+// its own foreign key (ownReference); then, where the column that key names is itself held
+// by a foreign key of its table, one step on, as the query goes, and never two. Only
+// foreign keys the read matched column by column count. Every answer is read from the
+// whole foreign keys alone, never from another column's reference, so the order the
+// tables are visited in changes nothing. Like the index flags, it runs on every read and
+// every cache load, so a cache an earlier generator wrote cannot carry the query's answer.
+func deriveSharedColumnReferences(tableMap map[string]*tableMetadata) {
+	for name, table := range tableMap {
+		for column, meta := range table.Columns {
+			if len(table.resolvedKeysHolding(column)) < 2 {
+				continue
+			}
+			referencedTable, referencedColumn := table.ownReference(name, column)
+			if next, ok := tableMap[referencedTable]; ok && len(next.resolvedKeysHolding(referencedColumn)) > 0 {
+				referencedTable, referencedColumn = next.ownReference(referencedTable, referencedColumn)
+			}
+			meta.ReferencedTable, meta.ReferencedColumn = referencedTable, referencedColumn
+			table.Columns[column] = meta
+		}
+	}
+}
+
+// heldColumn is one foreign key that holds a column, with the column's position in it.
+type heldColumn struct {
+	key      *foreignKeyMeta
+	position int
+}
+
+// resolvedKeysHolding is the table's foreign keys that hold the column and that the read
+// matched column by column: each names a referenced table and as many referenced columns
+// as it has columns.
+func (t *tableMetadata) resolvedKeysHolding(column string) []heldColumn {
+	var held []heldColumn
+	for i := range t.ForeignKeys {
+		key := &t.ForeignKeys[i]
+		if key.ReferencedTable == "" || len(key.ReferencedColumns) != len(key.Columns) {
+			continue
+		}
+		if position := slices.Index(key.Columns, column); position >= 0 {
+			held = append(held, heldColumn{key: key, position: position})
+		}
+	}
+
+	return held
+}
+
+// ownReference is the table and column that a column of the named table references by
+// its own foreign key: among the table's resolved foreign keys that hold it, the one with
+// the fewest columns, the first by name among equals. A key to the table's own rows that
+// pairs the column with itself is passed over when another holds the column, since it
+// leads back to the column. The column is held by at least one resolved foreign key.
+func (t *tableMetadata) ownReference(name, column string) (referencedTable, referencedColumn string) {
+	held := t.resolvedKeysHolding(column)
+	others := slices.DeleteFunc(slices.Clone(held), func(h heldColumn) bool {
+		return h.key.ReferencedTable == name && h.key.ReferencedColumns[h.position] == column
+	})
+	if len(others) > 0 {
+		held = others
+	}
+	own := slices.MinFunc(held, func(a, b heldColumn) int {
+		if byLength := cmp.Compare(len(a.key.Columns), len(b.key.Columns)); byLength != 0 {
+			return byLength
+		}
+
+		return strings.Compare(a.key.Name, b.key.Name)
+	})
+
+	return own.key.ReferencedTable, own.key.ReferencedColumns[own.position]
 }
 
 func (c *client) tableMetadataFor(resourceName string) (*tableMetadata, error) {
