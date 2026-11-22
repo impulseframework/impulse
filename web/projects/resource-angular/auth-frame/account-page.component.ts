@@ -298,7 +298,8 @@ export const nameMaxLength = 200;
       align-items: flex-start;
       max-width: 360px;
     }
-    .impulse-account-page-change mat-form-field {
+    .impulse-account-page-change mat-form-field,
+    .impulse-account-page-change impulse-new-password {
       width: 100%;
     }
     .impulse-account-page-answers {
