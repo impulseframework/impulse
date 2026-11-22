@@ -58,6 +58,11 @@ type Store interface {
 	SigningKeys(ctx context.Context) ([]*SigningKey, error)
 	// AddSigningKey adds a signing key.
 	AddSigningKey(ctx context.Context, key *SigningKey) error
+	// AddFirstSigningKey adds the key when the store holds no signing key, and adds
+	// nothing when it holds one, which is no error. The look and the insert are one
+	// decision: of two instances that each make a first key at the same moment, the store
+	// keeps one.
+	AddFirstSigningKey(ctx context.Context, key *SigningKey) error
 
 	// RecordSignIn appends an entry to the log.
 	RecordSignIn(ctx context.Context, s *SignIn) error

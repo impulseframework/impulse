@@ -76,9 +76,11 @@ migrations into the host's migration set as they are; the names are
 `PersonaSignIns`. Another store implements `persona.Store`.
 
 The signing keys live in the store so every instance signs with the same key and
-publishes the same key set. The access tokens are encrypted under a key derived from
-the newest signing key, for the same reason. `RotateSigningKey` adds a new key; the
-older ones stay published so tokens signed before the rotation still verify.
+publishes the same key set. The first key is made once: of two instances that start
+together on an empty store, the store keeps one key and both sign with it. The access
+tokens are encrypted under a key derived from the newest signing key, for the same
+reason. `RotateSigningKey` adds a new key; the older ones stay published so tokens
+signed before the rotation still verify.
 
 ## The registration endpoint
 

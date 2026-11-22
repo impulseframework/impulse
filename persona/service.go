@@ -210,11 +210,11 @@ func (s *Service) signingKeys(ctx context.Context) ([]*SigningKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := s.store.AddSigningKey(ctx, key); err != nil {
-			return nil, errors.Wrap(err, "persona.Store.AddSigningKey()")
+		if err := s.store.AddFirstSigningKey(ctx, key); err != nil {
+			return nil, errors.Wrap(err, "persona.Store.AddFirstSigningKey()")
 		}
-		// Another instance may have added one in the same moment; the store's order
-		// decides which signs, so read back rather than trust ours.
+		// Another instance may have made the first key in the same moment; the store kept
+		// one of the two, so read back rather than trust ours.
 		if keys, err = s.store.SigningKeys(ctx); err != nil {
 			return nil, errors.Wrap(err, "persona.Store.SigningKeys()")
 		}

@@ -261,6 +261,40 @@ func TestStore_SigningKeys(t *testing.T) {
 	}
 }
 
+func TestStore_AddFirstSigningKey(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	store, _ := newStore(ctx, t)
+
+	first := &persona.SigningKey{ID: "99999999-9999-4999-8999-999999999991", Key: newKey(t), CreatedAt: at(time.Now().Add(-time.Hour))}
+	if err := store.AddFirstSigningKey(ctx, first); err != nil {
+		t.Fatalf("AddFirstSigningKey() on an empty store error = %v", err)
+	}
+	second := &persona.SigningKey{ID: "99999999-9999-4999-8999-999999999992", Key: newKey(t), CreatedAt: at(time.Now())}
+	if err := store.AddFirstSigningKey(ctx, second); err != nil {
+		t.Fatalf("AddFirstSigningKey() with a key held error = %v, want none", err)
+	}
+	keys, err := store.SigningKeys(ctx)
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("SigningKeys() = %d keys, %v; want the first key alone", len(keys), err)
+	}
+	if keys[0].ID != first.ID || !keys[0].Key.Equal(first.Key) {
+		t.Errorf("SigningKeys() holds %s, want the first key %s", keys[0].ID, first.ID)
+	}
+
+	third := &persona.SigningKey{ID: "99999999-9999-4999-8999-999999999993", Key: newKey(t), CreatedAt: at(time.Now())}
+	if err := store.AddSigningKey(ctx, third); err != nil {
+		t.Fatalf("AddSigningKey() error = %v", err)
+	}
+	fourth := &persona.SigningKey{ID: "99999999-9999-4999-8999-999999999994", Key: newKey(t), CreatedAt: at(time.Now())}
+	if err := store.AddFirstSigningKey(ctx, fourth); err != nil {
+		t.Fatalf("AddFirstSigningKey() after a rotation error = %v, want none", err)
+	}
+	if keys, err := store.SigningKeys(ctx); err != nil || len(keys) != 2 {
+		t.Errorf("SigningKeys() = %d keys, %v; want the first and the rotated key", len(keys), err)
+	}
+}
+
 func TestStore_RecordSignIn(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

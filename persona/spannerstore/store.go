@@ -363,6 +363,37 @@ func (s *Store) AddSigningKey(ctx context.Context, key *persona.SigningKey) erro
 	return s.apply(ctx, m)
 }
 
+// AddFirstSigningKey adds the key when the store holds none: the table is read in the
+// transaction that inserts, so two first keys made at the same moment leave one.
+func (s *Store) AddFirstSigningKey(ctx context.Context, key *persona.SigningKey) error {
+	encoded, err := encodeKey(key.Key)
+	if err != nil {
+		return err
+	}
+	m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt})
+	if err != nil {
+		return errors.Wrap(err, "spanner.InsertStruct()")
+	}
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		iter := txn.Query(ctx, spanner.Statement{SQL: "SELECT Id FROM PersonaKeys LIMIT 1"})
+		defer iter.Stop()
+		if _, err := iter.Next(); !errors.Is(err, iterator.Done) {
+			if err != nil {
+				return errors.Wrap(err, "spanner.RowIterator.Next()")
+			}
+
+			return nil
+		}
+
+		return txn.BufferWrite([]*spanner.Mutation{m})
+	})
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
+}
+
 // signInRow is a PersonaSignIns row.
 type signInRow struct {
 	ID            string    `spanner:"Id"`
