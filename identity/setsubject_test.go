@@ -288,7 +288,7 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 		{
 			name: "the column set on the row the real person's set is read through is refused", ctx: acting, op: resource.OperationUpdate,
 			fields: map[accesstypes.Field]any{"WingID": "wing-2"}, readFor: true, wantAsked: true,
-			wantAct: "change the wing id of the squadron record that decides your own wings",
+			wantAct: "change the wing id of the squadron record that decides your own home wings",
 		},
 		{
 			name: "the column set on another row goes through", ctx: acting, op: resource.OperationUpdate,
@@ -316,7 +316,7 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 			t.Parallel()
 
 			write := &reachWrite{fields: tt.fields, readFor: tt.readFor}
-			err := refuseImpersonatorAsReadThroughSubject(tt.ctx, stubTxn{}, tt.op, squadronKey, write, "squadron", "WingID", "wings")
+			err := refuseImpersonatorAsReadThroughSubject(tt.ctx, stubTxn{}, tt.op, squadronKey, write, "squadron", "WingID", "homeWings")
 			if tt.wantAct == "" {
 				if err != nil {
 					t.Fatalf("refuseImpersonatorAsReadThroughSubject() error = %v, want nil", err)
@@ -330,8 +330,8 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 			if asked := len(write.askedFacts) == 1; asked != tt.wantAsked {
 				t.Fatalf("the fact was asked about %v, want asked = %t", write.askedFacts, tt.wantAsked)
 			}
-			if tt.wantAsked && (write.askedFacts[0] != "wings" || write.askedOf[0] != User(userID)) {
-				t.Errorf("asked subject.%s of %s, want subject.wings of the real person %s", write.askedFacts[0], write.askedOf[0], User(userID))
+			if tt.wantAsked && (write.askedFacts[0] != "homeWings" || write.askedOf[0] != User(userID)) {
+				t.Errorf("asked subject.%s of %s, want subject.homeWings of the real person %s", write.askedFacts[0], write.askedOf[0], User(userID))
 			}
 		})
 	}

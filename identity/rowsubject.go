@@ -349,7 +349,7 @@ func refuseImpersonatorAsReadThroughSubject(
 	if reads {
 		const act = "change the %s of the %s record that decides your own %s"
 
-		return impersonatorRefusedOf(ctx, actor, fmt.Sprintf(act, column, record, fact), fmt.Sprintf(act, inWords(string(column)), record, fact))
+		return impersonatorRefusedOf(ctx, actor, fmt.Sprintf(act, column, record, fact), fmt.Sprintf(act, inWords(string(column)), record, inWords(fact)))
 	}
 
 	return nil
