@@ -56,7 +56,7 @@ func (c *client) resolveCallerEnters(rpcMethod *rpcMethodInfo, pStruct *parser.S
 		// same resources.
 		return errors.Newf("struct %s: @%s: %s, the row the method names, is not a resource struct", pStruct.Name(), callerEntersKeyword, rootName)
 	}
-	if err := checkTenantsToEnter(pStruct, root); err != nil {
+	if err := checkTenantsToEnter(pStruct, root, "the row the method names"); err != nil {
 		return err
 	}
 	rpcMethod.CallerEnters = true
@@ -86,7 +86,7 @@ func (c *client) resolveOfferedOn(rpcMethod *rpcMethodInfo, pStruct *parser.Stru
 			if scopeOrGlobal(rpcMethod.PermissionScope) != scopeOrGlobal(root.PermissionScope) {
 				return errors.Newf("struct %s: @%s(%s): the method and %s are of different permission scopes; a row offers a method of its own scope", pStruct.Name(), callerEntersKeyword, written, name)
 			}
-			if err := checkTenantsToEnter(pStruct, root); err != nil {
+			if err := checkTenantsToEnter(pStruct, root, "a row that offers the method"); err != nil {
 				return err
 			}
 			offeredOn = append(offeredOn, rpcOfferingRow{RootStruct: name, RootResource: c.pluralize(name)})
@@ -110,10 +110,11 @@ func (c *client) resourceNamed(name string) *resourceInfo {
 
 // checkTenantsToEnter holds the row's struct to the one form of TenantsToEnter the
 // statement reads off a value of the struct: a value receiver, no parameters, and a
-// resource.TenantsToEnter.
-func checkTenantsToEnter(pStruct *parser.Struct, root *resourceInfo) error {
+// resource.TenantsToEnter. rowWords say what the row is to the method, for the refusal of
+// a struct that declares none.
+func checkTenantsToEnter(pStruct *parser.Struct, root *resourceInfo, rowWords string) error {
 	rootName := root.Name()
-	undeclared := errors.Newf("struct %s: @%s: %s, the row the method names, does not say which tenants a caller must enter; write beside it: func (%s) %s() resource.TenantsToEnter", pStruct.Name(), callerEntersKeyword, rootName, rootName, tenantsToEnterMethodName)
+	undeclared := errors.Newf("struct %s: @%s: %s, %s, does not say which tenants a caller must enter; write beside it: func (%s) %s() resource.TenantsToEnter", pStruct.Name(), callerEntersKeyword, rootName, rowWords, rootName, tenantsToEnterMethodName)
 	named, ok := types.Unalias(root.GoType()).(*types.Named)
 	if !ok {
 		return undeclared
