@@ -90,18 +90,6 @@ export interface StaffRoles {
   updatedAt?: Date;
 }
 
-export interface StaffRoleGrants {
-  kind: string;
-  axis: string;
-  domainId: string;
-  role: string;
-  permission: string;
-  resourceName: string;
-  field: string;
-  condition: string;
-  updatedAt?: Date;
-}
-
 export interface StaffSessions {
   id: string;
   userId?: string;
@@ -238,6 +226,19 @@ export interface StaffGivableRoles {
   description?: string;
   method?: string;
   group?: string;
+}
+
+export interface StaffListedRoleGrants {
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  permission: string;
+  resourceName: string;
+  field: string;
+  condition: string;
+  updatedAt?: Date;
+  skipped?: string;
 }
 
 export interface StaffSignInMethods {
@@ -436,26 +437,6 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffRoleGrants]: {
-    route: 'staff-role-grants',
-    readDisabled: true,
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
-    live: true,
-    rowWords: { one: 'role grant', many: 'role grants' },
-    fields: [
-      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
@@ -682,6 +663,28 @@ const resourceMap = defineResourceMap({
     ],
     searchFields: ['method', 'group'],
   },
+  [Resources.StaffListedRoleGrants]: {
+    route: 'staff-listed-role-grants',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role grant', many: 'role grants' },
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffSignInMethods]: {
     route: 'staff-sign-in-methods',
     readDisabled: true,
@@ -799,7 +802,6 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffListedGroups]: PermissionScopes.global,
   [Resources.StaffListedGroupRoles]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
-  [Resources.StaffRoleGrants]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,
   [Resources.StaffSessionAuthEvents]: PermissionScopes.global,
   [Resources.StaffSessionIdentities]: PermissionScopes.global,
@@ -812,6 +814,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffUserGroupRoles]: PermissionScopes.global,
   [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.StaffGivableRoles]: PermissionScopes.global,
+  [Resources.StaffListedRoleGrants]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.StaffSignUpRoles]: PermissionScopes.global,

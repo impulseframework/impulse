@@ -28,6 +28,6 @@ type Resourcer interface {
 		membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
 		membersresources.MembersUserRole | membersidentity.MembersGivableRole |
-		membersidentity.MembersTakeLength | membersidentity.MembersTakeableRole |
-		membersidentity.MembersTenantRole
+		membersidentity.MembersListedRoleGrant | membersidentity.MembersTakeLength |
+		membersidentity.MembersTakeableRole | membersidentity.MembersTenantRole
 }

@@ -3,7 +3,7 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, NullB
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewGroups, CrewGroupMembers, CrewGroupRoles, CrewGroupUsers, CrewHeldRoles, CrewListedGroups, CrewListedGroupRoles, CrewRoles, CrewRoleGrants, CrewSectorGroups, CrewSectorGroupRoles, CrewSectorGroupUsers, CrewSectorHeldRoles, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserGroupRoles, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewTakenRoles, CrewUserGroupRoles, CrewUserRoles, DistressCalls, DistressRelays, FeeByKinds, Hangars, HangarPasses, MembersHeldRoles, MembersRoles, MembersRoleGrants, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewGivableRoles, CrewInvitedSectors, CrewSectorDirectoryRoles, CrewSectorRoles, CrewSectorSignInWays, CrewSignInMethods, CrewSignInWays, CrewTakeLengths, CrewTakeableRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
+import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewGroups, CrewGroupMembers, CrewGroupRoles, CrewGroupUsers, CrewHeldRoles, CrewListedGroups, CrewListedGroupRoles, CrewRoles, CrewSectorGroups, CrewSectorGroupRoles, CrewSectorGroupUsers, CrewSectorHeldRoles, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserGroupRoles, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewTakenRoles, CrewUserGroupRoles, CrewUserRoles, DistressCalls, DistressRelays, FeeByKinds, Hangars, HangarPasses, MembersHeldRoles, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewGivableRoles, CrewInvitedSectors, CrewListedRoleGrants, CrewSectorDirectoryRoles, CrewSectorRoles, CrewSectorSignInWays, CrewSignInMethods, CrewSignInWays, CrewTakeLengths, CrewTakeableRoles, ExpenseManifests, MembersListedRoleGrants, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
 import { AddCrewGroupMember, AddCrewSectorGroupMember, AssignCrewRole, AssignCrewSectorRole, AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, CreateCrewGroup, CreateCrewGroupResult, CreateCrewSectorGroup, CreateCrewSectorGroupResult, DeleteCrewGroup, DeleteCrewSectorGroup, DeleteCrewSectorUser, DeleteCrewUser, DeleteMembersSectorUser, DeleteMembersUser, DescribeCrewGroup, DescribeCrewSectorGroup, DisableCrewSectorUser, DisableCrewUser, DisableMembersSectorUser, DisableMembersUser, EnableCrewSectorUser, EnableCrewUser, EnableMembersSectorUser, EnableMembersUser, EndCrewSectorUserSessions, EndCrewSession, EndCrewSessionImpersonation, EndCrewUserSessions, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, FailFlightTest, FailMission, GiveCrewGroupRole, GiveCrewSectorGroupRole, HailShip, HoldMission, InspectShip, InspectShipResult, InviteCrewSector, InviteCrewSectorResult, InviteCrewSectorUser, InviteCrewSectorUserResult, InviteCrewUser, InviteCrewUserResult, IssueBulletin, LaunchMission, MakeCrewInviteOnly, OpenCrewSignUp, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, RemoveCrewGroupMember, RemoveCrewPassword, RemoveCrewRole, RemoveCrewSectorGroupMember, RemoveCrewSectorPassword, RemoveCrewSectorRole, RenameCrewSectorUser, RenameCrewUser, RenameMembersSectorUser, RenameMembersUser, ReplaceMissionDocument, RequireCrewPasswordChange, RequireCrewSectorPasswordChange, ResumeMission, RevokeCrewSectorUserTrustedDevices, RevokeCrewSessionToken, RevokeCrewUserTrustedDevices, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, ScrapShip, SendCrewSectorUserPasswordResetLink, SendCrewSectorUserPasswordResetLinkResult, SendCrewUserPasswordResetLink, SendCrewUserPasswordResetLinkResult, SetCrewSectorUserEmail, SetCrewSectorUserEmailResult, SetCrewSectorUserName, SetCrewSelfServiceReset, SetCrewUserEmail, SetCrewUserEmailResult, SetCrewUserName, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, SetSectorPilotClearance, StandDownMission, StartFlightTest, TakeCrewGroupRole, TakeCrewRole, TakeCrewSectorGroupRole, UnlinkCrewSectorSessionIdentity, UnlinkCrewSessionIdentity, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockCrewSignIn, UnlockMembersSignIn, WithdrawCrewInvitation, WithdrawCrewInvitedSector, WithdrawCrewSectorInvitation, SetFeature, SetFeatureResult, MakeSectorDirectoryOnly, EndSectorDirectoryOnly, OpenSectorToDirectory, MakeSectorInviteOnly } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
@@ -117,9 +117,6 @@ export type CrewListedGroupRolesKey = [groupId: string, kind: string, axis: stri
 
 /** The primary key of CrewRoles, in route order. */
 export type CrewRolesKey = [kind: string, axis: string, domainId: string, role: string];
-
-/** The primary key of CrewRoleGrants, in route order. */
-export type CrewRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of CrewSectorGroups, in route order. */
 export type CrewSectorGroupsKey = [id: string];
@@ -267,9 +264,6 @@ export type MembersHeldRolesKey = [userId: string, kind: string, axis: string, d
 
 /** The primary key of MembersRoles, in route order. */
 export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
-
-/** The primary key of MembersRoleGrants, in route order. */
-export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of MembersSectorHeldRoles, in route order. */
 export type MembersSectorHeldRolesKey = [userId: string, role: string, groupId: string];
@@ -608,6 +602,9 @@ export type CrewGivableRolesKey = [name: string];
 /** The primary key of CrewInvitedSectors, in route order. */
 export type CrewInvitedSectorsKey = [id: string];
 
+/** The primary key of CrewListedRoleGrants, in route order. */
+export type CrewListedRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
 /** The primary key of CrewSectorDirectoryRoles, in route order. */
 export type CrewSectorDirectoryRolesKey = [name: string];
 
@@ -631,6 +628,9 @@ export type CrewTakeableRolesKey = [name: string];
 
 /** The primary key of ExpenseManifests, in route order. */
 export type ExpenseManifestsKey = [missionId: string];
+
+/** The primary key of MembersListedRoleGrants, in route order. */
+export type MembersListedRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of PilotCards, in route order. */
 export type PilotCardsKey = [userId: string];
@@ -810,17 +810,6 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: false,
       keys: ['kind', 'axis', 'domainId', 'role'],
-      operations: ['list'],
-      page: { default: 25, max: 200 },
-      order: [{ field: 'role', direction: 'asc' }],
-    },
-    [Resources.CrewRoleGrants]: {
-      resource: Resources.CrewRoleGrants,
-      property: 'crewRoleGrants',
-      route: 'crew-role-grants',
-      scope: 'global',
-      consolidated: false,
-      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -1133,17 +1122,6 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: false,
       keys: ['kind', 'axis', 'domainId', 'role'],
-      operations: ['list'],
-      page: { default: 25, max: 200 },
-      order: [{ field: 'role', direction: 'asc' }],
-    },
-    [Resources.MembersRoleGrants]: {
-      resource: Resources.MembersRoleGrants,
-      property: 'membersRoleGrants',
-      route: 'members-role-grants',
-      scope: 'global',
-      consolidated: false,
-      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -1560,6 +1538,17 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 50 },
       order: [{ field: 'createdAt', direction: 'asc' }],
     },
+    [Resources.CrewListedRoleGrants]: {
+      resource: Resources.CrewListedRoleGrants,
+      property: 'crewListedRoleGrants',
+      route: 'crew-listed-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
     [Resources.CrewSectorDirectoryRoles]: {
       resource: Resources.CrewSectorDirectoryRoles,
       property: 'crewSectorDirectoryRoles',
@@ -1648,6 +1637,17 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 25, max: 200 },
       order: [{ field: 'title', direction: 'asc' }],
       files: ['content'],
+    },
+    [Resources.MembersListedRoleGrants]: {
+      resource: Resources.MembersListedRoleGrants,
+      property: 'membersListedRoleGrants',
+      route: 'members-listed-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
     },
     [Resources.PilotCards]: {
       resource: Resources.PilotCards,
@@ -1899,7 +1899,6 @@ export interface GlobalApi {
   crewListedGroups: ResourceHandle<CrewListedGroups, CrewListedGroupsKey, 'list' | 'read'>;
   crewListedGroupRoles: ResourceHandle<CrewListedGroupRoles, CrewListedGroupRolesKey, 'list'>;
   crewRoles: ResourceHandle<CrewRoles, CrewRolesKey, 'list'>;
-  crewRoleGrants: ResourceHandle<CrewRoleGrants, CrewRoleGrantsKey, 'list'>;
   crewSessions: ResourceHandle<CrewSessions, CrewSessionsKey, 'list' | 'read'>;
   crewSessionAuthEvents: ResourceHandle<CrewSessionAuthEvents, CrewSessionAuthEventsKey, 'list'>;
   crewSessionIdentities: ResourceHandle<CrewSessionIdentities, CrewSessionIdentitiesKey, 'list' | 'read'>;
@@ -1915,7 +1914,6 @@ export interface GlobalApi {
   feeByKinds: ResourceHandle<FeeByKinds, FeeByKindsKey, 'list' | 'read'>;
   membersHeldRoles: ResourceHandle<MembersHeldRoles, MembersHeldRolesKey, 'list'>;
   membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
-  membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
   membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
   membersSessionAuthEvents: ResourceHandle<MembersSessionAuthEvents, MembersSessionAuthEventsKey, 'list'>;
   membersSessionIdentities: ResourceHandle<MembersSessionIdentities, MembersSessionIdentitiesKey, 'list' | 'read'>;
@@ -1931,10 +1929,12 @@ export interface GlobalApi {
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
   crewGivableRoles: ResourceHandle<CrewGivableRoles, CrewGivableRolesKey, 'list'>;
   crewInvitedSectors: ResourceHandle<CrewInvitedSectors, CrewInvitedSectorsKey, 'list'>;
+  crewListedRoleGrants: ResourceHandle<CrewListedRoleGrants, CrewListedRoleGrantsKey, 'list'>;
   crewSignInMethods: ResourceHandle<CrewSignInMethods, CrewSignInMethodsKey, 'list'>;
   crewSignInWays: ResourceHandle<CrewSignInWays, CrewSignInWaysKey, 'list'>;
   crewTakeLengths: ResourceHandle<CrewTakeLengths, CrewTakeLengthsKey, 'list'>;
   crewTakeableRoles: ResourceHandle<CrewTakeableRoles, CrewTakeableRolesKey, 'list'>;
+  membersListedRoleGrants: ResourceHandle<MembersListedRoleGrants, MembersListedRoleGrantsKey, 'list'>;
   pilotCards: ResourceHandle<PilotCards, PilotCardsKey, 'list'>;
   serviceLedgers: ResourceHandle<ServiceLedgers, ServiceLedgersKey, 'list'>;
   standingOrders: ResourceHandle<StandingOrders, StandingOrdersKey, 'list'>;

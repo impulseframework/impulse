@@ -148,8 +148,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/members-listed-group-roles", method: http.MethodPost},
 		{url: "/console/api/members-roles", method: http.MethodGet},
 		{url: "/console/api/members-roles", method: http.MethodPost},
-		{url: "/console/api/members-role-grants", method: http.MethodGet},
-		{url: "/console/api/members-role-grants", method: http.MethodPost},
 		{url: "/console/api/members-sessions", method: http.MethodGet},
 		{url: "/console/api/members-sessions", method: http.MethodPost},
 		{url: "/console/api/members-sessions/testMembersSessionID", method: http.MethodGet},
@@ -226,6 +224,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodPost},
 		{url: "/console/api/members-givable-roles", method: http.MethodGet},
 		{url: "/console/api/members-givable-roles", method: http.MethodPost},
+		{url: "/console/api/members-listed-role-grants", method: http.MethodGet},
+		{url: "/console/api/members-listed-role-grants", method: http.MethodPost},
 		{url: "/console/api/members-take-lengths", method: http.MethodGet},
 		{url: "/console/api/members-take-lengths", method: http.MethodPost},
 		{url: "/console/api/members-takeable-roles", method: http.MethodGet},
@@ -302,8 +302,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-listed-group-roles", method: http.MethodPost},
 		{url: "/portal/api/staff-roles", method: http.MethodGet},
 		{url: "/portal/api/staff-roles", method: http.MethodPost},
-		{url: "/portal/api/staff-role-grants", method: http.MethodGet},
-		{url: "/portal/api/staff-role-grants", method: http.MethodPost},
 		{url: "/portal/api/staff-sessions", method: http.MethodGet},
 		{url: "/portal/api/staff-sessions", method: http.MethodPost},
 		{url: "/portal/api/staff-sessions/testStaffSessionID", method: http.MethodGet},
@@ -386,6 +384,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-givable-roles", method: http.MethodPost},
 		{url: "/portal/api/staff-invited-tenants", method: http.MethodGet},
 		{url: "/portal/api/staff-invited-tenants", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-role-grants", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-role-grants", method: http.MethodPost},
 		{url: "/portal/api/staff-sign-in-methods", method: http.MethodGet},
 		{url: "/portal/api/staff-sign-in-methods", method: http.MethodPost},
 		{url: "/portal/api/staff-sign-in-ways", method: http.MethodGet},
@@ -492,8 +492,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/members-listed-group-roles", method: http.MethodPost},
 		{url: "/devices/members-roles", method: http.MethodGet},
 		{url: "/devices/members-roles", method: http.MethodPost},
-		{url: "/devices/members-role-grants", method: http.MethodGet},
-		{url: "/devices/members-role-grants", method: http.MethodPost},
 		{url: "/devices/members-sessions", method: http.MethodGet},
 		{url: "/devices/members-sessions", method: http.MethodPost},
 		{url: "/devices/members-sessions/testMembersSessionID", method: http.MethodGet},
@@ -586,8 +584,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-listed-group-roles", method: http.MethodPost},
 		{url: "/devices/staff-roles", method: http.MethodGet},
 		{url: "/devices/staff-roles", method: http.MethodPost},
-		{url: "/devices/staff-role-grants", method: http.MethodGet},
-		{url: "/devices/staff-role-grants", method: http.MethodPost},
 		{url: "/devices/staff-sessions", method: http.MethodGet},
 		{url: "/devices/staff-sessions", method: http.MethodPost},
 		{url: "/devices/staff-sessions/testStaffSessionID", method: http.MethodGet},
@@ -668,6 +664,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodPost},
 		{url: "/devices/members-givable-roles", method: http.MethodGet},
 		{url: "/devices/members-givable-roles", method: http.MethodPost},
+		{url: "/devices/members-listed-role-grants", method: http.MethodGet},
+		{url: "/devices/members-listed-role-grants", method: http.MethodPost},
 		{url: "/devices/members-take-lengths", method: http.MethodGet},
 		{url: "/devices/members-take-lengths", method: http.MethodPost},
 		{url: "/devices/members-takeable-roles", method: http.MethodGet},
@@ -678,6 +676,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-givable-roles", method: http.MethodPost},
 		{url: "/devices/staff-invited-tenants", method: http.MethodGet},
 		{url: "/devices/staff-invited-tenants", method: http.MethodPost},
+		{url: "/devices/staff-listed-role-grants", method: http.MethodGet},
+		{url: "/devices/staff-listed-role-grants", method: http.MethodPost},
 		{url: "/devices/staff-sign-in-methods", method: http.MethodGet},
 		{url: "/devices/staff-sign-in-methods", method: http.MethodPost},
 		{url: "/devices/staff-sign-in-ways", method: http.MethodGet},
@@ -1146,16 +1146,6 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-roles", method: http.MethodPost,
 			handlerFunc: "MembersRoles",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/portal/api/members-role-grants", method: http.MethodGet,
-			handlerFunc: "MembersRoleGrants",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/portal/api/members-role-grants", method: http.MethodPost,
-			handlerFunc: "MembersRoleGrants",
 			parameters:  map[string]string{},
 		},
 		{
@@ -1639,16 +1629,6 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/console/api/staff-role-grants", method: http.MethodGet,
-			handlerFunc: "StaffRoleGrants",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/console/api/staff-role-grants", method: http.MethodPost,
-			handlerFunc: "StaffRoleGrants",
-			parameters:  map[string]string{},
-		},
-		{
 			url: "/console/api/staff-sessions", method: http.MethodGet,
 			handlerFunc: "StaffSessions",
 			parameters:  map[string]string{},
@@ -2049,6 +2029,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/portal/api/members-listed-role-grants", method: http.MethodGet,
+			handlerFunc: "MembersListedRoleGrants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-role-grants", method: http.MethodPost,
+			handlerFunc: "MembersListedRoleGrants",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/portal/api/members-take-lengths", method: http.MethodGet,
 			handlerFunc: "MembersTakeLengths",
 			parameters:  map[string]string{},
@@ -2096,6 +2086,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/staff-invited-tenants", method: http.MethodPost,
 			handlerFunc: "StaffInvitedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-role-grants", method: http.MethodGet,
+			handlerFunc: "StaffListedRoleGrants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-role-grants", method: http.MethodPost,
+			handlerFunc: "StaffListedRoleGrants",
 			parameters:  map[string]string{},
 		},
 		{
@@ -2643,12 +2643,12 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 	return s.record("StaffListedGroupRoles")
 }
 
-func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
-	return s.record("StaffRoles")
+func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
+	return s.record("StaffListedRoleGrants")
 }
 
-func (s *generatedHandlersStub) StaffRoleGrants() http.HandlerFunc {
-	return s.record("StaffRoleGrants")
+func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
+	return s.record("StaffRoles")
 }
 
 func (s *generatedHandlersStub) StaffSessions() http.HandlerFunc {
@@ -3011,8 +3011,8 @@ func (s *generatedHandlersStub) MembersListedGroups() http.HandlerFunc {
 	return s.record("MembersListedGroups")
 }
 
-func (s *generatedHandlersStub) MembersRoleGrants() http.HandlerFunc {
-	return s.record("MembersRoleGrants")
+func (s *generatedHandlersStub) MembersListedRoleGrants() http.HandlerFunc {
+	return s.record("MembersListedRoleGrants")
 }
 
 func (s *generatedHandlersStub) MembersRoles() http.HandlerFunc {
