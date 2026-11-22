@@ -31,7 +31,9 @@
 // ASCII as one stand-in, the same for the same letter, with or without its marks and in
 // either case, throughout one judgment. A vowel sign or tone mark that a script types as a
 // character of its own, as Thai and Hindi do, is a character: it counts toward the password's
-// strength, and a name written with it counts against a password built on it.
+// strength, and a name written with it counts against a password built on it. A point a
+// person may leave off (a Hebrew, Arabic or Syriac point, an Indic nukta) is no character, so
+// a password or a name counts the same with or without its points.
 package passwordstrength
 
 import (
@@ -86,6 +88,14 @@ const (
 	// minLookAlike is the shortest word of the person's read in look-alike characters: a
 	// shorter one is spelled by chance in digits (471 for Ali) too often to count.
 	minLookAlike = 4
+
+	// nuktaClass is the canonical combining class of a nukta, the dot some Indic letters take
+	// for a borrowed sound.
+	nuktaClass = 7
+
+	// chandrabindu and anusvara are Devanagari's signs of a nasal vowel; Hindi writes the
+	// anusvara in the chandrabindu's place, so the reading gives the two one stand-in.
+	chandrabindu, anusvara = '\u0901', '\u0902'
 
 	// standIns are the characters a character outside ASCII that is not an accented letter or
 	// digit is read as, given in this order to each new such character of a judgment and
@@ -367,10 +377,10 @@ func newReading() *reading {
 // of is typed in NFC as the library is to read it: a character in ASCII as it is; outside
 // ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a ß as
 // ss and a capital ẞ as SS, a letter whose capital is in ASCII (the dotless ı) as that
-// letter in lower case, a mark NFC left on its own dropped when Unicode gives it no script of
-// its own (an accent typed apart from a letter it does not combine with), and any other
-// character as its stand-in, a vowel sign or tone mark that a script types as a character of
-// its own (Thai, Hindi) among them.
+// letter in lower case, a mark NFC left on its own dropped when it is one a person may leave
+// off (leftOff), a chandrabindu as an anusvara, and any other character as its stand-in, a
+// vowel sign or tone mark that a script types as a character of its own (Thai, Hindi) among
+// them.
 func (r *reading) of(typed string) string {
 	var text strings.Builder
 	for _, c := range norm.NFC.String(typed) {
@@ -394,14 +404,26 @@ func (r *reading) of(typed string) string {
 
 			continue
 		}
-		if unicode.IsMark(c) && unicode.Is(unicode.Inherited, c) {
-			// An accent on no letter it combines with is not a character a person counts.
+		if unicode.IsMark(c) && leftOff(c) {
+			// A mark a person may leave off is not a character a person counts.
 			continue
+		}
+		if c == chandrabindu {
+			c = anusvara
 		}
 		text.WriteByte(r.standInOf(c))
 	}
 
 	return text.String()
+}
+
+// leftOff says whether the mark c is one a person may leave off, so it is no character: a
+// mark Unicode gives no script of its own (an accent typed apart from a letter it does not
+// combine with), a point of Hebrew, Arabic or Syriac, scripts usually written without them,
+// and a nukta.
+func leftOff(c rune) bool {
+	return unicode.In(c, unicode.Inherited, unicode.Hebrew, unicode.Arabic, unicode.Syriac) ||
+		norm.NFC.PropertiesString(string(c)).CCC() == nuktaClass
 }
 
 // spelledInASCII are the letters a person spells with two ASCII letters: the sharp s (ß) as ss,

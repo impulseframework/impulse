@@ -108,6 +108,8 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a name with ss, typed with a ß", password: "Großkreutz2077", who: Details{Name: "Uwe Grosskreutz"}},
 		{name: "a Thai name with its vowel signs and tone mark", password: "กิตติศักดิ์2077", who: Details{Name: "กิตติศักดิ์ ศรีสุวรรณ"}},
 		{name: "a Hindi name with its vowel signs", password: "सुनीता2077!", who: Details{Name: "सुनीता शर्मा"}},
+		{name: "a Hindi name with a nukta, typed without it", password: "जाकिर2077!", who: Details{Name: "ज़ाकिर हुसैन"}},
+		{name: "a Hindi name with a chandrabindu, typed with an anusvara", password: "चांदनी2077!", who: Details{Name: "चाँदनी शर्मा"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -393,6 +395,11 @@ func TestReading_of(t *testing.T) {
 		{typed: "x\u0301", want: "x"},
 		{typed: "\u0e01\u0e34", want: standIns[:2]},
 		{typed: "\u0915\u093f", want: standIns[:2]},
+		{typed: "\u05e9\u05b8", want: standIns[:1]},
+		{typed: "\u0710\u0730", want: standIns[:1]},
+		{typed: "\u0628\u064e", want: standIns[:1]},
+		{typed: "\u091c\u093c", want: standIns[:1]},
+		{typed: "\u0915\u0901\u0915\u0902", want: standIns[:2] + standIns[:2]},
 	}
 	for _, tt := range tests {
 		if got := newReading().of(tt.typed); got != tt.want {
@@ -410,6 +417,27 @@ func TestJudge_aVowelSignTypedApartCounts(t *testing.T) {
 	}
 	if got := Judge("กขคงจ", Details{}, 30); got.StrongEnough {
 		t.Errorf("Judge(%q, 30) = %+v, want it short", "กขคงจ", got)
+	}
+}
+
+func TestJudge_aPointAPersonMayLeaveOffChangesNothing(t *testing.T) {
+	t.Parallel()
+
+	who := Details{Name: "יצחק לוי"}
+	for _, tt := range []struct{ pointed, plain string }{
+		{pointed: "שָׁלוֹם", plain: "שלום"},
+		{pointed: "יִצְחָק2077", plain: "יצחק2077"},
+	} {
+		if got, want := Judge(tt.pointed, Details{}, 30), Judge(tt.plain, Details{}, 30); got != want {
+			t.Errorf("Judge(%q) = %+v, want %+v as for %q: a point is no character", tt.pointed, got, want, tt.plain)
+		}
+		got, want := Judge(tt.pointed, who, 30), Judge(tt.plain, who, 30)
+		if got != want {
+			t.Errorf("Judge(%q, %+v) = %+v, want %+v as for %q: a point is no character", tt.pointed, who, got, want, tt.plain)
+		}
+		if got.StrongEnough {
+			t.Errorf("Judge(%q, %+v) = %+v, want it short", tt.pointed, who, got)
+		}
 	}
 }
 
