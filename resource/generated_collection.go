@@ -692,32 +692,8 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		g.setListsAcrossTenants(res.Name)
 	}
 
-	if res.Transition != nil {
-		if res.Transition.Target == "" || len(res.Transition.From) == 0 || res.Transition.To == "" {
-			return errors.Newf("method resource %q declares an incomplete transition", res.Name)
-		}
-		if res.Target != "" && res.Target != res.Transition.Target {
-			return errors.Newf("method resource %q declares target %q but its transition targets %q", res.Name, res.Target, res.Transition.Target)
-		}
-		g.setMethodTransition(res.Scope, res.Name, *res.Transition)
-	}
-
-	if res.Target != "" {
-		g.setMethodTarget(res.Scope, res.Name, res.Target)
-	}
-
-	if res.CallerEnters {
-		if res.Target == "" && res.Transition == nil {
-			return errors.Newf("method resource %q is offered only to a caller who enters its row's tenants but names no target row", res.Name)
-		}
-		g.setMethodCallerEnters(res.Scope, res.Name)
-	}
-
-	if len(res.OfferedOn) > 0 {
-		if err := refuseOfferedOn(res); err != nil {
-			return err
-		}
-		g.setMethodOfferedOn(res.Scope, res.Name, res.OfferedOn)
+	if err := g.addMethodDeclarations(res); err != nil {
+		return err
 	}
 
 	if res.Parent != "" {
@@ -753,6 +729,41 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		}
 	}
 	g.setResourceRequiredTags(res.Scope, res.Name, res.RequiredTags)
+
+	return nil
+}
+
+// addMethodDeclarations validates and stores what one CollectionResource declares as an
+// RPC method: its transition and target row, the mark of a method a row offers only to a
+// caller who enters its tenants, and the rows that offer a method that names none.
+func (g *GeneratedCollection) addMethodDeclarations(res *CollectionResource) error {
+	if res.Transition != nil {
+		if res.Transition.Target == "" || len(res.Transition.From) == 0 || res.Transition.To == "" {
+			return errors.Newf("method resource %q declares an incomplete transition", res.Name)
+		}
+		if res.Target != "" && res.Target != res.Transition.Target {
+			return errors.Newf("method resource %q declares target %q but its transition targets %q", res.Name, res.Target, res.Transition.Target)
+		}
+		g.setMethodTransition(res.Scope, res.Name, *res.Transition)
+	}
+
+	if res.Target != "" {
+		g.setMethodTarget(res.Scope, res.Name, res.Target)
+	}
+
+	if res.CallerEnters {
+		if res.Target == "" && res.Transition == nil {
+			return errors.Newf("method resource %q is offered only to a caller who enters its row's tenants but names no target row", res.Name)
+		}
+		g.setMethodCallerEnters(res.Scope, res.Name)
+	}
+
+	if len(res.OfferedOn) > 0 {
+		if err := refuseOfferedOn(res); err != nil {
+			return err
+		}
+		g.setMethodOfferedOn(res.Scope, res.Name, res.OfferedOn)
+	}
 
 	return nil
 }
