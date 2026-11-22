@@ -165,6 +165,16 @@ export interface OwnSessionsRoutes {
 }
 
 /**
+ * The paths of a signed-in person's own tenants: `list`, where their account page reads
+ * the tenants they hold something in (`ownTenants()`), and `leave`, where it takes them
+ * out of one at their own word (`leaveTenant()`).
+ */
+export interface OwnTenantsRoutes {
+  readonly list: string;
+  readonly leave: string;
+}
+
+/**
  * What the methods route answers: the methods in the order the server lists them, the
  * pending sign-in's routes, and the routes of the mailed links the server serves.
  */
@@ -248,6 +258,12 @@ export interface LoginMethods {
    * it.
    */
   readonly forgetBrowsers?: string;
+  /**
+   * The paths where a signed-in person reads the tenants they hold something in and leaves
+   * one. Absent on a server that does not serve them, and where the list names one of them
+   * and not the other.
+   */
+  readonly ownTenants?: OwnTenantsRoutes;
   /**
    * The password method's username is the person's email address: the form asks for the
    * address, and an account created from a mailed link takes no username of its own.
@@ -523,6 +539,28 @@ export interface OwnSession {
 }
 
 /**
+ * One of the tenants a signed-in person holds something in, as the server answers it: its
+ * key (`domain`), its name (the key where the server knows none), the roles the person
+ * holds there in words, why they cannot leave it (absent where they can), and whether
+ * leaving it deletes their account, the last thing the account holds.
+ */
+export interface OwnTenant {
+  readonly domain: string;
+  readonly name: string;
+  readonly roles: readonly string[];
+  readonly refusal?: string;
+  readonly deletesAccount: boolean;
+}
+
+/**
+ * What leaving one of a person's own tenants answers: `left`, with whether the account was
+ * deleted with it, or the server's refusal with its words: the tenant's last administrator
+ * (403), a tenant the person is not in (404), or a leave that would no longer do what the
+ * list said (409).
+ */
+export type LeaveTenantResult = { readonly outcome: 'left'; readonly accountDeleted: boolean } | SignInRefusal;
+
+/**
  * The look a person chose for the application's pages: light, dark or as their device is
  * set (`device`, under which a page is drawn light or dark as the device it is on is set),
  * and the id of one of the palettes the application offers. Either half may be absent,
@@ -684,6 +722,8 @@ const confirmRefusals: readonly number[] = [401, 403, 404, 409, 429];
 const codeRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 const statusRefusals: readonly number[] = [401, 403];
 const changeRefusals: readonly number[] = [400, 401, 403, 409];
+/** Leaving one of the person's own tenants: 403 for its last administrator, 404 for a tenant they are not in, 409 for a leave the list no longer describes. */
+const leaveRefusals: readonly number[] = [403, 404, 409];
 /** A change or a removal of the person's own password: as a change, and 429 for a name whose failed proofs reached the server's limit. */
 const proofRefusals: readonly number[] = [...changeRefusals, 429];
 /** A password strength question: 429 for a browser that asked too often. */
@@ -746,6 +786,20 @@ interface OwnSessionsAnswer {
   rememberedBrowsers?: unknown;
 }
 
+/** One of a person's own tenants as the server answers it, before it is checked. */
+interface OwnTenantAnswer {
+  domain?: unknown;
+  name?: unknown;
+  roles?: unknown;
+  refusal?: unknown;
+  deletesAccount?: unknown;
+}
+
+/** A person's own tenants as the server answers them, before they are checked. */
+interface OwnTenantsAnswer {
+  tenants?: (OwnTenantAnswer | null)[] | null;
+}
+
 /** The shape the methods route answers, before it is checked. */
 interface MethodsAnswer {
   methods?: Partial<LoginMethod>[] | null;
@@ -762,6 +816,7 @@ interface MethodsAnswer {
   usernameFree?: string | null;
   ownSessions?: Partial<OwnSessionsRoutes> | null;
   forgetBrowsers?: string | null;
+  ownTenants?: Partial<OwnTenantsRoutes> | null;
   usernameIsEmail?: boolean | null;
   invitation?: InvitationAnswer | null;
   email?: Partial<EmailRoutes> | null;
@@ -1453,6 +1508,64 @@ export class AuthClient {
     await this.options.request<null>('POST', list.forgetBrowsers, { absolute: true });
   }
 
+  /**
+   * Reads the tenants the signed-in person holds something in: reads the methods list
+   * again, then the list from the path it names. Each is `{ domain, name, roles, refusal?,
+   * deletesAccount }`, in the order the server sorts them: the roles held there in words,
+   * why the person cannot leave it where they cannot, and whether leaving it deletes their
+   * account. An entry with no key is left out, and a tenant the server names no name for is
+   * named by its key. A server whose list names no such paths serves none, and the call
+   * throws saying so.
+   */
+  async ownTenants(): Promise<readonly OwnTenant[]> {
+    const routes = await this.ownTenantsRoutes();
+    const response = await this.options.request<OwnTenantsAnswer | null>('GET', routes.list, { absolute: true });
+    const tenants = response.body?.tenants;
+    return (Array.isArray(tenants) ? tenants : [])
+      .filter((entry): entry is OwnTenantAnswer & { domain: string } => typeof entry?.domain === 'string')
+      .map((entry) => ({
+        domain: entry.domain,
+        name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : entry.domain,
+        roles: Array.isArray(entry.roles) ? entry.roles.filter((role): role is string => typeof role === 'string') : [],
+        ...(typeof entry.refusal === 'string' && entry.refusal !== '' ? { refusal: entry.refusal } : {}),
+        deletesAccount: entry.deletesAccount === true,
+      }));
+  }
+
+  /**
+   * Takes the signed-in person out of one of their tenants at their own word: reads the
+   * methods list again, then posts `{ domain, deletesAccount }` to the path it names,
+   * `deletesAccount` being what the list told the person. It resolves `left`, with whether
+   * the account was deleted with it, or the server's refusal with its words: the tenant's
+   * last administrator (403), a tenant the person is not in (404), or a leave that would no
+   * longer do what the list said (409). A server whose list names no such paths serves
+   * none, and the call throws saying so.
+   */
+  async leaveTenant(domain: string, deletesAccount: boolean): Promise<LeaveTenantResult> {
+    const routes = await this.ownTenantsRoutes();
+    const response = await this.options.request<{ accountDeleted?: unknown } | RefusalAnswer | null>(
+      'POST',
+      routes.leave,
+      { body: { domain, deletesAccount }, absolute: true, accept: leaveRefusals },
+    );
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return {
+      outcome: 'left',
+      accountDeleted: (response.body as { accountDeleted?: unknown } | null)?.accountDeleted === true,
+    };
+  }
+
+  /** The paths of the person's own tenants, from the methods list read again; it throws where the list names none. */
+  private async ownTenantsRoutes(): Promise<OwnTenantsRoutes> {
+    const list = await this.methods();
+    if (!list.ownTenants) {
+      throw new Error('this server names no your-tenants paths in its methods list: it does not serve one');
+    }
+    return list.ownTenants;
+  }
+
   /** The paths of the person's own sessions, from the methods list read again; it throws where the list names none. */
   private async ownSessionsRoutes(): Promise<OwnSessionsRoutes> {
     const list = await this.methods();
@@ -1910,6 +2023,15 @@ export class AuthClient {
     const forgetBrowsers = answer?.forgetBrowsers;
     if (typeof forgetBrowsers === 'string' && forgetBrowsers !== '') {
       list.forgetBrowsers = forgetBrowsers;
+    }
+    const ownTenants = answer?.ownTenants;
+    if (
+      typeof ownTenants?.list === 'string' &&
+      ownTenants.list !== '' &&
+      typeof ownTenants.leave === 'string' &&
+      ownTenants.leave !== ''
+    ) {
+      list.ownTenants = { list: ownTenants.list, leave: ownTenants.leave };
     }
     if (answer?.usernameIsEmail === true) {
       list.usernameIsEmail = true;
