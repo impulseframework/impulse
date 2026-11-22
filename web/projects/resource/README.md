@@ -633,7 +633,9 @@ entered while none stands (none sent; the one sent expired, was used or took its
 with `code_expired`, the twenty-fifth wrong code entered for one invitation, as every code
 after it, with `invitation_spent`, a code mailed for an invitation and entered in a browser that
 carries no invitation or another one with `invitation_not_open`, and one entered where its
-invitation has ended with `invitation_expired`. With `rememberDevice` the server remembers the browser, and this person's
+invitation has ended with `invitation_expired`. `enrollEmail(email)` and `verifyCode` answer
+`address_spent` when twenty-five wrong codes were entered for an address typed at this step: it
+takes no more, and an administrator adds the address to the account. With `rememberDevice` the server remembers the browser, and this person's
 next sign-ins from it skip the code for as long as the server keeps a remembered browser. A
 server whose pending routes name none of the three does not route them, and they throw saying so.
 

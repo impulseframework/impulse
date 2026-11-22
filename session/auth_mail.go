@@ -146,6 +146,32 @@ func errInvitationSpent() error {
 		httpio.NewUnauthorizedMessage("This invitation can't be used any more. Ask the person who invited you to send a new one."))
 }
 
+// addressGuessLimit is the budget of wrong codes entered for an address a person typed
+// at the sign-in code's step, where their account held none: twenty-five, and then the
+// address takes no more. Typing an address shows nothing about who reads it, and the
+// code mailed there is all that stands between the typist and the address written on
+// their account, confirmed. The count is kept under the address (addressGuessKey), so
+// the codes entered for it by every account that typed it, in every sign-in, are one
+// count; its window and its lock are the invitation's (invitationGuessHorizon), so no
+// time resets it. The right code resets it (clearAddressGuesses): it shows the mailbox's
+// reader. A person whose address is spent asks an administrator to put the address on
+// their account, and the code then goes to the address the account holds.
+var addressGuessLimit = sessionstorage.SignInAttemptLimit{Failures: 25, Window: invitationGuessHorizon, Lock: invitationGuessHorizon}
+
+// addressGuessKey is the key, in the sign-in attempts table, of the codes entered for
+// the address email typed at the sign-in code's step: the address folded as
+// mailLimitKey folds it, under a kind of its own.
+func addressGuessKey(email string) string {
+	return attempts.OwnKey(attempts.KindAddressGuess, attempts.Normalize(email))
+}
+
+// errAddressSpent is the refusal of a code asked for or entered for an address typed at
+// the sign-in code's step that takes no more codes (addressGuessLimit).
+func errAddressSpent() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedAddressSpent,
+		httpio.NewUnauthorizedMessage("This email address can't be confirmed with a code any more. Ask an administrator to add it to your account."))
+}
+
 // errInvitationNotOpen is the refusal of a code mailed for an invitation and entered in
 // a browser that does not have that invitation open (carriesInvitation).
 func errInvitationNotOpen() error {
@@ -682,6 +708,21 @@ func (a *Auth[S, U, Tx]) invitationSpent(ctx context.Context, inv *sessioninfo.I
 	return nil
 }
 
+// addressSpent refuses the address email, typed at the sign-in code's step, once the
+// wrong codes entered for it reached the limit (addressGuessLimit), with address_spent.
+// It reads the count and touches nothing.
+func (a *Auth[S, U, Tx]) addressSpent(ctx context.Context, email string) error {
+	record, err := a.storage.SignInAttempts(ctx, addressGuessKey(email))
+	if err != nil && !httpio.HasNotFound(err) {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
+	}
+	if _, locked := record.Locked(time.Now()); locked {
+		return errAddressSpent()
+	}
+
+	return nil
+}
+
 // takeInvitationGuess takes the place of a code entered for the pending MFA wait p in
 // the count of the invitation the code accepts (invitationGuessLimit), before the code
 // is judged: the store counts it in one transaction and says whether it was counted,
@@ -750,6 +791,26 @@ func (a *Auth[S, U, Tx]) countInvitationGuess(ctx context.Context, id impulse.UU
 	return locked, nil
 }
 
+// countAddressGuess takes the place of a code entered for the address email, typed at
+// the sign-in code's step, in that address's count (addressGuessLimit), before the code
+// is judged, and reports whether it took the last place. The store counts it in one
+// transaction and says whether it was counted: a code that was not, the address being
+// at its limit already, is refused with address_spent and compared with nothing. Codes
+// entered at once are each counted, so no more than the limit are ever judged for one
+// address.
+func (a *Auth[S, U, Tx]) countAddressGuess(ctx context.Context, email string) (last bool, err error) {
+	record, err := a.storage.RecordSignInFailure(ctx, addressGuessKey(email), addressGuessLimit)
+	if err != nil {
+		return false, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		return false, errAddressSpent()
+	}
+	_, locked := record.Locked(time.Now())
+
+	return locked, nil
+}
+
 // carriesInvitation refuses a code mailed for the invitation with id in a browser that
 // does not carry that invitation, live. One that carries no invitation, or another one
 // that is live, does not have the code's invitation open, and is answered so
@@ -804,6 +865,16 @@ func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 // clearMailLimit resets the address's other mail.
 func (a *Auth[S, U, Tx]) clearCodeLimit(ctx context.Context, email string) {
 	if err := a.storage.ClearSignInAttempts(ctx, codeLimitKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
+}
+
+// clearAddressGuesses resets the count of the wrong codes entered for the address email,
+// typed at the sign-in code's step, once its right code was entered: the person reads
+// the mailbox. It is bookkeeping after the proof: a failure is logged, and the sign-in
+// goes on.
+func (a *Auth[S, U, Tx]) clearAddressGuesses(ctx context.Context, email string) {
+	if err := a.storage.ClearSignInAttempts(ctx, addressGuessKey(email)); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
 	}
 }

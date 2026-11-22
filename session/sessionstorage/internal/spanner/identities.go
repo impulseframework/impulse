@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -99,13 +100,16 @@ func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context
 }
 
 // SignInConflict classifies an AlreadyExists a sign-in's transaction ended with: the
-// user table's username indexes, or else the identities table's key.
+// user table's username indexes, its address index, or else the identities table's key.
 func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	if spanner.ErrCode(err) != codes.AlreadyExists {
 		return dbtype.NoSignInConflict
 	}
 	if s.usernameConflict(err) {
 		return dbtype.UsernameConflict
+	}
+	if strings.Contains(err.Error(), s.emailIndex()) {
+		return dbtype.EmailConflict
 	}
 
 	return dbtype.IdentityConflict

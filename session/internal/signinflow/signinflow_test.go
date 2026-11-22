@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -40,11 +41,15 @@ const (
 	conflicts
 	// fails drops the writes and ends the transaction with errCommitFailed.
 	fails
+	// emailConflicts drops the writes and ends the transaction with errEmailConflict, as
+	// the users table refuses an address another account took at the same moment.
+	emailConflicts
 )
 
 var (
 	errIdentityConflict = errors.New("the identities key is taken")
 	errCommitFailed     = errors.New("the commit failed")
+	errEmailConflict    = errors.New("the address is another user's")
 )
 
 // memUser is a user row of the store.
@@ -54,6 +59,10 @@ type memUser struct {
 	name     string
 	// confirmed says the person has confirmed the address the row holds.
 	confirmed bool
+	// proof is the proof the row's password answers to, nil for no password, and
+	// disabled says the user is disabled.
+	proof    dbtype.PasswordProof
+	disabled bool
 }
 
 // memStore is the committed state, the steps taken against it, and what the next
@@ -91,14 +100,14 @@ func (s *memStore) invite(email, tenant string, roles ...string) *sessioninfo.In
 }
 
 // userNamed finds a committed user by username.
-func (s *memStore) userNamed(username string) (impulse.UUID, *memUser) {
-	for id, user := range s.users {
+func (s *memStore) userNamed(username string) *memUser {
+	for _, user := range s.users {
 		if user.username == username {
-			return id, user
+			return user
 		}
 	}
 
-	return impulse.NilUUID, nil
+	return nil
 }
 
 // memTx is one run of a transaction's closure: the writes it buffered, applied at the
@@ -122,6 +131,10 @@ type memDriver struct {
 	// usernamesAreAddresses says the store's usernames are the addresses
 	// (UsernameIsEmail), false unless a test sets it.
 	usernamesAreAddresses bool
+	// takenBeforeClaim is an address another account takes, committed, right before the
+	// next claim runs, as a write that commits between two statements of an acceptance
+	// does; "" for none.
+	takenBeforeClaim string
 }
 
 var _ Driver[*memTx] = (*memDriver)(nil)
@@ -156,6 +169,10 @@ func (d *memDriver) Transact(ctx context.Context, fn func(ctx context.Context, t
 			d.store.notef("commit failed")
 
 			return errCommitFailed
+		case emailConflicts:
+			d.store.notef("address conflict")
+
+			return errEmailConflict
 		case commits:
 		}
 		for _, write := range tx.writes {
@@ -197,25 +214,35 @@ func (d *memDriver) UserIn(_ context.Context, _ *memTx, userID impulse.UUID) (*d
 		return nil, httpio.NewNotFoundMessagef("user %s not found", userID)
 	}
 
-	return &dbtype.User{ID: userID, Username: user.username, EmailConfirmed: user.confirmed, EmailHeld: user.email != ""}, nil
+	return &dbtype.User{
+		ID: userID, Username: user.username, HasPassword: user.proof != nil, Disabled: user.disabled, PasswordProof: user.proof,
+		EmailConfirmed: user.confirmed, EmailHeld: user.email != "",
+	}, nil
 }
 
 func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UUID) (*dbtype.User, error) {
 	return d.UserIn(ctx, tx, userID)
 }
 
+// UserByUsernameIn finds a committed user as the stores find one, more widely than the
+// library compares two addresses: Unicode's case folding (strings.EqualFold) takes the
+// Kelvin sign for a k.
 func (d *memDriver) UserByUsernameIn(_ context.Context, _ *memTx, username string) (*dbtype.User, error) {
-	id, user := d.store.userNamed(username)
-	if user == nil {
-		return nil, nil
+	for id, user := range d.store.users {
+		if strings.EqualFold(user.username, username) {
+			return &dbtype.User{ID: id, Username: user.username}, nil
+		}
 	}
 
-	return &dbtype.User{ID: id, Username: user.username}, nil
+	return nil, nil
 }
 
+// UserByVerifiedEmailIn finds the committed user who holds email confirmed, as the stores
+// match an address: the case of its ASCII letters aside, every other character as
+// written.
 func (d *memDriver) UserByVerifiedEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
 	for id, user := range d.store.users {
-		if user.confirmed && user.email != "" && strings.EqualFold(user.email, email) {
+		if user.confirmed && user.email != "" && util.EqualASCIIFold(user.email, email) {
 			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: true, EmailHeld: true}, nil
 		}
 	}
@@ -244,11 +271,14 @@ func (d *memDriver) InsertSessionIn(_ context.Context, tx *memTx, _ impulse.UUID
 }
 
 func (d *memDriver) SignInConflict(err error) dbtype.SignInConflict {
-	if errors.Is(err, errIdentityConflict) {
+	switch {
+	case errors.Is(err, errIdentityConflict):
 		return dbtype.IdentityConflict
+	case errors.Is(err, errEmailConflict):
+		return dbtype.EmailConflict
+	default:
+		return dbtype.NoSignInConflict
 	}
-
-	return dbtype.NoSignInConflict
 }
 
 func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.UUID, _ time.Time) error {
@@ -262,12 +292,47 @@ func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.U
 }
 
 // ClaimVerifiedEmailIn writes email on the user, confirmed, unless the user holds a
-// confirmed address already.
+// confirmed address already or another user holds email, confirmed or not, as both
+// stores answer. The address another account takes right before the claim
+// (takenBeforeClaim) is stored first, committed.
 func (d *memDriver) ClaimVerifiedEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) (bool, error) {
+	if d.takenBeforeClaim != "" {
+		d.store.users[impulse.Must(impulse.NewUUID())] = &memUser{username: "other", email: d.takenBeforeClaim}
+		d.takenBeforeClaim = ""
+	}
 	if d.store.users[userID].confirmed {
 		return false, nil
 	}
+	for id, other := range d.store.users {
+		if id != userID && other.email != "" && util.EqualASCIIFold(other.email, email) {
+			return false, nil
+		}
+	}
 	tx.buffer(func() { d.store.users[userID].email, d.store.users[userID].confirmed = email, true })
+
+	return true, nil
+}
+
+// VerifyUserEmailIfHeldIn writes email on the user, confirmed, while the user holds held
+// exactly (nil: none) and no other user holds email; where the usernames are the
+// addresses it confirms the address alone, and only where email is the username.
+func (d *memDriver) VerifyUserEmailIfHeldIn(_ context.Context, tx *memTx, userID impulse.UUID, held *string, email string) (bool, error) {
+	user, ok := d.store.users[userID]
+	switch {
+	case !ok, held == nil && user.email != "", held != nil && user.email != *held:
+		return false, nil
+	case d.usernamesAreAddresses && (held == nil || !util.EqualASCIIFold(user.username, email)):
+		return false, nil
+	}
+	for id, other := range d.store.users {
+		if id != userID && other.email != "" && util.EqualASCIIFold(other.email, email) {
+			return false, nil
+		}
+	}
+	if d.usernamesAreAddresses {
+		email = user.email
+	}
+	tx.buffer(func() { user.email, user.confirmed = email, true })
 
 	return true, nil
 }
@@ -281,11 +346,11 @@ func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse
 	return true, nil
 }
 
-// UserByEmailIn finds the committed user who holds email, confirmed or not, without
-// regard to case.
+// UserByEmailIn finds the committed user who holds email, confirmed or not, as the
+// stores match an address: the case of its ASCII letters aside.
 func (d *memDriver) UserByEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
 	for id, user := range d.store.users {
-		if user.email != "" && strings.EqualFold(user.email, email) {
+		if user.email != "" && util.EqualASCIIFold(user.email, email) {
 			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: user.confirmed}, nil
 		}
 	}
@@ -352,7 +417,7 @@ func (h *roleHooks) signUp(_ context.Context, tx *memTx, _ impulse.UUID, usernam
 }
 
 func (h *roleHooks) userCommitted(username string) bool {
-	_, user := h.store.userNamed(username)
+	user := h.store.userNamed(username)
 
 	return user != nil
 }
@@ -524,6 +589,16 @@ func TestSignIn_aCommittedFunctionRunsOnceAfterTheCommitBeforeThePolicy(t *testi
 			next: []commitOutcome{conflicts},
 			wantSteps: []string{
 				"seat in run 1", "accept in run 1", "conflict",
+				"seat in run 2", "accept in run 2", "commit",
+				"seat of run 2 committed: user=true", "accept of run 2 committed: user=true invitation live=false",
+				"policy: pat@lakeside.edu holds [lakeside/Member Teacher] after 2 committed", "commit",
+			},
+		},
+		{
+			name: "the first resolution loses a race on the address a racing provisioning wrote on its own user and the flow resolves once more: only the second resolution's committed functions run",
+			next: []commitOutcome{emailConflicts},
+			wantSteps: []string{
+				"seat in run 1", "accept in run 1", "address conflict",
 				"seat in run 2", "accept in run 2", "commit",
 				"seat of run 2 committed: user=true", "accept of run 2 committed: user=true invitation live=false",
 				"policy: pat@lakeside.edu holds [lakeside/Member Teacher] after 2 committed", "commit",
@@ -896,7 +971,7 @@ func TestSignIn_theNameOfANewAccount(t *testing.T) {
 				t.Fatalf("SignIn() error = %v", err)
 			}
 
-			_, user := store.userNamed(stranger)
+			user := store.userNamed(stranger)
 			if user == nil {
 				t.Fatal("no account was created")
 			}
@@ -1170,7 +1245,7 @@ func TestSignIn_theMethodsRowDecidesAStranger(t *testing.T) {
 
 				return
 			}
-			if _, user := store.userNamed(stranger); user == nil || store.sessions != 1 {
+			if user := store.userNamed(stranger); user == nil || store.sessions != 1 {
 				t.Errorf("the store holds user %v and %d session(s), want the account made and signed in", user, store.sessions)
 			}
 			want := tt.wantGranted

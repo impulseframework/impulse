@@ -38,6 +38,16 @@ func TestSessionStorageDriver_SignInConflict(t *testing.T) {
 			want: dbtype.UsernameConflict,
 		},
 		{
+			name: "the address index refusing an address another user holds",
+			err:  &pgconn.PgError{Code: pgerrcode.UniqueViolation, TableName: "SessionUsers", ConstraintName: "SessionUsers_NormalizedEmail_idx"},
+			want: dbtype.EmailConflict,
+		},
+		{
+			name: "a wrapped address conflict",
+			err:  errors.Wrap(&pgconn.PgError{Code: pgerrcode.UniqueViolation, TableName: "SessionUsers", ConstraintName: "SessionUsers_NormalizedEmail_idx"}, "pgx.Tx.Exec()"),
+			want: dbtype.EmailConflict,
+		},
+		{
 			name: "the identities table refusing a link",
 			err:  &pgconn.PgError{Code: pgerrcode.UniqueViolation, TableName: "SessionIdentities"},
 			want: dbtype.IdentityConflict,

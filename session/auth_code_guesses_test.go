@@ -173,7 +173,7 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 		code.everyConsumeLands = everyConsumeLands
 
 		answers := fire(func(ctx context.Context, _ int) error {
-			_, err := f.auth.verifyEmailCode(ctx, pending, entered)
+			_, err := f.auth.verifyEmailCode(ctx, pending, nil, entered)
 
 			return err
 		})
@@ -243,7 +243,7 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 		code.taken, code.row.Attempts = emailCodeAttempts, emailCodeAttempts
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}, nil).AnyTimes()
 
-		_, err := f.auth.verifyEmailCode(context.Background(), pending, sent)
+		_, err := f.auth.verifyEmailCode(context.Background(), pending, nil, sent)
 		if sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedCodeExpired {
 			t.Errorf("the right code past the code's attempts was answered %v, want told no code stands", err)
 		}

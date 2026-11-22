@@ -7,21 +7,25 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
-// TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld holds the write of the address a
-// mailed sign-in code confirms to what the account held. The account is read before the
-// code is consumed and again after it: a code whose account holds another address at the
-// second read than at the first is dead, and the write is taken only while the account
-// still holds what the second read held, so an administrator's change that lands while
-// the code is being entered stands. A completion refused for either consumes no pending
-// sign-in, writes nothing and starts no session: the store's mock refuses every call it
-// was not told to expect.
+// TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld holds the address a mailed
+// sign-in code confirms to what the account held. The account is read before the code
+// is consumed and again after it: a code whose account holds another address at the
+// second read than at the first is dead, and a completion refused for it consumes no
+// pending sign-in, hands the store no sign-in and starts no session. Otherwise the code
+// step writes nothing: the sign-in hands the store the address to confirm with the
+// session (SignInRules.CodeAddress), held to what the second read held, and the store's
+// answer is the completion's, so an administrator's change that lands while the code is
+// being entered stands. The store's mock refuses every call it was not told to expect,
+// so no address is written outside the store's sign-in.
 func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 	t.Parallel()
 
@@ -37,52 +41,48 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 		confirmed     bool
 		// mailedTo is the address the code went to.
 		mailedTo string
-		// write says the completion writes the address, conditional on wantHeld (nil: no
-		// address); wantAddress is the address written where it is not the one mailed to,
-		// and written is what the store answers the write.
-		write       bool
+		// dead says the code is found dead before the wait is consumed. Otherwise the
+		// sign-in hands the store the address wantAddress (the one mailed to where it is
+		// "") to confirm, held to wantHeld (nil: no address), and the store answers
+		// signedIn: nil for a session.
+		dead        bool
 		wantHeld    *string
 		wantAddress string
-		written     error
-		// want is the completion's refusal: code_expired for a dead code, the server's
-		// error for a write that failed, and otherwise the refusal of the pending
-		// sign-in's consume, where this test ends a completion that goes on.
+		signedIn    error
+		// want is the completion's refusal, "" for a session.
 		want sessioninfo.LoginRefusalCode
 	}{
 		{
 			name:  "the account held an address nobody had confirmed when the code was checked and holds none once it is consumed: the code is dead",
-			first: held, mailedTo: held,
+			first: held, mailedTo: held, dead: true,
 			want: sessioninfo.RefusedCodeExpired,
 		},
 		{
-			name:     "the account holds no address at either read: the address the person who proved its password gave is written while it still holds none",
-			mailedTo: given, write: true,
-			want: sessioninfo.RefusedPendingExpired,
+			name:     "the account holds no address at either read: the address the person who proved its password gave is handed to the store, held to none",
+			mailedTo: given,
 		},
 		{
-			name:  "the account holds an address nobody has confirmed at both reads: it is written while the account still holds it",
-			first: held, second: held, mailedTo: held, write: true, wantHeld: strPtr(held),
-			want: sessioninfo.RefusedPendingExpired,
+			name:  "the account holds an address nobody has confirmed at both reads: it is handed to the store, held to itself",
+			first: held, second: held, mailedTo: held, wantHeld: strPtr(held),
 		},
 		{
-			name:  "the account holds the code's address in another spelling of its ASCII letters at both reads: it is confirmed as the account spells it",
-			first: "Pat@Lakeside.edu", second: "Pat@Lakeside.edu", mailedTo: held, write: true, wantHeld: strPtr("Pat@Lakeside.edu"), wantAddress: "Pat@Lakeside.edu",
-			want: sessioninfo.RefusedPendingExpired,
+			name:  "the account holds the code's address in another spelling of its ASCII letters at both reads: it is handed to the store as the account spells it",
+			first: "Pat@Lakeside.edu", second: "Pat@Lakeside.edu", mailedTo: held, wantHeld: strPtr("Pat@Lakeside.edu"), wantAddress: "Pat@Lakeside.edu",
 		},
 		{
-			name:  "the account's address changed after the second read, before the write: the code is dead",
-			first: held, second: held, mailedTo: held, write: true, wantHeld: strPtr(held), written: httpio.NewConflictMessage("the user no longer holds the address"),
-			want: sessioninfo.RefusedCodeExpired,
+			name:  "the store found the account's address changed after the second read: the code is dead",
+			first: held, second: held, mailedTo: held, wantHeld: strPtr(held),
+			signedIn: signinflow.Refusal("", sessioninfo.RefusedCodeExpired, errors.New("the user no longer holds the address"), "no sign-in code stands: ask for a new one"),
+			want:     sessioninfo.RefusedCodeExpired,
 		},
 		{
-			name:  "the write failed otherwise: the server's error",
-			first: held, second: held, mailedTo: held, write: true, wantHeld: strPtr(held), written: errors.New("the database is gone"),
+			name:  "the store's sign-in failed otherwise: the server's error",
+			first: held, second: held, mailedTo: held, wantHeld: strPtr(held), signedIn: errors.New("the database is gone"),
 			want: sessioninfo.RefusedInternalError,
 		},
 		{
-			name:  "the account holds a confirmed address at both reads: nothing is written",
-			first: held, second: held, confirmed: true, mailedTo: held,
-			want: sessioninfo.RefusedPendingExpired,
+			name:  "the account holds a confirmed address at both reads: it is handed to the store, which writes nothing on a confirmed account",
+			first: held, second: held, confirmed: true, mailedTo: held, wantHeld: strPtr(held),
 		},
 	}
 	for _, tt := range tests {
@@ -111,24 +111,37 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 				return accountHolding(userID, holds, tt.confirmed), nil
 			}).AnyTimes()
 			f.store.EXPECT().UserByEmail(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no user holds the address")).AnyTimes()
-			if tt.write {
-				address := tt.mailedTo
-				if tt.wantAddress != "" {
-					address = tt.wantAddress
+			if !tt.dead {
+				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(nil)
+				f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) { req.UserID, req.Username = userID, "pat" },
+					func(*sessioninfo.NewSessionRequest) error { return tt.signedIn })
+			}
+
+			outcome, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)
+
+			if tt.want == "" {
+				if err != nil || outcome == nil || outcome.pending != nil {
+					t.Errorf("completeWithEmailCode() = %+v, %v; want a session", outcome, err)
 				}
-				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, tt.wantHeld, address).Return(tt.written)
-			}
-			if tt.want == sessioninfo.RefusedPendingExpired {
-				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(httpio.NewNotFoundMessage("no live pending sign-in"))
-			}
-
-			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)
-
-			if got := sessioninfo.LoginRefusalCodeOf(err); err == nil || got != tt.want {
+			} else if got := sessioninfo.LoginRefusalCodeOf(err); err == nil || got != tt.want {
 				t.Errorf("completeWithEmailCode() error = %v (code %q), want the refusal %q", err, got, tt.want)
 			}
 			if len(consumedAtRead) < 2 || consumedAtRead[0] || !consumedAtRead[len(consumedAtRead)-1] {
 				t.Errorf("the account was read with the code consumed at each read: %v; want it read before the code was consumed and again after", consumedAtRead)
+			}
+			if tt.dead {
+				return
+			}
+			address := tt.mailedTo
+			if tt.wantAddress != "" {
+				address = tt.wantAddress
+			}
+			want := &sessionstorage.CodeAddress{Held: tt.wantHeld, Email: address}
+			if f.signedIn == nil {
+				t.Fatal("no sign-in reached the store, want the one that confirms the code's address")
+			}
+			if diff := cmp.Diff(want, f.signedIn.codeAddress); diff != "" {
+				t.Errorf("the address the sign-in handed the store to confirm (-want +got):\n%s", diff)
 			}
 		})
 	}

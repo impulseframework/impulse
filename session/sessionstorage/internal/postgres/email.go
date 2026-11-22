@@ -131,7 +131,7 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	defer span.End()
 
 	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`, nil)
+		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`)
 		if httpio.HasConflict(err) {
 			return errEmailTaken(email)
 		}
@@ -150,60 +150,6 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	}
 	if tag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
-	}
-
-	return nil
-}
-
-// errEmailChanged is the refusal of a write taken only while the user still holds an
-// address, once the user holds another, or none, or is gone.
-func errEmailChanged(userID impulse.UUID) error {
-	return httpio.NewConflictMessagef("user id %q no longer holds the email address the write was taken for", userID)
-}
-
-// stillHolds is the condition of a write of the user's row taken only while the user
-// still holds an address: email, or none for nil.
-type stillHolds struct {
-	email *string
-}
-
-// errNotHeld is renameUser's answer when its condition did not hold.
-var errNotHeld = errors.New("the user no longer holds the address")
-
-// VerifyUserEmailIfHeld is VerifyUserEmail taken only while the user still holds held
-// (nil: no address): the write of the address a mailed sign-in code proved, which is
-// good only for the address the account held when the code was checked. The condition
-// is in the statement that writes the user's row, so a change of the address that
-// commits between the check and the write is never written over: a user that holds
-// another address by then, or none, or is gone, is a Conflict, and so is an address
-// another user holds, and nothing is written.
-func (s *SessionStorageDriver) VerifyUserEmailIfHeld(ctx context.Context, userID impulse.UUID, held *string, email string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`, &stillHolds{email: held})
-		switch {
-		case errors.Is(err, errNotHeld), httpio.HasNotFound(err):
-			return errEmailChanged(userID)
-		case httpio.HasConflict(err):
-			return errEmailTaken(email)
-		}
-
-		return err
-	}
-
-	query := fmt.Sprintf(`UPDATE %s SET "Email" = $2, "EmailVerifiedAt" = now() WHERE "Id" = $1 AND "Email" IS NOT DISTINCT FROM $3`, s.userTable())
-	tag, err := s.conn.Exec(ctx, query, userID, email, held)
-	if err != nil {
-		if s.isEmailConflict(err) {
-			return errEmailTaken(email)
-		}
-
-		return errors.Wrap(err, "Queryer.Exec()")
-	}
-	if tag.RowsAffected() == 0 {
-		return errEmailChanged(userID)
 	}
 
 	return nil
@@ -247,6 +193,38 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = %s AND other."Id" <> $1)`, s.userTable(), s.userTable(), addressFold("$2"))
 	}
 	tag, err := tx.Exec(ctx, query, userID, email)
+	if err != nil {
+		return false, errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	return tag.RowsAffected() > 0, nil
+}
+
+// VerifyUserEmailIfHeldIn writes email on the user as their address, verified at the
+// transaction's time, inside tx, only while the user's row still holds held byte for
+// byte (nil: no address) and no other user holds email, and reports whether it wrote:
+// the address a mailed sign-in code confirms, written in the transaction that inserts
+// the session. The conditions are in the one statement that writes the row, so a
+// change of the address that commits before it is never written over, and a write it
+// does not make fails no statement: tx goes on and can commit. On a store whose
+// usernames are the addresses only the verified time is written, and only where the
+// row holds held and email is the user's username; held nil writes nothing there.
+func (s *SessionStorageDriver) VerifyUserEmailIfHeldIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID, held *string, email string) (bool, error) {
+	var query string
+	if s.usernameIsEmail {
+		if held == nil {
+			return false, nil
+		}
+		query = fmt.Sprintf(`
+			UPDATE %s SET "EmailVerifiedAt" = now()
+			WHERE "Id" = $1 AND "Email" IS NOT DISTINCT FROM $3 AND "NormalizedEmail" = %s`, s.userTable(), addressFold("$2"))
+	} else {
+		query = fmt.Sprintf(`
+			UPDATE %s u SET "Email" = $2, "EmailVerifiedAt" = now()
+			WHERE u."Id" = $1 AND u."Email" IS NOT DISTINCT FROM $3
+			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = %s AND other."Id" <> $1)`, s.userTable(), s.userTable(), addressFold("$2"))
+	}
+	tag, err := tx.Exec(ctx, query, userID, email, held)
 	if err != nil {
 		return false, errors.Wrap(err, "pgx.Tx.Exec()")
 	}

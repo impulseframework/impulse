@@ -263,8 +263,9 @@ func TestAuth_PasswordProof_Pending(t *testing.T) {
 // TestAuth_PasswordProof_Confirmation pins that the link and the session a password
 // confirmation makes rest on the proof of the password that confirmed: the store is
 // handed it with the link and with the sign-in, a sign-in the policy then holds for a
-// factor is held with it, and a link or a sign-in the store refuses because the
-// password has changed is answered as a wrong password is and counted as one.
+// factor is held with it, and one held in a wait that names no user is held with none,
+// and a link or a sign-in the store refuses because the password has changed is
+// answered as a wrong password is and counted as one.
 func TestAuth_PasswordProof_Confirmation(t *testing.T) {
 	t.Parallel()
 
@@ -334,6 +335,23 @@ func TestAuth_PasswordProof_Confirmation(t *testing.T) {
 		}
 		if got, want := f.held[again].PasswordProof, proofOf(t, hash); !bytes.Equal(got, want) {
 			t.Errorf("HoldSignIn() given the proof %x, want %x: the factor completes only while the confirming password stands", got, want)
+		}
+	})
+
+	t.Run("a sign-in held after the link for an invitation's code, in a wait that names no user, is held with no proof", func(t *testing.T) {
+		t.Parallel()
+		f, cookies, _ := held(t)
+		f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) { req.UserID, req.Username = userID, "pat" }, func(*sessioninfo.NewSessionRequest) error {
+			return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}}
+		})
+		again := f.expectHold("")
+
+		if rr := confirm(f, cookies); rr.Code != http.StatusOK {
+			t.Fatalf("confirmation = %d %s, want 200 with the step to take", rr.Code, rr.Body.String())
+		}
+		if row := f.held[again]; row.PasswordProof != nil || row.UserID.Valid {
+			t.Errorf("HoldSignIn() given the proof %x for the user %v, want no proof and no user: a proof names its user, and the wait names none", row.PasswordProof, row.UserID)
 		}
 	})
 
