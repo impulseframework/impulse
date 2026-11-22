@@ -36,7 +36,10 @@ type Store interface {
 	// SaveCode records the code issued for a request. ErrUnknownRequest when there is no
 	// such request.
 	SaveCode(ctx context.Context, id, code string) error
-	// DeleteRequest removes a request and its code; an ID with none is not an error.
+	// DeleteRequest removes a request and its code, ErrUnknownRequest when there is no
+	// such request. The answer and the removal are one decision: of two calls at the same
+	// moment for one request, one removes it and the other gets ErrUnknownRequest, which is
+	// how a code is exchanged once.
 	DeleteRequest(ctx context.Context, id string) error
 	// ExpireRequests removes every request created before the time and returns how
 	// many it removed.

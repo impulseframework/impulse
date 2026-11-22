@@ -244,9 +244,30 @@ func (s *Store) updateRequest(ctx context.Context, id string, columns any) error
 	return nil
 }
 
-// DeleteRequest removes a request and its code.
+// DeleteRequest removes a request and its code, refusing an ID with no request: the row is
+// read in the transaction that deletes it, so of two exchanges of one code at the same
+// moment one ends here with ErrUnknownRequest.
 func (s *Store) DeleteRequest(ctx context.Context, id string) error {
-	return s.apply(ctx, spanner.Delete(requests, spanner.Key{id}))
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if _, err := txn.ReadRow(ctx, requests, spanner.Key{id}, []string{"Id"}); err != nil {
+			if spanner.ErrCode(err) == codes.NotFound {
+				return persona.ErrUnknownRequest
+			}
+
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+
+		return txn.BufferWrite([]*spanner.Mutation{spanner.Delete(requests, spanner.Key{id})})
+	})
+	if err != nil {
+		if errors.Is(err, persona.ErrUnknownRequest) {
+			return persona.ErrUnknownRequest
+		}
+
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
 }
 
 // ExpireRequests removes every request created before the time.

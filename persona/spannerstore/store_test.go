@@ -188,6 +188,12 @@ func TestStore_Requests(t *testing.T) {
 	if err := store.DeleteRequest(ctx, want.ID); err != nil {
 		t.Fatalf("DeleteRequest() error = %v", err)
 	}
+	if err := store.DeleteRequest(ctx, want.ID); !errors.Is(err, persona.ErrUnknownRequest) {
+		t.Errorf("DeleteRequest() of a removed request: error = %v, want ErrUnknownRequest", err)
+	}
+	if err := store.DeleteRequest(ctx, "22222222-2222-4222-8222-222222222222"); !errors.Is(err, persona.ErrUnknownRequest) {
+		t.Errorf("DeleteRequest(unknown) error = %v, want ErrUnknownRequest", err)
+	}
 	if _, err := store.Request(ctx, want.ID); !errors.Is(err, persona.ErrUnknownRequest) {
 		t.Errorf("Request() after the delete: error = %v, want ErrUnknownRequest", err)
 	}

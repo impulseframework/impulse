@@ -101,9 +101,15 @@ func (s *storage) SaveAuthCode(ctx context.Context, id, code string) error {
 	return nil
 }
 
-// DeleteAuthRequest removes a request once its code is exchanged.
+// DeleteAuthRequest removes a request once its code is exchanged. It is the last step of
+// an exchange and the one that decides it: when another exchange of the same code removed
+// the request first, this one is refused and no token leaves.
 func (s *storage) DeleteAuthRequest(ctx context.Context, id string) error {
 	if err := s.svc.store.DeleteRequest(ctx, id); err != nil {
+		if errors.Is(err, ErrUnknownRequest) {
+			return oidc.ErrInvalidGrant().WithDescription("the sign-in's code was already used; start the sign-in again").WithParent(err)
+		}
+
 		return serverError("the sign-in request could not be removed", errors.Wrap(err, "persona.Store.DeleteRequest()"))
 	}
 

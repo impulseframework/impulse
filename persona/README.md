@@ -28,7 +28,9 @@ which persona into which environment.
 4. The picker shows the cast; a pick, or a `login_hint` naming a persona, completes the
    request. The browser returns to the application with a code, the application exchanges
    it for an ID token, and the token's subject is the persona's login. The application
-   links or creates its account from there as it does for any provider.
+   links or creates its account from there as it does for any provider. A code is
+   exchanged once: of two exchanges of one code at the same moment, one gets the tokens
+   and the other is refused.
 
 ## Mounting it in the host
 
