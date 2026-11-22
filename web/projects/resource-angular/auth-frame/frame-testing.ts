@@ -56,10 +56,11 @@ export const issuingDescriptor: ApiDescriptor = {
   },
 };
 
-/** The parts of a methods answer the account page reads: the password change and removal, what the person signs in with, forgetting this browser and the person's name. */
+/** The parts of a methods answer the account page reads: the password change, the question about a new password's strength, and the removal, what the person signs in with, forgetting this browser and the person's name. */
 export const passwordMethods = {
   methods: [],
   changePassword: '/api/user/password/change',
+  passwordStrength: '/api/user/password/strength',
   removePassword: '/api/user/password/remove',
   signInMeans: '/api/user/sign-in-means',
   forgetBrowser: '/api/user/browser/forget',

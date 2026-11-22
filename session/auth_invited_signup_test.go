@@ -192,6 +192,7 @@ func TestAuth_InvitedSignUp(t *testing.T) {
 	t.Run("the sign-up makes nobody and accepts nothing: it is held as a wait that names nobody, for the code that goes to the invited address", invitedSignUpWaits)
 	t.Run("the code is mailed to the invited address under the invitation's own count, and entering it makes the account, the address verified, and signs it in with the invitation proven", invitedSignUpByCode)
 	t.Run("where the username is the address, the account the code makes takes the invitation's address as its username", invitedSignUpUsernameIsEmail)
+	t.Run("where the username is the address, the password is judged against the address as its username, as the page asks about it", invitedSignUpJudgedAsAsked)
 	t.Run("a wrong code makes nobody and leaves the wait", invitedSignUpWrongCode)
 	t.Run("an address or a username another account holds is 409 in the store's words before anything is held or mailed", invitedSignUpTaken)
 	t.Run("the application's own step cannot complete a sign-up: 409, the wait left as it was", invitedSignUpNotTheApplications)
@@ -325,6 +326,23 @@ func invitedSignUpUsernameIsEmail(t *testing.T) {
 	if rr := f.enterCode(cookies, standingCode); rr.Code != http.StatusOK {
 		t.Errorf("VerifyCode() = %d %s, want 200", rr.Code, rr.Body.String())
 	}
+}
+
+func invitedSignUpJudgedAsAsked(t *testing.T) {
+	t.Parallel()
+	const address, name, password = "qz@lakeside.edu", "Quentin Zabrowski", "Quentin#2077x"
+	f, recorder, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+	links.expectAccounts(f)
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: address, Name: name, TenantID: "lakeside"}); err != nil {
+		t.Fatal(err)
+	}
+	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+
+	asked := map[string]string{"password": password, "username": address, "email": address, "name": name}
+	if got := strengthAnswered(t, askStrength(f.auth, f.password, strengthBody(t, asked), "10.0.0.9", "")); got["strongEnough"] != true {
+		t.Fatalf("the strength route asked as the page asks = %v, want strong enough: the case proves nothing", got)
+	}
+	signUpInvited(t, f, cookies, map[string]string{"password": password}, address)
 }
 
 func invitedSignUpWrongCode(t *testing.T) {

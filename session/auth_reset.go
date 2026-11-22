@@ -61,12 +61,14 @@ func (h *PasswordResetHandlers) Request() http.HandlerFunc {
 	return h.request
 }
 
-// Open accepts {"token"}, the token the mailed link carried, and answers {"username"}:
-// the name the account signs in under, which the person who forgot their password may
-// have forgotten too, and which following the link entitles them to. A token whose link
-// is no longer live, or whose account no longer holds the address the link was mailed
-// to or a password, is 404. It answers whatever self-service is set to, since an
-// administrator's link is followed here too.
+// Open accepts {"token"}, the token the mailed link carried, and answers {"username",
+// "name", "email"}: the name the account signs in under, which the person who forgot
+// their password may have forgotten too, and which following the link entitles them to,
+// with the account's name and address where it holds them, which the page sends with the
+// password it asks the server about. A token whose link is no longer live, or whose
+// account no longer holds the address the link was mailed to or a password, is 404. It
+// answers whatever self-service is set to, since an administrator's link is followed here
+// too.
 func (h *PasswordResetHandlers) Open() http.HandlerFunc {
 	return h.open
 }
@@ -280,10 +282,20 @@ func (a *Auth[S, U, Tx]) resetLink(ctx context.Context, token string) (link *ses
 	return link, user, nil
 }
 
-// passwordResetAnswer is what Open and Complete answer: the name the account signs in
-// under.
+// passwordResetAnswer is what Complete answers: the name the account signs in under.
 type passwordResetAnswer struct {
 	Username string `json:"username"`
+}
+
+// passwordResetOpenAnswer is what Open answers: the name the account signs in under, and
+// the account's name and address where it holds them. The page sends the three with the
+// password it asks the server about, so its bar is judged against what Complete judges
+// the password against (detailsOf). Whoever holds the link reads the mailbox it was
+// sent to.
+type passwordResetOpenAnswer struct {
+	Username string `json:"username"`
+	Name     string `json:"name,omitempty"`
+	Email    string `json:"email,omitempty"`
 }
 
 // passwordResetOpen is PasswordReset().Open().
@@ -301,7 +313,9 @@ func (a *Auth[S, U, Tx]) passwordResetOpen() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(passwordResetAnswer{Username: user.Username})
+		who := detailsOf(user)
+
+		return httpio.NewEncoder(w).Ok(passwordResetOpenAnswer{Username: who.Username, Name: who.Name, Email: who.Email})
 	})
 }
 

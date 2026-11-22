@@ -6,12 +6,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { ScriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
-import {
-  AccountPageComponent,
-  firstPasswordsDiffer,
-  passwordRemovalConsequence,
-  passwordsDiffer,
-} from './account-page.component';
+import { AccountPageComponent, passwordRemovalConsequence } from './account-page.component';
 import { notNamedFor, passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 
 // The person's account page holds a section only where their sign-in offers it: their name
@@ -24,6 +19,14 @@ import { notNamedFor, passwordMethods, provideFrameTesting, SpecServer, specTran
 
 /** Where the spec's server serves the choice of a first password. */
 const firstPasswordRoutes = { sendCode: '/api/user/first-password/code', set: '/api/user/first-password' };
+
+/** The server's answer about a password it calls strong enough, as it answers by default. */
+const strong: TransportResponse = { status: 200, body: { strongEnough: true, strength: 80, minimum: 50 } };
+/** The server's answer about a password it calls too easy to guess. */
+const weak: TransportResponse = {
+  status: 200,
+  body: { strongEnough: false, strength: 20, minimum: 50, reason: 'Add another word or two.' },
+};
 
 interface Setup {
   methods?: Record<string, unknown>;
@@ -47,6 +50,8 @@ interface Setup {
    * what the person signs in with answers a password from then on.
    */
   firstPasswordSet?: TransportResponse;
+  /** What the server answers a question about a new password's strength with; unset, strong enough. A test changes it with `strengthAnswer`. */
+  strength?: TransportResponse;
 }
 
 describe('AccountPageComponent', () => {
@@ -57,6 +62,11 @@ describe('AccountPageComponent', () => {
   const text = (selector: string): string | undefined =>
     element().querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim();
   const posted = (): string[] => transport.requests.filter((r) => r.method === 'POST').map((r) => r.url);
+  /** The bodies of the questions about a new password's strength, in order. */
+  const strengthAsked = (): unknown[] =>
+    transport.requests.filter((r) => r.url === passwordMethods.passwordStrength).map((r) => r.body);
+  /** What the spec's server answers a question about a new password's strength with, from now on. */
+  let strengthAnswer: TransportResponse = strong;
   // A form box takes its model's value a moment after the view is drawn: settle waits it out.
   const settle = async (): Promise<void> => {
     await TestBed.inject(ApplicationRef).whenStable();
@@ -73,12 +83,15 @@ describe('AccountPageComponent', () => {
     means,
     firstPasswordCode,
     firstPasswordSet,
+    strength = strong,
   }: Setup): Promise<void> => {
     let meansNow = means;
+    strengthAnswer = strength;
     // The session the spec's server answers: a saved name is answered from then on, in an
     // answer of its own, as a server's every read is.
     const server: SpecServer = {
-      methods: { methods: [], ...methods },
+      // The question about a new password's strength is served wherever the page could ask it.
+      methods: { methods: [], passwordStrength: passwordMethods.passwordStrength, ...methods },
       session: { authenticated: true, username: 'gale', browserRemembered: remembered, ...session },
       other: (url) => {
         if (url.pathname === passwordMethods.changeName && nameAnswer) {
@@ -110,6 +123,9 @@ describe('AccountPageComponent', () => {
         }
         if (url.pathname === passwordMethods.signInMeans && meansNow) {
           return meansNow;
+        }
+        if (url.pathname === passwordMethods.passwordStrength) {
+          return strengthAnswer;
         }
         return url.pathname.startsWith('/api/user/') ? { status: 200, body: null } : undefined;
       },
@@ -270,25 +286,19 @@ describe('AccountPageComponent', () => {
     expect(TestBed.inject(Account).any()).toBe(false);
   });
 
-  it('refuses two new passwords that differ without asking the server', async () => {
-    await open({ methods: { changePassword: passwordMethods.changePassword } });
-    type('oldPassword', 'old');
-    type('newPassword', 'new one');
-    type('newPasswordAgain', 'new two');
-    await fixture.componentInstance.changePassword();
-    fixture.detectChanges();
-    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(passwordsDiffer);
-    expect(posted()).toEqual([]);
-  });
-
   it('changes the password at the path the server names, and says so', async () => {
     await open({ methods: { changePassword: passwordMethods.changePassword } });
     type('oldPassword', 'old');
     type('newPassword', 'new one');
-    type('newPasswordAgain', 'new one');
+    await settle();
     await fixture.componentInstance.changePassword();
     fixture.detectChanges();
-    expect(posted()).toEqual([passwordMethods.changePassword]);
+    // The box asks about the empty password once it is drawn, to learn where its mark sits, then about what was typed.
+    expect(posted()).toEqual([
+      passwordMethods.passwordStrength,
+      passwordMethods.passwordStrength,
+      passwordMethods.changePassword,
+    ]);
     expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe('Your password is changed.');
   });
 
@@ -354,6 +364,7 @@ describe('AccountPageComponent', () => {
 
   it('asks before it removes, saying what is left to sign in through, and asks the server nothing when the person keeps the password', async () => {
     await open({ methods: removal, means: linkedToLakeside });
+    // The change's box asked about the empty password when it was drawn, to learn where its mark sits.
     type('removalPassword', 'old');
     (element().querySelector('button.impulse-account-page-remove-submit') as HTMLButtonElement).click();
     await settle();
@@ -363,12 +374,12 @@ describe('AccountPageComponent', () => {
     expect(text('.impulse-account-page-remove-password button.impulse-account-page-remove-confirm')).toBe(
       'Remove password',
     );
-    expect(posted()).toEqual([]);
+    expect(posted()).toEqual([passwordMethods.passwordStrength]);
     (element().querySelector('button.impulse-account-page-remove-keep') as HTMLButtonElement).click();
     await settle();
     expect(element().querySelector('.impulse-account-page-remove-password .impulse-account-page-question')).toBeNull();
     expect(box('removalPassword')).not.toBeNull();
-    expect(posted()).toEqual([]);
+    expect(posted()).toEqual([passwordMethods.passwordStrength]);
   });
 
   it('removes the password at the path the server names, with the password as proof, and says what is left', async () => {
@@ -377,8 +388,9 @@ describe('AccountPageComponent', () => {
     fixture.componentInstance.askToRemovePassword();
     await fixture.componentInstance.removePassword();
     await settle();
-    expect(posted()).toEqual([passwordMethods.removePassword]);
-    expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ password: 'old' });
+    // The change's box asked about the empty password when it was drawn.
+    expect(posted()).toEqual([passwordMethods.passwordStrength, passwordMethods.removePassword]);
+    expect(transport.requests.find((r) => r.url === passwordMethods.removePassword)?.body).toEqual({ password: 'old' });
     expect(text('.impulse-account-page-password h2')).toBe('Your password');
     expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
       'Your password is removed. You will sign in through Lakeside only.',
@@ -399,7 +411,7 @@ describe('AccountPageComponent', () => {
     fixture.componentInstance.askToRemovePassword();
     await fixture.componentInstance.removePassword();
     await settle();
-    expect(posted()).toEqual([passwordMethods.removePassword]);
+    expect(posted()).toEqual([passwordMethods.passwordStrength, passwordMethods.removePassword]);
     expect(text('.impulse-account-page-remove-password .impulse-account-page-message')).toBe(onlyWay);
     expect(element().querySelector('.impulse-account-page-remove-password .impulse-account-page-question')).toBeNull();
     expect(box('removalPassword')).not.toBeNull();
@@ -493,7 +505,7 @@ describe('AccountPageComponent', () => {
     expect(text('button.impulse-account-page-first-code')).toBe('Email me a code');
     // Nothing is typed until a code is on its way.
     expect(box('firstPasswordCode')).toBeNull();
-    expect(box('firstPassword')).toBeNull();
+    expect(box('newPassword')).toBeNull();
     expect(element().querySelector('.impulse-account-page-password')).toBeNull();
     expect(element().querySelector('.impulse-account-page-none')).toBeNull();
     expect(TestBed.inject(Account).any()).toBe(true);
@@ -532,7 +544,8 @@ describe('AccountPageComponent', () => {
     await open({ methods: choosing, means: signsInWith(false, true) });
     click('button.impulse-account-page-first-code');
     await settle();
-    expect(posted()).toEqual([firstPasswordRoutes.sendCode]);
+    // The password's box, drawn with the code's, asks about the empty password to learn where its mark sits.
+    expect(posted()).toEqual([firstPasswordRoutes.sendCode, passwordMethods.passwordStrength]);
     expect(text('.impulse-account-page-first-password .impulse-account-page-sent')).toBe(
       'We sent a code to g•••@lakeside.edu. Enter it with your password.',
     );
@@ -540,12 +553,17 @@ describe('AccountPageComponent', () => {
     expect(text('button.impulse-account-page-first-submit')).toBe('Set the password');
 
     type('firstPasswordCode', '483920');
-    type('firstPassword', 'a harbor of my own');
-    type('firstPasswordAgain', 'a harbor of my own');
+    type('newPassword', 'a harbor of my own');
+    await settle();
     await fixture.componentInstance.setFirstPassword();
     await settle();
-    expect(posted()).toEqual([firstPasswordRoutes.sendCode, firstPasswordRoutes.set]);
-    expect(transport.requests.filter((r) => r.method === 'POST')[1].body).toEqual({
+    expect(posted()).toEqual([
+      firstPasswordRoutes.sendCode,
+      passwordMethods.passwordStrength,
+      passwordMethods.passwordStrength,
+      firstPasswordRoutes.set,
+    ]);
+    expect(transport.requests.filter((r) => r.method === 'POST')[3].body).toEqual({
       code: '483920',
       password: 'a harbor of my own',
     });
@@ -559,19 +577,6 @@ describe('AccountPageComponent', () => {
     // The person holds a password now, wherever else the page is opened.
     expect(TestBed.inject(Account).firstPassword()).toBe(false);
     expect(TestBed.inject(Account).password()).toBe(true);
-  });
-
-  it('refuses two passwords that differ without asking the server', async () => {
-    await open({ methods: choosing, means: signsInWith(false, true) });
-    click('button.impulse-account-page-first-code');
-    await settle();
-    type('firstPasswordCode', '483920');
-    type('firstPassword', 'a harbor of my own');
-    type('firstPasswordAgain', 'a harbor of my owm');
-    await fixture.componentInstance.setFirstPassword();
-    await settle();
-    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(firstPasswordsDiffer);
-    expect(posted()).toEqual([firstPasswordRoutes.sendCode]);
   });
 
   it("shows the server's words when it refuses the code, and asks for nothing more", async () => {
@@ -600,8 +605,8 @@ describe('AccountPageComponent', () => {
     click('button.impulse-account-page-first-code');
     await settle();
     type('firstPasswordCode', '000000');
-    type('firstPassword', 'a harbor of my own');
-    type('firstPasswordAgain', 'a harbor of my own');
+    type('newPassword', 'a harbor of my own');
+    await settle();
     await fixture.componentInstance.setFirstPassword();
     await settle();
     expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(wrongCode);
@@ -711,5 +716,98 @@ describe('AccountPageComponent', () => {
       'This browser will ask for the emailed code the next time you sign in here.',
     );
     expect(element().querySelector('.impulse-account-page-browser button.impulse-account-page-forget')).toBeNull();
+  });
+
+  // Both forms that set a password ask for it once, in the box that asks the server how
+  // strong it is, and keep their button disabled until the server calls it strong enough.
+  const boxesIn = (selector: string): string[] =>
+    Array.from(element().querySelectorAll<HTMLInputElement>(`${selector} input`)).map((input) => input.name);
+  const disabled = (selector: string): boolean | undefined =>
+    element().querySelector<HTMLButtonElement>(selector)?.disabled;
+  /** Opens the choice of a first password with its code mailed, so that its form is drawn. */
+  const openFirstPassword = async (setup: Setup = {}): Promise<void> => {
+    await open({ methods: choosing, means: signsInWith(false, true), ...setup });
+    click('button.impulse-account-page-first-code');
+    await settle();
+  };
+
+  it('asks for the new password once in each form that sets one: the change beside the current password, the first password beside the code', async () => {
+    await open({ methods: { changePassword: passwordMethods.changePassword } });
+    expect(boxesIn('.impulse-account-page-password form')).toEqual(['oldPassword', 'newPassword']);
+    expect(text('.impulse-account-page-password impulse-new-password mat-label')).toBe('New password');
+    TestBed.resetTestingModule();
+    await openFirstPassword();
+    expect(boxesIn('.impulse-account-page-first-password form')).toEqual(['firstPasswordCode', 'newPassword']);
+    expect(text('.impulse-account-page-first-password impulse-new-password mat-label')).toBe('Password');
+  });
+
+  it("keeps the change's button disabled, and the change posts nothing, until the current password is given and the server calls the new one strong enough", async () => {
+    await open({ methods: { changePassword: passwordMethods.changePassword }, strength: weak });
+    const submit = 'button.impulse-account-page-change-submit';
+    expect(disabled(submit)).toBe(true);
+    type('oldPassword', 'old');
+    type('newPassword', 'kestrel');
+    await settle();
+    expect(fixture.componentInstance.strongEnough()).toBe(false);
+    expect(disabled(submit)).toBe(true);
+    await fixture.componentInstance.changePassword();
+    await settle();
+    expect(posted()).not.toContain(passwordMethods.changePassword);
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBeUndefined();
+
+    strengthAnswer = strong;
+    type('newPassword', 'kestrel-vaughn-orbit');
+    type('oldPassword', '');
+    await settle();
+    expect(fixture.componentInstance.strongEnough()).toBe(true);
+    expect(disabled(submit)).toBe(true);
+    await fixture.componentInstance.changePassword();
+    await settle();
+    expect(posted()).not.toContain(passwordMethods.changePassword);
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBeUndefined();
+
+    type('oldPassword', 'old');
+    await settle();
+    expect(disabled(submit)).toBe(false);
+    await fixture.componentInstance.changePassword();
+    await settle();
+    expect(posted()).toContain(passwordMethods.changePassword);
+  });
+
+  it("keeps the first password's button disabled, and posts nothing, until the server calls the password strong enough", async () => {
+    await openFirstPassword({ strength: weak });
+    const submit = 'button.impulse-account-page-first-submit';
+    expect(disabled(submit)).toBe(true);
+    type('firstPasswordCode', '483920');
+    type('newPassword', 'kestrel');
+    await settle();
+    expect(fixture.componentInstance.strongEnough()).toBe(false);
+    expect(disabled(submit)).toBe(true);
+    await fixture.componentInstance.setFirstPassword();
+    await settle();
+    expect(posted()).not.toContain(firstPasswordRoutes.set);
+    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBeUndefined();
+
+    strengthAnswer = strong;
+    type('newPassword', 'kestrel-vaughn-orbit');
+    await settle();
+    expect(disabled(submit)).toBe(false);
+    await fixture.componentInstance.setFirstPassword();
+    await settle();
+    expect(posted()).toContain(firstPasswordRoutes.set);
+  });
+
+  it("asks about the new password with the session's username, name and address, in either form", async () => {
+    const session = { name: 'Gale Reyes', email: 'gale@lakeside.edu' };
+    const asked = { password: 'a harbor of my own', username: 'gale', name: 'Gale Reyes', email: 'gale@lakeside.edu' };
+    await open({ methods: { changePassword: passwordMethods.changePassword }, session });
+    type('newPassword', 'a harbor of my own');
+    await settle();
+    expect(strengthAsked().at(-1)).toEqual(asked);
+    TestBed.resetTestingModule();
+    await openFirstPassword({ session });
+    type('newPassword', 'a harbor of my own');
+    await settle();
+    expect(strengthAsked().at(-1)).toEqual(asked);
   });
 });

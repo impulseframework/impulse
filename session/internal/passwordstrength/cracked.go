@@ -21,10 +21,17 @@ const entrySize = 6
 var cracked []byte
 
 // listed says whether password, whole and as typed, is on the list of passwords found in
-// breaches.
+// breaches. The password is hashed in pieces of 1,024 bytes, each copied into one array, so a
+// long password is never copied whole.
 func listed(password string) bool {
-	sum := sha256.Sum256([]byte(password))
-	key := sum[:entrySize]
+	hash := sha256.New()
+	var piece [1024]byte
+	for rest := password; rest != ""; {
+		n := copy(piece[:], rest)
+		hash.Write(piece[:n])
+		rest = rest[n:]
+	}
+	key := hash.Sum(nil)[:entrySize]
 	n := len(cracked) / entrySize
 	i := sort.Search(n, func(i int) bool {
 		return bytes.Compare(entryAt(i), key) >= 0

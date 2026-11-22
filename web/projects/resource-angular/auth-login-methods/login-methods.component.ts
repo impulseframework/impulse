@@ -9,6 +9,7 @@ import {
   output,
   PendingTasks,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -32,6 +33,7 @@ import {
   SignInRefusal,
   SignInResult,
 } from '@impulseframework/resource';
+import { NewPasswordComponent } from '@impulseframework/resource-angular/auth-new-password';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular/resource-client';
 import { FRONTEND_LOGIN_PATH, FRONTEND_SIGN_OUT_PATH, SessionInfo } from '@impulseframework/resource-angular/types';
@@ -48,6 +50,8 @@ import { filter, map } from 'rxjs/operators';
 export interface AccountForm {
   readonly source: 'invitation' | 'signUp';
   readonly email: string;
+  /** The person's name as the inviter gave it, for an invitation; empty for a sign-up and where the inviter gave none. */
+  readonly name: string;
   readonly usernameIsEmail: boolean;
   /** The sign-up link's token; absent for an invitation, which the browser carries. */
   readonly token?: string;
@@ -216,17 +220,19 @@ export interface Landing {
  * A session the sign-in establishes may carry `passwordChangeRequired`: the person must
  * change their password, and the server serves nothing but the password change until
  * they set a new one. The component then renders the change form in the list's place,
- * with the sentence the application holds for `password_change_required` over it, posts
- * the old and the new password through the client to the change path the methods list
- * names, checks the session again and emits `signedIn` with the page recorded at the
- * sign-in; a refusal (the old password did not match, the new one fails the server's
- * rule) is rendered in place. Canceling the change ends the session and shows the list
- * again. Everything around the methods, the branding, a manifest, a forgotten-password
- * link, is the page's, composed around the component.
+ * with the sentence the application holds for `password_change_required` over it. The
+ * form asks for the current password and for the new one once, in `<impulse-new-password>`,
+ * and its button stays disabled until the current password is given and the server calls
+ * the new one strong enough. It posts the old and the new password through the client to
+ * the change path the methods list names, checks the session again and emits `signedIn`
+ * with the page recorded at the sign-in; a refusal (the old password did not match, the
+ * new one fails the server's rule) is rendered in place. Canceling the change ends the
+ * session and shows the list again. Everything around the methods, the branding, a
+ * manifest, a forgotten-password link, is the page's, composed around the component.
  */
 @Component({
   selector: 'impulse-login-methods',
-  imports: [FormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule],
+  imports: [FormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule, NewPasswordComponent],
   templateUrl: './login-methods.component.html',
   styleUrl: './login-methods.component.scss',
 })
@@ -266,20 +272,29 @@ export class LoginMethodsComponent implements OnInit {
   codeEmail = '';
   oldPassword = '';
   newPassword = '';
-  newPasswordAgain = '';
-  /** The account form's fields: the username where the person chooses one, and the password, typed twice. */
+  /** The account form's fields: the username where the person chooses one, and the password. */
   accountUsername = '';
   accountPassword = '';
-  accountPasswordAgain = '';
   /** The address a sign-up asks its link for. */
   signUpEmail = '';
   /** The address a person asks a password reset link for. */
   resetEmail = '';
-  /** The new password a reset link's reader chooses, typed twice. */
+  /** The new password a reset link's reader chooses. */
   resetPassword = '';
-  resetPasswordAgain = '';
   /** A request of the component is in flight; its controls are disabled meanwhile. */
   busy = signal(false);
+  /** The new password's box of the form drawn: the change form's, the account form's or the reset form's, one at a time. */
+  private newPasswordBox = viewChild(NewPasswordComponent);
+  /**
+   * The server called the new password now in the drawn form's box strong enough: the
+   * form's button stays disabled until it does. False while no such box is drawn.
+   */
+  strongEnough = computed(() => this.newPasswordBox()?.strongEnough() ?? false);
+  /** What the session holds of the person, sent with the change form's question about the new password; empty for what it does not hold. */
+  protected sessionDetails = computed(() => {
+    const info = this.auth.sessionInfo();
+    return { username: info.username ?? '', name: info.name ?? '', email: info.email ?? '' };
+  });
   /**
    * The server holds its mail to the address: a code or link asked for was refused with
    * `too_many_emails`, and the wait it named has not passed. The buttons that ask for that
@@ -366,7 +381,9 @@ export class LoginMethodsComponent implements OnInit {
   /** The address a reset link was asked for: the note says what happens next, whatever the address's state. */
   resetAsked = signal<string | undefined>(undefined);
   /** A password reset link was opened: the form that takes the new password of this username is shown. */
-  resetting = signal<{ readonly token: string; readonly username: string } | undefined>(undefined);
+  resetting = signal<
+    { readonly token: string; readonly username: string; readonly name: string; readonly email: string } | undefined
+  >(undefined);
   /** The password was reset: the note says so, and the person goes back to sign in. */
   resetDone = signal(false);
   /** The token of a link that confirms an address an administrator set: the page asks before it confirms. */
@@ -819,24 +836,26 @@ export class LoginMethodsComponent implements OnInit {
     this.refusal.set(undefined);
     this.signingInExisting.set(false);
     this.accountOpenedItself.set(itself);
-    this.account.set({ source: 'invitation', email: invitation.email, usernameIsEmail: invitation.usernameIsEmail });
+    this.account.set({
+      source: 'invitation',
+      email: invitation.email,
+      name: invitation.name,
+      usernameIsEmail: invitation.usernameIsEmail,
+    });
   }
 
   /**
-   * Posts the account form: the password, typed twice, and the username where the person
-   * chooses one. Two passwords that differ are refused here, with no request; the server's
-   * refusal is rendered in place, and one that says the link is gone returns to the list.
+   * Posts the account form: the password, and the username where the person chooses one.
+   * Nothing is posted until the server calls the password strong enough, as the form's
+   * button says; the server's refusal is rendered in place, and one that says the link is
+   * gone returns to the list.
    * An account the server creates is signed in, and the sign-in is followed as any other.
    * An invitation's account is not created yet: the server holds it for the code mailed to
    * the invited address, and the code step takes the form's place.
    */
   createAccount(): Promise<void> {
     const form = this.account();
-    if (this.busy() || !form) {
-      return Promise.resolve();
-    }
-    if (this.accountPassword !== this.accountPasswordAgain) {
-      this.refusal.set(PASSWORDS_DIFFER);
+    if (this.busy() || !form || !this.strongEnough()) {
       return Promise.resolve();
     }
     return this.step(async () => {
@@ -917,14 +936,14 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
-  /** Sets the new password a reset link's reader chose: every session of theirs ends, and they sign in with it. */
+  /**
+   * Sets the new password a reset link's reader chose: every session of theirs ends, and
+   * they sign in with it. Nothing is posted until the server calls the password strong
+   * enough, as the form's button says.
+   */
   completeReset(): Promise<void> {
     const link = this.resetting();
-    if (this.busy() || !link) {
-      return Promise.resolve();
-    }
-    if (this.resetPassword !== this.resetPasswordAgain) {
-      this.refusal.set(PASSWORDS_DIFFER);
+    if (this.busy() || !link || !this.strongEnough()) {
       return Promise.resolve();
     }
     return this.step(async () => {
@@ -936,7 +955,6 @@ export class LoginMethodsComponent implements OnInit {
       this.username = result.username;
       this.password = '';
       this.resetPassword = '';
-      this.resetPasswordAgain = '';
       this.resetting.set(undefined);
       this.resetDone.set(true);
     });
@@ -972,7 +990,6 @@ export class LoginMethodsComponent implements OnInit {
     this.addressConfirmed.set(undefined);
     this.resetEmail = '';
     this.resetPassword = '';
-    this.resetPasswordAgain = '';
     this.refusal.set(undefined);
   }
 
@@ -1021,17 +1038,13 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * Posts the change form: the old password and the new one, typed twice. Two new
-   * passwords that differ are refused here, with no request; the server's refusal is
-   * rendered in place; a change the server accepts checks the session again and emits
-   * the page the sign-in recorded.
+   * Posts the change form: the old password and the new one. Nothing is posted until the
+   * current password is given and the server calls the new one strong enough, as the
+   * form's button says; the server's refusal is rendered in place; a change the server
+   * accepts checks the session again and emits the page the sign-in recorded.
    */
   changePassword(): Promise<void> {
-    if (this.busy() || !this.changing()) {
-      return Promise.resolve();
-    }
-    if (this.newPassword !== this.newPasswordAgain) {
-      this.refusal.set(PASSWORDS_DIFFER);
+    if (this.busy() || !this.changing() || this.oldPassword === '' || !this.strongEnough()) {
       return Promise.resolve();
     }
     return this.step(async () => {
@@ -1042,7 +1055,6 @@ export class LoginMethodsComponent implements OnInit {
       }
       this.oldPassword = '';
       this.newPassword = '';
-      this.newPasswordAgain = '';
       await this.complete(this.afterChange);
     });
   }
@@ -1057,7 +1069,6 @@ export class LoginMethodsComponent implements OnInit {
       this.changing.set(false);
       this.oldPassword = '';
       this.newPassword = '';
-      this.newPasswordAgain = '';
       this.cancelled.emit();
     });
   }
@@ -1242,6 +1253,7 @@ export class LoginMethodsComponent implements OnInit {
     }
     await this.keepInvitation({
       email: result.email,
+      name: result.name,
       tenantId: result.tenantId,
       tenantName: result.tenantName,
       ...(result.newTenant === true ? { newTenant: true, directoryOnly: result.directoryOnly === true } : {}),
@@ -1269,6 +1281,7 @@ export class LoginMethodsComponent implements OnInit {
     }
     return {
       email: standing.email,
+      name: standing.name,
       tenantId: standing.tenantId,
       tenantName: standing.tenantName,
       ...(standing.newTenant === true ? { newTenant: true, directoryOnly: standing.directoryOnly === true } : {}),
@@ -1307,7 +1320,7 @@ export class LoginMethodsComponent implements OnInit {
       this.refusal.set(this.sentenceOf(result));
       return;
     }
-    this.resetting.set({ token, username: result.username });
+    this.resetting.set({ token, username: result.username, name: result.name, email: result.email });
   }
 
   /** Opens the sign-up the URL's token names and renders its account form; a link the server refuses renders its words. */
@@ -1317,7 +1330,13 @@ export class LoginMethodsComponent implements OnInit {
       this.refusal.set(this.sentenceOf(result));
       return;
     }
-    this.account.set({ source: 'signUp', token, email: result.email, usernameIsEmail: result.usernameIsEmail });
+    this.account.set({
+      source: 'signUp',
+      token,
+      email: result.email,
+      name: '',
+      usernameIsEmail: result.usernameIsEmail,
+    });
   }
 
   /**
@@ -1395,7 +1414,6 @@ export class LoginMethodsComponent implements OnInit {
         // fields. The page holds it no longer than that.
         this.password = '';
         this.accountPassword = '';
-        this.accountPasswordAgain = '';
         if (result.redirectUrl) {
           this.leaveFor(result.redirectUrl);
           return;
@@ -1488,7 +1506,6 @@ export class LoginMethodsComponent implements OnInit {
     this.accountOpenedItself.set(false);
     this.accountUsername = '';
     this.accountPassword = '';
-    this.accountPasswordAgain = '';
   }
 
   /**
@@ -1668,9 +1685,6 @@ export class LoginMethodsComponent implements OnInit {
 
 /** Where a confirmation link's token waits, in the tab's session storage, while the browser is away at an identity provider. */
 const VERIFY_TOKEN_KEY = 'impulse.login.verify';
-
-/** The sentence for a new password typed differently the second time; nothing is posted. */
-export const PASSWORDS_DIFFER = 'The new passwords do not match. Type the same password twice.';
 
 /**
  * The sign-in steps this page renders, as the server's pending status names them: the

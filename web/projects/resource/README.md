@@ -800,12 +800,22 @@ address has an account (one with none is mailed nothing), or the refusal: not an
 `request` since the page was drawn, the call posts nothing and throws
 `SELF_SERVICE_RESET_OFF`, the sentence the server refuses such a request with, which is
 what the page shows. `openPasswordReset(token)` answers
-the username the link resets the password of, for a link the person asked for or one an
+the username the link resets the password of, and the account's name and email address for
+the page to send with `passwordStrength`, for a link the person asked for or one an
 administrator sent; `completePasswordReset(token, password)` sets the new password, or
 resolves the refusal: a password the judgment refuses (400), a dead link (404), or a
 password that changed while the reader was choosing (409, which changes nothing). Every
 session of the person ends with a reset, this browser's too, and nobody is signed in by it:
 the person signs in with the new password.
+
+`passwordStrength(password, details)` asks the server how strong a password is, for a page to
+draw while the person types. It posts the password, and the person's `username`, `name` and
+`email` where the page has them, to the path the methods list names (`passwordStrength`), with
+or without a session, and answers `judged` with `strongEnough`, with `strength` and `minimum`
+on the server's scale from 0 to 100, and with `reason`, the server's sentence, while the
+password falls short. The client calculates nothing. It uses the list it last read. A browser
+that asked too often resolves `refused` with 429, `too_many_attempts` and the wait
+(`retryAfter`): ask nothing until the wait has passed, since a question during it extends it.
 
 An address an administrator set (`#address=<token>`): `confirmEmail(token)` posts the token
 to the list's `email.confirm`, with or without a session, and answers the address the
