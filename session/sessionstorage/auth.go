@@ -329,6 +329,12 @@ type AuthStore[Tx any] interface {
 	// it had. It holds no rule: whether the name is a registered method, and whether an
 	// open method names a role, are the caller's to decide.
 	SetSignInMethod(ctx context.Context, m *SignInMethod) error
+	// SetSelfServiceReset writes whether a person may ask for their own password reset
+	// link on the row of the sign-in method registered under method, and leaves what else
+	// the row says as it stands. The one field is written, never the row read and written
+	// back, so a choice made for the method at the same moment (opened to sign-up, made
+	// invite only) is not undone. A method with no row gets one that is invite only.
+	SetSelfServiceReset(ctx context.Context, method string, on bool) error
 	// SignUp makes the account of a person who signs up with a password through the
 	// method registered under method, in one transaction, and returns its id: the method
 	// must be open to sign-up for audience, whom its registration admits
@@ -747,6 +753,18 @@ func (a *Auth[Tx]) SetSignInMethod(ctx context.Context, m *SignInMethod) error {
 
 	if err := a.db.SetSignInMethod(ctx, m); err != nil {
 		return errors.Wrap(err, "db.SetSignInMethod()")
+	}
+
+	return nil
+}
+
+// SetSelfServiceReset implements AuthStore.
+func (a *Auth[Tx]) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetSelfServiceReset(ctx, method, on); err != nil {
+		return errors.Wrap(err, "db.SetSelfServiceReset()")
 	}
 
 	return nil

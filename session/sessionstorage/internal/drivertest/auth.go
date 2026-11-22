@@ -54,6 +54,7 @@ type AuthDriver interface {
 	SetSignInMethodsTableName(name string) error
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
 	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
+	SetSelfServiceReset(ctx context.Context, method string, on bool) error
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
@@ -567,6 +568,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "an Auth that registers no password method holds no sign-in for a password an account holds: the account is decided as one with no password, by the standard rule and at a link, and keeps its password", run: testNoPasswordMethod},
 		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
 		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
+		{name: "self-service reset is written on its method's row as one field: what else the row says stands, another method's row is untouched, and a method with no row gets one that is invite only", run: testSelfServiceResetOneField},
 		{name: "a person who comes through a directory that does not vouch for their address is held for the code until the row holds a confirmed address, as the sign-in's transaction reads it", run: testAddressConfirmedFirst},
 		{name: "an address a directory asserts and does not vouch for finds no account, not even one that holds it confirmed and that nobody signs in to yet", run: testUnverifiedClaimFindsNoAccount},
 		{name: "an invitation accepted through a directory that asserts no address waits for the code mailed to the invited address, naming no user and writing nothing, and is accepted in the transaction of the sign-in that carries it", run: testInvitationByCode},

@@ -454,8 +454,9 @@ func (p *AuthAPI[S, U, Tx]) EndPasswordResetLinks(ctx context.Context, userID im
 // SetSelfServiceReset turns a person's own request for a password reset link on or off,
 // in the running application: it writes the one field of the password method's row of
 // the sign-in methods table and leaves what else the row says as it is (whether the
-// method is open to sign-up, for whom, and with which role). It needs the password
-// method.
+// method is open to sign-up, for whom, and with which role). The store writes that
+// field alone (AuthStore.SetSelfServiceReset), so what another administrator chooses
+// for the method at the same moment stands. It needs the password method.
 func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -464,19 +465,8 @@ func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) er
 	if !a.registered().passwordRegistered() {
 		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
 	}
-	rows, err := a.storage.SignInMethods(ctx)
-	if err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SignInMethods()")
-	}
-	row := &sessionstorage.SignInMethod{Name: string(sessioninfo.MethodPassword)}
-	for _, standing := range rows {
-		if standing.Name == row.Name {
-			row = standing
-		}
-	}
-	row.SelfServiceReset = on
-	if err := a.storage.SetSignInMethod(ctx, row); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SetSignInMethod()")
+	if err := a.storage.SetSelfServiceReset(ctx, string(sessioninfo.MethodPassword), on); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SetSelfServiceReset()")
 	}
 
 	return nil

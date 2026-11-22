@@ -204,6 +204,52 @@ func assertSelfServiceReset(ctx context.Context, t *testing.T, in *AuthInstance,
 	}
 }
 
+func testSelfServiceResetOneField(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	opts := cmp.Options{cmpopts.EquateEmpty(), cmpopts.IgnoreFields(dbtype.SignInMethod{}, "UpdatedAt")}
+	anyone := signin.Audience{Accounts: "a Google account"}
+
+	// One method is open to sign-up for an audience with a role, another is open with
+	// none. Turning the field on and off again on the first leaves both as chosen.
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "password", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole)}); err != nil {
+		t.Fatalf("SetSignInMethod(password) error = %v", err)
+	}
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone)}); err != nil {
+		t.Fatalf("SetSignInMethod(google) error = %v", err)
+	}
+	other := &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone)}
+	for _, on := range []bool{true, false} {
+		if err := in.Driver.SetSelfServiceReset(ctx, "password", on); err != nil {
+			t.Fatalf("SetSelfServiceReset(password, %v) error = %v", on, err)
+		}
+		got, err := in.Driver.SignInMethods(ctx)
+		if err != nil {
+			t.Fatalf("SignInMethods() error = %v", err)
+		}
+		want := []*dbtype.SignInMethod{other, {Name: "password", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole), SelfServiceReset: on}}
+		if diff := cmp.Diff(want, got, opts); diff != "" {
+			t.Errorf("SignInMethods() after SetSelfServiceReset(password, %v) mismatch, want that one field written and the rest of each row as chosen (-want +got):\n%s", on, diff)
+		}
+	}
+
+	// A method nobody chose for has no row: it gets one that is invite only, with the
+	// field as written.
+	if err := in.Driver.SetSelfServiceReset(ctx, "azure", true); err != nil {
+		t.Fatalf("SetSelfServiceReset(azure, true) error = %v", err)
+	}
+	got, err := in.Driver.SignInMethods(ctx)
+	if err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	want := []*dbtype.SignInMethod{
+		{Name: "azure", SelfServiceReset: true}, other,
+		{Name: "password", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole)},
+	}
+	if diff := cmp.Diff(want, got, opts); diff != "" {
+		t.Errorf("SignInMethods() after SetSelfServiceReset(azure, true) on a method with no row mismatch, want a row that is invite only with the field on and the others as they were (-want +got):\n%s", diff)
+	}
+}
+
 func testSignInMethodsMissingTable(ctx context.Context, t *testing.T, h *AuthHarness) {
 	const table = "NoSuchSignInMethods"
 	const name = signUpPerson

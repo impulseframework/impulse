@@ -800,27 +800,13 @@ func authResetCase10(t *testing.T) {
 	t.Parallel()
 	f, _, _ := newMailFixture(t, gomock.NewController(t))
 
-	// The row says the method is open to sign-up with a role: turning reset on and off
-	// writes that back as it stood.
-	standing := &sessionstorage.SignInMethod{Name: "password", OpenSignUp: true, OpenedFor: strPtr("anyone"), DefaultRole: strPtr("Member")}
-	f.store.EXPECT().SignInMethods(gomock.Any()).DoAndReturn(func(context.Context) ([]*sessionstorage.SignInMethod, error) {
-		row := *standing
-
-		return []*sessionstorage.SignInMethod{{Name: "google", OpenSignUp: true}, &row}, nil
-	}).AnyTimes()
-	f.store.EXPECT().SetSignInMethod(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, row *sessionstorage.SignInMethod) error {
-		written := *row
-		standing = &written
-
-		return nil
-	}).Times(2)
+	// The store is asked to write the one field of the password method's row. The rows
+	// are never read and written back, so the mocked store expects neither
+	// SignInMethods nor SetSignInMethod, and a call of either fails the test.
 	for _, on := range []bool{true, false} {
+		f.store.EXPECT().SetSelfServiceReset(gomock.Any(), "password", on).Return(nil).Times(1)
 		if err := f.auth.API().SetSelfServiceReset(context.Background(), on); err != nil {
 			t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
-		}
-		if standing.Name != "password" || standing.SelfServiceReset != on || !standing.OpenSignUp || standing.OpenedFor == nil || *standing.OpenedFor != "anyone" ||
-			standing.DefaultRole == nil || *standing.DefaultRole != "Member" {
-			t.Errorf("the password method's row after SetSelfServiceReset(%v) = %+v, want that one field changed and the rest as it stood", on, standing)
 		}
 	}
 
