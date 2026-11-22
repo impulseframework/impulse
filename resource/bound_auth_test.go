@@ -29,8 +29,8 @@ func boundThrough(t *testing.T, ctx context.Context, name string) context.Contex
 	return bound
 }
 
-// The binds a test puts in front of a request: nothing, the generated routes' bind
-// (WithAuth) and a group's (BindAuth, through its middleware).
+// The binds a test puts in front of a request: nothing, a call of WithAuth and a
+// group's bind (BindAuth, through its middleware).
 func bindNothing(_ *testing.T, ctx context.Context) context.Context {
 	return ctx
 }
@@ -48,8 +48,8 @@ func bindAuthOf(name string) func(*testing.T, context.Context) context.Context {
 }
 
 // TestBindAuth pins the one record of the auth a request came through: what AuthFrom
-// and BoundAuth answer after each order of the generated routes' bind (WithAuth) and a
-// group's (BindAuth). A group's bind stands: WithAuth leaves it as it is, and a group's
+// and BoundAuth answer after each order of a call of WithAuth and a group's bind
+// (BindAuth). A group's bind stands: WithAuth leaves it as it is, and a group's
 // bind marks a name WithAuth gave as the group's. A second bind that names another auth
 // is refused (TestBindAuth_anotherAuth).
 func TestBindAuth(t *testing.T) {
@@ -64,11 +64,11 @@ func TestBindAuth(t *testing.T) {
 		wantBound string
 	}{
 		{
-			name:   "the generated routes' bind names the auth, and no group bound the request",
+			name:   "a call of WithAuth names the auth, and no group bound the request",
 			before: bindNothing, call: withAuthOf("crew"), wantAuth: "crew", wantOK: true,
 		},
 		{
-			name:   "the generated routes' bind renames a request no group bound",
+			name:   "a call of WithAuth renames a request no group bound",
 			before: withAuthOf("crew"), call: withAuthOf("members"), wantAuth: "members", wantOK: true,
 		},
 		{
@@ -76,7 +76,7 @@ func TestBindAuth(t *testing.T) {
 			before: bindNothing, call: bindAuthOf("crew"), wantAuth: "crew", wantOK: true, wantBound: "crew",
 		},
 		{
-			name:   "the generated routes' bind leaves a request a group bound as it is",
+			name:   "a call of WithAuth leaves a request a group bound as it is",
 			before: bindAuthOf("crew"), call: withAuthOf("members"), wantAuth: "crew", wantOK: true, wantBound: "crew",
 		},
 		{
@@ -84,7 +84,7 @@ func TestBindAuth(t *testing.T) {
 			before: bindAuthOf("crew"), call: bindAuthOf("crew"), wantAuth: "crew", wantOK: true, wantBound: "crew",
 		},
 		{
-			name:   "a group's bind of the auth the generated routes bound marks it the group's",
+			name:   "a group's bind of the auth WithAuth bound marks it the group's",
 			before: withAuthOf("crew"), call: bindAuthOf("crew"), wantAuth: "crew", wantOK: true, wantBound: "crew",
 		},
 		{
@@ -96,7 +96,7 @@ func TestBindAuth(t *testing.T) {
 			before: bindAuthOf("crew"), call: bindAuthOf(""), wantAuth: "crew", wantOK: true, wantBound: "crew",
 		},
 		{
-			name:   "an empty name leaves the generated routes' bind as it is",
+			name:   "an empty name leaves a bind WithAuth made as it is",
 			before: withAuthOf("crew"), call: bindAuthOf(""), wantAuth: "crew", wantOK: true,
 		},
 		{
@@ -120,7 +120,7 @@ func TestBindAuth(t *testing.T) {
 }
 
 // TestBindAuth_anotherAuth pins the refusal of a group's bind that names another auth
-// than the one the request is bound to, by a group or by the generated routes: the
+// than the one the request is bound to, by a group or by a call of WithAuth: the
 // request fails with a 500, the next handler does not run, and the cause logged names
 // both auths and the earlier bind to take out, a group's or the one in front of it.
 func TestBindAuth_anotherAuth(t *testing.T) {
@@ -139,7 +139,7 @@ func TestBindAuth_anotherAuth(t *testing.T) {
 		want   string
 	}{
 		{name: "a request a group bound to another auth is refused", before: bindAuthOf("crew"), want: byGroup},
-		{name: "a request the generated routes bound to another auth is refused", before: withAuthOf("crew"), want: inFront},
+		{name: "a request a call of WithAuth bound to another auth is refused", before: withAuthOf("crew"), want: inFront},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
