@@ -64,8 +64,8 @@ func commitTime(t time.Time) time.Time {
 
 // sessionInsertMutation renders the insert of a session row, created and
 // updated at the commit time. With the user columns enabled it also writes UserId,
-// AuthenticatedAt (the commit time, or null for a preauth session) and
-// ProviderSessionId.
+// AuthenticatedAt (the commit time, or null for a preauth session), ProviderSessionId
+// and Browser.
 func (s *SessionStorageDriver) sessionInsertMutation(id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (*spanner.Mutation, error) {
 	if !s.users {
 		mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
@@ -87,12 +87,15 @@ func (s *SessionStorageDriver) sessionInsertMutation(id impulse.UUID, insertSess
 		authenticatedAt = spanner.NullTime{Time: spanner.CommitTimestamp, Valid: true}
 	}
 
-	var providerSessionID, providerSessionIssuer spanner.NullString
+	var providerSessionID, providerSessionIssuer, browser spanner.NullString
 	if user.ProviderSessionID != nil {
 		providerSessionID = spanner.NullString{StringVal: *user.ProviderSessionID, Valid: true}
 	}
 	if user.ProviderSessionIssuer != nil {
 		providerSessionIssuer = spanner.NullString{StringVal: *user.ProviderSessionIssuer, Valid: true}
+	}
+	if user.Browser != nil {
+		browser = spanner.NullString{StringVal: *user.Browser, Valid: true}
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
@@ -104,10 +107,11 @@ func (s *SessionStorageDriver) sessionInsertMutation(id impulse.UUID, insertSess
 		AuthenticatedAt       spanner.NullTime   `spanner:"AuthenticatedAt"`
 		ProviderSessionID     spanner.NullString `spanner:"ProviderSessionId"`
 		ProviderSessionIssuer spanner.NullString `spanner:"ProviderSessionIssuer"`
+		Browser               spanner.NullString `spanner:"Browser"`
 	}{
 		ID: id, InsertSession: insertSession, CreatedAt: spanner.CommitTimestamp, UpdatedAt: spanner.CommitTimestamp,
 		UserID: user.UserID, AuthenticatedAt: authenticatedAt,
-		ProviderSessionID: providerSessionID, ProviderSessionIssuer: providerSessionIssuer,
+		ProviderSessionID: providerSessionID, ProviderSessionIssuer: providerSessionIssuer, Browser: browser,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")

@@ -7,8 +7,8 @@
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment
 //	  by hand under /beacons/: request log on event, traces off
 //	default (/console/api), sessions of the crew auth (password, google, sign-up, persona):
-//	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means, GET /console/api/user/google/login, GET /console/api/user/google/callback, GET /console/api/user/sign-up/login, GET /console/api/user/sign-up/callback, GET /console/api/user/persona/login, GET /console/api/user/persona/callback
-//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/password/strength, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/email/confirm, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete, POST /console/api/user/password-reset, POST /console/api/user/password-reset/open, POST /console/api/user/password-reset/complete
+//	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means, GET /console/api/user/sessions, GET /console/api/user/google/login, GET /console/api/user/google/callback, GET /console/api/user/sign-up/login, GET /console/api/user/sign-up/callback, GET /console/api/user/persona/login, GET /console/api/user/persona/callback
+//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/password/strength, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/username, POST /console/api/user/username/free, POST /console/api/user/sessions/end, POST /console/api/user/sessions/end-others, POST /console/api/user/browser/forget-all, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/email/confirm, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete, POST /console/api/user/password-reset, POST /console/api/user/password-reset/open, POST /console/api/user/password-reset/complete
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, POST /console/api/user/first-password/code, POST /console/api/user/first-password, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0), hooks.Default, EnforceReadOnlyMask: generatedRoutes
@@ -17,8 +17,8 @@
 //	  + ValidateToken: hooks.Droids, generatedDroidsRoutes, GET /droids/programs/*
 //	  POST /droids/sectors/{sectorID}/ingest-droid-reports: request log on event
 //	portal (/portal/api), sessions of the members auth (directory):
-//	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/sign-in-means, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback
-//	  + ValidateXSRFToken: POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation, POST /portal/api/user/email/confirm
+//	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/sign-in-means, GET /portal/api/user/sessions, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback
+//	  + ValidateXSRFToken: POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/username, POST /portal/api/user/username/free, POST /portal/api/user/sessions/end, POST /portal/api/user/sessions/end-others, POST /portal/api/user/browser/forget-all, POST /portal/api/user/invitation, POST /portal/api/user/email/confirm
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Portal
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Portal, EnforceReadOnlyMask: generatedPortalRoutes
@@ -153,6 +153,26 @@ type DefaultSession interface {
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
+	// ChangeUsername writes the signed-in person's own username, from their account
+	// page (session.Auth.ChangeUsername); it validates the session itself.
+	ChangeUsername() http.HandlerFunc
+	// UsernameFree answers whether a username the signed-in person types is free, to
+	// their account page (session.Auth.UsernameFree); it validates the session itself.
+	UsernameFree() http.HandlerFunc
+	// OwnSessions answers where the signed-in person is signed in, to their account
+	// page (session.Auth.OwnSessions); it validates the session itself.
+	OwnSessions() http.HandlerFunc
+	// EndOwnSession signs the signed-in person out of one other browser of theirs, from
+	// their account page (session.Auth.EndOwnSession); it validates the session itself.
+	EndOwnSession() http.HandlerFunc
+	// EndOtherSessions signs the signed-in person out of every browser but this one,
+	// from their account page (session.Auth.EndOtherSessions); it validates the session
+	// itself.
+	EndOtherSessions() http.HandlerFunc
+	// ForgetBrowsers forgets every browser the second factor remembered for the
+	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
+	// validates the session itself.
+	ForgetBrowsers() http.HandlerFunc
 	// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.
 	InvitationOpen() http.HandlerFunc
 	// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).
@@ -257,6 +277,26 @@ type PortalSession interface {
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
+	// ChangeUsername writes the signed-in person's own username, from their account
+	// page (session.Auth.ChangeUsername); it validates the session itself.
+	ChangeUsername() http.HandlerFunc
+	// UsernameFree answers whether a username the signed-in person types is free, to
+	// their account page (session.Auth.UsernameFree); it validates the session itself.
+	UsernameFree() http.HandlerFunc
+	// OwnSessions answers where the signed-in person is signed in, to their account
+	// page (session.Auth.OwnSessions); it validates the session itself.
+	OwnSessions() http.HandlerFunc
+	// EndOwnSession signs the signed-in person out of one other browser of theirs, from
+	// their account page (session.Auth.EndOwnSession); it validates the session itself.
+	EndOwnSession() http.HandlerFunc
+	// EndOtherSessions signs the signed-in person out of every browser but this one,
+	// from their account page (session.Auth.EndOtherSessions); it validates the session
+	// itself.
+	EndOtherSessions() http.HandlerFunc
+	// ForgetBrowsers forgets every browser the second factor remembered for the
+	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
+	// validates the session itself.
+	ForgetBrowsers() http.HandlerFunc
 	// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.
 	InvitationOpen() http.HandlerFunc
 	// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).
@@ -411,6 +451,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			ChangeName:       "/console/api/user/name",
 			SignInMeans:      "/console/api/user/sign-in-means",
 			ChangeLook:       "/console/api/user/look",
+			ChangeUsername:   "/console/api/user/username",
+			UsernameFree:     "/console/api/user/username/free",
+			OwnSessions:      session.OwnSessionsRoutes{List: "/console/api/user/sessions", End: "/console/api/user/sessions/end", EndOthers: "/console/api/user/sessions/end-others"},
+			ForgetBrowsers:   "/console/api/user/browser/forget-all",
 			Invitation:       session.InvitationRoutes{Open: "/console/api/user/invitation", Accept: "/console/api/user/invitation/accept", SignUp: "/console/api/user/invitation/sign-up"},
 			Email:            session.EmailRoutes{Add: "/console/api/user/email", Verify: "/console/api/user/email/verify", Confirm: "/console/api/user/email/confirm"},
 			SignUp:           session.SignUpRoutes{Start: "/console/api/user/sign-up", Open: "/console/api/user/sign-up/open", Complete: "/console/api/user/sign-up/complete"},
@@ -420,6 +464,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Delete("/console/api/user/session", h.Logout())
 		bounded.Get("/console/api/user/pending", h.PendingStatus())
 		bounded.Get("/console/api/user/sign-in-means", h.SignInMeans())
+		bounded.Get("/console/api/user/sessions", h.OwnSessions())
 		bounded.Get("/console/api/user/google/login", h.GoogleLogin())
 		bounded.Get("/console/api/user/google/callback", h.GoogleCallback())
 		bounded.Get("/console/api/user/sign-up/login", h.SignUpLogin())
@@ -436,6 +481,11 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/console/api/user/browser/forget", h.ForgetBrowser())
 		guarded.Post("/console/api/user/name", h.ChangeName())
 		guarded.Post("/console/api/user/look", h.ChangeLook())
+		guarded.Post("/console/api/user/username", h.ChangeUsername())
+		guarded.Post("/console/api/user/username/free", h.UsernameFree())
+		guarded.Post("/console/api/user/sessions/end", h.EndOwnSession())
+		guarded.Post("/console/api/user/sessions/end-others", h.EndOtherSessions())
+		guarded.Post("/console/api/user/browser/forget-all", h.ForgetBrowsers())
 		guarded.Post("/console/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/console/api/user/invitation/sign-up", h.InvitationSignUp())
 		guarded.Post("/console/api/user/email/confirm", h.EmailConfirm())
@@ -567,17 +617,22 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				Status: "/portal/api/user/pending", Cancel: "/portal/api/user/pending/cancel",
 				SendCode: "/portal/api/user/pending/code", VerifyCode: "/portal/api/user/pending/code/verify", EnrollEmail: "/portal/api/user/pending/email",
 			},
-			ForgetBrowser: "/portal/api/user/browser/forget",
-			ChangeName:    "/portal/api/user/name",
-			SignInMeans:   "/portal/api/user/sign-in-means",
-			ChangeLook:    "/portal/api/user/look",
-			Invitation:    session.InvitationRoutes{Open: "/portal/api/user/invitation", Accept: "/portal/api/user/invitation/accept"},
-			Email:         session.EmailRoutes{Add: "/portal/api/user/email", Verify: "/portal/api/user/email/verify", Confirm: "/portal/api/user/email/confirm"},
+			ForgetBrowser:  "/portal/api/user/browser/forget",
+			ChangeName:     "/portal/api/user/name",
+			SignInMeans:    "/portal/api/user/sign-in-means",
+			ChangeLook:     "/portal/api/user/look",
+			ChangeUsername: "/portal/api/user/username",
+			UsernameFree:   "/portal/api/user/username/free",
+			OwnSessions:    session.OwnSessionsRoutes{List: "/portal/api/user/sessions", End: "/portal/api/user/sessions/end", EndOthers: "/portal/api/user/sessions/end-others"},
+			ForgetBrowsers: "/portal/api/user/browser/forget-all",
+			Invitation:     session.InvitationRoutes{Open: "/portal/api/user/invitation", Accept: "/portal/api/user/invitation/accept"},
+			Email:          session.EmailRoutes{Add: "/portal/api/user/email", Verify: "/portal/api/user/email/verify", Confirm: "/portal/api/user/email/confirm"},
 		}))
 		bounded.Get("/portal/api/user/session", portalSession.Authenticated())
 		bounded.Delete("/portal/api/user/session", portalSession.Logout())
 		bounded.Get("/portal/api/user/pending", portalSession.PendingStatus())
 		bounded.Get("/portal/api/user/sign-in-means", portalSession.SignInMeans())
+		bounded.Get("/portal/api/user/sessions", portalSession.OwnSessions())
 		bounded.Get("/portal/api/user/directory/login", portalSession.DirectoryLogin())
 		bounded.Get("/portal/api/user/directory/callback", portalSession.DirectoryCallback())
 		guarded.Post("/portal/api/user/pending/cancel", portalSession.PendingCancel())
@@ -587,6 +642,11 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/portal/api/user/browser/forget", portalSession.ForgetBrowser())
 		guarded.Post("/portal/api/user/name", portalSession.ChangeName())
 		guarded.Post("/portal/api/user/look", portalSession.ChangeLook())
+		guarded.Post("/portal/api/user/username", portalSession.ChangeUsername())
+		guarded.Post("/portal/api/user/username/free", portalSession.UsernameFree())
+		guarded.Post("/portal/api/user/sessions/end", portalSession.EndOwnSession())
+		guarded.Post("/portal/api/user/sessions/end-others", portalSession.EndOtherSessions())
+		guarded.Post("/portal/api/user/browser/forget-all", portalSession.ForgetBrowsers())
 		guarded.Post("/portal/api/user/invitation", portalSession.InvitationOpen())
 		guarded.Post("/portal/api/user/email/confirm", portalSession.EmailConfirm())
 

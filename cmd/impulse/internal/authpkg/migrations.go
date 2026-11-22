@@ -120,9 +120,12 @@ func sessionsUp(p, who string) string {
 -- user, and deleting the user deletes its sessions; UserId is null only for a
 -- role-principal impersonation. ProviderSessionId is the identity provider's session id
 -- when the method reports one, for front-channel logout, and ProviderSessionIssuer the
--- issuer it belongs to. Every column that records when something happened is written
--- with the database's commit time, never the application's clock, which
--- allow_commit_timestamp permits.
+-- issuer it belongs to. Browser is the name of the browser a session was signed in from
+-- ("Chrome on Android"), worked out from the request's User-Agent header when the
+-- session is made, null where it was not recognized. It tells a person's sessions apart
+-- on their account page and decides nothing. Every column that records when something
+-- happened is written with the database's commit time, never the application's clock,
+-- which allow_commit_timestamp permits.
 CREATE TABLE %[1]sSessions (
     Id                    STRING(36) NOT NULL,
     Username              STRING(MAX) NOT NULL,
@@ -131,6 +134,7 @@ CREATE TABLE %[1]sSessions (
     AuthenticatedAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     ProviderSessionId     STRING(MAX),
     ProviderSessionIssuer STRING(MAX),
+    Browser               STRING(MAX),
     CreatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionsId CHECK (REGEXP_CONTAINS(Id, %[3]s)),

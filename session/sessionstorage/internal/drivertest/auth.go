@@ -107,6 +107,11 @@ type AuthDriver interface {
 	// FactorCodeState and TrustedDeviceState read a row whatever its state.
 	FactorCodeState(ctx context.Context, id impulse.UUID) (*dbtype.FactorCode, error)
 	TrustedDeviceState(ctx context.Context, tokenHash []byte) (*dbtype.TrustedDevice, error)
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error)
+	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)
+	DestroyOtherOwnSessions(ctx context.Context, userID, keep impulse.UUID, activeSince time.Time) (int, error)
+	DestroySession(ctx context.Context, sessionID impulse.UUID) error
+	UpdateSessionActivity(ctx context.Context, sessionID impulse.UUID) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -607,6 +612,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a password's removal and the unlinking of the user's one identity, asked at once, leave the user one of the two", run: testPasswordRemovalRacesUnlink},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
+		{name: "a session keeps the name of the browser it was signed in from, and a person's own sessions are listed live, newest use first, with none someone else established acting as them", run: testOwnSessions},
+		{name: "a person's remembered browsers are counted live: no revoked or lapsed device, and no other person's", run: testTrustedDeviceCount},
+		{name: "a rename leaves when a session was last used, and renames no other account's session", run: testRenameLeavesLastUse},
+		{name: "signing out everywhere else ends every other session of the person's own in one write, and counts the live ones", run: testDestroyOtherOwnSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 		{name: "a pending sign-in is read back by its token hash with everything it carried", run: testPendingSignInRoundTrip},
 		{name: "a pending sign-in is consumed once, by a conditional update", run: testPendingSignInConsumedOnce},

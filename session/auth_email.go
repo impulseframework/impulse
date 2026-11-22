@@ -93,13 +93,21 @@ func (a *Auth[S, U, Tx]) directoryPerson(ctx context.Context, userID impulse.UUI
 	if err != nil {
 		return false, errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
+
+	return organizationLinked(links), nil
+}
+
+// organizationLinked reports whether one of links came through an organization's
+// directory (signin.Directory.Organization): the judgment of directoryPerson, for a
+// caller that has read the links already.
+func organizationLinked(links []*sessionstorage.SessionIdentity) bool {
 	for _, link := range links {
 		if (signin.Directory{Method: link.Method, Connection: link.Connection}).Organization() {
-			return true, nil
+			return true
 		}
 	}
 
-	return false, nil
+	return false
 }
 
 // holdsAddress reports whether an account holds a confirmed address a message can be
