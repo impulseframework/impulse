@@ -64,7 +64,7 @@ func newOwnCodeWaits(t *testing.T) *ownCodeWaits {
 
 	w := newOwnCodeFixture(t)
 	w.id, w.password = w.account("pat", ownAddress)
-	w.unlinked = w.wait(w.id, "pat", sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "google", Subject: "g-1", SignInName: "pat", Email: "pat@corp.example"})
+	w.unlinked = w.wait(w.id, "pat", &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "google", Subject: "g-1", SignInName: "pat", Email: "pat@corp.example"})
 
 	return w
 }
@@ -90,7 +90,7 @@ func newOwnCodeFixture(t *testing.T) *ownCodeWaits {
 
 // account makes an account named username that holds the address email, nobody having
 // confirmed it, and returns its id and a password sign-in of it held for its own code.
-func (w *ownCodeWaits) account(username, email string) (impulse.UUID, *pendingState) {
+func (w *ownCodeWaits) account(username, email string) (id impulse.UUID, wait *pendingState) {
 	user, wait := w.holder(username, new(email))
 
 	return user.ID, wait
@@ -100,19 +100,19 @@ func (w *ownCodeWaits) account(username, email string) (impulse.UUID, *pendingSt
 // and returns it and a password sign-in of it held for the mailed code. The store
 // answers every read of the account with the account returned, so a change made to it
 // is the account's change.
-func (w *ownCodeWaits) holder(username string, email *string) (*sessionstorage.SessionUser, *pendingState) {
-	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: username, Email: email}
+func (w *ownCodeWaits) holder(username string, email *string) (user *sessionstorage.SessionUser, wait *pendingState) {
+	user = &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: username, Email: email}
 	w.f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
 
-	return user, w.wait(user.ID, username, sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()})
+	return user, w.wait(user.ID, username, &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()})
 }
 
 // wait is a sign-in of the account with id through identity, held for the account's
 // own code.
-func (w *ownCodeWaits) wait(id impulse.UUID, username string, identity sessioninfo.Identity) *pendingState {
+func (w *ownCodeWaits) wait(id impulse.UUID, username string, identity *sessioninfo.Identity) *pendingState {
 	return &pendingState{
 		ID: impulse.Must(impulse.NewUUID()), TokenHash: []byte(identity.Subject + "'s pending token"), Step: sessioninfo.PendingMFA,
-		Username: username, UserID: impulse.NullUUIDFromUUID(id), Identity: identity,
+		Username: username, UserID: impulse.NullUUIDFromUUID(id), Identity: *identity,
 	}
 }
 
