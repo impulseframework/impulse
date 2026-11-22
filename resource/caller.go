@@ -69,7 +69,9 @@ type authRecord struct {
 // from another's: two auths over one database may each hold a person of the same username,
 // and they are two people. A request its outlet's group bound already (BindAuth) keeps the
 // auth the group gave it: the context is returned as it is, so nothing a route mounts
-// renames a request the router bound.
+// renames a request the router bound. WithAuth cannot refuse a request; the middleware an
+// outlet's generated routes run under (live.Subscribing) does, where the group's auth is
+// not its own.
 func WithAuth(ctx context.Context, auth string) context.Context {
 	if record, ok := ctx.Value(authKey{}).(authRecord); ok && record.byGroup {
 		return ctx

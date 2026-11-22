@@ -1252,8 +1252,10 @@ surface written by hand binds its own requests the same way, with
 `resource.BindAuth(<pkg>.Name)` in front of its routes. The bind is the one record of a
 request's auth: `resource.AuthFrom` answers it on every route of the group, a route
 registered by hand in the outlet's hook among them, and nothing under the group changes it.
-`resource.WithAuth` leaves a request a group bound as it is, and a second
-`resource.BindAuth` that names another auth fails the request with a 500.
+A call of `resource.WithAuth` leaves a request a group bound as it is. A second
+`resource.BindAuth` that names another auth fails the request with a 500, and so do an
+outlet's generated routes (`live.Subscribing`) mounted under a group of another auth; the
+logged cause names both auths.
 
 **Machine outlets.** A machine outlet declares the auth whose `Auth` issues its tokens,
 `Tokens(importPath)`, the same `*session.Auth` a session outlet of the program binds to

@@ -23,6 +23,9 @@ import (
 const (
 	notSessionOutletMsg    = SubscribeHeader + " is not served on this outlet: it serves no browser sessions"
 	malformedTabMessageFmt = "invalid " + SubscribeHeader + " value: a tab id is 1 to 64 characters of [A-Za-z0-9_-]"
+	otherGroupAuthFmt      = "this request is bound to the %s auth, and the routes it reached were mounted for the %s auth's sessions " +
+		"(live.Subscribing, which an outlet's generated routes run under). A request comes through one auth, the one its outlet's group binds: " +
+		"mount these routes under the %s auth's own group, or give the group's resource.BindAuth and its routes one auth's name"
 )
 
 // Tab reads the subscribe header: the tab id when the request subscribes, the empty
@@ -44,12 +47,14 @@ func Tab(r *http.Request) (string, error) {
 // Name); every request has it bound (resource.WithAuth), so the live layer keys the
 // session principal by it (PrincipalID) and the rules that keep a person from acting on
 // themselves tell the caller from a person of another auth. A request its outlet's
-// group bound already (resource.BindAuth) keeps the group's auth, which is the same
-// name wherever the generated router mounts both. A request carrying the subscribe
-// header has the tab noted on its request log line and is refused when the tab is
-// malformed; a request without the header passes on with nothing else done. An auth
-// name that is empty, or that carries AuthSeparator or a "/", panics as the routes are
-// registered, so a server never starts with a name that cannot begin a principal id.
+// group bound already (resource.BindAuth) keeps the group's auth: where that is this
+// auth, as it is wherever the generated router mounts both, the request passes on, and
+// where it is another auth the request is refused with a server error whose cause names
+// both. A request carrying the subscribe header has the tab noted on its request log
+// line and is refused when the tab is malformed; a request without the header passes on
+// with nothing else done. An auth name that is empty, or that carries AuthSeparator or
+// a "/", panics as the routes are registered, so a server never starts with a name that
+// cannot begin a principal id.
 func Subscribing(auth string) func(http.Handler) http.Handler {
 	if err := checkAuthName(auth); err != nil {
 		panic(err.Error())
@@ -57,6 +62,9 @@ func Subscribing(auth string) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+			if err := groupAuthRefusal(r.Context(), auth); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+			}
 			r = r.WithContext(resource.WithAuth(r.Context(), auth))
 			if r.Header.Get(SubscribeHeader) == "" {
 				next.ServeHTTP(w, r)
@@ -73,6 +81,16 @@ func Subscribing(auth string) func(http.Handler) http.Handler {
 			return nil
 		})
 	}
+}
+
+// groupAuthRefusal refuses a request its outlet's group bound (resource.BindAuth) to an
+// auth that is not the one the routes under it were mounted for; nil otherwise.
+func groupAuthRefusal(ctx context.Context, auth string) error {
+	if bound := resource.BoundAuth(ctx); bound != "" && bound != auth {
+		return errors.Newf(otherGroupAuthFmt, bound, auth, auth)
+	}
+
+	return nil
 }
 
 // checkAuthName refuses an auth name that cannot begin a principal id: an empty one, one
@@ -362,12 +380,13 @@ func callerID(ctx context.Context) string {
 
 // PrincipalID is the session principal's id as the subscription record, the change set
 // and the browser's identity carry it: the name of the auth the request came through
-// (bound by Subscribing), AuthSeparator, and the person for a user principal (an
-// ordinary session, or an impersonated user), named as the permission store names them,
-// by the id of their account, or the role prefixed with "role:" for a session
-// established as a role. A user of the crew auth is crew|0b5e…, the account's id, and a
-// session established as the Auditor role through the crew auth is crew|role:Auditor.
-// A person renamed keeps their id, and so their subscriptions.
+// (bound by the outlet's group, resource.BindAuth, or by Subscribing where no group
+// binds), AuthSeparator, and the person for a user principal (an ordinary session, or
+// an impersonated user), named as the permission store names them, by the id of their
+// account, or the role prefixed with "role:" for a session established as a role. A
+// user of the crew auth is crew|0b5e…, the account's id, and a session established as
+// the Auditor role through the crew auth is crew|role:Auditor. A person renamed keeps
+// their id, and so their subscriptions.
 //
 // Nothing is truncated or hashed. An id longer than MaxPrincipalIDLength, Firebase's
 // uid limit, fails with a 403 client message whose cause names the id, its length and

@@ -16,7 +16,8 @@ import (
 // routes. It writes the one record of a request's auth, which AuthFrom reads, and holds
 // the request to it: SessionPermissions then answers the request only from that auth's
 // permission engine, and nothing mounted under the group binds it to another auth.
-// WithAuth leaves it as it is, and a second BindAuth that names another auth refuses the
+// WithAuth leaves it as it is; a second BindAuth that names another auth, and an
+// outlet's generated routes mounted for another auth (live.Subscribing), refuse the
 // request with a server error whose cause names both. An empty name binds nothing.
 func BindAuth(name string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
