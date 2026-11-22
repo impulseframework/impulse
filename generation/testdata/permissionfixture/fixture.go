@@ -2,7 +2,9 @@
 // resource: accesstypes.Permission constants carrying @manualAddPermission, one that
 // carries nothing and so declares nothing, and the declarations the generator refuses,
 // each read alone by the test that names it. One resource's constant registers by hand
-// in both scopes, which the generator refuses where it computes the collection.
+// in both scopes, which the generator refuses where it computes the collection. The
+// const groups at the end carry annotations in the comment above the group, which
+// nothing reads and the generator refuses, beside the groups it takes.
 package permissionfixture
 
 import (
@@ -93,3 +95,68 @@ const Reports accesstypes.Resource = "Reports"
 // @manualAddResource(Read)
 // @manualAddResource(Update, domain)
 const Divided accesstypes.Resource = "Divided"
+
+// GroupedExport and GroupedApprove carry the declaration in the comment above their
+// group, where nothing reads it.
+//
+// @manualAddPermission
+const (
+	GroupedExport  accesstypes.Permission = "GroupedExport"
+	GroupedApprove accesstypes.Permission = "GroupedApprove"
+)
+
+// GroupedLedgers and GroupedJournals carry a registration in the comment above their
+// group, where nothing reads it.
+//
+// @manualAddResource(Read)
+const (
+	GroupedLedgers  accesstypes.Resource = "GroupedLedgers"
+	GroupedJournals accesstypes.Resource = "GroupedJournals"
+)
+
+// MisspeltAccounts and MisspeltBudgets carry a misspelled registration in the comment
+// above their group.
+//
+// @manualAddResurce(Read)
+const (
+	MisspeltAccounts accesstypes.Resource = "MisspeltAccounts"
+	MisspeltBudgets  accesstypes.Resource = "MisspeltBudgets"
+)
+
+// UntypedFirst and UntypedSecond are untyped constants with the declaration in the
+// comment above their group.
+//
+// @manualAddPermission
+const (
+	UntypedFirst  = "UntypedFirst"
+	UntypedSecond = "UntypedSecond"
+)
+
+// @manualAddPermission
+const (
+	// LoneExport is the one constant of its group and has a comment of its own.
+	LoneExport accesstypes.Permission = "LoneExport"
+)
+
+// SettledExport and SettledApprove each carry the declaration above the constant, with
+// prose above their group.
+const (
+	// @manualAddPermission
+	SettledExport accesstypes.Permission = "SettledExport"
+	// @manualAddPermission
+	SettledApprove accesstypes.Permission = "SettledApprove"
+)
+
+// LabelFirst and LabelSecond are untyped constants with a line above their group that
+// starts with another word after the @.
+//
+// @see the labels the screens show
+const (
+	LabelFirst  = "LabelFirst"
+	LabelSecond = "LabelSecond"
+)
+
+// SingleExport is one constant with no parentheses: the comment above it is its own.
+//
+// @manualAddPermission
+const SingleExport accesstypes.Permission = "SingleExport"
