@@ -46,7 +46,8 @@ type strengthAnswer struct {
 
 // passwordStrengthHandler is the password method's strength handler. Each question is
 // counted against the client first, before its body is read, and a client the ask limit
-// holds is answered 429 with too_many_attempts and the wait, with nothing judged. Otherwise
+// holds is answered 429 with too_many_attempts and the wait, with nothing judged and no line
+// logged, since no login was refused. Otherwise
 // the password is judged against the details the request carries under the method's minimum.
 // An absent password is the empty one, which is answered at strength 0. Neither the password
 // nor the details are put in a log line, an error or a span.
@@ -64,7 +65,14 @@ func (a *Auth[S, U, Tx]) passwordStrengthHandler() http.HandlerFunc {
 		defer span.End()
 
 		if wait := a.methods.asks.Count(a.clientOf(r)); wait > 0 {
-			return writeSignInError(ctx, w, sessioninfo.NewTooManyAttemptsRefusalSaying(wait, strengthAskRefused))
+			// The 429 is written as a sign-in refusal's is, but no login was refused: the
+			// refusal writeSignInError hands back once it is written is not logged.
+			refusal := sessioninfo.NewTooManyAttemptsRefusalSaying(wait, strengthAskRefused)
+			if err := writeSignInError(ctx, w, refusal); !errors.Is(err, refusal) {
+				return err
+			}
+
+			return nil
 		}
 
 		req, err := decoder.Decode(r)

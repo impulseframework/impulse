@@ -240,6 +240,13 @@ func TestPasswordMethod_Strength_inNoLog(t *testing.T) {
 	if !strings.Contains(logged, "failed to decode request body") {
 		t.Fatalf("the log holds no line of the body that does not decode, want one: the capture reads nothing\n%s", logged)
 	}
+	// The capture holds what every test running beside this one logs, refused logins among
+	// them, so the question's line is found by the ask limit's sentence.
+	for _, line := range strings.Split(logged, "\n") {
+		if strings.Contains(line, strengthAskRefused) {
+			t.Errorf("the log holds a line of the question at the limit, want none (it is no refused login): %s", line)
+		}
+	}
 	for _, said := range append([]string{password}, details["username"], details["name"], details["email"]) {
 		if strings.Contains(logged, said) {
 			t.Errorf("the log holds %q, want the password and the details in no line:\n%s", said, logged)
