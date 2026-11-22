@@ -99,11 +99,14 @@ import {
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
+  foundRolesLimit,
   listEmptyMessage,
   queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
+  roleQuestionField,
+  rolesQuestion,
   searchEligibility,
   unorderedFields,
 } from './list-request';
@@ -639,8 +642,33 @@ export class ResourceListComponent implements OnInit {
   /** Which control each column's menu takes a value from, from the listed resource's metadata: a date control on a date field, a date and a time on a timestamp. */
   filterInputs = computed(() => filterInputKinds(this.meta(), this.columns()));
 
-  /** The values each column filters by where its field takes one of a fixed set, from the listed resource's metadata: the grid's menu offers their names. */
-  filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns()));
+  /**
+   * The values each column filters by where they are known, from the listed resource's
+   * metadata and, on a role column, the roles the list was found to hold beyond it: the
+   * grid's menu offers their names.
+   */
+  filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns(), this.foundRoles()));
+
+  /**
+   * The roles each role column's rows were found to hold beyond those the metadata lists,
+   * by column id, in the order found, with what they were found under (the store's
+   * besidePageScope): the route, the tenant and the page's own filter. They stand while
+   * the list is on the page and those three stay the same, and are forgotten when one
+   * changes.
+   */
+  private readonly rolesFound = signal<{ scope: string; byColumn: Readonly<Record<string, readonly string[]>> }>({
+    scope: '',
+    byColumn: {},
+  });
+
+  /** The roles found that stand under what the list reads now (rolesFound). */
+  private readonly foundRoles = computed((): Readonly<Record<string, readonly string[]>> => {
+    const held = this.rolesFound();
+    return held.scope === this.store.besidePageScope() ? held.byColumn : {};
+  });
+
+  /** The role columns whose rows are being asked about, by what they are asked under and the column's id. */
+  private readonly askingRoles = new Set<string>();
 
   /**
    * The search fields for which the server is sure to refuse this caller's whole search
@@ -712,6 +740,73 @@ export class ResourceListComponent implements OnInit {
 
   /** Whether the box is in the request: it counts as the indexed touch a companion-only column waits for. */
   boxActive = computed(() => this.store.searchText().trim() !== '');
+
+  /**
+   * A column's filter menu opened. On a role column (roleQuestionField) the list asks its
+   * own resource, beside the page, for a role its rows hold that the menu does not offer
+   * yet: under the page's own filter and none of the person's (rowsBesidePage), with the
+   * field holding none of the roles known (rolesQuestion), sorted by the field, one row and
+   * the one column. A role answered joins the picks, which the open menu shows at once, and
+   * the question is asked again with it among the known. It stops at an answer with no
+   * row, at a row with no role in the field (a cell the person may not read), at a refusal
+   * or a failure, which is written to the console and shown nowhere, and once
+   * foundRolesLimit roles have been found. A later opening starts from what was found.
+   * Any other column asks nothing.
+   */
+  onFilterMenuOpened(columnId: string): void {
+    void this.askRoles(columnId);
+  }
+
+  private async askRoles(columnId: string): Promise<void> {
+    const field = roleQuestionField(
+      this.queryMeta(),
+      this.columns().find((column) => column.id === columnId),
+    );
+    if (field?.roles === undefined) {
+      return;
+    }
+    const scope = this.store.besidePageScope();
+    const asking = JSON.stringify([scope, columnId]);
+    if (this.askingRoles.has(asking)) {
+      return;
+    }
+    this.askingRoles.add(asking);
+    try {
+      let found = this.foundRoles()[columnId] ?? [];
+      while (found.length < foundRolesLimit) {
+        const known = [...new Set([...field.roles, ...found])];
+        let rows: RecordData[];
+        try {
+          rows = await this.store.rowsBesidePage({
+            condition: rolesQuestion(field.fieldName, known),
+            columns: [field.fieldName],
+            sorts: [{ field: field.fieldName as FieldName, direction: 'asc' }],
+            limit: 1,
+          });
+        } catch (error) {
+          console.error(
+            '%s: the roles the list holds in %s could not be read:',
+            this.config().primaryResource,
+            field.fieldName,
+            error,
+          );
+          return;
+        }
+        const role: unknown = rows[0]?.[field.fieldName];
+        if (typeof role !== 'string' || role === '' || known.includes(role) || this.store.besidePageScope() !== scope) {
+          return;
+        }
+        found = [...found, role];
+        const held = found;
+        this.rolesFound.update((current) => ({
+          scope,
+          byColumn: { ...(current.scope === scope ? current.byColumn : {}), [columnId]: held },
+        }));
+      }
+    } finally {
+      this.askingRoles.delete(asking);
+    }
+  }
 
   /** A header click: the sorts to request next; the store drops the cursor and asks for a first page. */
   onSortChange(sorts: SortRule[]): void {
