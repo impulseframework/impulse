@@ -107,6 +107,11 @@ const (
 	// shorter one is spelled by chance in digits (471 for Ali) too often to count.
 	minLookAlike = 4
 
+	// minTypedOnce is the fewest characters a run of one piece typed again and again covers. A
+	// piece of two characters typed twice stands in ordinary words (eded in seeded, anan in
+	// banana) and is left as typed.
+	minTypedOnce = 6
+
 	// maxTwoWay is the most letters with a second plain spelling a word of the person's may hold
 	// and still be given in each mix of the two spellings: the ways double with each letter, and
 	// every word is compared with the password at each of its characters.
@@ -334,8 +339,10 @@ func setBounds(readings []asked, detailed bool) {
 // typedOnce is text with the run of one piece typed again and again that covers the most of it
 // written as the piece once, and how many times the piece is typed in the run: abababab is ab,
 // 4. A piece is two characters or more, since the library sees one character typed again and
-// again itself, and stands whole each time. Of runs that cover as much, the one that starts
-// first is taken, and of those the one with the shortest piece. With no run, it is text and 1.
+// again itself, and stands whole each time. A run covers minTypedOnce characters or more, so
+// two characters typed twice inside a word (eded in seeded) are no run. Of runs that cover as
+// much, the one that starts first is taken, and of those the one with the shortest piece. With
+// no run, it is text and 1.
 // text is a reading, in ASCII and at most MaxJudged characters long, so a byte is a character
 // and the search is bounded.
 func typedOnce(text string) (once string, times int) {
@@ -346,7 +353,7 @@ func typedOnce(text string) (once string, times int) {
 			for i+(n+1)*p <= len(text) && text[i+n*p:i+(n+1)*p] == text[i:i+p] {
 				n++
 			}
-			if n > 1 && n*p > times*piece {
+			if n > 1 && n*p >= minTypedOnce && n*p > times*piece {
 				start, piece, times = i, p, n
 			}
 		}

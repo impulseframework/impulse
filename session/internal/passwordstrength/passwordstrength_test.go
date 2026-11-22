@@ -354,6 +354,10 @@ func TestJudge_aPieceTypedAgainAndAgainIsJudgedOnce(t *testing.T) {
 	if got := Judge(strongTwice, Details{}, 30); !got.StrongEnough {
 		t.Errorf("Judge(%q, 30) = %+v, want a strong piece typed twice strong enough", strongTwice, got)
 	}
+	const seeded = "a seeded password"
+	if got := Judge(seeded, Details{}, 30); !got.StrongEnough {
+		t.Errorf("Judge(%q, 30) = %+v, want it strong enough: two characters typed twice inside a word are no piece typed again and again", seeded, got)
+	}
 }
 
 func TestL33tWork(t *testing.T) {
@@ -674,14 +678,18 @@ func TestTypedOnce(t *testing.T) {
 		times int
 	}{
 		{text: "abababababab", once: "ab", times: 6},
-		{text: "abab", once: "ab", times: 2},
+		{text: "ababab", once: "ab", times: 3},
+		{text: "abab", once: "abab", times: 1},
 		{text: "ss1ss1ss1ss", once: "ss1ss", times: 3},
 		{text: "xxabcabcabcyy", once: "xxabcyy", times: 3},
-		{text: "xyxyx", once: "xyx", times: 2},
+		{text: "xyxyx", once: "xyxyx", times: 1},
 		{text: "abcdabcdxyxyxy", once: "abcdxyxyxy", times: 2},
 		{text: "xyxyxyabcdabcd", once: "xyxyxyabcd", times: 2},
-		{text: "ababcdcd", once: "abcdcd", times: 2},
-		{text: "aaaa", once: "aa", times: 2},
+		{text: "ababcdcd", once: "ababcdcd", times: 1},
+		{text: "aaaa", once: "aaaa", times: 1},
+		{text: "x7Kpx7Kp", once: "x7Kp", times: 2},
+		{text: "seeded", once: "seeded", times: 1},
+		{text: "banana", once: "banana", times: 1},
 		{text: "abcabd", once: "abcabd", times: 1},
 		{text: "vexillumtrek", once: "vexillumtrek", times: 1},
 		{text: "a", once: "a", times: 1},
