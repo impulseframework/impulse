@@ -13,6 +13,11 @@
 // and each detail's first maxDetail, and it reads look-alike characters as letters (4 for a,
 // $ for s) only while the ways to read them take at most maxL33tWork passes, each pass
 // costing the square of the length. The list is asked about the whole password.
+//
+// The library counts bytes where a person types characters, so it is asked about a text in
+// ASCII alone, one character for each character typed: an accented letter is read as its
+// letter, and any other character outside ASCII as one stand-in, the same for the same
+// character throughout one judgment.
 package passwordstrength
 
 import (
@@ -24,6 +29,7 @@ import (
 	zxcvbn "github.com/ccojocar/zxcvbn-go"
 	"github.com/ccojocar/zxcvbn-go/adjacency"
 	"github.com/ccojocar/zxcvbn-go/matching"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -51,6 +57,12 @@ const (
 	// minRun is the shortest run of letters and digits in a person's detail that counts on
 	// its own against a password.
 	minRun = 3
+
+	// standIns are the characters a character outside ASCII that is not an accented letter or
+	// digit is read as, given in this order to each new such character of a judgment and
+	// again from the first after the last. None is a character the library reads as a letter,
+	// and no three in a row are neighbors on a keyboard.
+	standIns = "~;^/*'#._:&,=\")>-?]`\\}"
 )
 
 // Reason says why a password falls short of the minimum; it is empty when the password does
@@ -121,8 +133,9 @@ func Judge(password string, who Details, minimum int) Judgment {
 		return Judgment{StrongEnough: false, Strength: 0, Reason: ReasonCracked}
 	}
 
-	judged := firstRunes(password, MaxJudged)
-	inputs := inputsOf(who)
+	read := newReading()
+	judged := read.of(firstRunes(password, MaxJudged))
+	inputs := inputsOf(who, read)
 	bits := estimate(judged, inputs)
 	strength := strengthOf(bits, minimum)
 	if bits >= float64(minimum) {
@@ -169,13 +182,14 @@ func firstRunes(s string, n int) string {
 // inputsOf are the words the person's details give the estimate, in the order Username, Name,
 // Email: each detail trimmed of surrounding space and cut to its first maxDetail characters,
 // whole, then each run of letters and digits in it at least minRun characters long, each word
-// once whatever its case. It is nil when the details give none.
-func inputsOf(who Details) []string {
+// as read reads it and once whatever its case. It is nil when the details give none.
+func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
 	add := func(word string) {
+		word = read.of(word)
 		key := strings.ToLower(word)
-		if seen[key] {
+		if word == "" || seen[key] {
 			return
 		}
 		seen[key] = true
@@ -201,6 +215,78 @@ func inputsOf(who Details) []string {
 // notLetterOrDigit says whether r ends a run of letters and digits.
 func notLetterOrDigit(r rune) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+}
+
+// reading makes the text the library is asked about from what a person typed, in ASCII alone
+// and one character for each character typed. One reading serves one judgment, the password
+// first and then the person's details, so a character outside ASCII has one stand-in
+// throughout.
+type reading struct {
+	standIn map[rune]byte
+}
+
+// newReading is a reading that has given no stand-in yet.
+func newReading() *reading {
+	return &reading{standIn: map[rune]byte{}}
+}
+
+// of is typed in NFC as the library is to read it: a character in ASCII as it is; outside
+// ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a mark
+// on its own dropped, and any other character as its stand-in.
+func (r *reading) of(typed string) string {
+	var text strings.Builder
+	for _, c := range norm.NFC.String(typed) {
+		if c < utf8.RuneSelf {
+			text.WriteRune(c)
+
+			continue
+		}
+		if base := baseOf(c); base != 0 {
+			text.WriteRune(base)
+
+			continue
+		}
+		if unicode.IsMark(c) {
+			// A mark on no letter is not a character a person counts.
+			continue
+		}
+		text.WriteByte(r.standInOf(c))
+	}
+
+	return text.String()
+}
+
+// standInOf is c's stand-in: the one c was given in this reading, or else the next of
+// standIns.
+func (r *reading) standInOf(c rune) byte {
+	if standIn, ok := r.standIn[c]; ok {
+		return standIn
+	}
+	standIn := standIns[len(r.standIn)%len(standIns)]
+	r.standIn[c] = standIn
+
+	return standIn
+}
+
+// baseOf is the ASCII letter or digit c is written on, when c is that letter or digit with
+// only marks added (é is e, Å is A, a full-width p is p), and 0 when it is not.
+func baseOf(c rune) rune {
+	decomposed := []rune(norm.NFKD.String(string(c)))
+	if len(decomposed) == 0 || !asciiLetterOrDigit(decomposed[0]) {
+		return 0
+	}
+	for _, mark := range decomposed[1:] {
+		if !unicode.IsMark(mark) {
+			return 0
+		}
+	}
+
+	return decomposed[0]
+}
+
+// asciiLetterOrDigit says whether c is a letter or a digit of ASCII.
+func asciiLetterOrDigit(c rune) bool {
+	return c < utf8.RuneSelf && (unicode.IsLetter(c) || unicode.IsDigit(c))
 }
 
 // l33tTable is the library's table of look-alike characters: a letter to the characters that

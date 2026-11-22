@@ -3,6 +3,7 @@ package passwordstrength
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	zxcvbn "github.com/ccojocar/zxcvbn-go"
 	"github.com/ccojocar/zxcvbn-go/matching"
@@ -92,6 +93,9 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a part of the name", password: "Zabrowski2077", who: Details{Name: "Quentin Zabrowski"}},
 		{name: "the address before the @", password: "marrowquiltfen", who: Details{Email: "marrowquiltfen@example.com"}},
 		{name: "a detail in another case", password: "Vexillumtrek", who: Details{Username: "VEXILLUMTREK"}},
+		{name: "the name with an accent the password lacks", password: "Zabrowski2077", who: Details{Name: "Quentin Zabrówski"}},
+		{name: "the password with an accent the name lacks", password: "Zabrówski2077", who: Details{Name: "Quentin Zabrowski"}},
+		{name: "a username outside ASCII", password: "щжфыхцэюбьъй", who: Details{Username: "щжфыхцэюбьъй"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -203,6 +207,59 @@ func TestJudge_detailsAreReadByTheirFirstCharacters(t *testing.T) {
 	who := Details{Username: strings.Repeat("a ", 128) + password}
 	if got := Judge(password, who, 30); !got.StrongEnough {
 		t.Errorf("Judge(%q) with the word past the username's %dth character = %+v, want strong enough", password, maxDetail, got)
+	}
+}
+
+func TestJudge_aCharacterOutsideASCIICountsOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, password := range []string{"éééééééé", "ββββββββ", "日日日日", "😀😀", "€€", "日本", "éèêë", "passwörd", strings.Repeat("😀", 64)} {
+		if got := Judge(password, Details{}, 30); got.StrongEnough || got.Reason != ReasonGuessable {
+			t.Errorf("Judge(%q, 30) = %+v, want it short for %q", password, got, ReasonGuessable)
+		}
+	}
+}
+
+func TestJudge_aScriptOutsideASCIICanMakeAStrongPassword(t *testing.T) {
+	t.Parallel()
+
+	const password = "щжфыхцэюбьъй"
+	if got := Judge(password, Details{}, 30); !got.StrongEnough {
+		t.Errorf("Judge(%q, 30) = %+v, want twelve different letters strong enough", password, got)
+	}
+}
+
+func TestJudge_anAccentTypedApartIsJudgedAsTheAccentedLetter(t *testing.T) {
+	t.Parallel()
+
+	apart := strings.Repeat("e\u0301", 8)
+	if got, want := Judge(apart, Details{}, 30), Judge("éééééééé", Details{}, 30); got != want {
+		t.Errorf("Judge(%+q, 30) = %+v, want %+v as for %+q", apart, got, want, "éééééééé")
+	}
+}
+
+func TestStandIns(t *testing.T) {
+	t.Parallel()
+
+	if n := utf8.RuneCountInString(standIns); n != 22 {
+		t.Errorf("standIns holds %d characters, want 22", n)
+	}
+	seen := map[rune]bool{}
+	for _, c := range standIns {
+		if c >= utf8.RuneSelf {
+			t.Errorf("standIns holds %q, which is not ASCII", c)
+		}
+		if seen[c] {
+			t.Errorf("standIns holds %q twice", c)
+		}
+		seen[c] = true
+	}
+	for letter, chars := range l33tTable {
+		for _, char := range chars {
+			if strings.Contains(standIns, char) {
+				t.Errorf("standIns holds %q, which the library reads as %q", char, letter)
+			}
+		}
 	}
 }
 
