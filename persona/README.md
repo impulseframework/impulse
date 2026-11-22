@@ -75,8 +75,8 @@ migrations into the host's migration set as they are; the names are
 `PersonaRegistrations`, `PersonaRequests`, `PersonaTokens`, `PersonaKeys` and
 `PersonaSignIns`. Another store implements `persona.Store`.
 
-The signing keys live in the store so every instance signs with the same key and
-publishes the same key set. The first key is made once: of two instances that start
+The signing keys live in the store so every instance publishes the same key set and
+signs with a key from it. The first key is made once: of two instances that start
 together on an empty store, the store keeps one key and both sign with it. The access
 tokens are encrypted under a key derived from the first signing key, which the store
 keeps for good, so an instance started after a rotation reads the tokens of one started
@@ -85,6 +85,11 @@ signed before the rotation still verify. An instance signs with a new key only o
 has itself held the key for a minute, by which time every instance publishes it,
 whatever their clocks say; an instance that has just started signs with the first key
 for its first minute.
+
+A lifetime is judged by the clock of the machine that reads it. A sign-in request lasts
+ten minutes and an access token five by the clock of the instance that is asked, and an
+application judges the ID token's expiry by its own clock, so the machines that run the
+instances and the applications must keep their clocks synchronized.
 
 ## The registration endpoint
 
