@@ -116,7 +116,16 @@ func resolveNames(opts []Option) (tableNames, error) {
 	return n, nil
 }
 
-// Store implements access.Store over the application's pgx pool.
+// Store implements access.Store over the application's pgx pool. A role's row and a
+// group's row are the locks of what stands on them. A write of a custom role's holding,
+// of a grant, of a group's member or of a group's role runs in a read-committed
+// transaction that first reads its parent's row for key share, and writes nothing where
+// the row is not there. The deletion of a role or of a group runs in a read-committed
+// transaction that first locks its row for update and then looks for what stands on it.
+// Of a write and a deletion at the same moment, the deletion reads the new row and
+// refuses, or the write finds its parent gone. The transactions name read committed
+// whatever the database's default: each statement then reads what had committed when it
+// started, which a snapshot taken before the wait would not.
 type Store struct {
 	pool  *pgxpool.Pool
 	names tableNames
@@ -125,10 +134,15 @@ type Store struct {
 	// parameters — so no query text is assembled at call sites.
 	sqlInsertRole          string
 	sqlLockRoleName        string
+	sqlShareHoldingRoles   string
+	sqlShareRole           string
+	sqlLockRole            string
 	sqlReadMeetingRoles    string
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
 	sqlDeleteEndedMembers  string
+	sqlHeldInDomain        string
+	sqlEndedInDomain       string
 	sqlRoleExists          string
 	sqlListRoles           string
 	sqlInsertUserRole      string
@@ -163,10 +177,15 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 
 		sqlInsertRole:         fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "Description") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.roles),
 		sqlLockRoleName:       `select pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+		sqlShareHoldingRoles:  fmt.Sprintf(`select 1 from %s where "Axis" = $2 and "Role" = $4 and (("Kind" = $1 and "DomainId" = $3) or ($1 = '%s' and "Kind" = '%s' and "DomainId" = '')) for key share`, names.roles, policy.KindDomain, policy.KindEvery),
+		sqlShareRole:          fmt.Sprintf(`select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 for key share`, names.roles),
+		sqlLockRole:           fmt.Sprintf(`select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 for update`, names.roles),
 		sqlReadMeetingRoles:   fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s where "Axis" = $1 and (("Kind" = $2 and "DomainId" = $3) or ($2 <> '%s' and "Kind" = '%s') or ($2 = '%s' and "Kind" = '%s'))`, names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
 		sqlDeleteRole:         fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4`, names.roles),
 		sqlRoleHasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s)`, names.userRoles, standing("")),
 		sqlDeleteEndedMembers: fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s`, names.userRoles, ended),
+		sqlHeldInDomain:       fmt.Sprintf(`select u."DomainId" from %s u where %s and %s order by u."DomainId" limit 1`, names.userRoles, readsEveryDomainRow(names.roles), standing("u.")),
+		sqlEndedInDomain:      fmt.Sprintf(`delete from %s u where %s and u.%s`, names.userRoles, readsEveryDomainRow(names.roles), ended),
 		sqlRoleExists:         fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4)`, names.roles),
 		sqlListRoles:          fmt.Sprintf(`select "Role", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Role"`, names.roles),
 		sqlInsertUserRole: fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "UserId", "StartsAt", "EndsAt", "Reason") values ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -221,6 +240,15 @@ const (
 	// as it was.
 	replacePeriod = `"StartsAt" = excluded."StartsAt", "EndsAt" = excluded."EndsAt"`
 )
+
+// readsEveryDomainRow is the predicate of a holding, under the alias u, that reads the
+// every-domain row of the role $2: one held in one domain of the axis $1 that names the
+// role, where the domain holds no row of the exact name in roles, the roles table, of
+// its own.
+func readsEveryDomainRow(roles string) string {
+	return fmt.Sprintf(`u."Kind" = '%s' and u."Axis" = $1 and u."Role" = $2 and not exists (select 1 from %s r where r."Kind" = u."Kind" and r."Axis" = u."Axis" and r."DomainId" = u."DomainId" and r."Role" = u."Role")`,
+		policy.KindDomain, roles)
+}
 
 // periodOf reassembles an assignment's period from its two columns.
 func periodOf(start, end *time.Time) accesstypes.Period {
@@ -394,6 +422,106 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 	}
 	if _, err := s.pool.Exec(ctx, s.sqlInsertUserRole, kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() assign user role")
+	}
+
+	return nil
+}
+
+// InsertCustomUserRole writes what InsertUserRole writes, only while the roles table
+// holds a row of the custom role where the membership reads it: the scope's own or,
+// for one domain, every domain's. It reads those rows for key share before it writes,
+// as writeUnder says, and wraps policy.ErrNoRole where none is there.
+func (s *Store) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	kind, axis, domain := policy.ScopeColumns(scope)
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
+
+	return s.writeUnder(ctx, "assign user role", s.sqlInsertUserRole, []any{kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why}, s.customRole(scope, role))
+}
+
+// parent is the row, or the rows, a write stands on: the statement that reads them for
+// key share, its arguments, and the error the write answers where the statement reads
+// no row.
+type parent struct {
+	sql  string
+	args []any
+	gone func() error
+}
+
+// customRole is the parent of a holding of a custom role in scope: the roles-table rows
+// the holding reads, the scope's own and, for one domain, every domain's. One row is
+// enough, and every row there is read.
+func (s *Store) customRole(scope accesstypes.PolicyScope, role accesstypes.Role) parent {
+	kind, axis, domain := policy.ScopeColumns(scope)
+
+	return parent{
+		sql:  s.sqlShareHoldingRoles,
+		args: []any{kind, axis, domain, role},
+		gone: func() error {
+			return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+		},
+	}
+}
+
+// ownRole is the parent of a grant: the role's own row, (scope, role) exactly. Every
+// domain's row does not stand in for one domain's.
+func (s *Store) ownRole(scope accesstypes.PolicyScope, role accesstypes.Role) parent {
+	kind, axis, domain := policy.ScopeColumns(scope)
+
+	return parent{
+		sql:  s.sqlShareRole,
+		args: []any{kind, axis, domain, role},
+		gone: func() error {
+			return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+		},
+	}
+}
+
+// writeUnder writes one row that stands on parents, by the insert statement and its
+// arguments, in a read-committed transaction whose first statements read the parents'
+// rows for key share, in the order given. Where a parent's statement reads no row it
+// writes nothing and answers that parent's error. A deletion of a parent locks its row
+// for update before it looks for what stands on it, so the two take turns: the deletion
+// that comes second reads the row written and refuses, and the write that comes second
+// reads no row.
+func (s *Store) writeUnder(ctx context.Context, what, insert string, args []any, parents ...parent) error {
+	// Read committed whatever the database's default, as InsertRole: the read of a
+	// parent that waited on a deletion reads what the deletion committed.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return errors.Wrapf(err, "pgxpool.Pool.BeginTx() %s", what)
+	}
+	defer func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+	}()
+
+	if err := shareParents(ctx, tx, parents); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, insert, args...); err != nil {
+		return errors.Wrapf(err, "pgx.Tx.Exec() %s", what)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.Wrapf(err, "pgx.Tx.Commit() %s", what)
+	}
+
+	return nil
+}
+
+// shareParents reads, inside tx, each parent's rows for key share, in the order given,
+// and answers the error of the first parent whose statement reads no row. A select's
+// command tag counts the rows it read.
+func shareParents(ctx context.Context, tx pgx.Tx, parents []parent) error {
+	for _, p := range parents {
+		tag, err := tx.Exec(ctx, p.sql, p.args...)
+		if err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec() read parent for key share")
+		}
+		if tag.RowsAffected() == 0 {
+			return p.gone()
+		}
 	}
 
 	return nil
@@ -607,16 +735,31 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([
 // delete, and so does a group that holds the role there, now or for a period
 // that has not begun: each is checked in the delete's own transaction, since
 // nothing in the schema ties a membership or a group's role to a role row. The
-// ended ones, a person's and a group's, go with the role.
+// ended ones, a person's and a group's, go with the role. The transaction first
+// locks the role's row for update, which a holding of the role written by the
+// store, or by a transaction that reads the row for key share, waits on and holds
+// a lock against: of such a holding and the delete at the same moment, the checks
+// read the holding and refuse, or the holding finds the row gone. Before it
+// removes a group's ended roles it reads the rows of the groups that hold them for
+// key share, as a write under a group does, so it takes its turn with a DeleteGroup
+// of one of them.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	tx, err := s.pool.Begin(ctx)
+	// Read committed whatever the database's default, as InsertRole: the checks after
+	// the lock see the holding of the transaction that held the row before it.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return false, errors.Wrap(err, "pgxpool.Pool.Begin() delete role")
+		return false, errors.Wrap(err, "pgxpool.Pool.BeginTx() delete role")
 	}
 	defer func() {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	}()
+
+	// A role with no row locks nothing: the checks below run all the same, and the
+	// delete answers false where they pass.
+	if _, err := tx.Exec(ctx, s.sqlLockRole, kind, axis, domain, role); err != nil {
+		return false, errors.Wrap(err, "pgx.Tx.Exec() lock role")
+	}
 
 	var hasMembers bool
 	if err := tx.QueryRow(ctx, s.sqlRoleHasMembers, kind, axis, domain, role).Scan(&hasMembers); err != nil {
@@ -632,6 +775,11 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	if held {
 		return false, errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %s", role, scope)
 	}
+	if scope.IsEveryDomain() {
+		if err := s.refuseHeldInDomain(ctx, tx, axis, role); err != nil {
+			return false, err
+		}
+	}
 	tag, err := tx.Exec(ctx, s.sqlDeleteRole, kind, axis, domain, role)
 	if err != nil {
 		return false, errors.Wrap(err, "pgx.Tx.Exec() delete role")
@@ -643,8 +791,23 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		if _, err := tx.Exec(ctx, s.sqlDeleteEndedMembers, kind, axis, domain, role); err != nil {
 			return false, errors.Wrap(err, "pgx.Tx.Exec() ended memberships")
 		}
+		// The groups whose ended roles go next are read for key share first, as a
+		// write under a group reads its row. A DeleteGroup locks its group's row for
+		// update before it removes its ended roles in one statement, where this delete
+		// of a role held in every domain removes them in two: the two take turns on
+		// the group's row, and neither holds a group's role the other waits for.
+		if _, err := tx.Exec(ctx, s.groups.shareEndedOf, role); err != nil {
+			return false, errors.Wrap(err, "pgx.Tx.Exec() groups of ended roles")
+		}
 		if _, err := tx.Exec(ctx, s.groups.deleteEndedOf, kind, axis, domain, role); err != nil {
 			return false, errors.Wrap(err, "pgx.Tx.Exec() ended group roles")
+		}
+		if scope.IsEveryDomain() {
+			for _, sql := range []string{s.sqlEndedInDomain, s.groups.endedInDomain} {
+				if _, err := tx.Exec(ctx, sql, axis, role); err != nil {
+					return false, errors.Wrap(err, "pgx.Tx.Exec() ended holdings in one domain")
+				}
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -652,6 +815,30 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	}
 
 	return tag.RowsAffected() > 0, nil
+}
+
+// refuseHeldInDomain refuses, inside the transaction of a deletion of a role held in
+// every domain, while a person's or a group's holding in one domain reads the role's
+// row: one that names the role, has not ended, and whose domain holds no role of the
+// name of its own. The refusal wraps policy.ErrHeldInDomain and names the lowest such
+// domain, a person's before a group's.
+func (s *Store) refuseHeldInDomain(ctx context.Context, tx pgx.Tx, axis string, role accesstypes.Role) error {
+	for _, holder := range []struct {
+		sql, who string
+	}{
+		{sql: s.sqlHeldInDomain, who: "a person"},
+		{sql: s.groups.heldInDomain, who: "a group"},
+	} {
+		var domain string
+		switch err := tx.QueryRow(ctx, holder.sql, axis, role).Scan(&domain); {
+		case err == nil:
+			return errors.Wrapf(policy.ErrHeldInDomain, "role %q: %s holds it in the domain %q", role, holder.who, domain)
+		case !errors.Is(err, pgx.ErrNoRows):
+			return errors.Wrap(err, "pgx.Tx.QueryRow() holdings in one domain")
+		}
+	}
+
+	return nil
 }
 
 // RoleExists reports whether the (scope, role) row exists.
@@ -668,27 +855,26 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, r
 // InsertGrant adds one grant row; the condition is part of the row's identity
 // ("" = unconditional), so re-inserting an existing row is a no-op and a
 // different condition on the same (permission, resource, field) is a second
-// row. The (scope, role) parent row must exist.
+// row. It is ChangeGrants with the one addition: the (scope, role) parent row
+// must be there, and where it is not, policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
-	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertGrant, kind, axis, domain, role, perm, resource, field, condition); err != nil {
-		return errors.Wrap(err, "pgxpool.Pool.Exec() insert grant")
-	}
-
-	return nil
+	return s.ChangeGrants(ctx, scope, role, nil, []policy.RoleGrant{{Perm: perm, Resource: resource, Field: field, Condition: condition}})
 }
 
 // InsertGrants adds the role's grant rows as one write: a change with no
-// removals. The (scope, role) parent row must exist.
+// removals. The (scope, role) parent row must exist, and where it does not,
+// policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants []policy.RoleGrant) error {
 	return s.ChangeGrants(ctx, scope, role, nil, grants)
 }
 
 // ChangeGrants removes the role's removals and adds its additions in one
-// transaction, as one batched round trip: a failure rolls the whole change
-// back. Each insert ignores a conflict, so present rows are untouched and the
-// additions are idempotent like InsertGrant. The (scope, role) parent row must
-// exist for the additions.
+// read-committed transaction: a failure rolls the whole change back. Each insert
+// ignores a conflict, so present rows are untouched and the additions are
+// idempotent. Where there are additions, the transaction first reads the (scope,
+// role) parent row for key share, as writeUnder reads a parent, and where it is not
+// there wraps policy.ErrNoRole and writes nothing; the change then goes as one
+// batched round trip.
 func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
 	if len(removals) == 0 && len(additions) == 0 {
 		return nil
@@ -703,14 +889,20 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 		batch.Queue(s.sqlInsertGrant, kind, axis, domain, role, g.Perm, g.Resource, g.Field, g.Condition)
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	// Read committed whatever the database's default, as writeUnder.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return errors.Wrap(err, "pgxpool.Pool.Begin() change grants")
+		return errors.Wrap(err, "pgxpool.Pool.BeginTx() change grants")
 	}
 	defer func() {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	}()
 
+	if len(additions) > 0 {
+		if err := shareParents(ctx, tx, []parent{s.ownRole(scope, role)}); err != nil {
+			return err
+		}
+	}
 	results := tx.SendBatch(ctx, batch)
 	for range batch.Len() {
 		if _, err := results.Exec(); err != nil {

@@ -87,6 +87,14 @@ func (s *rowStore) InsertUserRole(ctx context.Context, scope accesstypes.PolicyS
 	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period, reason)
 }
 
+func (s *rowStore) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	if err := s.row(); err != nil {
+		return err
+	}
+
+	return s.fakeStore.InsertCustomUserRole(ctx, scope, user, role, period, reason)
+}
+
 func (s *rowStore) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	if err := s.row(); err != nil {
 		return err
@@ -133,6 +141,14 @@ func (s *rowStore) InsertGroupRole(ctx context.Context, group accesstypes.Group,
 	}
 
 	return s.fakeStore.InsertGroupRole(ctx, group, scope, role, period)
+}
+
+func (s *rowStore) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	if err := s.row(); err != nil {
+		return err
+	}
+
+	return s.fakeStore.InsertCustomGroupRole(ctx, group, scope, role, period)
 }
 
 func (s *rowStore) DeleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
@@ -614,8 +630,8 @@ func Test_userManager_holdAnnouncement(t *testing.T) {
 			t.Error("holdAnnouncement() inside a held call returned a manager of its own, want the outer call's")
 		}
 		for _, user := range people(2) {
-			if err := inner.store.addUserRole(t.Context(), tenant1Policy, user, "Editor", accesstypes.Period{}); err != nil {
-				t.Fatalf("addUserRole() error = %v", err)
+			if err := inner.store.assignUserRole(t.Context(), tenant1Policy, user, "Editor", accesstypes.Period{}, ""); err != nil {
+				t.Fatalf("assignUserRole() error = %v", err)
 			}
 		}
 
@@ -628,8 +644,8 @@ func Test_userManager_holdAnnouncement(t *testing.T) {
 			t.Errorf("announcements made as the outer call ended = %d, want 1", got)
 		}
 		// A write that is not held announces for itself, as before the call.
-		if err := manager.store.addUserRole(t.Context(), tenant1Policy, "frank", "Editor", accesstypes.Period{}); err != nil {
-			t.Fatalf("addUserRole() error = %v", err)
+		if err := manager.store.assignUserRole(t.Context(), tenant1Policy, "frank", "Editor", accesstypes.Period{}, ""); err != nil {
+			t.Fatalf("assignUserRole() error = %v", err)
 		}
 		if got := signal.begun.Load(); got != 2 {
 			t.Errorf("announcements after a write outside any call = %d, want 2", got)
@@ -695,7 +711,7 @@ func TestUserManager_everyWritingCallHoldsItsAnnouncement(t *testing.T) {
 	storeWrites := reaching(stores, func(fn *ast.FuncDecl) bool {
 		return slices.Contains(selectedOn(fn, ""), "notifyPolicyChange")
 	})
-	for _, want := range []string{"addUserRole", "deleteRole", "addGroupUser"} {
+	for _, want := range []string{"assignUserRole", "deleteRole", "addGroupUser"} {
 		if !storeWrites[want] {
 			t.Fatalf("the store manager's %s was not read as a write: the test no longer reads the code as it is written", want)
 		}
