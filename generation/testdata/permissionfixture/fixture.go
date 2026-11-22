@@ -6,7 +6,10 @@
 // of aliases of accesstypes.Resource and accesstypes.Permission are read as theirs, and
 // a registration on a constant of any other type is refused. The const groups at the end
 // carry annotations in the comment above the group, which nothing reads and the
-// generator refuses, beside the groups it takes.
+// generator refuses, beside the groups it takes. The comments after them that a blank
+// line parts from the declaration below, and the one no declaration follows, are no
+// constant's: the generator refuses an annotation's line in one, and takes prose and a
+// line that starts with another annotation's name.
 package permissionfixture
 
 import (
@@ -214,3 +217,40 @@ const (
 //
 // @manualAddPermission
 const SingleExport accesstypes.Permission = "SingleExport"
+
+// @manualAddResource(Read)
+
+// Parted is a resource whose registration a blank line parts from its constant.
+const Parted accesstypes.Resource = "Parted"
+
+const (
+	// @manualAddPermission
+
+	// PartedExport is a permission whose declaration a blank line parts from its
+	// constant inside the group.
+	PartedExport accesstypes.Permission = "PartedExport"
+)
+
+// This prose names @manualAddResource(Read) inside a line, and a blank line parts it
+// from the constant below.
+
+// PartedProse is an untyped constant below a comment of prose.
+const PartedProse = "PartedProse"
+
+// @manualAddResourceSet(Read)
+
+// PartedSet is an untyped constant below a comment whose line starts with another
+// annotation's name.
+const PartedSet = "PartedSet"
+
+// Audit is a function: its doc comment and the comment in its body are no constant's,
+// and are not loose either.
+//
+// @manualAddResource(Read)
+func Audit() {
+	// @manualAddResource(Read)
+}
+
+// The fixture ends with a comment no declaration follows.
+//
+// @manualAddPermission

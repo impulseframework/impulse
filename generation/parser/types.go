@@ -61,6 +61,26 @@ func (c *Constant) GroupComments() string {
 	return c.groupComments
 }
 
+// LooseComment is a comment of a package's file that belongs to no declaration: neither
+// the doc nor the line comment of the file, a declaration, a spec or a field, and in no
+// function's body. An annotation is read from the comment of what it stands above, so a
+// line written as one in a loose comment is read by nothing.
+type LooseComment struct {
+	position string
+	text     string
+}
+
+// Position returns where the comment starts: its file's base name, a colon and the line
+// of its first line (manual.go:41).
+func (c *LooseComment) Position() string {
+	return c.position
+}
+
+// Text returns the comment's text, as ast.CommentGroup.Text gives it.
+func (c *LooseComment) Text() string {
+	return c.text
+}
+
 // TypeInfo provides convience methods over a go/types' Object.
 type TypeInfo struct {
 	obj types.Object

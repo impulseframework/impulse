@@ -89,6 +89,33 @@ func annotationAboveConstGroup(constants []*parser.Constant) error {
 	return nil
 }
 
+// annotationInLooseComment refuses a line that starts with @manualAddResource or
+// @manualAddPermission (commentRegistersResource, commentDeclaresPermission) in a
+// comment of the resources package that is no declaration's (parser.LooseComments): one
+// a blank line parts from the constant below it, or one no declaration follows. An
+// annotation is read from the comment directly above its constant, so one there would be
+// read by nothing, and the route it was written for would be denied to every role
+// without a word. The first such comment, and its first such line, are said; a line that
+// names the annotation inside prose, or starts with a longer word
+// (@manualAddResourceSet), is taken.
+func annotationInLooseComment(comments []*parser.LooseComment) error {
+	for _, c := range comments {
+		for line := range strings.Lines(c.Text()) {
+			if !commentRegistersResource(line) && !commentDeclaresPermission(line) {
+				continue
+			}
+
+			return errors.Newf(
+				"%s: the comment holds the line %q and is no constant's: a blank line parts it from the declaration below it, or none follows it. "+
+					"An annotation is read from the comment directly above its constant: close the gap, or, if the line is prose, start it with another word",
+				c.Position(), strings.TrimSpace(line),
+			)
+		}
+	}
+
+	return nil
+}
+
 // manualPermissionsFromConstants extracts @manualAddPermission annotations from the
 // resources package's accesstypes.Permission constants: each declares the constant's
 // value as a permission of the application that no resource registers, one it checks for

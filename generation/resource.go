@@ -344,6 +344,9 @@ func (r *resourceGenerator) Generate() error {
 		return err
 	}
 
+	if err := annotationInLooseComment(parser.LooseComments(pkg)); err != nil {
+		return err
+	}
 	if err := r.readManualDeclarations(resourcesPkg.Constants); err != nil {
 		return err
 	}
