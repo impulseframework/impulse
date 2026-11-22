@@ -138,9 +138,11 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 // setting: this is the one place that decides what a nil collection is.
 //
 // A struct value that wraps a nil collection is not reported: nothing short of
-// asking it a question tells it from a collection. New asks its first question
-// of the collection, the actions it lists, before it reads the role file or the
-// store, so an application that hands one over stops when it starts.
+// asking it a question tells it from a collection. New asks the collection its
+// first question once the role file is parsed, before it compiles the file's
+// grants or opens the store, and that call panics on such a value: an
+// application that hands one over stops when it starts, with a panic and not
+// with New's refusal.
 func IsNilCollection(collection PermissionCollection) bool {
 	if collection == nil {
 		return true
