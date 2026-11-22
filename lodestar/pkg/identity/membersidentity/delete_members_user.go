@@ -15,7 +15,11 @@ import (
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.
 //
+// A row offers it only to a caller whose session enters every sector the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(portal, default)
 // @answers(204)
 type DeleteMembersUser struct {

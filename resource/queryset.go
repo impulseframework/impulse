@@ -151,6 +151,13 @@ type QuerySet[Resource Resourcer] struct {
 	capabilities        []accesstypes.Permission
 	capabilityDecisions map[accesstypes.Permission]accesstypes.Decisions
 
+	// unentered are the tenants the session does not enter (unenteredDomains),
+	// asked once by the capability check where the request asked for Execute
+	// and a method that names the resource's rows is offered only to a caller
+	// whose session enters the row's tenants (@callerEnters, TenantsToEnter);
+	// nil otherwise. While it is empty nothing is rendered for it.
+	unentered []accesstypes.Domain
+
 	// across is the partition of a list across tenants: the set of tenants the
 	// list reads and what the person's grants decide in each (across_tenants.go).
 	// Nil on every other QuerySet, whose partition is the one scope above.
@@ -1267,7 +1274,7 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 		return nil, err
 	}
 
-	if err := q.mergeStatementParams(where, subqueryParams, registry); err != nil {
+	if err := q.mergeStatementParams(where, subqueryParams, registry, capPlan); err != nil {
 		return nil, err
 	}
 
@@ -1298,9 +1305,10 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	return stmt, nil
 }
 
-// mergeStatementParams folds the subquery's parameters and the registry's into the WHERE
-// clause's, refusing a name the subquery and the clause both bind.
-func (q *QuerySet[Resource]) mergeStatementParams(where *Statement, subqueryParams map[string]any, registry *paramRegistry) error {
+// mergeStatementParams folds the subquery's parameters, the registry's and those of the
+// capability plan's TenantsToEnter query into the WHERE clause's, refusing a name two of
+// them bind.
+func (q *QuerySet[Resource]) mergeStatementParams(where *Statement, subqueryParams map[string]any, registry *paramRegistry, capPlan *capabilityPlan) error {
 	for k := range subqueryParams {
 		if _, ok := where.Params[k]; ok {
 			return errors.Newf("named parameter collision: %s subquery and where clause both contain named parameter %q", q.Resource(), k)
@@ -1308,8 +1316,11 @@ func (q *QuerySet[Resource]) mergeStatementParams(where *Statement, subqueryPara
 
 		where.Params[k] = subqueryParams[k]
 	}
+	if err := q.mergeRegistryParams(registry, where.Params); err != nil {
+		return err
+	}
 
-	return q.mergeRegistryParams(registry, where.Params)
+	return q.mergeEnteringParams(where.Params, capPlan)
 }
 
 // optimizerVersion names the query optimizer version a statement runs under:

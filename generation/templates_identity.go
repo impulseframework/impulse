@@ -46,9 +46,16 @@ func defaultConfig() resource.Config {
 package {{ .Package }}
 
 import (
+	{{- if .OffersToEntering }}
+	"sync/atomic"
+	{{- end }}
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -76,6 +83,76 @@ type (
 		LastSignInAt           *time.Time   ` + "`spanner:\"LastSignInAt\"`" + `
 	}
 )
+{{- if .OffersToEntering }}
+
+// {{ GoCamel .User }}AdministeredTenantsQuery answers the {{ .TenantWord }}s each person of the {{ .Auth }}
+// auth administers, a row for each, RowKey the account's id and Tenant the {{ .TenantWord }}: one of
+// the roles the auth's permission engine names as a {{ .TenantWord }}'s administrator's
+// (@{{ .EnteringAdministratorsParam }}) held in the {{ .TenantWord }} itself, by a membership of the
+// person's own or through a group kept in that {{ .TenantWord }}, in an assignment that has not ended,
+// one that has not begun included. The methods that change how a person signs in refuse a
+// caller by the same count (the identity package's requireEnteringFor), and each row of
+// the auth's people reads it (TenantsToEnter).
+const {{ GoCamel .User }}AdministeredTenantsQuery = ` + "`" + `
+SELECT ta.UserId AS RowKey, ta.DomainId AS Tenant
+FROM {{ .Policy.UserRoles }} ta
+WHERE ta.Kind = {{ .KindDomain }} AND ta.Axis = {{ .ScopeAxis }}
+  AND ta.Role IN UNNEST(@{{ .EnteringAdministratorsParam }})
+  AND {{ .Standing "ta" }}
+{{- if .KeepsGroups }}
+UNION DISTINCT
+SELECT tm.UserId AS RowKey, tg.DomainId AS Tenant
+FROM {{ .Policy.GroupRoles }} tr
+JOIN {{ .Policy.Groups }} tg ON tg.Id = tr.GroupId
+JOIN {{ .Policy.GroupMembers }} tm ON tm.GroupId = tr.GroupId
+WHERE tg.Kind = {{ .KindDomain }} AND tg.Axis = {{ .ScopeAxis }}
+  AND tr.Kind = {{ .KindDomain }} AND tr.Axis = {{ .ScopeAxis }} AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@{{ .EnteringAdministratorsParam }})
+  AND {{ .Standing "tr" }}
+  AND {{ .Standing "tm" }}
+{{- end }}
+` + "`" + `
+
+// {{ GoCamel .User }}Administrators are the roles whose holders administer a {{ .TenantWord }}, as the
+// {{ .Auth }} auth's permission engine names them: what the query reads as
+// @{{ .EnteringAdministratorsParam }}. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var {{ GoCamel .User }}Administrators atomic.Pointer[[]string]
+
+// Set{{ .User }}AdministratorRoles tells the lists of the {{ .Auth }} auth which roles administer a
+// {{ .TenantWord }}: the ones its permission engine answers who administers a {{ .TenantWord }} by. The
+// auth's generated identity client calls it where it is built, so a row offers the methods
+// that change how a {{ .TenantWord }}'s administrator signs in by the names the methods themselves
+// refuse by.
+func Set{{ .User }}AdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	{{ GoCamel .User }}Administrators.Store(&names)
+}
+
+// {{ GoCamel .User }}TenantsToEnter is what each row of the {{ .Auth }} auth's people answers
+// TenantsToEnter with: the query, the roles it reads, and column, the row's column that
+// holds the account's id.
+func {{ GoCamel .User }}TenantsToEnter(column string) resource.TenantsToEnter {
+	administrators := []string{}
+	if named := {{ GoCamel .User }}Administrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return resource.TenantsToEnter{
+		Query:  {{ GoCamel .User }}AdministeredTenantsQuery,
+		Params: map[string]any{ {{- printf "%q" .EnteringAdministratorsParam }}: administrators},
+		Column: column,
+	}
+}
+
+` + identityTenantsToEnterDoc + `
+func ({{ .User }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .User }}TenantsToEnter("Id")
+}
+{{- end }}
 `
 
 	// identitySessionsTemplate declares the sessions table.
@@ -123,6 +200,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -149,6 +229,13 @@ type (
 		LastUsedAt  time.Time    ` + "`spanner:\"LastUsedAt\"`" + `
 	}
 )
+{{- if .OffersToEntering }}
+
+` + identityTenantsToEnterDoc + `
+func ({{ .Identity }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .User }}TenantsToEnter("UserId")
+}
+{{- end }}
 `
 
 	// identityTokensTemplate declares the tokens table. The hash a token is found by is
@@ -638,6 +725,12 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	// reads who administers a {{ .TenantWord }} by the engine's own names, the ones the sign-in and
 	// the session's reach decide by.
 	{{ .ResourcesPackage }}.Set{{ .TenantUser }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
+	{{- if .OffersToEntering }}
+	// A row of the auth's people offers the methods that change how a {{ .TenantWord }}'s
+	// administrator signs in only to a caller who enters the {{ .TenantWord }}s the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	{{ .ResourcesPackage }}.Set{{ .User }}AdministratorRoles(manager.TenantAdministratorRoles())
 	{{- end }}
 
 	return &Client{manager: manager}, nil
@@ -1761,9 +1854,9 @@ import (
 
 // Disable{{ .Subject }}User disables a person of the {{ .Auth }} auth and ends every
 // session they hold, in one transaction: their next request is refused, and so is
-// their next sign-in. Nobody disables themselves: the caller's own account is refused.` + identityTenantUserNote + `
+// their next sign-in. Nobody disables themselves: the caller's own account is refused.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Disable{{ .Subject }}User struct {
@@ -1911,9 +2004,9 @@ import (
 // Require{{ .Subject }}PasswordChange requires a person of the {{ .Auth }} auth to change
 // their password: every request of theirs is refused until they have. Only the
 // password they hold lifts the requirement, so it is refused for a person who holds
-// none.` + identityTenantUserNote + `
+// none.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityCredentialClass + `
 type Require{{ .Subject }}PasswordChange struct {
@@ -1951,9 +2044,9 @@ import (
 // person. A person who holds no password keeps an identity that can sign them in: the
 // last one that counts stays, whatever identities that sign nobody in remain. Unlink
 // one identity of a person per transaction: a second in the same one does not see the
-// first.` + identityTenantIdentityNote + `
+// first.` + identityTenantIdentityNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityCredentialClass + `
 type {{ .UnlinkIdentity }} struct {
@@ -1991,9 +2084,9 @@ import (
 // password, their one way in. The sessions the person holds stand, the count of failed
 // sign-ins kept under their name is cleared, and the requirement to change the password
 // goes with the password. The request names the person and carries nothing else, so no
-// record of the call holds a value.` + identityTenantUserNote + `
+// record of the call holds a value.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityCredentialClass + `
 type Remove{{ .Subject }}Password struct {
@@ -2063,9 +2156,9 @@ import (
 )
 
 // Enable{{ .Subject }}User enables a disabled person of the {{ .Auth }} auth, who may sign
-// in again. The sessions that ended when they were disabled stay ended.` + identityTenantUserNote + `
+// in again. The sessions that ended when they were disabled stay ended.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Enable{{ .Subject }}User struct {
@@ -2261,9 +2354,9 @@ import (
 // takes what carries the name for people to read with it, in one transaction: the
 // sessions they hold and the impersonations they established. The roles stay where they
 // are: the permission store names a person by the id of their account. A name another
-// user holds is refused.` + identityTenantUserNote + `
+// user holds is refused.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityCredentialClass + `
 type Rename{{ .Subject }}User struct {
@@ -2298,9 +2391,9 @@ import (
 
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + `
+// go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Delete{{ .Subject }}User struct {

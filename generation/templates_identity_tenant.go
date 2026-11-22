@@ -62,6 +62,29 @@ const (
 // @permissionScope(domain)
 {{- end }}`
 
+	// identityCallerEntersNote is the paragraph a method that changes how a person signs
+	// in, or whether their account stands, adds to its comment, on both sides, where its
+	// row offers it only to a caller who enters the tenants the person administers
+	// (OffersToEntering): the methods the identity package's requireEnteringFor refuses.
+	identityCallerEntersNote = `
+{{- if .OffersToEntering }}
+//
+// A row offers it only to a caller whose session enters every {{ .TenantWord }} the person
+// administers (@callerEnters); the method refuses anyone else.
+{{- end }}`
+
+	// identityCallerEnters is the annotation of such a method, after the scope's line.
+	identityCallerEnters = `
+{{- if .OffersToEntering }}
+// @callerEnters
+{{- end }}`
+
+	// identityTenantsToEnterDoc is the comment of TenantsToEnter on each struct whose row is
+	// a person or one of their identities (OffersToEntering).
+	identityTenantsToEnterDoc = `// TenantsToEnter names the {{ .TenantWord }}s the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.`
+
 	// identityTenantGuard opens the body of a tenant's method that hands the identity
 	// package nothing of the tenant: the frame has located the row within the tenant,
 	// and the method still runs for a request under the tenant's address alone.
@@ -107,9 +130,9 @@ type (
 	// account always keeps an address, so one is replaced and never taken off, and the
 	// address of a person who signs in through an organization's directory is the
 	// directory's to change. The answer says whether the link went (Sent) and, where
-	// it did not, why (Reason).` + identityTenantUserNote + `
+	// it did not, why (Reason).` + identityTenantUserNote + identityCallerEntersNote + `
 	//
-	// @rpc` + identityTenantScope + `
+	// @rpc` + identityTenantScope + identityCallerEnters + `
 	// @outlet({{ .Outlets }})` + identityCredentialClass + `
 	Set{{ .Subject }}UserEmail struct {
 		// @target({{ .SubjectUser }})

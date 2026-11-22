@@ -1008,8 +1008,10 @@ Bastion's that holds it, and the changes to the account of the marshal Bastion h
 would hand over her sign-in or shut her out (a password, a sign-in name, an address, an
 identity unlinked, the account disabled, enabled or deleted), each with a sentence that
 says who does it:
-one of Bastion's marshals, or a super administrator, as the governor is. A marshal of
-Bastion who changes her password goes on in the session that made the change, a
+one of Bastion's marshals, or a super administrator, as the governor is. Headquarters
+is not shown those actions on the row of a directory-only sector's marshal: the row's
+menu leaves them out, as the server would refuse them. A marshal of Bastion who changes
+her password goes on in the session that made the change, a
 password and the code still, so the change does not close her out of the sector she
 administers. The data level's roster
 keeps every sector's declaration beside its key (`resource.TenantRoster.Declarations`,
