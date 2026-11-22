@@ -9,7 +9,8 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
  * the server serves its routes, the password change where the person's auth has the password
  * method, the removal of the password where the server serves it, a first password where
  * the person has none and the server serves one, and forgetting this browser where it is
- * remembered for them. A page with none of them is not offered in the person's menu.
+ * remembered for them. A page with none of them says there is nothing to change; the
+ * person's menu offers the page all the same.
  *
  * The password sections follow what the server says the person signs in with
  * (`signInMeans`): neither the change nor the removal is offered to a person who holds no

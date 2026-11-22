@@ -42,9 +42,9 @@ describe('ThemePickerComponent', () => {
     document.documentElement.style.removeProperty('color-scheme');
   });
 
-  it('offers light and dark, and the palettes with their swatches', () => {
+  it('offers Light, Dark and Match my device, and the palettes with their swatches', () => {
     const { element } = render(palettes);
-    expect(texts(element, 'mat-button-toggle')).toEqual(['Light', 'Dark']);
+    expect(texts(element, 'mat-button-toggle')).toEqual(['Light', 'Dark', 'Match my device']);
     expect(texts(element, 'mat-radio-button')).toEqual(['Blue', 'Workspace']);
     const swatches = [...element.querySelectorAll('.swatch')].map((node) => node.getAttribute('data-impulse-swatch'));
     expect(swatches).toEqual(['blue', 'workspace']);
@@ -66,14 +66,26 @@ describe('ThemePickerComponent', () => {
     });
   });
 
+  it('follows the device when Match my device is clicked', () => {
+    const { element, fixture, theme } = render(palettes);
+    (element.querySelector('mat-button-toggle[value="device"] button') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(theme.scheme()).toBe('device');
+    expect(document.documentElement.style.getPropertyValue('color-scheme')).toBe('light dark');
+    expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? 'null')).toEqual({
+      scheme: 'device',
+      palette: 'blue',
+    });
+  });
+
   const alone: { name: string; offered: ThemePalette[] }[] = [
     { name: 'one palette', offered: [palettes[0]] },
     { name: 'no palette', offered: [] },
   ];
   for (const tt of alone) {
-    it(`offers light and dark alone with ${tt.name}`, () => {
+    it(`offers Light, Dark and Match my device alone with ${tt.name}`, () => {
       const { element } = render(tt.offered);
-      expect(texts(element, 'mat-button-toggle')).toEqual(['Light', 'Dark']);
+      expect(texts(element, 'mat-button-toggle')).toEqual(['Light', 'Dark', 'Match my device']);
       expect(element.querySelector('mat-radio-group')).toBeNull();
     });
   }

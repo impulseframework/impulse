@@ -7,7 +7,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 )
 
-// TestCleanLook pins the one rule a look is held to: the scheme is light, dark or none,
+// TestCleanLook pins the one rule a look is held to: the scheme is light, dark, device or none,
 // the palette's id is kept without the space around it and is at most MaxPaletteLength
 // characters, and a look of nothing names nothing.
 func TestCleanLook(t *testing.T) {
@@ -24,8 +24,10 @@ func TestCleanLook(t *testing.T) {
 		{name: "a scheme alone", look: Look{Scheme: "dark"}, want: Look{Scheme: "dark"}},
 		{name: "a palette alone", look: Look{Palette: "blue"}, want: Look{Palette: "blue"}},
 		{name: "nothing names nothing", look: Look{Scheme: " ", Palette: " "}, want: Look{}},
-		{name: "a scheme that is neither is refused", look: Look{Scheme: "sepia"}, wantErr: "a scheme is light or dark"},
-		{name: "a scheme in another case is refused", look: Look{Scheme: "Dark"}, wantErr: "a scheme is light or dark"},
+		{name: "the device's scheme is kept", look: Look{Scheme: " device ", Palette: "blue"}, want: Look{Scheme: "device", Palette: "blue"}},
+		{name: "a scheme that is none of the three is refused", look: Look{Scheme: "sepia"}, wantErr: "a scheme is light, dark or device"},
+		{name: "a scheme in another case is refused", look: Look{Scheme: "Dark"}, wantErr: "a scheme is light, dark or device"},
+		{name: "the device's scheme in another case is refused", look: Look{Scheme: "Device"}, wantErr: "a scheme is light, dark or device"},
 		{name: "the longest palette id is kept", look: Look{Palette: strings.Repeat("p", MaxPaletteLength)}, want: Look{Palette: strings.Repeat("p", MaxPaletteLength)}},
 		{name: "a longer one is refused", look: Look{Palette: strings.Repeat("p", MaxPaletteLength+1)}, wantErr: "a palette's id is at most 64 characters"},
 		{name: "a palette id with a control character is refused", look: Look{Palette: "blue\x00"}, wantErr: "a palette's id is text on one line: it holds no control character"},

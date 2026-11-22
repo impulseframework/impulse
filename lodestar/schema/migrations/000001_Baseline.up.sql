@@ -33,9 +33,10 @@ CREATE TABLE CrewSessionUsers (
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
@@ -48,7 +49,7 @@ CREATE TABLE CrewSessionUsers (
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_CrewSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_CrewSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_CrewSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
   -- The crew's email addresses, in two states. Email is the address as the person gave
   -- it, NormalizedEmail the form uniqueness and lookups use (the address with its ASCII
   -- capital letters lowercased and every other character as written, which is how the
@@ -185,9 +186,10 @@ CREATE TABLE MembersSessionUsers (
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
@@ -200,7 +202,7 @@ CREATE TABLE MembersSessionUsers (
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_MembersSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
   -- The members' email addresses, in two states. Email is the address as the person gave
   -- it, NormalizedEmail the form uniqueness and lookups use (the address with its ASCII
   -- capital letters lowercased and every other character as written, which is how the

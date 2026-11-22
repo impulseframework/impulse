@@ -447,7 +447,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			},
 		},
 		{
-			name: "the look a person chose is kept with the account: the session read of another browser answers it, a half left out is taken off, and a scheme that is neither light nor dark is refused",
+			name: "the look a person chose is kept with the account: the session read of another browser answers it, a half left out is taken off, and a scheme that is not light, dark or device is refused",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
 				a.hooks.set(func(h *hooks[Tx]) {
 					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {

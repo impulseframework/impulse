@@ -1005,11 +1005,17 @@ describe('keeping the look the person chose', () => {
     expect(transport.requests[1].body).toEqual({ scheme: 'light', palette: '' });
   });
 
+  it("resolves the look that follows the person's device as the server keeps it", async () => {
+    const { auth, transport } = authOver(kept({ look: { status: 200, body: { scheme: 'device' } } }));
+    expect(await auth.changeLook({ scheme: 'device' })).toEqual({ outcome: 'changed', look: { scheme: 'device' } });
+    expect(transport.requests[1].body).toEqual({ scheme: 'device', palette: '' });
+  });
+
   const answers: { name: string; body: unknown; want: unknown }[] = [
     { name: 'an empty answer is a look of nothing', body: {}, want: {} },
     { name: 'no body is a look of nothing', body: undefined, want: {} },
     {
-      name: 'a scheme that is neither is not kept',
+      name: 'a scheme that is none of the three is not kept',
       body: { scheme: 'sepia', palette: 'blue' },
       want: { palette: 'blue' },
     },
@@ -1024,9 +1030,9 @@ describe('keeping the look the person chose', () => {
 
   const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
     {
-      name: "a scheme that is neither light nor dark resolves with the server's words",
-      answer: { status: 400, body: { message: 'a scheme is light or dark' } },
-      want: { outcome: 'refused', status: 400, message: 'a scheme is light or dark' },
+      name: "a scheme that is not light, dark or device resolves with the server's words",
+      answer: { status: 400, body: { message: 'a scheme is light, dark or device' } },
+      want: { outcome: 'refused', status: 400, message: 'a scheme is light, dark or device' },
     },
     {
       name: 'an impersonated session resolves as refused',

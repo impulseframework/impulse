@@ -614,7 +614,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},
 		{name: "a person's name is stored without the space around it, replaced or taken off by hand, and claimed only for a user who holds none", run: testUserName},
-		{name: "the look a person chose is kept as a whole, a half it does not name taken off, and a scheme that is neither light nor dark refused", run: testUserLook},
+		{name: "the look a person chose is kept as a whole, a half it does not name taken off, and a scheme that is not light, dark or device refused", run: testUserLook},
 		{name: "where the username is the address, the database derives the address, a rename is refused and a verified address renames the user", run: testUsernameIsEmail},
 		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
 		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},

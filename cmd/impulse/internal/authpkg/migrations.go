@@ -43,9 +43,10 @@ CREATE TABLE %[1]sSessionUsers (
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
@@ -58,7 +59,7 @@ CREATE TABLE %[1]sSessionUsers (
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 %[4]s  CONSTRAINT CK_%[1]sSessionUsersId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-  CONSTRAINT CK_%[1]sSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_%[1]sSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX %[1]sSessionUsersByNormalizedUsername ON %[1]sSessionUsers(NormalizedUsername);

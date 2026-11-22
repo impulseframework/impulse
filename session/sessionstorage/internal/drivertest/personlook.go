@@ -21,9 +21,11 @@ func assertLook(t *testing.T, what string, user *dbtype.SessionUser, want sessio
 }
 
 // testUserLook holds a driver to how the look a person chose is kept: none on a new
-// user, written as a whole without the space around its parts, a half the look does not
-// name taken off, a scheme that is neither light nor dark and a palette id too long
-// refused with the look held left as it was, and an unknown user not found.
+// user, written as a whole without the space around its parts, the device's scheme (a
+// page is then drawn light or dark as the device it is on is set) kept as light and dark
+// are, a half the look does not name taken off, a scheme that is not light, dark or
+// device and a palette id too long refused with the look held left as it was, and an
+// unknown user not found.
 func testUserLook(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 
@@ -36,15 +38,22 @@ func testUserLook(ctx context.Context, t *testing.T, h *AuthHarness) {
 	dark := sessioninfo.Look{Scheme: sessioninfo.SchemeDark, Palette: "workspace"}
 	assertLook(t, "User() after SetUserLook()", mustUser(ctx, t, in.Driver, gale.ID), dark)
 
+	// A look may follow the person's device.
+	device := sessioninfo.Look{Scheme: sessioninfo.SchemeDevice, Palette: "workspace"}
+	if err := in.Driver.SetUserLook(ctx, gale.ID, device); err != nil {
+		t.Fatalf("SetUserLook() with the device's scheme error = %v", err)
+	}
+	assertLook(t, "User() after SetUserLook() with the device's scheme", mustUser(ctx, t, in.Driver, gale.ID), device)
+
 	// A refused look leaves the one held as it was.
 	if err := in.Driver.SetUserLook(ctx, gale.ID, sessioninfo.Look{Scheme: "sepia", Palette: "blue"}); !httpio.HasBadRequest(err) {
-		t.Errorf("SetUserLook() with a scheme that is neither error = %v, want a BadRequest", err)
+		t.Errorf("SetUserLook() with a scheme that is none of the three error = %v, want a BadRequest", err)
 	}
 	tooLong := strings.Repeat("p", sessioninfo.MaxPaletteLength+1)
 	if err := in.Driver.SetUserLook(ctx, gale.ID, sessioninfo.Look{Scheme: sessioninfo.SchemeLight, Palette: tooLong}); !httpio.HasBadRequest(err) {
 		t.Errorf("SetUserLook() with a palette id too long error = %v, want a BadRequest", err)
 	}
-	assertLook(t, "User() after the refused looks", mustUser(ctx, t, in.Driver, gale.ID), dark)
+	assertLook(t, "User() after the refused looks", mustUser(ctx, t, in.Driver, gale.ID), device)
 
 	// The look is replaced as a whole: a half it does not name is taken off.
 	if err := in.Driver.SetUserLook(ctx, gale.ID, sessioninfo.Look{Scheme: sessioninfo.SchemeLight}); err != nil {

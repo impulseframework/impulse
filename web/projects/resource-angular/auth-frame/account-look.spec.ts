@@ -113,6 +113,21 @@ describe('AccountLook', () => {
     expect(posted()).toEqual([]);
   });
 
+  it("applies an account's look that follows the device: both schemes on the root", async () => {
+    const theme = await signIn({ session: { look: { scheme: 'device' } } });
+    expect(theme.scheme()).toBe('device');
+    expect(root().style.getPropertyValue('color-scheme')).toBe('light dark');
+    expect(remembered()).toEqual({ scheme: 'device', palette: 'blue' });
+    expect(posted()).toEqual([]);
+  });
+
+  it("writes the person's choice of the device to the account", async () => {
+    const theme = await signIn();
+    theme.setScheme('device');
+    await settle();
+    expect(posted()).toEqual([{ scheme: 'device', palette: 'blue' }]);
+  });
+
   it('keeps a palette the application does not offer out, and takes the scheme', async () => {
     const theme = await signIn({ session: { look: { scheme: 'dark', palette: 'violet' } } });
     expect(theme.scheme()).toBe('dark');
