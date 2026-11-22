@@ -1822,12 +1822,13 @@ with nothing gone where it cannot be made whole:
   the tenant column of the other, as a pass's
   `FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars (Id, SectorId)` does. The generator
   refuses one that leaves the tenant out, a table's foreign key to its own rows included,
-  naming the table and the foreign key and printing the key to write: the columns of the
-  other table's key first, in that key's order, then the rest, which is the order the
-  database holds them in for a key to another table's key. Where the database holds them
-  otherwise, the order check above prints that order at the next generation. The database
-  then refuses every write of a row that names another tenant's row, whoever writes it,
-  and the caller is answered as for a row that names nothing:
+  naming the table and the foreign key and printing the key to write, in the order the
+  database holds the other table's columns in: the columns of that table's primary key that
+  the key references, in the key's order, up to the first one it does not reference; then
+  the rest in the order the table declares its columns. A unique index that table declares
+  on the same columns plays no part in the order. The database then refuses every write of
+  a row that names another tenant's row, whoever writes it, and the caller is answered as
+  for a row that names nothing:
   `HangarPasses: a referenced record does not exist, or a value is too long for its field.`
   A table that reads its tenant through other rows (`@domain(via: ...)`) has no tenant
   column to put in a key, so its foreign keys are not held to this. The one its tenant is

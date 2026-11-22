@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -80,33 +81,39 @@ func (f *foreignKeyMeta) holdsPair(column, referencedColumn string) bool {
 
 // keyHoldingTenant is the key to write in place of a foreign key to this table that
 // leaves out the tenant: the key's pairs, less any that holds either tenant column, with
-// the pair of the two tenant columns. The referenced columns stand in the order a database holds
-// them in for a key to a table's key: the columns of this table's primary key the key
-// references, in the primary key's order; then the key's other referenced columns, in the
-// key's order; then this table's tenant column where it is not yet placed. Each column of
-// the key stands at the position of the column it references.
+// the pair of the two tenant columns. The referenced columns stand in the order the
+// database holds this table's columns in for a foreign key: the columns of this table's
+// primary key that the key references, in the primary key's order, up to the first one it
+// does not reference; then the rest in the order the table declares its columns. A unique
+// index the table declares plays no part. Each column of the key stands at the position of
+// the column it references.
 func (t *tableMetadata) keyHoldingTenant(key *foreignKeyMeta, tenantColumn, referencedTenantColumn string) (columns, referencedColumns []string) {
 	referencedBy := map[string]string{referencedTenantColumn: tenantColumn}
-	others := make([]string, 0, len(key.Columns))
 	for i, column := range key.Columns {
 		referenced := key.ReferencedColumns[i]
 		if column == tenantColumn || referenced == referencedTenantColumn {
 			continue
 		}
 		referencedBy[referenced] = column
-		others = append(others, referenced)
 	}
 
 	for _, column := range t.keyColumns() {
-		if _, ok := referencedBy[column]; ok {
-			referencedColumns = append(referencedColumns, column)
+		if _, ok := referencedBy[column]; !ok {
+			break
 		}
+		referencedColumns = append(referencedColumns, column)
 	}
-	for _, column := range append(others, referencedTenantColumn) {
+	var rest []string
+	for column := range referencedBy {
 		if !slices.Contains(referencedColumns, column) {
-			referencedColumns = append(referencedColumns, column)
+			rest = append(rest, column)
 		}
 	}
+	slices.SortFunc(rest, func(a, b string) int {
+		return cmp.Or(cmp.Compare(t.Columns[a].OrdinalPosition, t.Columns[b].OrdinalPosition), cmp.Compare(a, b))
+	})
+	referencedColumns = append(referencedColumns, rest...)
+
 	columns = make([]string, 0, len(referencedColumns))
 	for _, referenced := range referencedColumns {
 		columns = append(columns, referencedBy[referenced])

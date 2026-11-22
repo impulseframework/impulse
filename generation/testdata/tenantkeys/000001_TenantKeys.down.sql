@@ -1,3 +1,11 @@
+DROP TABLE Moorings;
+DROP TABLE Quays;
+DROP TABLE Desks;
+DROP TABLE Rooms;
+DROP TABLE Latches;
+DROP TABLE Locks;
+DROP TABLE Tickets;
+DROP TABLE Gates;
 DROP TABLE Shelves;
 DROP INDEX VaultsByRealmIdId;
 DROP TABLE Vaults;

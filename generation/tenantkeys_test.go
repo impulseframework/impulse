@@ -43,8 +43,10 @@ func Test_refuseKeysWithoutTenant(t *testing.T) {
 		name string
 		// keys are the foreign keys set on each table.
 		keys map[string][]foreignKeyMeta
-		// keyedByTenant keys the wings by (BaseId, Id).
-		keyedByTenant bool
+		// wingColumns, where set, declares the wings' columns in this order.
+		wingColumns []string
+		// wingKey, where set, keys the wings by these columns, in this order.
+		wingKey []string
 		// wantErr holds a sentence for each refusal, in order; none means the schema passes.
 		wantErr []string
 	}{
@@ -70,13 +72,50 @@ func Test_refuseKeysWithoutTenant(t *testing.T) {
 			},
 		},
 		{
-			name:          "a key to a table keyed by its tenant and its id is printed in that key's order",
-			keys:          map[string][]foreignKeyMeta{"Permits": {key("FK_Permits_WingId", []string{"WingId"}, "Wings", "Id")}},
-			keyedByTenant: true,
+			name:    "a key to a table keyed by its tenant and its id is printed in that key's order",
+			keys:    map[string][]foreignKeyMeta{"Permits": {key("FK_Permits_WingId", []string{"WingId"}, "Wings", "Id")}},
+			wingKey: []string{"BaseId", "Id"},
 			wantErr: []string{
 				"table Permits: foreign key FK_Permits_WingId (WingId) to Wings (Id) leaves out the tenant, so a row of one tenant could name a row of another. " +
 					"Write it with the tenant column of each table: FOREIGN KEY (BaseId, WingId) REFERENCES Wings (BaseId, Id)",
 			},
+		},
+		{
+			name:        "a key to a column that is not the other table's key is printed in the order the table declares its columns",
+			keys:        map[string][]foreignKeyMeta{"Permits": {key("FK_Permits_LeadWing", []string{"LeadWing"}, "Wings", "CallSign")}},
+			wingColumns: []string{"Id", "BaseId", "CallSign"},
+			wingKey:     []string{"Id"},
+			wantErr: []string{
+				"table Permits: foreign key FK_Permits_LeadWing (LeadWing) to Wings (CallSign) leaves out the tenant, so a row of one tenant could name a row of another. " +
+					"Write it with the tenant column of each table: FOREIGN KEY (BaseId, LeadWing) REFERENCES Wings (BaseId, CallSign)",
+			},
+		},
+		{
+			name:        "the same key, the table declaring the column before its tenant, follows the declaration",
+			keys:        map[string][]foreignKeyMeta{"Permits": {key("FK_Permits_LeadWing", []string{"LeadWing"}, "Wings", "CallSign")}},
+			wingColumns: []string{"Id", "CallSign", "BaseId"},
+			wingKey:     []string{"Id"},
+			wantErr: []string{
+				"table Permits: foreign key FK_Permits_LeadWing (LeadWing) to Wings (CallSign) leaves out the tenant, so a row of one tenant could name a row of another. " +
+					"Write it with the tenant column of each table: FOREIGN KEY (LeadWing, BaseId) REFERENCES Wings (CallSign, BaseId)",
+			},
+		},
+		{
+			name:        "a key that does not reference the first column of the other table's key is printed in the order the table declares its columns",
+			keys:        map[string][]foreignKeyMeta{"Permits": {key("FK_Permits_WingId", []string{"WingId"}, "Wings", "Id")}},
+			wingColumns: []string{"BaseId", "Id", "CallSign"},
+			wingKey:     []string{"CallSign", "Id"},
+			wantErr: []string{
+				"table Permits: foreign key FK_Permits_WingId (WingId) to Wings (Id) leaves out the tenant, so a row of one tenant could name a row of another. " +
+					"Write it with the tenant column of each table: FOREIGN KEY (BaseId, WingId) REFERENCES Wings (BaseId, Id)",
+			},
+		},
+		{
+			name:        "a key to the other table's key comes first, wherever the table declares its tenant",
+			keys:        map[string][]foreignKeyMeta{"Permits": {key("FK_Permits_WingId", []string{"WingId"}, "Wings", "Id")}},
+			wingColumns: []string{"BaseId", "Id", "CallSign"},
+			wingKey:     []string{"Id"},
+			wantErr:     []string{permitToWing},
 		},
 		{
 			name:    "a key to the table's own rows on their id alone is refused",
@@ -125,12 +164,19 @@ func Test_refuseKeysWithoutTenant(t *testing.T) {
 			for table, keys := range tt.keys {
 				c.tableMap[table].ForeignKeys = keys
 			}
-			if tt.keyedByTenant {
-				wings := c.tableMap["Wings"]
-				wings.PkCount = 2
-				for column, ordinal := range map[string]int64{"BaseId": 1, "Id": 2} {
-					meta := wings.Columns[column]
-					meta.IsPrimaryKey, meta.KeyOrdinalPosition = true, ordinal
+			wings := c.tableMap["Wings"]
+			for position, column := range tt.wingColumns {
+				meta := wings.Columns[column]
+				meta.OrdinalPosition = int64(position)
+				wings.Columns[column] = meta
+			}
+			if tt.wingKey != nil {
+				wings.PkCount = len(tt.wingKey)
+				for column, meta := range wings.Columns {
+					meta.IsPrimaryKey, meta.KeyOrdinalPosition = false, 0
+					if ordinal := slices.Index(tt.wingKey, column); ordinal >= 0 {
+						meta.IsPrimaryKey, meta.KeyOrdinalPosition = true, int64(ordinal)
+					}
 					wings.Columns[column] = meta
 				}
 			}
@@ -187,9 +233,13 @@ func Test_structsToResources_keyWithoutTenant(t *testing.T) {
 // prints it is the key the database takes: each fixture's foreign keys of two columns
 // hold the tenant, and each is written as keyHoldingTenant prints the key with the tenant
 // taken out. The emulator reads every one as declared, so the order check refuses none.
-// The tenantkeys fixture holds a key to a table keyed by its tenant and its id and a key
-// to a table keyed by its id with a unique index on its tenant and its id; the
-// sharedcolumn fixture keys to another table's id and to the table's own rows. Requires the Spanner emulator (podman/docker).
+// The tenantkeys fixture holds a key to a table keyed by its tenant and its id, a key to a
+// table keyed by its id with a unique index on its tenant and its id, two keys to a column
+// that is not the other table's key (one table declaring its tenant first, the other
+// last), a key that does not reference the first column of the other table's key, and a
+// key to a table that declares its tenant before its key; the sharedcolumn fixture keys to
+// another table's id and to the table's own rows. Requires the Spanner emulator
+// (podman/docker).
 func Test_createTableMapUsingQuery_tenantKeyOrder(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -206,7 +256,10 @@ func Test_createTableMapUsingQuery_tenantKeyOrder(t *testing.T) {
 		{
 			fixture:      "tenantkeys",
 			tenantColumn: "RealmId",
-			wantKeys:     []string{"FK_Bins_RealmIdDepotId", "FK_Shelves_VaultIdRealmId"},
+			wantKeys: []string{
+				"FK_Bins_RealmIdDepotId", "FK_Desks_RealmIdRoomId", "FK_Latches_LockCodeRealmId",
+				"FK_Moorings_QuayIdRealmId", "FK_Shelves_VaultIdRealmId", "FK_Tickets_RealmIdGateCode",
+			},
 		},
 		{
 			fixture:      "sharedcolumn",
