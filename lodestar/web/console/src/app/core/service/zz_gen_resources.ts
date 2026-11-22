@@ -2505,11 +2505,12 @@ const resourceMap = defineResourceMap({
     rowWords: { one: 'expense manifest', many: 'expense manifests' },
     fields: [
       { fieldName: 'missionId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
-      { fieldName: 'title', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'title', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'sorties', displayType: 'number', required: false, isIndex: false },
       { fieldName: 'expenses', displayType: 'number', decimal: true, required: false, isIndex: false },
       { fieldName: 'assignedSquadronId', displayType: 'uuid', required: false, isIndex: false },
     ],
+    searchFields: ['title'],
   },
   [Resources.MembersListedRoleGrants]: {
     route: 'members-listed-role-grants',
