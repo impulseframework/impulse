@@ -358,6 +358,17 @@ func TestJudge_aLetterReadAsTwoCountsOnce(t *testing.T) {
 	}
 }
 
+func TestJudge_aSharpSBeforeACapitalIsJudgedAsSs(t *testing.T) {
+	t.Parallel()
+
+	for _, pair := range [][2]string{{"FußBall77", "FussBall77"}, {"WeißHaus!1", "WeissHaus!1"}} {
+		typed, plain := pair[0], pair[1]
+		if got, want := Judge(typed, Details{}, 30), Judge(plain, Details{}, 30); got != want {
+			t.Errorf("Judge(%q) = %+v, want %+v as for %q: the ß ends a word in small letters", typed, got, want, plain)
+		}
+	}
+}
+
 func TestJudge_aPieceTypedAgainAndAgainIsJudgedOnce(t *testing.T) {
 	t.Parallel()
 
@@ -613,6 +624,10 @@ func TestReading_as(t *testing.T) {
 		{typed: "GROßKREUTZ", how: spelledPlain, want: "GROSSKREUTZ"},
 		{typed: "STRAUß", how: spelledPlain, want: "STRAUSS"},
 		{typed: "STRAUẞ", how: spelledPlain, want: "STRAUSS"},
+		{typed: "FußBall", how: spelledPlain, want: "FussBall"},
+		{typed: "WeißHaus", how: spelledPlain, want: "WeissHaus"},
+		{typed: "Aßmann", how: spelledPlain, want: "Assmann"},
+		{typed: "GROß2077", how: spelledPlain, want: "GROSS2077"},
 		{typed: "Łukasz", how: spelledPlain, want: "Lukasz"},
 		{typed: "über", how: spelledSecond, want: "ueber"},
 		{typed: "Strauß", how: spelledSecond, want: "Strauss"},

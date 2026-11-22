@@ -769,12 +769,25 @@ func (r *reading) mixed(text string) []string {
 }
 
 // inCase is spelling, the plain letters the letter chars[i] is written as, in the case of the
-// word it stands in. The word's case is the case of the letter after it, or of the letter
-// before it when no letter comes after; with no letter beside it, the spelling is as the table
-// has it. A capital in a word not typed in capitals keeps one capital (Ü is Ue in Übel and UE
-// in ÜBEL): two capitals where a person typed one would cost the estimate a capital nobody
-// typed. A ß has no capital on a keyboard, so in a word typed in capitals it is SS.
+// word it stands in. For a capital, the word's case is the case of the letter after it, or of
+// the letter before it when no letter comes after; with no letter beside it, the spelling is as
+// the table has it. A capital in a word not typed in capitals keeps one capital (Ü is Ue in Übel
+// and UE in ÜBEL): two capitals where a person typed one would cost the estimate a capital
+// nobody typed. A ß has no capital on a keyboard, so in a word typed in capitals it is SS. A ß
+// never begins a word, so its word is in capitals when the letter before it is a capital and no
+// small letter follows it: SS in GROßKREUTZ and STRAUß, ss in FußBall, whose capital begins the
+// next word, and in Aßmann, whose capital is the word's first.
 func inCase(spelling string, chars []rune, i int) string {
+	c := chars[i]
+	if c == 'ß' {
+		capitals := i > 0 && unicode.IsUpper(chars[i-1]) &&
+			(i+1 == len(chars) || !unicode.IsLower(chars[i+1]))
+		if capitals {
+			return strings.ToUpper(spelling)
+		}
+
+		return spelling
+	}
 	var beside rune
 	switch {
 	case i+1 < len(chars) && unicode.IsLetter(chars[i+1]):
@@ -784,14 +797,11 @@ func inCase(spelling string, chars []rune, i int) string {
 	default:
 		return spelling
 	}
-	switch c := chars[i]; {
-	case c == 'ß' && unicode.IsUpper(beside):
-		return strings.ToUpper(spelling)
-	case unicode.IsUpper(c) && !unicode.IsUpper(beside):
+	if unicode.IsUpper(c) && !unicode.IsUpper(beside) {
 		return spelling[:1] + strings.ToLower(spelling[1:])
-	default:
-		return spelling
 	}
+
+	return spelling
 }
 
 // leftOff says whether the mark c is one a person may leave off, so it is no character: a
