@@ -19,6 +19,8 @@ import {
   Method,
   MethodPresentation,
   multiColumnConfig,
+  nameInLowerWords,
+  nameInWords,
   PermissionScope,
   RecordData,
   Resource,
@@ -246,7 +248,7 @@ class SideBuilder {
     private readonly options: IdentityPagesOptions,
   ) {
     this.tenant = side.scope === 'domain';
-    this.tenantWord = identity.tenant ? words(identity.tenant).toLowerCase() : 'tenant';
+    this.tenantWord = identity.tenant ? nameInLowerWords(identity.tenant) : 'tenant';
     this.base = this.tenant ? `${this.tenantSegment()}/${kebab(identity.auth)}` : kebab(identity.auth);
     this.kinds = new Map(
       (Object.entries(side.methods) as [MethodKind, string | undefined][])
@@ -486,7 +488,7 @@ class SideBuilder {
           ['email', 'Email'],
           ['name', 'Name'],
           // The tenant a link invites into, where the application has tenants.
-          ...(this.identity.tenant ? ([['tenantId', words(this.identity.tenant)]] as Named[]) : []),
+          ...(this.identity.tenant ? ([['tenantId', nameInWords(this.identity.tenant)]] as Named[]) : []),
           ['roleNames', 'Roles'],
           ['createdAt', 'Sent'],
           ['expiresAt', 'Expires'],
@@ -583,7 +585,7 @@ class SideBuilder {
         (name) => name !== directoryOnly && name.startsWith(prefix) && /^[A-Z0-9]/.test(name.slice(prefix.length)),
       );
     const fields: Named[] = [
-      ...ofRecord.map((name): Named => [name, words(name)]),
+      ...ofRecord.map((name): Named => [name, nameInWords(name)]),
       [directoryOnly, 'Directory only'],
       ['defaultRole', 'Starting role'],
       ['email', 'Invited'],
@@ -596,7 +598,7 @@ class SideBuilder {
     const listed = lists.invitedTenants.startsWith(`${this.identity.auth}Invited`)
       ? lists.invitedTenants.slice(`${this.identity.auth}Invited`.length)
       : `${record}s`;
-    const title = `Invited ${words(listed).toLowerCase()}`;
+    const title = `Invited ${nameInLowerWords(listed)}`;
     // The tenant a row would make, by the name staff gave it where the caller may read it.
     const nameField = this.identity.tenantResource
       ? this.resourceMeta(this.identity.tenantResource as Resource)?.nameField
@@ -855,7 +857,7 @@ class SideBuilder {
       return undefined;
     }
     const taken = lists.takenRoles as Resource;
-    const tenant = words(this.identity.tenant ?? 'Tenant');
+    const tenant = nameInWords(this.identity.tenant ?? 'Tenant');
     // Who holds which role where, and why: what both lists say of a row.
     const held: ColumnConfig[] = [
       ...this.columns(taken, [
@@ -1467,7 +1469,7 @@ class SideBuilder {
     if (!this.identity.tenant) {
       return {};
     }
-    return { domain: words(this.identity.tenant), everyDomain: `In every ${this.tenantWord}` };
+    return { domain: nameInWords(this.identity.tenant), everyDomain: `In every ${this.tenantWord}` };
   }
 
   /**
@@ -1571,7 +1573,7 @@ class SideBuilder {
   private heldIn(row: RecordData): string {
     switch (row['kind']) {
       case heldInOneTenant:
-        return `${words(this.identity.tenant ?? 'Tenant')} ${String(row['domainId'])}`;
+        return `${nameInWords(this.identity.tenant ?? 'Tenant')} ${String(row['domainId'])}`;
       case heldInEveryTenant:
         return `Every ${this.tenantWord}`;
       default:
@@ -1706,7 +1708,7 @@ class SideBuilder {
       // marks no name the key is all there is to say.
       return { id, header, valueGetter: otherwise, filterable: false };
     }
-    const word = words(this.identity.tenant ?? 'Tenant');
+    const word = nameInWords(this.identity.tenant ?? 'Tenant');
     const worded = header.trim().toLowerCase() !== word.toLowerCase();
     return multiColumnConfig({
       id,
@@ -2117,16 +2119,6 @@ function leftToSignInThrough(ways: readonly RecordData[]): string {
   }
   const last = labels[labels.length - 1];
   return `They will sign in through ${labels.length === 1 ? last : `${labels.slice(0, -1).join(', ')} or ${last}`} only.`;
-}
-
-/** A PascalCase name in words, the first capitalized: `CostCenter` is "Cost center". */
-function words(name: string): string {
-  const spaced = name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .trim()
-    .toLowerCase();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /** A word with its article: "a sector", "an office". */

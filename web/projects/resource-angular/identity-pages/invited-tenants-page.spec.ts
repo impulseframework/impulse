@@ -294,6 +294,36 @@ describe('identityPages, the invitations that make a tenant', () => {
     expect((list(office).listMethods || []).map((presentation) => presentation.label)).toEqual(['Invite an office']);
   });
 
+  it('keeps a plural acronym whole where the list names the tenants: the invitations that make a partner API', () => {
+    const partners: IdentityDescriptor = {
+      auth: 'Staff',
+      label: 'Staff',
+      tenant: 'PartnerAPI',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users, invitedTenants: 'StaffInvitedPartnerAPIs' },
+          methods: { inviteTenant: 'InviteStaffPartnerAPI' },
+        },
+      ],
+    };
+    const partnerMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      StaffInvitedPartnerAPIs: {
+        route: 'staff-invited-partner-apis',
+        fields: [field('id'), field('email'), field('partnerAPIName')],
+      } as ResourceMeta,
+    };
+    const built = identityPages(descriptorOf(partners), (resource) => partnerMetas[resource], {
+      auth: 'Staff',
+      scope: 'global',
+    });
+    const partner = built.find(
+      (candidate) => list(candidate).primaryResource === 'StaffInvitedPartnerAPIs',
+    ) as RootConfig;
+    expect([partner.page?.label, list(partner).title]).toEqual(['Invited partner APIs', 'Invited partner APIs']);
+  });
+
   it('takes the route the application gives', () => {
     const built = identityPages(descriptor, resourceMeta, {
       auth: 'Crew',
