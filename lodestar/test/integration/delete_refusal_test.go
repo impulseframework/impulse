@@ -6,16 +6,18 @@ package integration
 // The kinds are the ones the generator found directly under the record on a reference
 // that says nothing of a delete, so the database removes none of them with it: a mission
 // names the squadron it is assigned to, a sortie the ship that flew it and a droid's
-// report the ship it read, and a contact, a mission and a consignment name their client.
-// A kind the record lists under refusedBy (@deleteCascade) answers first and keeps the
-// record from being deleted at all. The count is made for the person who asked: a kind
-// they may not list is never named or counted, and where they may list none of the
-// kinds in the way the sentence says only that there are records they can't see. A row
-// the same request deletes is not counted (TestCommitRefusal deletes a squadron and its
-// mission in one request, in either order), and a kind the database removes with another
-// row the request deletes is left to the commit: a ship goes together with the mission
-// its one sortie was flown on (TestDeleteRefusal_leavesTheDatabaseWhatItRemoves). The
-// count is the Spanner write path's; PostgreSQL has no write path to refuse on.
+// report the ship it read, and a mission and a consignment name their client. A kind
+// the record lists under refusedBy (@deleteCascade) answers first and keeps the record
+// from being deleted at all. A kind the record lists as going with it is not in the way:
+// a client's contacts are deleted with the client, which asks first (TestDeleteCascade).
+// The count is made for the person who asked: a kind they may not list is never named
+// or counted, and where they may list none of the kinds in the way the sentence says
+// only that there are records they can't see. A row the same request deletes is not
+// counted (TestCommitRefusal deletes a squadron and its mission in one request, in
+// either order), and neither is a row that goes with another record the request
+// deletes: a ship goes together with the mission its one sortie was flown on
+// (TestDeleteRefusal_leavesTheDatabaseWhatItRemoves). The count is the Spanner write
+// path's; PostgreSQL has no write path to refuse on.
 
 import (
 	"encoding/json"
@@ -38,22 +40,6 @@ func TestDeleteRefusal(t *testing.T) {
 	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// Lone Harbor is a client with two contacts and nothing else.
-	const clientLoneHarborID = "10000000-0000-4000-8000-0000000000a1"
-	if _, err := db.Apply(ctx, []*spanner.Mutation{
-		spanner.InsertMap("Clients", map[string]any{
-			"Id": clientLoneHarborID, "Name": "Lone Harbor Freight", "ContactName": "Harbor Desk", "ContactEmail": "desk@lone-harbor.example", "Trusted": true,
-		}),
-		spanner.InsertMap("ClientContacts", map[string]any{
-			"Id": "31000000-0000-4000-8000-0000000000a1", "UserId": "f1000000-0000-4000-8000-0000000000a1", "ClientId": clientLoneHarborID, "DisplayName": "Harbor Hale",
-		}),
-		spanner.InsertMap("ClientContacts", map[string]any{
-			"Id": "31000000-0000-4000-8000-0000000000a2", "UserId": "f1000000-0000-4000-8000-0000000000a2", "ClientId": clientLoneHarborID, "DisplayName": "Harbor Ines",
-		}),
-	}); err != nil {
-		t.Fatalf("spanner.Apply(): %v", err)
 	}
 
 	remove := func(sector, rest string) string {
@@ -147,16 +133,6 @@ func TestDeleteRefusal(t *testing.T) {
 			wantStatus:  http.StatusConflict,
 			wantMessage: "This client has 5 consignments, so it can't be deleted.",
 		},
-		{
-			// Nothing a client lists under refusedBy is under Lone Harbor, so its contacts
-			// answer like any other kind under a record.
-			name:        "a client with contacts alone says to delete them first",
-			lists:       []accesstypes.Resource{missionsResource, "Consignments", "ClientContacts"},
-			target:      clients,
-			ops:         client(clientLoneHarborID),
-			wantStatus:  http.StatusConflict,
-			wantMessage: "This client has 2 client contacts. Delete them first.",
-		},
 	}
 
 	for _, tt := range tests {
@@ -177,11 +153,13 @@ func TestDeleteRefusal(t *testing.T) {
 }
 
 // TestDeleteRefusal_leavesTheDatabaseWhatItRemoves pins that the count never refuses a
-// delete the database would take. The Lantern, which the seed never flew, is given one
-// sortie on the stood-down bullion run. Deleted alone the ship is refused over the
-// sortie. Deleted in one request with the mission, ahead of it, the ship goes: a sortie
-// goes with its mission by the database's own rule, so once the request deletes a mission
-// the sorties under the ship are left to the commit, which finds none.
+// delete over a row that goes with another record of the same request. The Lantern,
+// which the seed never flew, is given one sortie on the stood-down bullion run. Deleted
+// alone the ship is refused over the sortie. Deleted in one request with the mission,
+// ahead of it, the ship goes: a sortie goes with its mission, so once the request
+// deletes a mission the sorties under the ship are left to the commit, which finds
+// none. The mission's delete says it takes what is under it, as a mission with a sortie
+// must (@deleteCascade).
 func TestDeleteRefusal_leavesTheDatabaseWhatItRemoves(t *testing.T) {
 	t.Parallel()
 
@@ -215,7 +193,7 @@ func TestDeleteRefusal_leavesTheDatabaseWhatItRemoves(t *testing.T) {
 		return fmt.Sprintf(`{"op":"remove","path":%q}`, opPath(anvil, rest))
 	}
 	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Ships", missionsResource},
+		accesstypes.Delete: {"Ships", missionsResource, "Sorties"},
 		accesstypes.List:   {"Sorties", "DroidReports"},
 	})
 
@@ -228,7 +206,8 @@ func TestDeleteRefusal_leavesTheDatabaseWhatItRemoves(t *testing.T) {
 		t.Fatal("the Lantern is gone after its refused delete")
 	}
 
-	status, body = doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+remove("ships/"+shipLanternID)+","+remove("missions/"+missionBullionID)+"]")
+	withItsSorties := fmt.Sprintf(`{"op":"remove","path":%q,"value":{"everythingUnder":true}}`, opPath(anvil, "missions/"+missionBullionID))
+	status, body = doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+remove("ships/"+shipLanternID)+","+withItsSorties+"]")
 	assertStatus(t, status, http.StatusOK, body)
 	for table, id := range map[string]string{"Ships": shipLanternID, "Missions": missionBullionID, "Sorties": sortieLanternID} {
 		if stands(table, id) {

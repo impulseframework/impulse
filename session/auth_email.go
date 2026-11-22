@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -144,7 +143,7 @@ func (a *Auth[S, U, Tx]) refuseDirectoryAddress(ctx context.Context, userID impu
 // (holdsAddress) has nobody to tell. A message that could not be sent is logged: the
 // change stands.
 func (a *Auth[S, U, Tx]) noticeAddressChanged(ctx context.Context, old *string, wasConfirmed bool, replacement string) {
-	if !holdsAddress(old, wasConfirmed) || strings.EqualFold(*old, replacement) {
+	if !holdsAddress(old, wasConfirmed) || sameAddress(*old, replacement) {
 		return
 	}
 	m, err := a.mailOf()
@@ -477,7 +476,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without
-// regard to case, or a NotFound error.
+// regard to the case of its ASCII letters, or a NotFound error.
 func (p *AuthAPI[S, U, Tx]) UserByEmail(ctx context.Context, email string) (*sessionstorage.SessionUser, error) {
 	user, err := p.auth.storage.UserByEmail(ctx, email)
 	if err != nil {

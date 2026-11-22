@@ -429,6 +429,17 @@ export interface DistressCalls {
   sectorName?: string;
 }
 
+export interface DistressRelays {
+  id: string;
+  sectorId?: string;
+  caseNumber?: string;
+  answersRelayId?: string;
+  message?: string;
+  relayedByName?: string;
+  relayedAt?: Date;
+  sectorName?: string;
+}
+
 export interface FeeByKinds {
   kindId: string;
   missionCount?: number;
@@ -1638,6 +1649,21 @@ const resourceMap = defineResourceMap({
     ],
     nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
+  [Resources.DistressRelays]: {
+    route: 'sectors/{sectorID}/distress-relays',
+    consolidatedRoute: 'resources',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
+      { fieldName: 'caseNumber', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'answersRelayId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.DistressRelays },
+      { fieldName: 'message', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'relayedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'relayedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always', readOnly: true },
+    ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+  },
   [Resources.FeeByKinds]: {
     route: 'fee-by-kinds',
     live: true,
@@ -2570,6 +2596,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewUserGroupRoles]: PermissionScopes.global,
   [Resources.CrewUserRoles]: PermissionScopes.global,
   [Resources.DistressCalls]: PermissionScopes.domain,
+  [Resources.DistressRelays]: PermissionScopes.domain,
   [Resources.FeeByKinds]: PermissionScopes.global,
   [Resources.Hangars]: PermissionScopes.domain,
   [Resources.HangarPasses]: PermissionScopes.domain,

@@ -185,6 +185,83 @@ describe('DeleteResourceConfirmationModal', () => {
     expect(answers).toEqual([false]);
   });
 
+  it("asks the server's question in the first one's place, and deletes everything under the row at the next press", async () => {
+    const sentence =
+      "Delete this mission and everything under it: 2 sorties, 1 mission document. This can't be undone.";
+    const said: unknown[] = [];
+    const { ref, answers } = opened({
+      from: 'Missions',
+      delete: (options) => {
+        said.push(options);
+
+        return options?.everythingUnder
+          ? Promise.resolve()
+          : Promise.reject(new ApiError('PATCH', '/api/resources', 428, { message: sentence }));
+      },
+    });
+
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(answers).toEqual([]);
+    expect(said).toEqual([undefined]);
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe(sentence);
+    expect(overlay?.querySelector('.refusal')).toBeNull();
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', false],
+      ['Delete', false],
+    ]);
+    expect(ref.disableClose).toBeFalsy();
+
+    await press('Delete');
+
+    expect(said).toEqual([undefined, { everythingUnder: true }]);
+    expect(answers).toEqual([true]);
+  });
+
+  it("deletes nothing when the server's question is answered with Cancel", async () => {
+    let runs = 0;
+    const { answers } = opened({
+      from: 'Missions',
+      delete: () => {
+        runs++;
+
+        return Promise.reject(
+          new ApiError('PATCH', '/api/resources', 428, { message: 'Delete this mission and everything under it?' }),
+        );
+      },
+    });
+
+    await press('Delete');
+    await press('Cancel');
+
+    expect(runs).toBe(1);
+    expect(answers).toEqual([false]);
+  });
+
+  it("keeps a delete refused after the server's question open with the refusal and one button, Close", async () => {
+    const question = "Delete this mission and everything under it: 2 sorties. This can't be undone.";
+    const refusal = "This mission has sorties that you can't delete, so it can't be deleted.";
+    const { answers } = opened({
+      from: 'Missions',
+      delete: (options) =>
+        Promise.reject(
+          options?.everythingUnder
+            ? new ApiError('PATCH', '/api/resources', 403, { message: refusal })
+            : new ApiError('PATCH', '/api/resources', 428, { message: question }),
+        ),
+    });
+
+    await press('Delete');
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe(question);
+    expect(textOf(overlay?.querySelector('.refusal') ?? null)).toBe(refusal);
+    expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
+    expect(answers).toEqual([]);
+  });
+
   it('closes with false on any other failure and leaves it to the page', async () => {
     const closedWith: unknown[] = [];
     await TestBed.configureTestingModule({

@@ -940,6 +940,31 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
     expect(ask(component, undefined).deleted).toBe(0);
   });
 
+  it('and says the delete takes everything under the row once the dialog says so', async () => {
+    const component = await drawn({});
+    let handed: DeleteConfirmation | undefined;
+    component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+      handed = config.data;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    const sent: unknown[] = [];
+    component.store.apply = ((operations: unknown[]) => {
+      sent.push(...(JSON.parse(JSON.stringify(operations)) as unknown[]));
+
+      return Promise.reject(new Error('the row stays for the next press'));
+    }) as unknown as typeof component.store.apply;
+
+    component.confirmDeleteResource();
+    await expect(handed?.delete?.()).rejects.toThrow('the row stays');
+    await expect(handed?.delete?.({ everythingUnder: true })).rejects.toThrow('the row stays');
+
+    expect(sent).toEqual([
+      { op: 'remove', path: '/b-1' },
+      { op: 'remove', path: '/b-1', value: { everythingUnder: true } },
+    ]);
+  });
+
   it('and opens no second question while one is open', async () => {
     const component = await drawn({});
     let opened = 0;

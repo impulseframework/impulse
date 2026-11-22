@@ -46,7 +46,7 @@ import {
   writeResource,
 } from '@impulseframework/resource-angular/types';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
-import { ApiError } from '@impulseframework/resource';
+import { ApiError, RemoveOptions } from '@impulseframework/resource';
 import { tap } from 'rxjs';
 import {
   ActionAccessControlWrapperComponent,
@@ -677,8 +677,9 @@ export class ResourceViewComponent implements OnInit {
    * by its own name where the config reads one off the row (`rowTitle`) and the list
    * the row is in by the config's title, else by the word the resource's rows go by.
    * The dialog is handed the delete and runs it when the person says so, so a delete
-   * the server refuses is answered in the dialog, in the server's words. While the
-   * question is open, asking again opens no second one.
+   * the server refuses is answered in the dialog, in the server's words, and a row
+   * whose delete takes records with it is asked about a second time, in the server's
+   * question. While the question is open, asking again opens no second one.
    */
   confirmDeleteResource(): void {
     const asking = this.dialog.openDialogs.some(
@@ -693,10 +694,10 @@ export class ResourceViewComponent implements OnInit {
       name: config.rowTitle?.(this.store.viewData()),
       from: config.title,
       word: this.rowWords()?.one,
-      delete: () => {
+      delete: (options) => {
         console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
 
-        return this.deleteResource();
+        return this.deleteResource(options);
       },
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
@@ -710,11 +711,13 @@ export class ResourceViewComponent implements OnInit {
    * reason may find the row gone before the write is answered here or after: the page
    * leaves once either way. A row page told not to leave (`navAfterDelete` false) offers
    * its create form in the row's place. A delete the server refuses rejects with the
-   * client's `ApiError`, for whoever asked to show.
+   * client's `ApiError`, for whoever asked to show, and so does the delete of a row with
+   * records under it that its delete takes, until the options say it takes them
+   * (`everythingUnder`).
    */
-  deleteResource(): Promise<void> {
+  deleteResource(options?: RemoveOptions): Promise<void> {
     const handle = this.store.handle();
-    const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
+    const operation = handle.ops.remove(handle.keyOf(this.store.viewData()), options);
 
     return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
       this.leaveGoneRow();

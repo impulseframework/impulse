@@ -45,6 +45,22 @@ func (c *client) pickerSourceOf(name string) (pickerSource, bool) {
 	return pickerSource{}, false
 }
 
+// referencesOutsideKey reports whether the field's foreign key names the other table's
+// rows by a column that is no part of that table's key (a code, a case number). Such a
+// field is no picker over the table: a picker writes the key of the row picked.
+func (c *client) referencesOutsideKey(field *resourceField) bool {
+	if !field.IsForeignKey {
+		return false
+	}
+	table, ok := c.tableMap[field.ReferencedResource]
+	if !ok {
+		return false
+	}
+	column, ok := table.Columns[field.ReferencedField]
+
+	return ok && !column.IsPrimaryKey
+}
+
 // boundedPickerSourceRefusal is the refusal for a picker field whose source declares
 // a maximum and no read, or "" when the source is fine. declared reports a
 // field-scope @enumerate; an undeclared foreign key lists its target only where the
@@ -70,7 +86,7 @@ func (c *client) validatePickerSources(resources []*resourceInfo, computed []*co
 			switch {
 			case field.HasDeclaredEnumeration() && field.Enumeration == "":
 				source, declared = field.EnumeratedResource(), true
-			case field.IsForeignKey:
+			case field.IsForeignKey && !c.referencesOutsideKey(field):
 				source = field.ReferencedResource
 			default:
 				continue

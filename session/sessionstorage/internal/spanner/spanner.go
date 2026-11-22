@@ -671,13 +671,15 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impul
 		return errUsernameIsEmail()
 	}
 
-	return s.renameUser(ctx, userID, newUsername, nil)
+	return s.renameUser(ctx, userID, newUsername, nil, nil)
 }
 
 // renameUser renames the user and, in the same transaction, its live sessions and the
 // live impersonations it holds as an actor, writing the extra user columns with the
-// new name. A taken name is a Conflict.
-func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername string, extra map[string]any) error {
+// new name. A taken name is a Conflict. With only, the rename is taken only while the
+// row the transaction read still holds that address, and answers errNotHeld, with
+// nothing written, once it does not.
+func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername string, extra map[string]any, only *stillHolds) error {
 	row := map[string]any{idColumn: userID, usernameColumn: newUsername}
 	for column, value := range extra {
 		row[column] = value
@@ -685,7 +687,11 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 	mutation := spanner.UpdateMap(s.userTableName, row)
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
+		columns := []string{"Username"}
+		if only != nil {
+			columns = append(columns, emailColumn)
+		}
+		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, columns)
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
 		}
@@ -693,6 +699,15 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		var oldUsername string
 		if err := row.Column(0, &oldUsername); err != nil {
 			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+		if only != nil {
+			var held spanner.NullString
+			if err := row.Column(1, &held); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			if !only.met(held) {
+				return errNotHeld
+			}
 		}
 
 		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
@@ -732,6 +747,9 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, errNotHeld) {
+			return errNotHeld
+		}
 		if spanner.ErrCode(err) == codes.NotFound {
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}

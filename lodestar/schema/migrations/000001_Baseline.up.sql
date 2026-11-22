@@ -50,16 +50,18 @@ CREATE TABLE CrewSessionUsers (
   CONSTRAINT CK_CrewSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_CrewSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
   -- The crew's email addresses, in two states. Email is the address as the person gave
-  -- it, NormalizedEmail the form uniqueness and lookups use, and EmailVerifiedAt the
-  -- database's time at which the person proved they read the mailbox by following a link
-  -- sent to it; null while the address is unverified. An address is trusted for nothing
+  -- it, NormalizedEmail the form uniqueness and lookups use (the address with its ASCII
+  -- capital letters lowercased and every other character as written, which is how the
+  -- library compares two addresses), and EmailVerifiedAt the database's time at which the
+  -- person proved they read the mailbox by following a link sent to it; null while the
+  -- address is unverified. An address is trusted for nothing
   -- until it is verified: code that sends a link may use an unverified address, code that
   -- relies on one requires the time. An operator may put an address on a user by hand,
   -- unverified, which reserves it: uniqueness holds among every address held, verified or
   -- not. No address is required, and the address is held apart from the username (the
   -- session library's SessionUserEmail migration, under the auth's prefix).
   Email STRING(MAX),
-  NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY(Id);
 
@@ -141,11 +143,12 @@ CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
 CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
 -- The rows of a table that carries a sector's key are the sector's own, so they go with
--- it: the delete rule on the foreign key to Sectors (ON DELETE CASCADE) removes them in
--- the transaction that deletes the sector, and impulse check holds every such table to
--- it (tenant-delete-rule). Wings, Hangars, HangarPasses, Missions, Consignments,
--- DroidReports and DistressCalls carry it. A sector's directory carries none: the
--- generated delete of a sector removes that row itself, so its change event is written.
+-- it: the delete of a sector takes each one in code, through its resource's own delete,
+-- in the transaction that deletes the sector, so its change event is written. The delete
+-- rule on the foreign key to Sectors (ON DELETE CASCADE) stands under that, and impulse
+-- check holds every such table to it (tenant-delete-rule). Wings, Hangars, HangarPasses,
+-- Missions, Consignments, DroidReports, DistressCalls and DistressRelays carry it. A
+-- sector's directory carries none, and goes the same way as the rest.
 -- A table that reaches its sector through another row carries the rule on every link of
 -- that way, and the check holds it to that too: a squadron goes with its wing and a
 -- membership with its squadron, a ship with its hangar and a refit with its ship (its
@@ -199,16 +202,18 @@ CREATE TABLE MembersSessionUsers (
   CONSTRAINT CK_MembersSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
   -- The members' email addresses, in two states. Email is the address as the person gave
-  -- it, NormalizedEmail the form uniqueness and lookups use, and EmailVerifiedAt the
-  -- database's time at which the person proved they read the mailbox by following a link
-  -- sent to it; null while the address is unverified. An address is trusted for nothing
+  -- it, NormalizedEmail the form uniqueness and lookups use (the address with its ASCII
+  -- capital letters lowercased and every other character as written, which is how the
+  -- library compares two addresses), and EmailVerifiedAt the database's time at which the
+  -- person proved they read the mailbox by following a link sent to it; null while the
+  -- address is unverified. An address is trusted for nothing
   -- until it is verified: code that sends a link may use an unverified address, code that
   -- relies on one requires the time. An operator may put an address on a user by hand,
   -- unverified, which reserves it: uniqueness holds among every address held, verified or
   -- not. No address is required, and the address is held apart from the username (the
   -- session library's SessionUserEmail migration, under the auth's prefix).
   Email STRING(MAX),
-  NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY(Id);
 
@@ -627,7 +632,37 @@ CREATE TABLE DistressCalls (
   Position JSON,
 ) PRIMARY KEY (Id);
 
-CREATE UNIQUE INDEX DistressCallsByCaseNumber ON DistressCalls(CaseNumber);
+CREATE UNIQUE INDEX DistressCallsBySectorIdCaseNumber ON DistressCalls(SectorId, CaseNumber);
+
+-- DistressRelays: a message passed along about a distress call, and the answers to it. A
+-- relay names its call by the case number an operator reads out, a column of DistressCalls
+-- that is not its key, and an answer names the relay it answers, a row of this same table.
+-- A case number is unique within a sector (DistressCallsBySectorIdCaseNumber), and the
+-- relay's foreign key to its call holds the sector beside the case number, so a relay never
+-- names another sector's call.
+-- Neither foreign key carries a delete rule: a call's delete takes its relays, and a
+-- relay's delete its answers, in code (the two resource structs declare it).
+CREATE TABLE DistressRelays (
+  Id STRING(36) NOT NULL,
+  SectorId STRING(36) NOT NULL,
+  CaseNumber STRING(MAX) NOT NULL,
+  AnswersRelayId STRING(36),
+  Message STRING(MAX) NOT NULL,
+  -- RelayedByName is the username of whoever passed the message along, as it was then.
+  RelayedByName STRING(320) NOT NULL,
+  RelayedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+
+  CONSTRAINT CK_DistressRelays_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT FK_DistressRelays_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_DistressRelays_SectorIdCaseNumber FOREIGN KEY (SectorId, CaseNumber) REFERENCES DistressCalls(SectorId, CaseNumber),
+  CONSTRAINT FK_DistressRelays_AnswersRelayId FOREIGN KEY (AnswersRelayId) REFERENCES DistressRelays(Id),
+) PRIMARY KEY (Id);
+
+-- A call's page lists its relays by the case number, and a sector's relays list in the
+-- order they were passed along: each with the sector bound first.
+CREATE INDEX DistressRelaysBySectorIdCaseNumber ON DistressRelays(SectorId, CaseNumber);
+
+CREATE INDEX DistressRelaysBySectorIdRelayedAt ON DistressRelays(SectorId, RelayedAt);
 
 CREATE TABLE MissionDocuments (
   Id STRING(36) NOT NULL,

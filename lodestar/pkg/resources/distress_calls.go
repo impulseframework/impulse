@@ -34,10 +34,14 @@ type (
 	// the one PII field an external user writes. Position is where the call was made, a
 	// GeoJSON Point whose TypeScript type the Position type declares.
 	//
-	// Demonstrates: pii, input_only, output_only, default_create_fn, create-form-narrowing, outlet.shared, typescript.imported-type.
+	// A call's delete takes the relays passed along about it (@deleteCascade), which name
+	// the call by its case number and not by its key, and the answers to those relays.
+	//
+	// Demonstrates: pii, input_only, output_only, default_create_fn, create-form-narrowing, outlet.shared, typescript.imported-type, @deleteCascade.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(DistressRelay)
 	// @outlet(default, portal)
 	// @order(Severity desc)
 	// @page(default: 10, max: 100)

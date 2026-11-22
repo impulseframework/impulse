@@ -367,9 +367,10 @@ type foreignKeySchemaResult struct {
 }
 
 // foreignKeyMeta is one foreign key of a table: its columns in constraint order, the
-// table it references and the referenced columns in the same order. A foreign key to
-// columns that are not the referenced table's key reads with no referenced table, and
-// nothing follows it (the per-column facts have the same limit).
+// table it references and the referenced columns in the same order. The referenced
+// columns are the other table's key or any other columns the constraint names: a
+// foreign key to columns that are not the key reads like any other. One the read could
+// not match column by column has no referenced table, and nothing follows it.
 type foreignKeyMeta struct {
 	Name              string
 	Columns           []string

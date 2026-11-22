@@ -137,7 +137,7 @@ func (a *App) DistressCall() http.HandlerFunc {
 		Severity      int64               `json:"severity"`
 		CallerContact *string             `json:"callerContact" pii:"true"`
 		Transcript    *string             `json:"-"`
-		CaseNumber    string              `json:"caseNumber"    index:"true"`
+		CaseNumber    string              `json:"caseNumber"`
 		FiledByUserID string              `json:"filedByUserId"`
 		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`

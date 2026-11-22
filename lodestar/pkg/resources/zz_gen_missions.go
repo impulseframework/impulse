@@ -35,40 +35,63 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 		Words:  resource.DeleteWords{One: "mission", Many: "missions"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 10, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
 		Taken: []resource.DeleteKind{
 			{
 				Resource: "SortieExpenses",
 				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], caller *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 			{
 				Resource: "MissionDocuments",
 				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[MissionDocument], caller *resource.Caller) {
+					patch := &MissionDocumentDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 			{
 				Resource: "Sorties",
 				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Sortie], caller *resource.Caller) {
+					patch := &SortieDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 		},
 	}
@@ -1324,6 +1347,17 @@ func NewMissionDeletePatch(id impulse.UUID) *MissionDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &MissionDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Mission with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Mission that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *MissionDeletePatch) WithEverythingUnder() *MissionDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *MissionDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
