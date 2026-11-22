@@ -31,11 +31,16 @@ type QuerySet[Resource Resourcer] struct {
 	// id a request that named no columns returns. nameGrants are the decisions on
 	// the grant each name in play takes beside its id's (checkNameGrants), by name
 	// field; nil until they are asked. closedNames are the names of the declared
-	// order whose id the person may not read (closeOrderedNames).
+	// order whose id the person may not read (closeDeclaredOrder).
 	names       []requestName
 	shownNames  []accesstypes.Field
 	nameGrants  map[accesstypes.Field]accesstypes.Decision
 	closedNames map[accesstypes.Field]struct{}
+	// closedOrder are the fields of the declared order in force that the person
+	// may not read (closeDeclaredOrder): the statement reads each as NULL on
+	// every row (withClosedOrder), so the list comes in the order of the
+	// order's other terms.
+	closedOrder map[accesstypes.Field]struct{}
 
 	keys                   *fieldSet
 	fields                 []accesstypes.Field
@@ -361,7 +366,7 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 		if err := q.checkNameGrants(ctx); err != nil {
 			return err
 		}
-		if err := q.closeOrderedNames(ctx); err != nil {
+		if err := q.closeDeclaredOrder(ctx); err != nil {
 			return err
 		}
 		if err := q.checkQueryFieldsReadable(ctx, q.resourceSet, q.userPermissions); err != nil {
@@ -775,6 +780,50 @@ func (q *QuerySet[Resource]) orderColumn(dbType DBType, rendered *renderedReadCo
 	}
 
 	return orderColumn{sql: quoted, nullable: isNullableType(dbField.fieldType), meta: dbField}, nil
+}
+
+// withClosedOrder writes, in the place of each field of the declared order the
+// person may not read (closeDeclaredOrder), a term that is NULL on every row:
+// CASE WHEN FALSE THEN <column> END, the text a list across tenants writes for a
+// field no tenant of its set shows. The order, the cursor's predicate and the
+// cursor's copy of the term read it as they read any visible projection
+// (orderColumn, cursorColumnItems), so the term stays in the order and the
+// cursor, and the rows come in the order of the order's other terms. It makes
+// the statement's rendering where the read rendered none, and leaves it as it is
+// where no field is closed.
+func (q *QuerySet[Resource]) withClosedOrder(dbType DBType, rendered *renderedReadConditions) (*renderedReadConditions, error) {
+	if len(q.closedOrder) == 0 {
+		return rendered, nil
+	}
+
+	gen, err := loweredSQLGenerator(dbType)
+	if err != nil {
+		return nil, err
+	}
+	if rendered == nil {
+		rendered = &renderedReadConditions{}
+	}
+	if rendered.queryOverrides == nil {
+		rendered.queryOverrides = make(map[accesstypes.Field]string)
+	}
+	if rendered.queryConditions == nil {
+		rendered.queryConditions = make(map[accesstypes.Field]string)
+	}
+	dbFields := q.rMeta.dbFieldMap(dbType)
+	for _, sf := range q.defaultOrder {
+		field := accesstypes.Field(sf.Field)
+		if _, closed := q.closedOrder[field]; !closed {
+			continue
+		}
+		dbField, ok := dbFields[field]
+		if !ok {
+			return nil, errors.Newf("declared order field %s not found in db struct", field)
+		}
+		rendered.queryOverrides[field] = "CASE WHEN " + sqlFalse + " THEN " + gen.quoteIdentifier(dbField.ColumnName) + " END"
+		rendered.queryConditions[field] = sqlFalse
+	}
+
+	return rendered, nil
 }
 
 // buildOrderByClause renders the ORDER BY for the QuerySet's read order: each
@@ -1234,6 +1283,10 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	rendered, err = q.withNameLookups(dbType, rendered, registry)
 	if err != nil {
 		return nil, errors.Wrap(err, "QuerySet.withNameLookups()")
+	}
+	rendered, err = q.withClosedOrder(dbType, rendered)
+	if err != nil {
+		return nil, errors.Wrap(err, "QuerySet.withClosedOrder()")
 	}
 
 	capPlan, capChecksItem, err := q.renderCapabilities(dbType, registry)

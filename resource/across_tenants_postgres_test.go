@@ -243,7 +243,7 @@ func TestAcrossTenants_onPostgres(t *testing.T) {
 		t.Run(walk.name, func(t *testing.T) {
 			t.Parallel()
 
-			pages, fields, total := walkOnPostgres(t, db, crateDecoder(t), walk.target, walk.perms)
+			pages, fields, total := walkOnPostgres(t, db, walk.decoder(t), walk.target, walk.perms)
 			if total != walk.total {
 				t.Errorf("the count = %d, want %d", total, walk.total)
 			}

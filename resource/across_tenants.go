@@ -104,8 +104,9 @@ type tenantGroup[Resource Resourcer] struct {
 	q *QuerySet[Resource]
 
 	// hidden are the fields the list names that no grant of the person's covers
-	// in these tenants: a projected field, a sort or filter field, a field the
-	// search box searches. Each is masked on every row of them.
+	// in these tenants: a projected field, a sort or filter field, a field of the
+	// declared order in force, a field the search box searches. Each is masked on
+	// every row of them.
 	hidden map[accesstypes.Field]struct{}
 }
 
@@ -446,14 +447,14 @@ func (q *QuerySet[Resource]) decideTenant(ctx context.Context, dbType DBType, do
 
 	hidden := make(map[accesstypes.Field]struct{})
 
-	// The ids of the names a declared order in force orders by are decided with
-	// the sort's fields: where an id is hidden in the tenant its rows sort as rows
-	// with no name, and nothing is refused (settleAcrossTenants walks the sort's
-	// fields alone).
+	// The fields a declared order in force orders by, and the ids of the names it
+	// orders by, are decided with the sort's fields: where one is hidden in the
+	// tenant its rows sort as rows with no value there, or with no name, and
+	// nothing is refused (settleAcrossTenants walks the sort's fields alone).
 	candidates := alone.queryFields()
-	for _, key := range alone.declaredOrderNameKeys() {
-		if !slices.Contains(candidates, key) {
-			candidates = append(candidates, key)
+	for _, field := range alone.declaredOrderFields() {
+		if !slices.Contains(candidates, field) {
+			candidates = append(candidates, field)
 		}
 	}
 	queried, queryFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, candidates)
