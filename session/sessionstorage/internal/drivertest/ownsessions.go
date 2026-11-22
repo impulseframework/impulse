@@ -125,6 +125,67 @@ func testOwnSessions(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
+// testRenameLeavesLastUse pins that a rename is no use of a session: each row keeps when
+// it was last used, so a session that timed out stays out of the person's live list, and
+// a session of another account keeps its name whatever name its row carries.
+func testRenameLeavesLastUse(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: true})
+	pat := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	sam := createUser(ctx, t, in.Driver, "sam@lakeside.edu")
+
+	start := func(username string, userID impulse.UUID) impulse.UUID {
+		t.Helper()
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: username, UserID: userID}
+		id, err := in.Driver.InsertSession(ctx, newInsertSession(username), req)
+		if err != nil {
+			t.Fatalf("InsertSession() error = %v", err)
+		}
+
+		return id
+	}
+
+	// Two sessions of pat's with a cut between their uses, both the database's times.
+	older := start(pat.Username, pat.ID)
+	newer := start(pat.Username, pat.ID)
+	olderAt := mustSession(ctx, t, in.Driver, older).UpdatedAt
+	newerAt := mustSession(ctx, t, in.Driver, newer).UpdatedAt
+	if !newerAt.After(olderAt) {
+		t.Fatalf("a later session was used at %v, not after the earlier one's %v", newerAt, olderAt)
+	}
+	activeSince := olderAt.Add(newerAt.Sub(olderAt) / 2)
+
+	// A session of sam's whose row carries pat's name: a sign-in that waited on its code
+	// while its person's account changed names.
+	borrowed := start(pat.Username, sam.ID)
+
+	const renamed = "patricia@lakeside.edu"
+	if err := in.Driver.SetUserUsername(ctx, pat.ID, renamed); err != nil {
+		t.Fatalf("SetUserUsername() error = %v", err)
+	}
+
+	for _, s := range []struct {
+		id     impulse.UUID
+		usedAt time.Time
+	}{{older, olderAt}, {newer, newerAt}} {
+		got := mustSession(ctx, t, in.Driver, s.id)
+		if !got.UpdatedAt.Equal(s.usedAt) {
+			t.Errorf("Session(%s).UpdatedAt after the rename = %v, want %v: a rename is no use of a session", s.id, got.UpdatedAt, s.usedAt)
+		}
+		if got.Username != renamed {
+			t.Errorf("Session(%s).Username after the rename = %q, want %q", s.id, got.Username, renamed)
+		}
+	}
+
+	want := []ownSession{{ID: newer}}
+	if diff := cmp.Diff(want, ownSessionsOf(ctx, t, in.Driver, pat.ID, activeSince)); diff != "" {
+		t.Errorf("OwnSessions() at the cut after the rename mismatch (-want +got): the session used before the cut stays out\n%s", diff)
+	}
+
+	if got := mustSession(ctx, t, in.Driver, borrowed).Username; got != pat.Username {
+		t.Errorf("Session().Username of another account's session after the rename = %q, want %q: it is not pat's to rename", got, pat.Username)
+	}
+}
+
 func testTrustedDeviceCount(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	pat := createUser(ctx, t, in.Driver, "pat@lakeside.edu")

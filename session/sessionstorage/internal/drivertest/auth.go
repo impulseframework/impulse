@@ -613,6 +613,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
 		{name: "a session keeps the name of the browser it was signed in from, and a person's own sessions are listed live, newest use first, with none someone else established acting as them", run: testOwnSessions},
 		{name: "a person's remembered browsers are counted live: no revoked or lapsed device, and no other person's", run: testTrustedDeviceCount},
+		{name: "a rename leaves when a session was last used, and renames no other account's session", run: testRenameLeavesLastUse},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 		{name: "a pending sign-in is read back by its token hash with everything it carried", run: testPendingSignInRoundTrip},
 		{name: "a pending sign-in is consumed once, by a conditional update", run: testPendingSignInConsumedOnce},
