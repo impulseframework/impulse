@@ -3213,7 +3213,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 			return &sessionstorage.SessionUser{ID: userID, Username: user.Username, PasswordHash: user.PasswordHash}, nil
 		})
-		seeded := "a seeded password"
+		seeded := "a password for the seed"
 		if id, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &seeded}); err != nil || id != userID {
 			t.Errorf("CreateSessionUser() = %s, %v; want %s", id, err, userID)
 		}
