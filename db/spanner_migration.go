@@ -99,7 +99,9 @@ func (s *SpannerMigrator) WithDataMigrationsTable(table string) *SpannerMigrator
 // versions in the schema migrations table. A database already at the last version is a
 // normal result, not an error. A file that fails part-way leaves the version dirty with its
 // progress recorded, reported as a [DirtyError]; the next run continues from the failed
-// statement once the cause is fixed.
+// statement once the cause is fixed. When another run is migrating the same database at the
+// same moment, one of the two stops with [ErrAnotherRun] before applying anything more; run
+// it again when the other has finished.
 //
 // Use for DDL migrations
 func (s *SpannerMigrator) MigrateUpSchema(ctx context.Context, sourceURL string) error {
@@ -113,6 +115,9 @@ func (s *SpannerMigrator) MigrateUpSchema(ctx context.Context, sourceURL string)
 
 // MigrateUpData applies every pending up migration from the sourceURL, recording the
 // versions in the data migrations table. It behaves as [SpannerMigrator.MigrateUpSchema].
+// When another run is migrating the same database at the same moment, one of the two stops
+// with [ErrAnotherRun] before applying anything more; run it again when the other has
+// finished.
 //
 // Use for DML migrations
 func (s *SpannerMigrator) MigrateUpData(ctx context.Context, sourceURL string) error {
