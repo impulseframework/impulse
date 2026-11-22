@@ -3333,7 +3333,7 @@ super administrator is not among them, and neither is an administrator of the te
 who has a password, who does not lose access: the second sentence says how they still
 get in, and is there where an auth whose people the tenant seats has the password
 method (`DirectoryPeople.AdministratorsEnter`). It is a general sentence; who those
-administrators are is said in `also`. `names` lists them, each by their name and
+administrators are is said in `also`. `names` lists the people who lose access, each by their name and
 sign-in name, only to someone who may list them: the people of an auth are named where
 the caller holds List, in the tenant, on the tenant's list of that auth's people
 (section 21) and, on no condition, on its `username` and `name` fields, and counted

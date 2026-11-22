@@ -98,10 +98,11 @@ type DirectoryAdministrator struct {
 // tenant-administrator roles in the tenant itself, of their own or through a group kept
 // in the tenant, inside its period, with a password on the account. They are the people
 // DirectoryOutsiders leaves out for the same reason, so the two never disagree. A
-// disabled account is read like any other; a super administrator is not, since no
-// tenant's settings shut them out. The generated identity client of each auth that has
-// a password method and names the roles that administer a tenant supplies it
-// (DirectoryAdministrators), over the tenant's own list of its people.
+// disabled account is read like any other, and so is a super administrator who holds
+// such a role in the tenant itself: nobody is read for being a super administrator
+// alone. The generated identity client of each auth that has a password method and
+// names the roles that administer a tenant supplies it (DirectoryAdministrators), over
+// the tenant's own list of its people.
 type DirectoryAdministrators func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) ([]DirectoryAdministrator, error)
 
 // DirectoryInvitation is an invitation into a tenant that has not been accepted and gives
