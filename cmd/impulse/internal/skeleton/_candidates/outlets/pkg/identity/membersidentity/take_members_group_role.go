@@ -26,7 +26,13 @@ import (
 // directly need of the caller (the grants of AssignMembersRole and RemoveMembersRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// Where the group is kept in a tenant and the role is one of that tenant's
+// administrator roles held there, a row of the roles the groups hold offers it only to a
+// caller whose session enters the tenant (@callerEnters); the method refuses anyone
+// else.
+//
 // @rpc
+// @callerEnters(MembersListedGroupRole)
 // @outlet(portal)
 // @answers(204)
 // @class(access)

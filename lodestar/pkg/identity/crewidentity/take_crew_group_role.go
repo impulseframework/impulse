@@ -26,7 +26,13 @@ import (
 // directly need of the caller (the grants of AssignCrewRole and RemoveCrewRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// Where the group is kept in a sector and the role is one of that sector's
+// administrator roles held there, a row of the roles the groups hold offers it only to a
+// caller whose session enters the sector (@callerEnters); the method refuses anyone
+// else.
+//
 // @rpc
+// @callerEnters(CrewListedGroupRole)
 // @outlet(default)
 // @answers(204)
 // @class(access)

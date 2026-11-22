@@ -1195,6 +1195,13 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method for a caller the server would let run it there. Absent on a method no row answers
+   * for, which is offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
@@ -1740,6 +1747,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveCrewRole]: {
     route: 'remove-crew-role',
+    offeredOn: [Resources.CrewHeldRoles, Resources.CrewTakenRoles],
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2045,6 +2053,7 @@ const methodMap: MethodMap = {
   },
   [Methods.TakeCrewGroupRole]: {
     route: 'take-crew-group-role',
+    offeredOn: [Resources.CrewListedGroupRoles],
     statuses: [204],
     dryRun: true,
     fields: [

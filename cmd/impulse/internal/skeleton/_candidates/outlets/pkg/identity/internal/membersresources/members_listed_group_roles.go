@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -92,4 +93,16 @@ WHERE (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
 // Subquery is the query the rows are read from.
 func (MembersListedGroupRole) Subquery() (query string, params map[string]any) {
 	return membersListedGroupRoleQuery, nil
+}
+
+// TenantsToEnter names the tenant the group is kept in, where the row's role is one
+// of that tenant's administrator roles held there: a caller whose session does not
+// enter it is not offered the method that takes the role away from the group.
+func (MembersListedGroupRole) TenantsToEnter() resource.TenantsToEnter {
+	enter := membersGroupTenantsToEnter("GroupId")
+	enter.Match["Kind"] = "Kind"
+	enter.Match["DomainId"] = "DomainId"
+	enter.Match["Role"] = "Role"
+
+	return enter
 }

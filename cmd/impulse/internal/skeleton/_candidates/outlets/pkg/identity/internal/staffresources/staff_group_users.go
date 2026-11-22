@@ -67,15 +67,16 @@ func (StaffGroupUser) Subquery() (query string, params map[string]any) {
 }
 
 // staffGroupAdministeredTenantsQuery answers the tenant each group of the
-// Staff auth makes its people administrators of, a row for each, RowKey the group's id
-// and Tenant the tenant: a group kept in a tenant that holds there one of
-// the roles the auth's permission engine names as a tenant's administrator's
-// (@enteringAdministratorRoles), in an assignment that has not ended, one that has
-// not begun included. The methods that put a person in a group and take one out refuse a
-// caller by the same count (the identity package's requireEnteringToChange), and each row
-// of the whole application's groups and of their people reads it (TenantsToEnter).
+// Staff auth makes its people administrators of, a row for each, RowKey the group's id,
+// Tenant the tenant, and the kind, the tenant and the name of the role: a
+// group kept in a tenant that holds there one of the roles the auth's permission
+// engine names as a tenant's administrator's (@enteringAdministratorRoles), in
+// an assignment that has not ended, one that has not begun included. The methods that put a
+// person in a group and take one out refuse a caller by the same count (the identity
+// package's requireEnteringToChange), and each row of the whole application's groups, of
+// their people and of the roles they hold reads it (TenantsToEnter).
 const staffGroupAdministeredTenantsQuery = `
-SELECT tr.GroupId AS RowKey, tg.DomainId AS Tenant
+SELECT tr.GroupId AS RowKey, tr.Kind AS Kind, tr.DomainId AS DomainId, tr.Role AS Role, tg.DomainId AS Tenant
 FROM StaffGroupRoles tr
 JOIN StaffGroups tg ON tg.Id = tr.GroupId
 WHERE tg.Kind = 'domain' AND tg.Axis = ''

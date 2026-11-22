@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -80,4 +81,40 @@ WHERE (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 // Subquery is the query the rows are read from.
 func (MembersHeldRole) Subquery() (query string, params map[string]any) {
 	return membersHeldRoleQuery, nil
+}
+
+// membersHeldRoleAdministeredTenantsQuery answers the sector each role a person of the Members auth holds of
+// their own makes them an administrator of, a row for each, with the account's id, the kind,
+// the sector and the role that name the membership: one of the roles the auth's
+// permission engine names as a sector's administrator's
+// (@enteringAdministratorRoles) held in the sector itself, in an assignment
+// that has not ended, one that has not begun included. The method that takes a role from a
+// person refuses a caller by the same count (the identity package's requireEnteringToChange),
+// and each row of the roles people hold, and of the roles held for a set time, reads it
+// (TenantsToEnter).
+const membersHeldRoleAdministeredTenantsQuery = `
+SELECT ta.UserId AS UserId, ta.Kind AS Kind, ta.DomainId AS DomainId, ta.Role AS Role, ta.DomainId AS Tenant
+FROM MembersUserRoles ta
+WHERE ta.Kind = 'domain' AND ta.Axis = ''
+  AND ta.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// membersHeldRoleTenantsToEnter is what each row of a role a person of the Members auth holds answers
+// TenantsToEnter with: the query, the roles it reads, and the columns of the row that name
+// the person, the kind, the sector and the role.
+func membersHeldRoleTenantsToEnter() resource.TenantsToEnter {
+	// The roles are the people's: the same names, bound under the same parameter.
+	enter := membersSessionUserTenantsToEnter("UserId")
+	enter.Query = membersHeldRoleAdministeredTenantsQuery
+	enter.Match = map[string]string{"UserId": "UserId", "Kind": "Kind", "DomainId": "DomainId", "Role": "Role"}
+
+	return enter
+}
+
+// TenantsToEnter names the sector the row's role makes its holder an administrator of,
+// where a person holds the role of their own in that sector itself: a caller whose
+// session does not enter it is not offered the method that takes the role away.
+func (MembersHeldRole) TenantsToEnter() resource.TenantsToEnter {
+	return membersHeldRoleTenantsToEnter()
 }
