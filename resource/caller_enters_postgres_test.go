@@ -91,8 +91,9 @@ func heldPostgres(t *testing.T) *pgxpool.Pool {
 // TestQuerySet_callerEnters_onPostgres runs the Execute affordance of held methods as it
 // is rendered for PostgreSQL on a real PostgreSQL: a row offers RetireKeeper (a plain
 // method) and SealKeeper (a transition from open) only where none of the row's tenants
-// is one the session does not enter, and SealKeeper only on an open row. A row named by
-// two columns is held back only by a row of the query that agrees with it on both.
+// is one the session does not enter, and SealKeeper only on an open row; PruneKeepers,
+// which names no row and is offered on the rows, as RetireKeeper. A row named by two
+// columns is held back only by a row of the query that agrees with it on both.
 func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 	t.Parallel()
 
@@ -110,6 +111,7 @@ func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 	tests := []struct {
 		name      string
 		stmt      func(t *testing.T, perms UserPermissions) (*Statement, error)
+		grants    accesstypes.Decisions
 		unentered []accesstypes.Domain
 		want      map[string][]string
 	}{
@@ -126,6 +128,15 @@ func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 			want:      map[string][]string{"k1": {}, "k2": {}, "k3": both, "k4": both, "k5": {"RetireKeeper"}},
 		},
 		{
+			name:      "a method that names no row, offered on the rows, is listed on the rows whose tenants the session enters and on no other",
+			stmt:      keepers,
+			grants:    accesstypes.Decisions{"PruneKeepers": accesstypes.Granted(), "SealKeeper": accesstypes.Granted()},
+			unentered: []accesstypes.Domain{"bastion"},
+			want: map[string][]string{
+				"k1": {}, "k2": {"PruneKeepers", "SealKeeper"}, "k3": {"PruneKeepers", "SealKeeper"}, "k4": {"PruneKeepers", "SealKeeper"}, "k5": {"PruneKeepers"},
+			},
+		},
+		{
 			name: "a row named by two columns is held back by a post that agrees on both, and not by one that agrees on one",
 			stmt: func(t *testing.T, perms UserPermissions) (*Statement, error) {
 				t.Helper()
@@ -140,13 +151,14 @@ func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			grants := tt.grants
+			if grants == nil {
+				grants = accesstypes.Decisions{"RetireKeeper": accesstypes.Granted(), "SealKeeper": accesstypes.Granted()}
+			}
 			perms := heldPermissions{
-				capStubPermissions: capStubPermissions{byPerm: map[accesstypes.Permission]accesstypes.Decisions{accesstypes.Execute: {
-					"RetireKeeper": accesstypes.Granted(),
-					"SealKeeper":   accesstypes.Granted(),
-				}}},
-				unentered: tt.unentered,
-				asked:     &atomic.Int32{},
+				capStubPermissions: capStubPermissions{byPerm: map[accesstypes.Permission]accesstypes.Decisions{accesstypes.Execute: grants}},
+				unentered:          tt.unentered,
+				asked:              &atomic.Int32{},
 			}
 			stmt, err := tt.stmt(t, perms)
 			if err != nil {

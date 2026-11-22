@@ -257,6 +257,14 @@ type CollectionResource struct {
 	// the mark shapes what a page offers. Only a method with a Target carries it.
 	CallerEnters bool
 
+	// OfferedOn are the resources whose rows offer an RPC method that names no row
+	// (@callerEnters(Row, ...)), sorted: a page runs the method from such a row, filling
+	// its request from the row, and the row offers it only to a caller whose session
+	// enters every tenant the row's struct names (TenantsToEnter); capabilities=Execute
+	// leaves it out of the row for anyone else. The method's own code refuses the call;
+	// the list shapes what a page offers. Only a method with no Target carries it.
+	OfferedOn []accesstypes.Resource
+
 	// Parent is a workflow member's immediate parent: the resource its
 	// @stateRoot foreign key references (the root, or another member on the
 	// chain); empty for everything else. The create-under-parent affordance
@@ -457,6 +465,14 @@ func (b *CollectionBuilder) SetMethodCallerEnters(scope accesstypes.PermissionSc
 	b.g.setMethodCallerEnters(scope, method)
 }
 
+// SetMethodOfferedOn records the resources whose rows offer an RPC method resource that
+// names no row, within scope (@callerEnters(Row, ...)): each row offers it only to a
+// caller whose session enters the tenants the row names. A second call for the method
+// replaces the first.
+func (b *CollectionBuilder) SetMethodOfferedOn(scope accesstypes.PermissionScope, method accesstypes.Resource, rows []accesstypes.Resource) {
+	b.g.setMethodOfferedOn(scope, method, rows)
+}
+
 // SetResourceParent records a workflow member's immediate parent within scope:
 // the resource its @stateRoot foreign key references.
 func (b *CollectionBuilder) SetResourceParent(scope accesstypes.PermissionScope, member, parent accesstypes.Resource) {
@@ -510,6 +526,9 @@ type GeneratedCollection struct {
 	// callerEnters are the targeted methods a row offers only to a caller whose
 	// session enters the row's tenants, within scope.
 	callerEnters map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
+	// offeredOn are the resources whose rows offer a method that names no row, by
+	// method, within scope.
+	offeredOn map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Resource
 	// requiredTags are the fields a create of a resource must be given by the client.
 	requiredTags map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag
 	// formerTags are the renamed fields' former wire names by tag, and formerNames
@@ -546,6 +565,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		transitions:     make(map[accesstypes.PermissionScope]map[accesstypes.Resource]TransitionData, 2),
 		targets:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		callerEnters:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
+		offeredOn:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Resource, 2),
 		parents:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		masking:         make(map[accesstypes.PermissionScope]maskingMap, 2),
 		queryKeys:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys, 2),
@@ -691,6 +711,13 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 			return errors.Newf("method resource %q is offered only to a caller who enters its row's tenants but names no target row", res.Name)
 		}
 		g.setMethodCallerEnters(res.Scope, res.Name)
+	}
+
+	if len(res.OfferedOn) > 0 {
+		if err := refuseOfferedOn(res); err != nil {
+			return err
+		}
+		g.setMethodOfferedOn(res.Scope, res.Name, res.OfferedOn)
 	}
 
 	if res.Parent != "" {
@@ -1322,6 +1349,42 @@ func (g *GeneratedCollection) setMethodCallerEnters(scope accesstypes.Permission
 	g.callerEnters[scope][method] = struct{}{}
 }
 
+// setMethodOfferedOn records the resources whose rows offer an RPC method resource that
+// names no row within scope, replacing any recorded before.
+func (g *GeneratedCollection) setMethodOfferedOn(scope accesstypes.PermissionScope, method accesstypes.Resource, rows []accesstypes.Resource) {
+	if g.offeredOn[scope] == nil {
+		g.offeredOn[scope] = make(map[accesstypes.Resource][]accesstypes.Resource)
+	}
+	g.offeredOn[scope][method] = slices.Clone(rows)
+}
+
+// refuseOfferedOn refuses the rows a method that names no row is offered on where the
+// method names its row, or where a row has no name or is named twice. That the rows are
+// resources of the collection is not asked here, as a Target's is not: the generator
+// checks the structs.
+func refuseOfferedOn(res *CollectionResource) error {
+	if res.Target != "" || res.Transition != nil {
+		rows := make([]string, 0, len(res.OfferedOn))
+		for _, row := range res.OfferedOn {
+			rows = append(rows, string(row))
+		}
+
+		return errors.Newf("method resource %q is offered on the rows of %s and names a target row: a method that names its row is offered on that row alone", res.Name, strings.Join(rows, ", "))
+	}
+	seen := make(map[accesstypes.Resource]struct{}, len(res.OfferedOn))
+	for _, row := range res.OfferedOn {
+		if row == "" {
+			return errors.Newf("method resource %q is offered on the rows of a resource with no name", res.Name)
+		}
+		if _, ok := seen[row]; ok {
+			return errors.Newf("method resource %q is offered on the rows of %q twice", res.Name, row)
+		}
+		seen[row] = struct{}{}
+	}
+
+	return nil
+}
+
 // setResourceParent records a workflow member's immediate parent within scope.
 func (g *GeneratedCollection) setResourceParent(scope accesstypes.PermissionScope, member, parent accesstypes.Resource) {
 	if g.parents[scope] == nil {
@@ -1426,6 +1489,25 @@ func (g *GeneratedCollection) MethodsTargeting(target accesstypes.Resource) []Ta
 	slices.SortFunc(methods, func(a, b TargetedMethod) int {
 		return strings.Compare(string(a.Method), string(b.Method))
 	})
+
+	return methods
+}
+
+// MethodsOfferedOn lists the RPC method resources that name no row and are offered on the
+// rows of row (@callerEnters naming it), sorted by method name: the capability envelope's
+// Execute candidates beside the methods that target the resource (MethodsTargeting), each
+// held to the tenants the caller's session enters. Every scope is searched: a method and
+// the rows that offer it share their scope kind by construction.
+func (g *GeneratedCollection) MethodsOfferedOn(row accesstypes.Resource) []accesstypes.Resource {
+	var methods []accesstypes.Resource
+	for _, store := range g.offeredOn {
+		for method, rows := range store {
+			if slices.Contains(rows, row) {
+				methods = append(methods, method)
+			}
+		}
+	}
+	slices.Sort(methods)
 
 	return methods
 }
@@ -1878,6 +1960,9 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 		}
 		if _, ok := g.callerEnters[key.scope][key.name]; ok {
 			res.CallerEnters = true
+		}
+		if rows := g.offeredOn[key.scope][key.name]; len(rows) > 0 {
+			res.OfferedOn = slices.Sorted(slices.Values(rows))
 		}
 
 		if parent, ok := g.parents[key.scope][key.name]; ok {
