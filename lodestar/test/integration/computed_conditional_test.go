@@ -3,7 +3,8 @@ package integration
 
 // computed_conditional_test (design plan §9): the hazard board answers under the
 // analyst's row-free `now < '2099-01-01T00:00:00Z'` grant before the certification
-// instant and refuses after it (pinned through the engine at two instants), and a
+// instant and refuses after it (pinned through the engine at two instants), the
+// analyst's search box is answered, since the check settles the board's condition, and a
 // row-bearing condition on the same grant is refused when the role file is validated.
 
 import (
@@ -45,6 +46,17 @@ func TestComputedConditionalGrant(t *testing.T) {
 		if worst["Kingfisher/hull"] != 0.61 {
 			t.Errorf("Kingfisher hull worst = %v, want the higher reading 0.61", worst["Kingfisher/hull"])
 		}
+	})
+
+	t.Run("the analyst's search box is answered: the check settles the board's condition from the time of the request", func(t *testing.T) {
+		t.Parallel()
+
+		// The board is searched over its rows' real values, so a search needs every searched
+		// field granted with no condition left once the check has run. The analyst's
+		// condition reads the time of the request alone, so the check settles it and grants
+		// the ship's name. The box travels in the URL, as the browser sends it.
+		status, body := doRequestAs(t, h, "hazards", http.MethodGet, sectorPath(anvil, "sector-hazard-boards?"+filter(`*:search:"king"`)), "")
+		assertStatus(t, status, http.StatusOK, body)
 	})
 
 	t.Run("the board is dark in a sector where the analyst holds no role", func(t *testing.T) {

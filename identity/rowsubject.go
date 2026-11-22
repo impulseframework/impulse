@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -370,7 +370,7 @@ func impersonatorRefusedOf(ctx context.Context, actor impulse.UUID, logged, said
 // library's refusals spell a field's: "WingID" is "wing id", "crewGroups" is "crew
 // groups".
 func inWords(name string) string {
-	return strcase.ToCase(name, strcase.LowerCase, ' ')
+	return words.InWords(name)
 }
 
 // holdsNothing reports whether a column's value is no value at all: a NULL is in no

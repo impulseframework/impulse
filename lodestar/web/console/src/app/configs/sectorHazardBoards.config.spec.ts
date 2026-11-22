@@ -33,7 +33,9 @@ import {
 // draws no way into a row; the board declares no create, and the page offers none; the
 // readings' header is words, since the server orders by no nested field; and so is the
 // header of every field the analyst holds under the board's condition, since the server
-// refuses a sort by such a field on a computed resource.
+// refuses a sort by such a field on a computed resource. The search box is offered all the
+// same: the digest cannot say whether the server will settle a condition, and the board's it
+// settles from the time of the request.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 const kingfisher = '70000000-0000-4000-8000-000000000001';
@@ -172,6 +174,15 @@ describe('the hazard board', () => {
     // when it was recorded under the board's condition, which the server orders by the
     // rows' real values: only the subsystem, a key field that takes no grant, sorts.
     expect(pressable).toEqual(['Subsystem']);
+  });
+
+  it("offers the analyst the search box, though the role holds the ship's name under the board's condition", async () => {
+    await create(board);
+
+    // The digest lists the ship's name under the board's condition, which the server settles
+    // from the time of the request, so it answers the search.
+    expect(element().querySelector('impulse-search-box')).not.toBeNull();
+    expect(element().querySelector('.impulse-resource-list-search-refused')).toBeNull();
   });
 
   it('says so when no droid has reported in the sector', async () => {

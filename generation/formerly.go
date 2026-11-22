@@ -19,7 +19,8 @@ import (
 // collection carries the former names for the role migration, which writes grant rows
 // for both. A former name that is the current one, or another field's or method's name,
 // current or former, is refused, and a @computed struct refuses the annotation: its
-// rows are hand-written.
+// rows are hand-written. A former name that holds a dot is refused too: a dot separates
+// a resource from one of its fields.
 
 // resolveFieldFormerly resolves a table or view resource's @formerly declarations: each
 // renamed field's former name, refusing the struct form (a resource keeps its name), a
@@ -83,11 +84,14 @@ func checkFormerWireName(where, fieldName, name string, byWire, former map[strin
 	return nil
 }
 
-// formerNameOf reads the one name a @formerly carries.
+// formerNameOf reads the one name a @formerly carries, and refuses a name that holds a dot.
 func formerNameOf(arg genlang.Arg, where string) (string, error) {
 	name := strings.TrimSpace(string(arg))
 	if name == "" || strings.ContainsAny(name, ", \t\"()") {
 		return "", errors.Newf("%s: @%s(%s) takes one name, written as the field or method was: @%s(Title)", where, formerlyKeyword, name, formerlyKeyword)
+	}
+	if strings.Contains(name, ".") {
+		return "", errors.Newf("%s: @%s(%s) holds a dot. A dot separates a resource from one of its fields, so the former name would be read as a field of another resource; write the name as the field or method was, without a dot: @%s(Title)", where, formerlyKeyword, name, formerlyKeyword)
 	}
 
 	return name, nil

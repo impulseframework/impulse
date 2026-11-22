@@ -74,6 +74,10 @@
         [total]="store.page().total"
         (textChange)="onSearchChange($event)" />
     </div>
+  } @else if (searchNotice()) {
+    <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
+      <p class="impulse-resource-list-search-refused">{{ searchNotice() }}</p>
+    </div>
   }
   <div class="impulse-resource-list-resource-container">
     <impulse-grid

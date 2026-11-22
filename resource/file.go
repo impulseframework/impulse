@@ -239,6 +239,9 @@ func newFileDecoder[Resource Resourcer, Request any](segment string) (*FileDecod
 	if segment == "" {
 		return nil, errors.New("resource.NewFileDecoder: the route needs a segment")
 	}
+	if strings.Contains(segment, ".") {
+		return nil, errors.Newf("resource.NewFileDecoder: the segment %q holds a dot. The segment names the file beside its resource (Resource.segment), and a dot separates a resource from one of its fields; give the segment without a dot", segment)
+	}
 	rSet, err := NewSet[Resource, Request](accesstypes.Read)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.NewSet()")

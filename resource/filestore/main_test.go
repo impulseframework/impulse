@@ -39,6 +39,9 @@ const liveStoreURL = "FILESTORE_TEST_URL"
 // fakeProject is the project the fake's buckets are created under; any name serves.
 const fakeProject = "filestore-test"
 
+// fakeStartAttempts is how many times startFake starts the fake, each time on a new port.
+const fakeStartAttempts = 3
+
 // sharedFake is the one fake container the package's tests share, started before the
 // tests when they are not short, since the client reads STORAGE_EMULATOR_HOST at
 // construction and the variable must be set before the first bucket store opens.
@@ -73,13 +76,30 @@ func TestMain(m *testing.M) {
 
 // startFake runs the fake in a container on a host port chosen first, since the fake
 // must be told its public address at start (resumable uploads and media links carry
-// it), and waits until it answers.
+// it), and waits until it answers. Another process can take the port between the choice
+// and the container's bind, so a start that fails is made again on a new port, three
+// times in all.
 func startFake() (host string, stop func(), err error) {
 	ctx := context.Background()
-	port, err := freePort(ctx)
-	if err != nil {
-		return "", nil, err
+	for attempt := 1; attempt <= fakeStartAttempts; attempt++ {
+		port, portErr := freePort(ctx)
+		if portErr != nil {
+			return "", nil, portErr
+		}
+		host, stop, err = startFakeOn(ctx, port)
+		if err == nil {
+			return host, stop, nil
+		}
+		fmt.Fprintf(os.Stderr, "the fake Cloud Storage server did not start on port %d (attempt %d of %d): %v\n", port, attempt, fakeStartAttempts, err)
 	}
+
+	return "", nil, err
+}
+
+// startFakeOn starts the fake bound to port on the loopback address and waits until it
+// answers. A start that fails terminates the container it left behind, if there is one,
+// so the next attempt starts clean.
+func startFakeOn(ctx context.Context, port int) (host string, stop func(), err error) {
 	host = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
 	fake, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -95,6 +115,10 @@ func startFake() (host string, stop func(), err error) {
 		},
 	})
 	if err != nil {
+		if termErr := testcontainers.TerminateContainer(fake); termErr != nil {
+			fmt.Fprintf(os.Stderr, "the fake Cloud Storage container was not terminated: %v\n", termErr)
+		}
+
 		return "", nil, errors.Wrap(err, "testcontainers.GenericContainer()")
 	}
 	stop = func() {

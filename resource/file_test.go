@@ -76,6 +76,15 @@ func TestNewFileDecoder(t *testing.T) {
 			},
 			wantErr: "the route needs a segment",
 		},
+		{
+			name: "a segment with a dot is refused",
+			build: func() error {
+				_, err := NewFileDecoder[enforcementResource, enforcementFileRequest](enforcementCollection(t), "a.b")
+
+				return err
+			},
+			wantErr: "holds a dot",
+		},
 	}
 
 	for _, tt := range tests {

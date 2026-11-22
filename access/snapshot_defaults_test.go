@@ -468,6 +468,142 @@ func Test_newSnapshot_findings(t *testing.T) {
 	}
 }
 
+// Test_newSnapshot_findings_dottedResource pins that a stored grant whose
+// resource column holds a dot is skipped and reported: a write keeps a field in
+// its own column, so such a row names no resource the collection declares, and
+// it neither reaches the member's digest nor grants the dotted name.
+func Test_newSnapshot_findings_dottedResource(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{"", "*"} {
+		t.Run(fmt.Sprintf("field %q", field), func(t *testing.T) {
+			t.Parallel()
+
+			snap, findings := compileWithDefaults(t, compileDefaults(t, readerRunnerFile()), &policy.Records{
+				Roles: []policy.Role{{Scope: tenant1Policy, Name: "Chief"}},
+				Grants: []policy.Grant{
+					{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: "Widgets.name", Field: field},
+				},
+				Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("dana"), Role: "Chief"}},
+			})
+
+			var skipped *SkippedGrant
+			if len(findings) != 1 || !errors.As(error(findings[0]), &skipped) || !strings.Contains(skipped.Error(), "holds a dot") {
+				t.Errorf("findings = %v, want one skipped grant whose reason holds %q", findings, "holds a dot")
+			}
+			if entry, listed := snap.userDigest(tenant1Scope, "dana")["Widgets.name"]; listed {
+				t.Errorf("digest lists Widgets.name as %v, want no entry", entry)
+			}
+			if got := snap.decideUserResources("dana", tenant1Scope, "Read", "Widgets.name"); decisionText(got[0]) != "denied" {
+				t.Errorf("decide(dana, Read, Widgets.name) = %s, want denied", decisionText(got[0]))
+			}
+		})
+	}
+}
+
+// Test_newSnapshot_findings_fieldColumn pins that a stored grant no write could
+// have made by its field column is skipped and reported whatever the collection
+// lists: a field with no resource is not the grant on every resource, and a
+// field that holds a dot names no field.
+func Test_newSnapshot_findings_fieldColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource string
+		field    string
+		want     string
+		// deniedName, when set, is a name the member's check is denied on.
+		deniedName accesstypes.Resource
+	}{
+		{name: "a field with no resource", resource: "", field: "name", want: "names the field name and no resource", deniedName: ".name"},
+		{name: "all fields with no resource", resource: "", field: "*", want: "names the field * and no resource"},
+		{name: "a field with a dot", resource: "Widgets", field: "name.first", want: "the row's field name.first holds a dot"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snap, findings := compileWithDefaults(t, compileDefaults(t, readerRunnerFile()), &policy.Records{
+				Roles: []policy.Role{{Scope: tenant1Policy, Name: "Chief"}},
+				Grants: []policy.Grant{
+					{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: tt.resource, Field: tt.field},
+				},
+				Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("dana"), Role: "Chief"}},
+			})
+
+			var skipped *SkippedGrant
+			if len(findings) != 1 || !errors.As(error(findings[0]), &skipped) || !strings.Contains(skipped.Error(), tt.want) {
+				t.Errorf("findings = %v, want one skipped grant whose reason holds %q", findings, tt.want)
+			}
+			if tt.deniedName == "" {
+				return
+			}
+			if got := snap.decideUserResources("dana", tenant1Scope, "Read", tt.deniedName); decisionText(got[0]) != "denied" {
+				t.Errorf("decide(dana, Read, %s) = %s, want denied", tt.deniedName, decisionText(got[0]))
+			}
+		})
+	}
+}
+
+// Test_newSnapshot_findings_defaultRoleGrants pins that a stored grant under a
+// default role's name gives nothing whether or not the store holds a row for
+// the role: the grant is skipped, the role is reported as shadowed once for
+// its (scope, role) however many grants it has, and its members hold the
+// default's grants alone.
+func Test_newSnapshot_findings_defaultRoleGrants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		records *policy.Records
+	}{
+		{
+			name: "a grant with no role row",
+			records: &policy.Records{
+				Grants: []policy.Grant{
+					{Scope: tenant2Policy, Subject: roleSubject("Reader"), Perm: "Update", Resource: "Widgets"},
+				},
+				Memberships: []policy.Membership{
+					{Scope: tenant2Policy, Member: userSubject("lee"), Role: "Reader"},
+				},
+			},
+		},
+		{
+			name: "two grants under a role row",
+			records: &policy.Records{
+				Roles: []policy.Role{{Scope: tenant2Policy, Name: "Reader"}},
+				Grants: []policy.Grant{
+					{Scope: tenant2Policy, Subject: roleSubject("Reader"), Perm: "Update", Resource: "Widgets"},
+					{Scope: tenant2Policy, Subject: roleSubject("Reader"), Perm: "List", Resource: "Widgets"},
+				},
+				Memberships: []policy.Membership{
+					{Scope: tenant2Policy, Member: userSubject("lee"), Role: "Reader"},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			snap, findings := compileWithDefaults(t, compileDefaults(t, readerRunnerFile()), tt.records)
+
+			want := []policyFinding{&ShadowedRole{Scope: tenant2Policy, Role: "Reader"}}
+			if diff := cmp.Diff(want, findings, cmpopts.EquateComparable(accesstypes.PolicyScope{})); diff != "" {
+				t.Errorf("findings (-want +got):\n%s", diff)
+			}
+			if got := snap.decideUserResources("lee", tenant2Scope, "Read", "Widgets.name"); decisionText(got[0]) != "granted" {
+				t.Errorf("the default's member reading Widgets.name = %s, want granted", decisionText(got[0]))
+			}
+			for _, perm := range []accesstypes.Permission{"Update", "List"} {
+				if got := snap.decideUserResources("lee", tenant2Scope, perm, "Widgets"); decisionText(got[0]) != "denied" {
+					t.Errorf("the default's member asked %s on Widgets = %s, want denied", perm, decisionText(got[0]))
+				}
+			}
+		})
+	}
+}
+
 // Test_snapshot_thousandDomains pins the scale the layering is for: a
 // thousand tenants, each with a custom role and a member of its own, compile
 // to a thousand overlays, while the release's domain defaults and the
