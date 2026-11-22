@@ -673,7 +673,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     computed: true,
     live: false,
-    rowWords: { one: 'staff givable role', many: 'staff givable roles' },
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },

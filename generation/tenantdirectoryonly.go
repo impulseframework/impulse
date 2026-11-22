@@ -57,6 +57,12 @@ const (
 // which are what the warning lists each person by (resource.DirectoryOutsider).
 var directoryOnlyNamingFields = []string{"username", "name"}
 
+// directoryOnlyInvitationFields are the fields of a tenant's list of its invitations
+// that name an invitation, as the wire and a grant name them: the list's Email and Name
+// columns, which are what the warning lists each invitation by
+// (resource.DirectoryInvitation).
+var directoryOnlyInvitationFields = []string{"email", "name"}
+
 // tenantOwnMethod is a method the generator writes in the tenant's scope beside the
 // tenant record's declaration: its name, as grants and the client name it, the word its
 // warning has a person type, empty for a method that declares none, and the classes its
@@ -280,11 +286,18 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 // switch on, as the generated handler hands it to the library: the application's
 // accessor of the auth's generated identity client, and the tenant's list of the auth's
 // people with the fields that name a person, which decide whether the caller is told
-// who the switch keeps out.
+// who the switch keeps out. Where the auth has a password method, the client also
+// answers the tenant's administrators who have one (Administrators), and, where the
+// instance carries the tenant's list of its invitations, the invitations not yet
+// accepted that would make another (InvitationList, with the fields that name an
+// invitation): the two ways into the tenant beside its directory.
 type directoryOnlyPeople struct {
-	Accessor string
-	List     string
-	Fields   []string
+	Accessor         string
+	List             string
+	Fields           []string
+	Administrators   bool
+	InvitationList   string
+	InvitationFields []string
 }
 
 // directoryOnlyPeople names every auth whose management the program generates and whose
@@ -294,11 +307,17 @@ func (r *resourceGenerator) directoryOnlyPeople() []*directoryOnlyPeople {
 	var people []*directoryOnlyPeople
 	for _, inst := range r.identity {
 		if inst.listsDirectoryOutsiders() {
-			people = append(people, &directoryOnlyPeople{
-				Accessor: inst.accessor(),
-				List:     r.pluralize(inst.listName(listPeopleSuffix)),
-				Fields:   slices.Clone(directoryOnlyNamingFields),
-			})
+			entry := &directoryOnlyPeople{
+				Accessor:       inst.accessor(),
+				List:           r.pluralize(inst.listName(listPeopleSuffix)),
+				Fields:         slices.Clone(directoryOnlyNamingFields),
+				Administrators: inst.password,
+			}
+			if inst.listsDirectoryInvitations() {
+				entry.InvitationList = r.pluralize(inst.listName(listInvitationsSuffix))
+				entry.InvitationFields = slices.Clone(directoryOnlyInvitationFields)
+			}
+			people = append(people, entry)
 		}
 	}
 

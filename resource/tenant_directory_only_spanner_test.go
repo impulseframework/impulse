@@ -23,12 +23,14 @@ import (
 type namedFlag bool
 
 // makeMethod and endMethod are the methods that turn a station's directory-only switch
-// on and off, as grants name them, and stationPeople the station's list of its people
-// with the fields that name a person.
+// on and off, as grants name them, stationPeople the station's list of its people with
+// the fields that name a person, and stationInvitations its list of the invitations into
+// it, with the fields that name the person invited.
 const (
-	makeMethod    accesstypes.Resource = "MakeStationDirectoryOnly"
-	endMethod     accesstypes.Resource = "EndStationDirectoryOnly"
-	stationPeople accesstypes.Resource = "StationUsers"
+	makeMethod         accesstypes.Resource = "MakeStationDirectoryOnly"
+	endMethod          accesstypes.Resource = "EndStationDirectoryOnly"
+	stationPeople      accesstypes.Resource = "StationUsers"
+	stationInvitations accesstypes.Resource = "StationInvitations"
 )
 
 // switchPermissions scripts the grants the directory-only switch asks: Execute on the
@@ -180,11 +182,51 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 
 		return out
 	}
+	// The station's own administrators who have a password, and the invitations into it
+	// not yet accepted that give its administrator role, as an auth's readers answer them.
+	ines := DirectoryAdministrator{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-0000000000d1")), Username: "ines", Name: new("Ines Okoro")}
+	wren := DirectoryAdministrator{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-0000000000d2")), Username: "Wren"}
+	abe := DirectoryAdministrator{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-0000000000d3")), Username: "abe"}
+	kit := DirectoryInvitation{ID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-0000000000e1")), Email: "kit@example.com", Name: new("Kit Marlow")}
+	lee := DirectoryInvitation{ID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-0000000000e2")), Email: "Lee@example.com"}
+	administrators := func(people ...DirectoryAdministrator) DirectoryAdministrators {
+		return func(_ context.Context, _ ReadWriteTransaction, _ accesstypes.Domain) ([]DirectoryAdministrator, error) {
+			return people, nil
+		}
+	}
+	invitations := func(sent ...DirectoryInvitation) DirectoryInvitations {
+		return func(_ context.Context, _ ReadWriteTransaction, _ accesstypes.Domain) ([]DirectoryInvitation, error) {
+			return sent, nil
+		}
+	}
+	// The readers that fail say so in the call's error, wherever they are called.
+	failingAdministrators := func(_ context.Context, _ ReadWriteTransaction, _ accesstypes.Domain) ([]DirectoryAdministrator, error) {
+		return nil, errors.New("the administrators could not be read")
+	}
+	failingInvitations := func(_ context.Context, _ ReadWriteTransaction, _ accesstypes.Domain) ([]DirectoryInvitation, error) {
+		return nil, errors.New("the invitations could not be read")
+	}
+	// keeps is an auth's entry whose people keep the administrators' way in, with the
+	// station's lists of its people and its invitations, and nobody the switch keeps out.
+	keeps := func(admins DirectoryAdministrators, invited DirectoryInvitations) DirectoryPeople {
+		return DirectoryPeople{
+			List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(), AdministratorsEnter: true,
+			Administrators: admins, InvitationList: stationInvitations, InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: invited,
+		}
+	}
 	const (
 		entraOnly    = "Only people who sign in through your organization's Microsoft directory will be able to enter this station."
 		entraConfirm = "Admit only people who sign in through your organization's Microsoft directory"
 		deltaOnly    = "Only people who sign in through id.delta.example will be able to enter this station."
 		deltaConfirm = "Admit only people who sign in through id.delta.example"
+		// entraKept is the consequence where the administrators keep their way in and the
+		// switch keeps nobody out.
+		entraKept           = entraOnly + " An administrator of this station who has a password can still sign in with it and a code sent to their email. Nobody seated here will lose access."
+		oneAdministrator    = "1 administrator of this station has a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in."
+		twoAdministrators   = "2 administrators of this station have a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in."
+		threeAdministrators = "3 administrators of this station have a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in."
+		oneInvitation       = "1 invitation that has not been accepted gives a role that administers this station. Whoever accepts it can choose a password and enter without the directory. Withdraw it first if it should not stand."
+		twoInvitations      = "2 invitations that have not been accepted give a role that administers this station. Whoever accepts one can choose a password and enter without the directory. Withdraw first any that should not stand."
 	)
 	warningTests := []struct {
 		name    string
@@ -192,9 +234,11 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		station accesstypes.Domain
 		people  []DirectoryPeople
 		want    *Warning
-		// wantRefusal is the Conflict's sentence, wantNotFound a station that is not one.
+		// wantRefusal is the Conflict's sentence, wantNotFound a station that is not one,
+		// and wantErr what the call's error says where it is none of those.
 		wantRefusal  string
 		wantNotFound bool
+		wantErr      string
 	}{
 		{
 			name: "the sentence counts the people of every auth, and lists them by name and username", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
@@ -268,6 +312,114 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			wantRefusal: strings.Replace(notThrough, "%s", "You signed in with a password.", 1),
 		},
 		{name: "a station the record does not hold is not found", ctx: asks(through(entra), &switchPermissions{}), station: "nowhere", wantNotFound: true},
+		{
+			name: "the administrators who have a password are counted in a note, and named by name and username, sorted without case", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(wren, ines), nil)},
+			want: &Warning{
+				Consequence: entraKept, Confirm: entraConfirm,
+				Also: []WarningNote{{Says: twoAdministrators, Names: []string{"Ines Okoro (ines)", "Wren"}}},
+			},
+		},
+		{
+			name: "one administrator is one administrator", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(ines), nil)},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm, Also: []WarningNote{{Says: oneAdministrator, Names: []string{"Ines Okoro (ines)"}}}},
+		},
+		{
+			name: "a caller who may not list the people is told how many administrators and nobody's name", ctx: asks(through(entra), &switchPermissions{denied: []accesstypes.Resource{stationPeople}}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(wren, ines), nil)},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm, Also: []WarningNote{{Says: twoAdministrators}}},
+		},
+		{
+			name: "administrators named fewer than counted are the one the caller may list", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{
+				keeps(administrators(ines), nil),
+				{Outsiders: reader(), AdministratorsEnter: true, Administrators: administrators(wren, abe)},
+			},
+			want: &Warning{
+				Consequence: entraKept, Confirm: entraConfirm,
+				Also: []WarningNote{{Says: threeAdministrators + " The one of them you may list is named here.", Names: []string{"Ines Okoro (ines)"}}},
+			},
+		},
+		{
+			name: "and the several the caller may list", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{
+				{Outsiders: reader(), AdministratorsEnter: true, Administrators: administrators(abe)},
+				keeps(administrators(wren, ines), nil),
+			},
+			want: &Warning{
+				Consequence: entraKept, Confirm: entraConfirm,
+				Also: []WarningNote{{Says: threeAdministrators + " The 2 of them you may list are named here.", Names: []string{"Ines Okoro (ines)", "Wren"}}},
+			},
+		},
+		{
+			name: "an auth whose people keep no administrators' way in has neither reader called, and no note", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{{
+				List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(),
+				Administrators: failingAdministrators, InvitationList: stationInvitations, InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: failingInvitations,
+			}},
+			want: &Warning{Consequence: entraOnly + " Everyone seated here has signed in through it.", Confirm: entraConfirm},
+		},
+		{
+			name: "readers that answer nobody add no note", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(), invitations())},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm},
+		},
+		{
+			name: "an invitation that would make another administrator is a note of its own, named by its address", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(), invitations(lee))},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm, Also: []WarningNote{{Says: oneInvitation, Names: []string{"Lee@example.com"}}}},
+		},
+		{
+			name: "several invitations are named by name and address or by address, sorted by address without case", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(nil, invitations(lee, kit))},
+			want: &Warning{
+				Consequence: entraKept, Confirm: entraConfirm,
+				Also: []WarningNote{{Says: twoInvitations, Names: []string{"Kit Marlow (kit@example.com)", "Lee@example.com"}}},
+			},
+		},
+		{
+			name: "a caller denied the invitations list is told how many and no address", ctx: asks(through(entra), &switchPermissions{denied: []accesstypes.Resource{stationInvitations}}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(ines), invitations(lee, kit))},
+			want: &Warning{
+				Consequence: entraKept, Confirm: entraConfirm,
+				Also: []WarningNote{{Says: oneAdministrator, Names: []string{"Ines Okoro (ines)"}}, {Says: twoInvitations}},
+			},
+		},
+		{
+			name: "nor one who holds a field that names the person invited on a condition", ctx: asks(through(entra), &switchPermissions{conditional: []accesstypes.Resource{stationInvitations.ResourceWithTag("email")}}), station: "beta",
+			people: []DirectoryPeople{keeps(nil, invitations(lee, kit))},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm, Also: []WarningNote{{Says: twoInvitations}}},
+		},
+		{
+			name: "nor one whose answer does not hold such a field", ctx: asks(through(entra), &switchPermissions{omitted: []accesstypes.Resource{stationInvitations.ResourceWithTag("name")}}), station: "beta",
+			people: []DirectoryPeople{keeps(nil, invitations(lee, kit))},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm, Also: []WarningNote{{Says: twoInvitations}}},
+		},
+		{
+			name: "a call outside a request names nobody in either note", ctx: through(entra), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(ines), invitations(kit))},
+			want:   &Warning{Consequence: entraKept, Confirm: entraConfirm, Also: []WarningNote{{Says: oneAdministrator}, {Says: oneInvitation}}},
+		},
+		{
+			name: "the administrators' note comes first, then the invitations'", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(wren, ines), invitations(kit))},
+			want: &Warning{
+				Consequence: entraKept, Confirm: entraConfirm,
+				Also: []WarningNote{
+					{Says: twoAdministrators, Names: []string{"Ines Okoro (ines)", "Wren"}},
+					{Says: oneInvitation, Names: []string{"Kit Marlow (kit@example.com)"}},
+				},
+			},
+		},
+		{
+			name: "the administrators' reader's error is the call's error", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(failingAdministrators, invitations(kit))}, wantErr: "the administrators could not be read",
+		},
+		{
+			name: "and so is the invitations' reader's", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{keeps(administrators(ines), failingInvitations)}, wantErr: "the invitations could not be read",
+		},
 	}
 	for _, tt := range warningTests {
 		t.Run("the warning: "+tt.name, func(t *testing.T) {
@@ -288,6 +440,10 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			case tt.wantRefusal != "":
 				if !httpio.HasConflict(err) || httpio.Message(err) != tt.wantRefusal {
 					t.Fatalf("DirectoryOnlyWarning() error = %v, want the Conflict %q", err, tt.wantRefusal)
+				}
+			case tt.wantErr != "":
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("DirectoryOnlyWarning() error = %v, want containing %q", err, tt.wantErr)
 				}
 			default:
 				if err != nil {

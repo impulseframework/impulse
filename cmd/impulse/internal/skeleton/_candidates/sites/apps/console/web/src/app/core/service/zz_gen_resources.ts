@@ -309,6 +309,7 @@ export interface StaffTenantUsers {
   heldGlobally?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
+  administratorWithPassword?: boolean;
 }
 
 export interface StaffTenantUserGroupRoles {
@@ -939,6 +940,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administratorWithPassword', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.StaffTenantUserGroupRoles]: {
@@ -1048,7 +1050,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     computed: true,
     live: false,
-    rowWords: { one: 'staff givable role', many: 'staff givable roles' },
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },

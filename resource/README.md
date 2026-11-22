@@ -910,7 +910,10 @@ them:
   things a person would want to read one by one (the people who lose access, the
   missions that are canceled) may carry them in `Names`, and the dialog draws them as a
   list of their own under the sentence. `Names` holds only what the caller may see: the
-  method decides it, as it decides the sentence.
+  method decides it, as it decides the sentence. A warning with more to say than one
+  sentence and one list carries notes in `Also`: each is a sentence (`Says`) with the
+  names it speaks of (`Names`), and the dialog draws them under the first, in order. A
+  note holds only what the caller may see, as `Names` does.
 - **The typed word.** `@warning(typed: retire)` names the word a person types before
   the confirm button works.
 - **The warning style.** The library's method dialog draws the consequence in its
@@ -3318,6 +3321,7 @@ to enter this tenant."):
 {
   "consequence": "Only people who sign in through acme.example will be able to enter this tenant. An administrator of this tenant who has a password can still sign in with it and a code sent to their email. 2 people seated here sign in another way and will lose access.",
   "names": ["Gale Ferris (gale)", "hollis"],
+  "also": [{"says": "2 administrators of this tenant have a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in.", "names": ["Ines Okoro (ines)", "wren"]}, {"says": "1 invitation that has not been accepted gives a role that administers this tenant. Whoever accepts it can choose a password and enter without the directory. Withdraw it first if it should not stand.", "names": ["kit@example.com"]}],
   "confirm": "Admit only people who sign in through acme.example"
 }
 ```
@@ -3328,8 +3332,8 @@ seats (each auth's generated identity client answers its own, `DirectoryOutsider
 super administrator is not among them, and neither is an administrator of the tenant
 who has a password, who does not lose access: the second sentence says how they still
 get in, and is there where an auth whose people the tenant seats has the password
-method (`DirectoryPeople.AdministratorsEnter`). It is a general sentence and counts
-nobody: who the administrators are is the People list's to say. `names` lists them, each by their name and
+method (`DirectoryPeople.AdministratorsEnter`). It is a general sentence; who those
+administrators are is said in `also`. `names` lists the people who lose access, each by their name and
 sign-in name, only to someone who may list them: the people of an auth are named where
 the caller holds List, in the tenant, on the tenant's list of that auth's people
 (section 21) and, on no condition, on its `username` and `name` fields, and counted
@@ -3340,6 +3344,18 @@ list nobody the warning carries no names and a page says how many without saying
 An application whose people no generated management lists counts nobody, and the
 sentence then gives no number ("Anyone seated here who signs in another way will lose
 access."): a count nobody made is never read as nobody.
+
+Where the tenant's administrators keep that way in, `also` says who has it, so the person
+closing the tenant sees them first. Its first note counts the tenant's own administrators
+who have a password (each auth's `DirectoryAdministrators`, the people list's
+`AdministratorWithPassword`), and its second the invitations into the tenant that have not
+been accepted and give one of its administrator roles (`DirectoryInvitations`). An
+administrator is named to a caller who may list the tenant's people, as above, and an
+invitation's address to a caller who holds List, in the tenant, on the tenant's list of
+invitations and, on no condition, on its `email` and `name` fields; anyone else reads the
+count. A note with nobody to count is left out, and so are both where no auth has the
+password method.
+
 The warning is refused as the call is refused, with the same sentences, so a page that
 asks for it first shows the refusal and opens no dialog. For a
 tenant that is directory only already there is nothing to turn on, and the warning is a

@@ -218,6 +218,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Name asc)
+// @rowWord(role)
 type {{ .GivableRole }} struct {
 	// @primarykey
 	// @attribute(name)

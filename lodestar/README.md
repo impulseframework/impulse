@@ -1059,7 +1059,11 @@ email, and counts no such person among them), their names as a list where the
 caller may list the sector's people (List on the sector's people lists and on their
 `username` and `name` fields), and the words on the button; a caller who may list only
 some of them is told so in the sentence, and one who may list nobody is told how many
-and no names. While it is on, the sector's People page says who
+and no names. Where a sector's own marshals keep a way in with a password, the answer
+carries `also` as well: a note that counts the marshals of the sector who have a
+password, and a note that counts the invitations not yet accepted that give a role that
+administers the sector, each with names only for a caller who may list them. While it is
+on, the sector's People page says who
 it keeps out, on the row of each person with no sign-in through the directory ("Has not
 signed in through this sector's directory, so cannot enter while this sector is
 directory only"), but for a marshal of the sector itself who has a password, whose row

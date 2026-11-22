@@ -1684,6 +1684,65 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 
 	return outsiders, nil
 }
+{{- if .AdministratorsEnter }}
+
+// DirectoryAdministrators lists the people of the {{ .Auth }} auth who are the {{ .TenantWord }}'s own
+// administrators and have a password: the people who enter the {{ .TenantWord }} with it and a
+// code mailed to them while it is directory only, the one way in beside its directory.
+// It reads the {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose
+// AdministratorWithPassword column is the fact), in the caller's transaction. The
+// warning of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Administrators).
+func (c *Client) DirectoryAdministrators(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryAdministrator, error) {
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID().Username().Name()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().DomainID().Equal(string(tenant)).And().AdministratorWithPassword().Equal(true))
+	administrators := []resource.DirectoryAdministrator{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+		administrators = append(administrators, resource.DirectoryAdministrator{UserID: row.Data.ID, Username: row.Data.Username, Name: row.Data.Name})
+	}
+
+	return administrators, nil
+}
+{{- end }}
+{{- if .ListsDirectoryInvitations }}
+
+// DirectoryInvitations lists the invitations of the {{ .Auth }} auth into the {{ .TenantWord }} that are
+// not yet accepted and give one of the roles that administer a {{ .TenantWord }}, by the auth's
+// permission engine's own names: each would make another of the {{ .TenantWord }}'s administrators,
+// who enters with a password and a code mailed to them while the {{ .TenantWord }} is directory
+// only. It reads the {{ .TenantWord }}'s own list of its invitations ({{ .TenantMailLink }}, whose
+// Pending column says the invitation stands), in the caller's transaction. The warning
+// of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Invitations).
+func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryInvitation, error) {
+	administers := map[string]bool{}
+	for _, role := range c.manager.TenantAdministratorRoles() {
+		administers[string(role)] = true
+	}
+	query := {{ .ResourcesPackage }}.New{{ .TenantMailLink }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantMailLink }}Columns().ID().Email().Name().RoleNames()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantMailLink }}QueryClause().DomainID().Equal(string(tenant)).And().Pending().Equal(true))
+	invitations := []resource.DirectoryInvitation{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantMailLink }}Query.List()")
+		}
+		for _, role := range row.Data.RoleNames {
+			if administers[role] {
+				invitations = append(invitations, resource.DirectoryInvitation{ID: row.Data.ID, Email: row.Data.Email, Name: row.Data.Name})
+
+				break
+			}
+		}
+	}
+
+	return invitations, nil
+}
+{{- end }}
 {{- end }}` + identityGroupStore + identityPeriodStore
 
 	// identityDisableUserTemplate is the method that disables a person.

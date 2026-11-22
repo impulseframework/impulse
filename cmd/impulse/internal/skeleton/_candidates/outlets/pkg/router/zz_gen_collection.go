@@ -813,6 +813,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
 				Tags: []resource.TagData{
+					{Name: "administratorWithPassword", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "cannotEnter", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -834,7 +835,7 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Domain:    &resource.DomainBindingData{Column: "DomainId"},
 				Order:     []accesstypes.Tag{"username"},
-				QueryKeys: []accesstypes.Tag{"domainId", "username", "heldElsewhere", "heldGlobally", "outsideDirectory"},
+				QueryKeys: []accesstypes.Tag{"domainId", "username", "heldElsewhere", "heldGlobally", "outsideDirectory", "administratorWithPassword"},
 			},
 			{
 				Name:        "TakeMembersTenantGroupRole",

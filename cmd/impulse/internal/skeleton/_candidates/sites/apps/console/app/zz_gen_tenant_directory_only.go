@@ -48,7 +48,12 @@ import (
 // a code sent to their email. Everyone else is counted, and
 // a person is named only to a caller who may list them: one who holds List on the
 // tenant's list of that auth's people and, on no condition, on the fields of it that name
-// a person.
+// a person. Where an auth has a password method, the client also reads the tenant's
+// administrators who have a password (DirectoryAdministrators) and the invitations not
+// yet accepted that give a role that administers a tenant (DirectoryInvitations), and the
+// warning carries a note that counts each, naming the administrators to the same caller
+// and the invitations to one who may list the tenant's invitations and the fields of
+// them that name one.
 //
 // The flag is written through the record's update patch, so its change event is written
 // with it; this instance's roster rereads what the tenant declares once the transaction
@@ -129,7 +134,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
 				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					resource.DirectoryPeople{List: "StaffTenantUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword()},
+					resource.DirectoryPeople{List: "StaffTenantUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword(), Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffTenantInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations},
 				)
 				if err != nil {
 					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")

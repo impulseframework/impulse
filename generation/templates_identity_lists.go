@@ -93,7 +93,7 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 	// read as a parameter the generated client hands the list, so the list, the sign-in
 	// and the session's reach answer over one set of names; with none named nobody is
 	// exempt. Whether the person gave the second factor is a session's to say, not a
-	// person's, so the list reads the password alone.
+	// person's, so the list reads the password alone (identityTenantAdministratorWithPassword).
 	identityTenantOutsideDirectory = `td.{{ .TenantDirectory.TenantColumn }} IS NOT NULL{{ if .HasIdentities }} AND NOT EXISTS (
     SELECT 1 FROM {{ .Tables.Identities }} di
     WHERE di.UserId = u.Id AND di.Method = td.{{ .TenantDirectory.MethodColumn }} AND di.Connection = td.{{ .TenantDirectory.ConnectionColumn }}
@@ -101,7 +101,19 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
     SELECT 1 FROM {{ .Policy.UserRoles }} sa
     WHERE sa.UserId = u.Id AND sa.Kind = {{ .KindGlobal }} AND sa.Role = {{ .SuperAdministratorRole }}
       AND {{ .Counting "sa" }}
-  ){{ if .AdministratorsEnter }} AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
+  ){{ if .AdministratorsEnter }} AND NOT (` + identityTenantAdministratorWithPassword + `){{ end }}`
+
+	// identityTenantAdministratorWithPassword is the fact that a person of a tenant's list
+	// is one of the tenant's own administrators and has a password, as a condition of the
+	// list's select, where the auth has a password method (AdministratorsEnter): t is the
+	// person's membership row and u their account. The person holds, inside its period, one
+	// of the roles the auth's permission engine names as a tenant's administrator's
+	// (@{{ .TenantAdministratorsParam }}) in the tenant itself, by a membership of their own
+	// or through a group kept in that tenant, and the account holds a password. It is the
+	// one way into a directory-only tenant beside its directory: the people the switch keeps
+	// out leave such a person out (identityTenantOutsideDirectory), and the list says who
+	// they are (AdministratorWithPassword), both from this one condition.
+	identityTenantAdministratorWithPassword = `u.PasswordHash IS NOT NULL AND (EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} ta
     WHERE ta.UserId = u.Id AND ta.Kind = {{ .KindDomain }} AND ta.Axis = {{ .ScopeAxis }} AND ta.DomainId = t.DomainId
       AND ta.Role IN UNNEST(@{{ .TenantAdministratorsParam }})
@@ -116,12 +128,14 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
       AND tr.Role IN UNNEST(@{{ .TenantAdministratorsParam }})
       AND {{ .Counting "tr" }}
       AND {{ .Counting "tm" }}
-  ){{ end }})){{ end }}`
+  ){{ end }})`
 
-	// identityTenantDirectoryFacts are the two columns a tenant's list of its people
-	// carries where the tenant record declares the directory-only switch, after the
-	// person's facts: whether the person has no sign-in through the tenant's directory,
-	// and, while the tenant is directory only, the sentence that says so. The sentence
+	// identityTenantDirectoryFacts are the columns a tenant's list of its people carries
+	// where the tenant record declares the directory-only switch, after the person's
+	// facts: whether the person has no sign-in through the tenant's directory, and, while
+	// the tenant is directory only, the sentence that says so; and, where the auth has a
+	// password method, whether the person is one of the tenant's own administrators who
+	// has a password, and so keeps a way in past the directory. The sentence
 	// speaks of the tenant's directory and does not name it: a directory's connection
 	// is a key, for a Microsoft Entra tenant an id nobody knows, and what a person
 	// calls the directory is said by the sign-in registrations, which a query does not
@@ -131,7 +145,8 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
   (` + identityTenantOutsideDirectory + `) AS OutsideDirectory,
   IF(ts.{{ .TenantDirectory.OnlyColumn }} AND ` + identityTenantOutsideDirectory + `,
     'Has not signed in through this {{ .TenantWordLiteral }}\'s directory, so cannot enter while this {{ .TenantWordLiteral }} is directory only',
-    NULL) AS CannotEnter`
+    NULL) AS CannotEnter{{ if .AdministratorsEnter }},
+  (` + identityTenantAdministratorWithPassword + `) AS AdministratorWithPassword{{ end }}`
 
 	// identityTenantDirectoryJoins join each row of a tenant's list to its tenant's row
 	// and to the tenant's directory, where it has one: a tenant has one directory. Both
@@ -196,6 +211,11 @@ type (
 	// the application names as a {{ .TenantWord }}'s administrator's in the {{ .TenantWord }} itself enters it
 	// with the password and a code mailed to them, so the switch keeps them out of nothing
 	// (Set{{ .TenantUser }}AdministratorRoles names the roles).
+	//
+	// AdministratorWithPassword says the person is one of the {{ .TenantWord }}'s own administrators
+	// and has a password, so they enter the {{ .TenantWord }} with it and a code mailed to them while
+	// the {{ .TenantWord }} is directory only: the warning of the method that turns the switch on
+	// counts and names them.
 	{{- end }}
 	{{- end }}
 	//
@@ -225,6 +245,9 @@ type (
 		{{- if .TenantDirectory }}
 		OutsideDirectory bool    ` + "`spanner:\"OutsideDirectory\" index:\"true\"`" + `
 		CannotEnter      *string ` + "`spanner:\"CannotEnter\"`" + `
+		{{- if .AdministratorsEnter }}
+		AdministratorWithPassword bool ` + "`spanner:\"AdministratorWithPassword\" index:\"true\"`" + `
+		{{- end }}
 		{{- end }}
 	}
 )

@@ -26,7 +26,7 @@ func Test_prepareIdentity_givableRoles(t *testing.T) {
 	assertFileContains(t, "crewidentity/crew_givable_roles.go",
 		[]string{
 			generationHeader,
-			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewGivableRole struct {",
+			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewGivableRole struct {",
 			"// @primarykey\n\t// @attribute(name)\n\tName        string `spanner:\"Name\"`\n\tDescription string `spanner:\"Description\"`\n",
 			// The method a role is listed for is a field a request filters by, and no key:
 			// a picker's value is the role's name still.
