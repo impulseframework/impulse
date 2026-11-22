@@ -9,6 +9,7 @@ package access
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -261,9 +262,18 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a role without a description is refused", scope: tenant2Policy, role: "Zed", description: "", wantErr: httpio.HasBadRequest},
 		{name: "a whitespace description is refused", scope: tenant2Policy, role: "Zed", description: " \t\n", wantErr: httpio.HasBadRequest},
 		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed", description: aDescription},
-		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription, wantErr: httpio.HasConflict},
+		{
+			name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("differs only in case from %q, one of the release's default roles", string(domainDefault)),
+		},
+		{
+			name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("the role %q held in scope %s;", "Zed", tenant1Policy),
+		},
+		{
+			name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("the role %q held in scope %s;", "Everywhere", everyDomainPolicy),
+		},
 		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "ZED", description: aDescription},
 		{
 			name: "a name differing only in case from a custom role one domain holds is refused in every domain", scope: everyDomainPolicy, role: "ZED", description: aDescription,
