@@ -1,3 +1,6 @@
+@if (verifyNote()) {
+  <p class="impulse-login-verify-note" role="status">Sign in to confirm your email address.</p>
+}
 @if (arriving()) {
   <!-- The arrival's reads are in flight: nothing renders until they have answered, and the page holds its card back on the same signal. -->
 } @else if (unreachable()) {

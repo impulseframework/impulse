@@ -453,7 +453,10 @@ meets the limit. An invitation that twenty-five codes were entered for, none of 
 takes no more and mails none: the step shows the sentence for `invitation_spent`, which says to ask
 for a new invitation. The step shows the sentence for `address_spent` when twenty-five wrong codes
 were entered for an address typed at this step: it takes no more, and an administrator adds the
-address to the account. A code mailed for an invitation and entered in a browser that carries no
+address to the account. The step shows the sentence for `codes_spent` when twenty-five wrong codes
+were entered for an account's own code: the account takes no more until the person has reset their
+password or an administrator has unlocked the sign-in. A code mailed for an invitation and entered
+in a browser that carries no
 invitation or another one shows the sentence for `invitation_not_open`, which says to open the
 invitation's link again, and one entered where its invitation has ended the sentence for
 `invitation_expired`. Send me a link on the sign-up form is held the same way. With the box checked, the server remembers the
@@ -573,11 +576,12 @@ password that changed while the person was choosing shows the server's sentence,
 link to an address an administrator set (`#address=<token>`) shows a question first and posts
 nothing on arrival; Confirm this email address posts it, with or without a session, and the
 component names the address the account now holds. A confirmation link (`#verify=<token>`) is posted once a
-session stands: on arrival when the page finds one, else after the sign-in it waits for. A redirect
-method's round trip reloads the application, so the token waits for it in the tab's session
+session stands: on arrival when the page finds one, else after the sign-in it waits for. While it
+waits, the component says so above whatever it shows: "Sign in to confirm your email address." A
+redirect method's round trip reloads the application, so the token waits for it in the tab's session
 storage and the method returns to this page with no token in the address, which is named in a
-request line; a browser that refuses the storage keeps nothing, and the person opens the link
-again once signed in. The
+request line; a browser that refuses the storage keeps nothing, and the person opens the link again
+once signed in. The
 component then says the address is confirmed, or renders the server's refusal, and emits `signedIn`
 on Continue. A link that has expired or was already used renders the server's words and the list.
 On arrival the component holds the list back: a progress bar stands in its place and no form shows

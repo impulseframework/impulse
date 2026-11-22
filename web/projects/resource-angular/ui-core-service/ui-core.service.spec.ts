@@ -107,6 +107,7 @@ describe('UiCoreService login messages', () => {
       'invitation_address',
       'invitation_spent',
       'address_spent',
+      'codes_spent',
       'invitation_not_open',
       'other_tenant',
       'organization_account_required',

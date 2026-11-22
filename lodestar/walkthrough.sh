@@ -68,15 +68,41 @@ invitation_mailed() { # invitation_mailed <address> <log>: the last invitation t
   grep -a -A 12 "mail (not sent) to $address, subject \"You are invited to" "$log" | tail -13
 }
 
-token_only_in_mail() { # token_only_in_mail <label> <token> <log>: PASS when every line of the log that holds the token is the mail's link to it (#invitation=<token>), FAIL counting the others
-  # The token is the invitation: a request line that held it (a query, a path) would put
-  # it in every log the request passes through. The token and the lines are never printed.
-  local label=$1 token=$2 log=$3 outside
-  outside=$(grep -aF -- "$token" "$log" | grep -acvF -- "#invitation=$token")
-  if [ "$outside" -eq 0 ]; then
-    echo "PASS  $label"
+mailed_tokens_only_in_mail() { # mailed_tokens_only_in_mail <log>: for each kind of link the server mailed, PASS when no line of the log holds one of its tokens but the mail that carried it, FAIL counting the kind; then PASS when the four links the walkthrough followed are among them
+  # A mailed link is the login page's address, #, the kind, = and the token: invitation,
+  # verify, signUp, reset or address. A request line that held a token (a query, a path)
+  # would put it in every log the request passes through. A token is outside its mail
+  # where a line holds it and not #<kind>=<token>. The tokens and the lines that hold
+  # them are never printed.
+  local log=$1 pairs kind token n m lines outside expected missing=0
+  pairs=$(grep -aoE '#(invitation|verify|signUp|reset|address)=[A-Za-z0-9_-]+' "$log" | sort -u)
+  for kind in invitation verify signUp reset address; do
+    n=0 m=0 lines=
+    while IFS= read -r token; do
+      [ -n "$token" ] || continue
+      n=$((n + 1))
+      outside=$(grep -anF -- "$token" "$log" | grep -avF -- "#$kind=$token" | cut -d: -f1)
+      if [ -n "$outside" ]; then
+        m=$((m + 1))
+        lines="$lines$outside"$'\n'
+      fi
+    done < <(printf '%s\n' "$pairs" | grep -a "^#$kind=" | cut -d= -f2-)
+    [ "$n" -gt 0 ] || continue
+    if [ "$m" -eq 0 ]; then
+      echo "PASS  the $n $kind link(s) the server mailed: each token is in the server's log only where its mail is, and no request line holds one"
+    else
+      echo "FAIL  the $kind links the server mailed: $m of $n token(s) are in the server's log outside the mail, in $(printf '%s' "$lines" | sort -u | grep -c .) line(s)"; fails=$((fails + 1))
+    fi
+  done
+  for expected in "invitation=${DAWN_TOKEN:-}" "invitation=${FLINT_TOKEN:-}" "invitation=${GUS_TOKEN:-}" "verify=${ROOKIE_TOKEN:-}"; do
+    if [ -z "${expected#*=}" ] || ! printf '%s\n' "$pairs" | grep -aqxF -- "#$expected"; then
+      missing=$((missing + 1))
+    fi
+  done
+  if [ "$missing" -eq 0 ]; then
+    echo "PASS  the four links the walkthrough followed (three invitations and one address confirmation) are among them"
   else
-    echo "FAIL  $label: $outside line(s) of the server's log hold the token outside the mail"; fails=$((fails + 1))
+    echo "FAIL  the four links the walkthrough followed are among them: $missing of 4 were not found as a mailed link in the server's log"; fails=$((fails + 1))
   fi
 }
 
@@ -1415,11 +1441,10 @@ if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then
   check "overseer reassigns the claimed mission once overdue (deadline < now flipped)" 200 "$r"
 fi
 
-# Every request of the run is behind this: no line of the server's log holds an
-# invitation's token but the mail that carried it.
-token_only_in_mail "the token of the invitation mailed to founder@dawn.example is in the server's log only where the mail is: no request line holds it" "$DAWN_TOKEN" "$LOG"
-token_only_in_mail "the token of the invitation mailed to founder@flint.example is in the server's log only where the mail is: no request line holds it" "$FLINT_TOKEN" "$LOG"
-token_only_in_mail "the token of the invitation mailed to gus@example.com is in the server's log only where the mail is: no request line holds it" "$GUS_TOKEN" "$LOG"
+# Every request of the run is behind this: no line of the server's log holds a mailed
+# link's token but the mail that carried it, whichever kind of link it is and whether or
+# not the walkthrough followed it.
+mailed_tokens_only_in_mail "$LOG"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "$fails CHECK(S) FAILED"; exit 1; fi
