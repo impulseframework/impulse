@@ -58,6 +58,12 @@ type rowConditions struct {
 	// route's one grant-bearing projection and stands behind no cell.
 	fields []fieldCondition
 
+	// order holds the condition of every field of the declared order the caller
+	// holds under one (settleDeclaredOrder). It decides no row and no cell: where
+	// a row does not meet a field's condition, the handler sorts the row as one
+	// with no value in the field (blankOrderFields).
+	order []fieldCondition
+
 	// open says the projection hides no row by itself: no projected field carries a
 	// grant, or one of them is granted outright.
 	open bool
@@ -86,13 +92,16 @@ type fieldCondition struct {
 	expr  condition.Expr
 }
 
-// conditions lists every condition the rows are judged by.
+// conditions lists every condition the rows are judged and sorted by.
 func (c *rowConditions) conditions() []condition.Expr {
-	exprs := make([]condition.Expr, 0, len(c.fields)+1)
+	exprs := make([]condition.Expr, 0, len(c.fields)+len(c.order)+1)
 	if c.resource != nil {
 		exprs = append(exprs, c.resource)
 	}
 	for _, fc := range c.fields {
+		exprs = append(exprs, fc.expr)
+	}
+	for _, fc := range c.order {
 		exprs = append(exprs, fc.expr)
 	}
 
@@ -243,6 +252,32 @@ func (q *QuerySet[Resource]) judgeRow(row *Resource) (shown bool, hidden []acces
 	}
 
 	return true, hidden, nil
+}
+
+// blankOrderFields lists the fields of the declared order the caller holds under a
+// condition the row does not meet: the handler sorts the row as one with no value
+// in each. It is nil where no field of the order is held under a condition.
+func (q *QuerySet[Resource]) blankOrderFields(row *Resource) ([]accesstypes.Field, error) {
+	c := q.rowConditions
+	if c == nil || len(c.order) == 0 {
+		return nil, nil
+	}
+	image, err := c.image(reflect.ValueOf(row).Elem())
+	if err != nil {
+		return nil, errors.Wrapf(err, "%s", q.Resource())
+	}
+	var blank []accesstypes.Field
+	for _, fc := range c.order {
+		truth, err := condition.Evaluate(fc.expr, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "%s: condition.Evaluate()", q.Resource())
+		}
+		if !truth.Permits() {
+			blank = append(blank, fc.field)
+		}
+	}
+
+	return blank, nil
 }
 
 // fieldsWithout is the query set's projection without the hidden fields.

@@ -118,7 +118,10 @@ func (d *ComputedQueryDecoder[Resource, Request]) WithSubjectFacts(source Subjec
 // condition is a grant, as on a table: the resource and the fields it covers pass
 // here, and the Conditional decisions ride the QuerySet, which judges each row the
 // application's function yields (QuerySet.Collect, QuerySet.Admit). A sort or
-// filter field alone needs the caller's unconditional grant.
+// filter field alone needs the caller's unconditional grant. A field of the
+// declared order the caller may not read is left out of the order for that
+// caller, and one held under a condition orders a row only where the condition
+// holds for it.
 func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, userPermissions UserPermissions, scope accesstypes.Scope) (*QuerySet[Resource], error) {
 	qSet, err := d.inner.DecodeWithoutPermissions(request)
 	if err != nil {
@@ -148,10 +151,6 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 	// in-memory sort and page boundary place NULL where a body's plain ORDER BY does.
 	qSet.dbType = d.dbType
 
-	if err := qSet.bindCursor(scope); err != nil {
-		return nil, err
-	}
-
 	decisions, err := userPermissions.Check(ctx, qSet.env, scope, requiredPermission, base)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
@@ -171,6 +170,17 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 	// handler orders and filters the body's rows by the field's real values,
 	// and no statement renders a visible projection a masked cell could hide in.
 	if err := qSet.checkQueryFieldsGranted(ctx, rSet, userPermissions); err != nil {
+		return nil, err
+	}
+	// The declared order is settled before the cursor is bound: the cursor's
+	// fingerprint, the handler's sort and the body's TakeSort and TakePage all
+	// read the one order settled here. A field of it held under a condition keeps
+	// its condition on the plan, and the handler sorts each row by what the
+	// caller may see of it.
+	if err := qSet.settleDeclaredOrder(ctx, rSet, userPermissions, plan); err != nil {
+		return nil, err
+	}
+	if err := qSet.bindCursor(scope); err != nil {
 		return nil, err
 	}
 
