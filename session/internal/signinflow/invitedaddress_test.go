@@ -6,6 +6,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -202,4 +203,86 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 			t.Error("Invitation.Accepted = false, want accepted")
 		}
 	})
+}
+
+// TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChanged pins the
+// resolution of an identity whose link the account's password confirmed, and whose
+// sign-in was then held, to that password: the resolution reads the user and checks the
+// sign-in's proof (Rules.Proven) before anything is touched, consumed or accepted. A
+// sign-in whose password changed meanwhile ends with dbtype.ErrPasswordChanged, as the
+// transaction that inserts the session would end it, and the invitation it carries
+// stands: no role is given, the account's address is as it was and no session starts,
+// whether the acceptance rests on the code mailed to the invited address or on an
+// address the method vouches for. A proof the user still holds resolves as before.
+func TestSignIn_aDirectorySignInThatAPasswordConfirmedAcceptsNothingOnceItChanged(t *testing.T) {
+	t.Parallel()
+
+	const invited = "nell@north.example"
+	proof := dbtype.ProofOfStored("the password hash the password was compared against")
+	tests := []struct {
+		name string
+		// vouched says the identity is of a method that vouches for the invited address
+		// it asserts; it is of one that asserts none, and the sign-in carries the code
+		// mailed to the invited address, otherwise. changed says the password changed
+		// while the sign-in waited.
+		vouched bool
+		changed bool
+	}{
+		{name: "the code mailed to the invited address, the password still held: accepted, and a session"},
+		{name: "the code mailed to the invited address, the password changed: nothing accepted, and no session", changed: true},
+		{name: "an address the method vouches for, the password changed: nothing accepted, and no session", vouched: true, changed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			hooks := &roleHooks{store: store}
+			userID := impulse.Must(impulse.NewUUID())
+			user := &memUser{username: "nell", proof: proof}
+			if tt.changed {
+				user.proof = dbtype.ProofOfStored("the hash of the password set meanwhile")
+			}
+			store.users[userID] = user
+			inv := store.invite(invited, "lakeside", "Teacher")
+			identity := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-north", Subject: "oid-nell"}
+			events := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-north"}, {Method: sessioninfo.MethodEmailCode}}
+			if tt.vouched {
+				identity = &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "north.example", Subject: "g-nell", Email: invited, EmailVerified: true}
+				events = []sessioninfo.AuthEvent{{Method: sessioninfo.MethodGoogle, Connection: "north.example"}, {Method: sessioninfo.AuthMethod("totp")}}
+			} else {
+				inv.AddressProven = true
+			}
+			store.links[linkKey(identity.Method, identity.Connection, identity.Subject)] = userID
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: inv, AuthEvents: events}
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, ConfirmAddress: true, Proven: proof}
+
+			err := signInWith(t, &memDriver{store: store}, req, rules)
+
+			if !tt.changed {
+				if err != nil {
+					t.Fatalf("SignIn() error = %v, want the invitation accepted", err)
+				}
+				if !inv.Accepted || store.invitations[inv.ID] || store.sessions != 1 {
+					t.Errorf("Invitation.Accepted = %t, still live = %t, sessions = %d; want it accepted and consumed, and a session", inv.Accepted, store.invitations[inv.ID], store.sessions)
+				}
+				if diff := cmp.Diff(map[string][]string{"nell": {"Teacher"}}, store.granted); diff != "" {
+					t.Errorf("the roles given (-want +got):\n%s", diff)
+				}
+				if got := store.users[userID]; got.email != invited || !got.confirmed {
+					t.Errorf("the account holds %q (confirmed %t), want the invited address confirmed", got.email, got.confirmed)
+				}
+
+				return
+			}
+			wantCause(dbtype.ErrPasswordChanged)(t, err)
+			if inv.Accepted || !store.invitations[inv.ID] || len(store.granted) != 0 || hooks.committed != 0 || store.sessions != 0 {
+				t.Errorf("Invitation.Accepted = %t, still live = %t, grants %v, %d committed run(s), %d session(s); want the invitation standing and nothing given",
+					inv.Accepted, store.invitations[inv.ID], store.granted, hooks.committed, store.sessions)
+			}
+			if got := store.users[userID]; got.email != "" || got.confirmed {
+				t.Errorf("the account holds %q (confirmed %t), want no address, as it was", got.email, got.confirmed)
+			}
+		})
+	}
 }

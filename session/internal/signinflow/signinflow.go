@@ -283,8 +283,9 @@ type Rules[Tx any] struct {
 // which it is handed, so the invitation is spent and its roles given together or
 // neither is. The invitation is consumed only once the resolution has admitted the
 // sign-in: the user found, linked or provisioned, and enabled. A sign-in the account
-// rules refuse or hold for a confirmation, a disabled user's, or a password sign-in
-// whose password changed while it waited (signInHold), leaves the invitation standing,
+// rules refuse or hold for a confirmation, a disabled user's, or one whose password
+// changed while it waited (a password sign-in's by signInHold, a directory sign-in's
+// that the password confirmed by resolveLinked), leaves the invitation standing,
 // nothing granted, so the person may sign in another way; a sign-in the policy then
 // denies or holds leaves it accepted, and what the acceptance granted stands, the
 // invited address with it. An
@@ -1255,7 +1256,7 @@ func resolveIn[Tx any](
 	)
 	if link != nil {
 		source = sessioninfo.UserExistingLink
-		tenant, live, stop, err = resolveLinked(ctx, d, tx, req, link, rules.ConfirmAddress)
+		tenant, live, stop, err = resolveLinked(ctx, d, tx, req, link, rules.ConfirmAddress, rules.Proven)
 	} else {
 		var resolved unlinkedUser
 		resolved, stop, err = resolveUnlinked(ctx, d, tx, req, rules)
@@ -1300,15 +1301,23 @@ func resolveIn[Tx any](
 // is consumed for the user, live reporting that it was, once its acceptance is decided
 // where it rests on the code mailed to the invited address (acceptedByCode, under
 // confirm), and not for a disabled user, who is refused once the
-// sign-in is decided. tenant is the link's tenant key.
+// sign-in is decided. tenant is the link's tenant key. A sign-in that rests on a
+// password proof (proven, the rules' Proven: the account's password confirmed the link,
+// and the sign-in was then held for a code or another factor) resolves only while the
+// user still holds that password: after a change it ends with dbtype.ErrPasswordChanged
+// before anything is touched, consumed or accepted, as the transaction that inserts the
+// session would end it. The nil proof holds it to nothing.
 func resolveLinked[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, link *dbtype.SessionIdentity, confirm bool,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, link *dbtype.SessionIdentity, confirm bool, proven dbtype.PasswordProof,
 ) (tenant string, live bool, stop, err error) {
 	user, err := d.UserIn(ctx, tx, link.UserID)
 	if err != nil {
 		return "", false, nil, errors.Wrap(err, "Driver.UserIn()")
 	}
 	req.UserID, req.Username = link.UserID, user.Username
+	if err := proven.Check(user.PasswordProof); err != nil {
+		return "", false, nil, errors.Wrap(err, "dbtype.PasswordProof.Check()")
+	}
 	if acceptsByCode(req, confirm) && !user.Disabled {
 		if stop, _, err := acceptedByCode(ctx, d, tx, req.Invitation, user, false, invitedCodeWait(), nil); err != nil || stop != nil {
 			return "", false, stop, err
