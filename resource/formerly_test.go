@@ -261,7 +261,10 @@ func TestGeneratedCollection_formerNames(t *testing.T) {
 		}
 		b.SetMethodFormerName(accesstypes.GlobalPermissionScope, "Publish", "Release")
 
-		g := b.GeneratedCollection()
+		g, err := b.GeneratedCollection()
+		if err != nil {
+			t.Fatalf("GeneratedCollection() error = %v", err)
+		}
 		assertFormerNames(t, g)
 
 		roundTripped, err := NewGeneratedCollection(g.Data())
@@ -271,6 +274,21 @@ func TestGeneratedCollection_formerNames(t *testing.T) {
 		assertFormerNames(t, roundTripped)
 		if diff := cmp.Diff(g.Data(), roundTripped.Data()); diff != "" {
 			t.Errorf("Data() round trip mismatch (-first +second):\n%s", diff)
+		}
+	})
+
+	t.Run("a method's former name with a dot, through the builder", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewCollectionBuilder()
+		if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "Publish"); err != nil {
+			t.Fatalf("AddMethodResource() error = %v", err)
+		}
+		b.SetMethodFormerName(accesstypes.GlobalPermissionScope, "Publish", "Articles.Release")
+
+		wantErr := `names "Articles.Release" as its former name: a former name holds no dot`
+		if _, err := b.GeneratedCollection(); err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Fatalf("GeneratedCollection() error = %v, want it to contain %q", err, wantErr)
 		}
 	})
 

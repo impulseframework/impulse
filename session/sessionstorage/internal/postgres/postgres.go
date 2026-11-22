@@ -701,15 +701,13 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impul
 		return errUsernameIsEmail()
 	}
 
-	return s.renameUser(ctx, userID, newUsername, "", nil)
+	return s.renameUser(ctx, userID, newUsername, "")
 }
 
 // renameUser renames the user and, in the same transaction, its live sessions and the
 // live impersonations it holds as an actor. set is an extra SET clause for the user
-// row, "" for none. A taken name is a Conflict. With only, the statement that writes
-// the user's row writes it only while the user still holds that address, and the
-// rename answers errNotHeld, with nothing written, once the user does not.
-func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername, set string, only *stillHolds) error {
+// row, "" for none. A taken name is a Conflict.
+func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername, set string) error {
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Queryer.Begin()")
@@ -733,14 +731,8 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 	userQuery := fmt.Sprintf(`
 		UPDATE %s SET "Username" = $2%s
 		WHERE "Id" = $1`, s.userTable(), set)
-	userArgs := []any{userID, newUsername}
-	if only != nil {
-		userQuery += ` AND "Email" IS NOT DISTINCT FROM $3`
-		userArgs = append(userArgs, only.email)
-	}
 
-	tag, err := tx.Exec(ctx, userQuery, userArgs...)
-	if err != nil {
+	if _, err := tx.Exec(ctx, userQuery, userID, newUsername); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.usernameIndex() {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
@@ -750,9 +742,6 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		}
 
 		return errors.Wrap(err, "pgx.Tx.Exec()")
-	}
-	if only != nil && tag.RowsAffected() == 0 {
-		return errNotHeld
 	}
 
 	// A live role-principal impersonation by a foreign actor carrying this name belongs to

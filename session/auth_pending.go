@@ -149,10 +149,15 @@ func errPendingExpired() error {
 // sign-in completed it, which consumed it already), and writes the pending cookie with
 // the new token. The row is created at the database's time; the events it holds that
 // have no time take that time when the sign-in completes (pendingEvents). A sign-in a
-// password proved is held with the proof of that password, and only while the user
-// still holds it (sessionstorage.ErrPasswordChanged otherwise, with nothing held). A
-// sign-up through an invitation (at.signUp) is held naming nobody, since its account is
-// made once the code is entered, and the cookie carries what the account is made from.
+// password proved is held with the proof of that password where the row names its user,
+// and only while the user still holds it (sessionstorage.ErrPasswordChanged otherwise,
+// with nothing held). A row that names no user carries no proof, since a proof names its
+// user: the wait for an invitation's code of a sign-in through a directory names nobody,
+// also where the account's password has just confirmed that sign-in's link. The link was
+// made on the proof, and it is what the sign-in rests on from then on, as the person's
+// next sign-in through the directory does. A sign-up through an invitation (at.signUp)
+// is held naming nobody, since its account is made once the code is entered, and the
+// cookie carries what the account is made from.
 func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *signin.PendingSignInError) (*pendingState, error) {
 	events := at.events
 	if events == nil {
@@ -187,10 +192,14 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 	if namesItsUser(at.identity) && at.signUp == nil {
 		p.UserID = impulse.NullUUIDFromUUID(at.userID)
 	}
-	// A sign-in that rests on a password proof is held with it: the store inserts the
-	// row only while the user still holds that password, and the completion is held to
-	// it again (completePending).
-	p.PasswordProof = at.proof
+	// A sign-in that rests on a password proof is held with it where the row names its
+	// user: the store inserts the row only while the user still holds that password, and
+	// the completion is held to it again (completePending). A row that names no user is
+	// held with none (signinflow's invitedCodeWait, after a password confirmed the
+	// link).
+	if p.UserID.Valid {
+		p.PasswordProof = at.proof
+	}
 
 	id, err := a.storage.HoldSignIn(ctx, p)
 	if err != nil {
@@ -320,7 +329,8 @@ func (a *Auth[S, U, Tx]) consumePending(ctx context.Context, p *pendingState) er
 // (p.PasswordProof: a password started it, or confirmed it) completes only while the
 // user still holds that password: after a change, a reset or a removal the completion
 // is refused as a wrong password is, however long the row had left, and the person
-// signs in again. A pending identity no password proved is held to none.
+// signs in again. A pending identity whose row carries no proof is held to none: one no
+// password proved, and one held naming no user (holdPending).
 func (a *Auth[S, U, Tx]) completePending(
 	ctx context.Context, w http.ResponseWriter, p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {

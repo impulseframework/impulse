@@ -34,13 +34,26 @@ type heldDeclaration interface {
 type heldKeepers struct{}
 
 func (heldKeepers) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
+}
+
+// heldPairsQuery is the TenantsToEnter query of a row named by two columns: it selects a
+// column it does not match beside its two key columns and Tenant.
+const heldPairsQuery = "SELECT KeeperId AS RowKey, KeeperName, Station, Tenant FROM KeeperPosts WHERE Kind = @postKind"
+
+// heldPairs is a declaration that matches its query on two columns of the row, given in
+// the reverse of their names' order.
+type heldPairs struct{}
+
+func (heldPairs) declaration() TenantsToEnter {
+	return TenantsToEnter{Query: heldPairsQuery, Params: map[string]any{"postKind": "keeper"}, Match: map[string]string{"RowKey": "Id", "KeeperName": "Name"}}
 }
 
 // The declarations the statement refuses.
 type (
 	heldEmptyQuery  struct{}
 	heldEmptyColumn struct{}
+	heldEmptyName   struct{}
 	heldWith        struct{}
 	heldUnderscore  struct{}
 	heldCollision   struct{}
@@ -48,29 +61,35 @@ type (
 )
 
 func (heldEmptyQuery) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: "  ", Column: "Id"}
+	return TenantsToEnter{Query: "  ", Match: map[string]string{"RowKey": "Id"}}
 }
 
 func (heldEmptyColumn) declaration() TenantsToEnter {
 	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}}
 }
 
+// heldEmptyName pairs the query's RowKey with a column of the row and a column of the
+// row with no key column of the query.
+func (heldEmptyName) declaration() TenantsToEnter {
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}, Match: map[string]string{"RowKey": "Id", " ": "Name"}}
+}
+
 func (heldWith) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: "WITH posts AS (SELECT KeeperId, Tenant FROM KeeperPosts) SELECT KeeperId AS RowKey, Tenant FROM posts", Column: "Id"}
+	return TenantsToEnter{Query: "WITH posts AS (SELECT KeeperId, Tenant FROM KeeperPosts) SELECT KeeperId AS RowKey, Tenant FROM posts", Match: map[string]string{"RowKey": "Id"}}
 }
 
 func (heldUnderscore) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"_postKind": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"_postKind": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
 }
 
 // heldCollision binds the name the statement's tenancy predicate binds.
 func (heldCollision) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"domain": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"domain": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
 }
 
 // heldViewParam binds the name the view's own query binds.
 func (heldViewParam) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"viewKind": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"viewKind": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
 }
 
 // heldResource is a table whose struct names the tenants by D.
@@ -126,30 +145,59 @@ type heldReadRequest struct {
 }
 
 // heldCollection registers res with the owner and state attributes and its tenant
-// column, and four methods that name its rows: RetireKeeper and RenameKeeper plain,
+// column, four methods that name its rows: RetireKeeper and RenameKeeper plain,
 // SealKeeper a transition, all three marked @callerEnters when marked says so, and
-// GreetKeeper plain and never marked.
+// GreetKeeper plain and never marked; and PruneKeepers, which names no row and is
+// offered on the rows of res when marked says so (@callerEnters(Row)), and is a
+// method of no row's otherwise.
 func heldCollection(t *testing.T, res accesstypes.Resource, marked bool) *GeneratedCollection {
 	t.Helper()
 
+	var offeredOn []accesstypes.Resource
+	if marked {
+		offeredOn = []accesstypes.Resource{res}
+	}
 	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
-		{
-			Name:        res,
-			Scope:       accesstypes.DomainPermissionScope,
-			Permissions: []accesstypes.Permission{accesstypes.Read},
-			Attributes: []AttributeData{
-				{Name: "owner", Column: "Owner", Type: AttributeTypeString},
-				{Name: StateAttribute, Column: "State", Type: AttributeTypeString},
-			},
-			Domain: &DomainBindingData{Column: "Station"},
-		},
+		heldRowResource(res),
 		{Name: "GreetKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Target: res},
+		{Name: "PruneKeepers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, OfferedOn: offeredOn},
 		{Name: "RenameKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Target: res, CallerEnters: marked},
 		{Name: "RetireKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Target: res, CallerEnters: marked},
 		{
 			Name: "SealKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
 			Transition: &TransitionData{Target: res, From: []string{"open"}, To: "sealed"}, CallerEnters: marked,
 		},
+	}})
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	return g
+}
+
+// heldRowResource is the registration of res as heldCollection makes it: the owner and
+// state attributes and its tenant column.
+func heldRowResource(res accesstypes.Resource) CollectionResource {
+	return CollectionResource{
+		Name:        res,
+		Scope:       accesstypes.DomainPermissionScope,
+		Permissions: []accesstypes.Permission{accesstypes.Read},
+		Attributes: []AttributeData{
+			{Name: "owner", Column: "Owner", Type: AttributeTypeString},
+			{Name: StateAttribute, Column: "State", Type: AttributeTypeString},
+		},
+		Domain: &DomainBindingData{Column: "Station"},
+	}
+}
+
+// offeredCollection registers res as heldCollection does, with no method that names its
+// rows, and PruneKeepers, which names no row and is offered on the rows of offeredOn.
+func offeredCollection(t *testing.T, res, offeredOn accesstypes.Resource) *GeneratedCollection {
+	t.Helper()
+
+	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+		heldRowResource(res),
+		{Name: "PruneKeepers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, OfferedOn: []accesstypes.Resource{offeredOn}},
 	}})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -329,6 +377,34 @@ func TestQuerySet_stmt_callerEnters(t *testing.T) {
 			wantParams: map[string]any{"_c1": []string{"bastion"}, "postKind": "keeper"},
 		},
 		{
+			name:      "an offered method is held by the entering term, the one boolean the held plain methods share",
+			decisions: accesstypes.Decisions{"PruneKeepers": accesstypes.Granted(), "RetireKeeper": accesstypes.Granted()},
+			unentered: bastion,
+			checks: func(db DBType) string {
+				return "(" + heldTerm(db, heldResourceName, "@_c1") + ")"
+			},
+			rows: []heldRow{
+				{checks: []bool{true}, methods: []string{"PruneKeepers", "RetireKeeper"}},
+				{checks: []bool{false}, methods: []string{}},
+			},
+			wantParams: map[string]any{"_c1": []string{"bastion"}, "postKind": "keeper"},
+		},
+		{
+			name: "the Execute list is in name order across the targeted and the offered methods",
+			decisions: accesstypes.Decisions{
+				"GreetKeeper": accesstypes.Granted(), "PruneKeepers": accesstypes.Granted(), "RenameKeeper": accesstypes.Granted(), "RetireKeeper": accesstypes.Granted(),
+			},
+			unentered: bastion,
+			checks: func(db DBType) string {
+				return "(" + heldTerm(db, heldResourceName, "@_c1") + ")"
+			},
+			rows: []heldRow{
+				{checks: []bool{true}, methods: []string{"GreetKeeper", "PruneKeepers", "RenameKeeper", "RetireKeeper"}},
+				{checks: []bool{false}, methods: []string{"GreetKeeper"}},
+			},
+			wantParams: map[string]any{"_c1": []string{"bastion"}, "postKind": "keeper"},
+		},
+		{
 			name:      "a denied held method renders nothing",
 			decisions: accesstypes.Decisions{"GreetKeeper": accesstypes.Granted()},
 			unentered: bastion,
@@ -445,6 +521,36 @@ func TestQuerySet_stmt_callerEntersView(t *testing.T) {
 	}
 }
 
+// TestQuerySet_stmt_callerEntersPairs pins the term of a row named by two columns, on
+// both databases: an equality for each pair of Match, in the order of the query columns'
+// names, then the tenant test, all joined with AND.
+func TestQuerySet_stmt_callerEntersPairs(t *testing.T) {
+	t.Parallel()
+
+	want := map[DBType]string{
+		SpannerDBType:  "NOT EXISTS (SELECT 1 FROM (" + heldPairsQuery + " ) AS `ca1` WHERE `ca1`.`KeeperName` = `heldResources`.`Name` AND `ca1`.`RowKey` = `heldResources`.`Id` AND `ca1`.`Tenant` IN UNNEST(@_c1))",
+		PostgresDBType: `NOT EXISTS (SELECT 1 FROM (` + heldPairsQuery + ` ) AS "ca1" WHERE "ca1"."KeeperName" = "heldResources"."Name" AND "ca1"."RowKey" = "heldResources"."Id" AND "ca1"."Tenant" = ANY(@_c1))`,
+	}
+	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+		t.Run(string(dbType), func(t *testing.T) {
+			t.Parallel()
+
+			perms := heldPermissions{
+				capStubPermissions: capStubPermissions{byPerm: map[accesstypes.Permission]accesstypes.Decisions{accesstypes.Execute: {"RetireKeeper": accesstypes.Granted()}}},
+				unentered:          []accesstypes.Domain{"bastion"},
+				asked:              &atomic.Int32{},
+			}
+			stmt, err := heldStmt[heldResource[heldPairs]](t, dbType, heldCollection(t, heldResourceName, true), perms)
+			if err != nil {
+				t.Fatalf("QuerySet.stmt() error = %v", err)
+			}
+			if got, want := normalizeSQL(stmt.SQL), heldSelect(dbType, "("+want[dbType]+")"); got != want {
+				t.Errorf("QuerySet.stmt() SQL =\n%s\nwant\n%s", got, want)
+			}
+		})
+	}
+}
+
 // TestQuerySet_stmt_callerEntersRefusals pins the refusals of a declaration the
 // statement cannot render, each naming the resource, and of a marked method on a row
 // whose struct declares no TenantsToEnter.
@@ -473,13 +579,22 @@ func TestQuerySet_stmt_callerEntersRefusals(t *testing.T) {
 			wantErr: "the TenantsToEnter query of heldResources is empty",
 		},
 		{
-			name: "no column",
+			name: "an empty Match",
 			stmt: func(t *testing.T) error {
 				_, err := heldStmt[heldResource[heldEmptyColumn]](t, SpannerDBType, heldCollection(t, heldResourceName, true), held())
 
 				return err
 			},
-			wantErr: "the TenantsToEnter of heldResources names no column of its row for RowKey to match",
+			wantErr: "the TenantsToEnter of heldResources matches no column of its row: Match pairs each key column of the query with the row's column it is matched to",
+		},
+		{
+			name: "a pair in Match with an empty name",
+			stmt: func(t *testing.T) error {
+				_, err := heldStmt[heldResource[heldEmptyName]](t, SpannerDBType, heldCollection(t, heldResourceName, true), held())
+
+				return err
+			},
+			wantErr: "the TenantsToEnter of heldResources has a pair in Match with an empty name: each pair names a key column of the query and a column of the row",
 		},
 		{
 			name: "a query that starts with WITH",
@@ -531,11 +646,27 @@ func TestQuerySet_stmt_callerEntersRefusals(t *testing.T) {
 		{
 			name: "a marked method on a row whose struct declares no TenantsToEnter",
 			stmt: func(t *testing.T) error {
-				_, err := heldRead[enforcementResource](t, SpannerDBType, heldCollection(t, enforcedResource, true), held(), true)
+				collection, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+					heldRowResource(enforcedResource),
+					{Name: "RenameKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Target: enforcedResource, CallerEnters: true},
+				}})
+				if err != nil {
+					t.Fatalf("NewGeneratedCollection() error = %v", err)
+				}
+				_, err = heldRead[enforcementResource](t, SpannerDBType, collection, held(), true)
 
 				return err
 			},
 			wantErr: "method RenameKeeper is offered on a row of enforcementResources only to a caller who enters the row's tenants, and enforcementResources declares no TenantsToEnter; regenerate",
+		},
+		{
+			name: "an offered method on a row whose struct declares no TenantsToEnter, named first among the held",
+			stmt: func(t *testing.T) error {
+				_, err := heldRead[enforcementResource](t, SpannerDBType, heldCollection(t, enforcedResource, true), held(), true)
+
+				return err
+			},
+			wantErr: "method PruneKeepers is offered on a row of enforcementResources only to a caller who enters the row's tenants, and enforcementResources declares no TenantsToEnter; regenerate",
 		},
 	}
 	for _, tt := range tests {
@@ -545,6 +676,88 @@ func TestQuerySet_stmt_callerEntersRefusals(t *testing.T) {
 			err := tt.stmt(t)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestQuerySet_stmt_callerEntersOffered pins the Execute affordance of a method that
+// names no row and is offered on the rows a page runs it from (@callerEnters(Row)), on
+// both databases: while the session enters every tenant the statement is the one of a
+// collection that offers the method nowhere, and the row lists it; a resource the method
+// is offered on and no method targets is checked and planned, the engine asked about the
+// method and the tenants not entered asked once; and a resource the method does not name
+// neither lists it nor asks.
+func TestQuerySet_stmt_callerEntersOffered(t *testing.T) {
+	t.Parallel()
+
+	granted := accesstypes.Decisions{"PruneKeepers": accesstypes.Granted()}
+	read := func(t *testing.T, dbType DBType, collection *GeneratedCollection, unentered []accesstypes.Domain) (*Statement, heldPermissions) {
+		t.Helper()
+
+		perms := heldPermissions{
+			capStubPermissions: capStubPermissions{
+				byPerm: map[accesstypes.Permission]accesstypes.Decisions{accesstypes.Execute: granted},
+				asked:  map[accesstypes.Permission][]accesstypes.Resource{},
+			},
+			unentered: unentered,
+			asked:     &atomic.Int32{},
+		}
+		stmt, err := heldStmt[heldResource[heldKeepers]](t, dbType, collection, perms)
+		if err != nil {
+			t.Fatalf("QuerySet.stmt() error = %v", err)
+		}
+
+		return stmt, perms
+	}
+	assemble := func(t *testing.T, stmt *Statement, checks []bool, want []string) {
+		t.Helper()
+
+		if diff := cmp.Diff(map[accesstypes.Permission]any{accesstypes.Execute: want}, stmt.capabilityPlan.assemble(checks)); diff != "" {
+			t.Errorf("capabilityPlan.assemble(%v) mismatch (-want +got):\n%s", checks, diff)
+		}
+	}
+	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+		t.Run("a session that enters every tenant reads the statement of a collection that offers the method nowhere/"+string(dbType), func(t *testing.T) {
+			t.Parallel()
+
+			offered, _ := read(t, dbType, heldCollection(t, heldResourceName, true), nil)
+			nowhere, _ := read(t, dbType, heldCollection(t, heldResourceName, false), nil)
+			if offered.SQL != nowhere.SQL {
+				t.Errorf("the statement with the method offered =\n%s\nwant the one without it\n%s", offered.SQL, nowhere.SQL)
+			}
+			if diff := cmp.Diff(nowhere.Params, offered.Params); diff != "" {
+				t.Errorf("the parameters with the method offered differ (-without +with):\n%s", diff)
+			}
+			assemble(t, offered, nil, []string{"PruneKeepers"})
+			assemble(t, nowhere, nil, []string{})
+		})
+		t.Run("a resource the method is offered on and no method targets/"+string(dbType), func(t *testing.T) {
+			t.Parallel()
+
+			stmt, perms := read(t, dbType, offeredCollection(t, heldResourceName, heldResourceName), []accesstypes.Domain{"bastion"})
+			if got, want := normalizeSQL(stmt.SQL), heldSelect(dbType, "("+heldTerm(dbType, heldResourceName, "@_c1")+")"); got != want {
+				t.Errorf("QuerySet.stmt() SQL =\n%s\nwant\n%s", got, want)
+			}
+			assemble(t, stmt, []bool{true}, []string{"PruneKeepers"})
+			assemble(t, stmt, []bool{false}, []string{})
+			if diff := cmp.Diff([]accesstypes.Resource{"PruneKeepers"}, perms.capStubPermissions.asked[accesstypes.Execute]); diff != "" {
+				t.Errorf("the engine was asked about Execute on (-want +got):\n%s", diff)
+			}
+			if n := perms.asked.Load(); n != 1 {
+				t.Errorf("the tenants not entered were asked %d times, want once", n)
+			}
+		})
+		t.Run("a resource the method does not name/"+string(dbType), func(t *testing.T) {
+			t.Parallel()
+
+			stmt, perms := read(t, dbType, offeredCollection(t, heldResourceName, "otherRows"), []accesstypes.Domain{"bastion"})
+			if got, want := normalizeSQL(stmt.SQL), heldSelect(dbType, ""); got != want {
+				t.Errorf("QuerySet.stmt() SQL =\n%s\nwant\n%s", got, want)
+			}
+			assemble(t, stmt, nil, []string{})
+			if n := perms.asked.Load(); n != 0 {
+				t.Errorf("the tenants not entered were asked %d times, want never", n)
 			}
 		})
 	}

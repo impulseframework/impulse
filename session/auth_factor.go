@@ -267,8 +267,9 @@ func (a *Auth[S, U, Tx]) standingCodeStands(ctx context.Context, p *pendingState
 // person gave. A change that commits while the code is being entered is not seen here,
 // and need not be: the account is read before the code is consumed and again after it
 // (completeWithEmailCode, codeHolder), a code whose account holds another address at
-// the second read than at the first is dead, and the write that follows is taken only
-// while the account still holds what the second read held (VerifyUserEmailIfHeld).
+// the second read than at the first is dead, and the store writes the address, in the
+// transaction that inserts the session, only while the account still holds what the
+// second read held (sessionstorage.SignInRules.CodeAddress).
 // The code that accepts an invitation for an account that holds no address
 // (codeDestination) is held the same way: it was mailed to the invited address, and is
 // good on the account's own person's sign-in while no other account holds that address.
@@ -431,7 +432,9 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 // to that address's count of such mail (limitMail), never to the count of its own
 // sign-in codes. A wait that accepts an invitation takes no address: its code goes to
 // the invited one (codeDestination), whatever is typed. A sign-in that is not yet the
-// account's gives none (identityIsTheUsers).
+// account's gives none (identityIsTheUsers). An address for which twenty-five wrong
+// codes were entered at this step takes no more (addressGuessLimit): it is refused with
+// address_spent before anything is asked of it, and nothing is mailed or counted.
 func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
 	m := a.settings.mail
 	bare, err := address(email)
@@ -449,6 +452,9 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 		return nil, httpio.NewConflictMessage("the user already holds an email address: the code goes there")
 	}
 	if err := a.identityIsTheUsers(ctx, p); err != nil {
+		return nil, err
+	}
+	if err := a.addressSpent(ctx, bare); err != nil {
 		return nil, err
 	}
 	holder, err := a.storage.UserByEmail(ctx, bare)
@@ -551,13 +557,23 @@ func errCodeExpired() error {
 // wrong one that took the last place is answered, as every code after it is, with
 // invitation_spent.
 //
+// A code mailed to an address the person typed at this step, the account holding none
+// when it was read before the code (before, nil where the wait names no account), takes
+// its place in that address's count of codes entered before it is judged
+// (countAddressGuess), in whichever account's sign-in it is entered: twenty-five wrong
+// codes are judged for one typed address, and the wrong one that took the last place is
+// answered, as every code after it is, with address_spent. The right code is accepted
+// whichever place it took.
+//
 // A guess takes its attempt before it is judged: the store counts it on the code's row
 // in one statement and answers which attempt it was, and a guess past the limit is not
 // compared with the code at all, nor does it touch the code. Guesses made at once are
 // each counted, so no more than the limit are ever judged, however many arrive
 // together; the right code spends an attempt like any other, on a code it then
 // consumes, and of several right guesses within the limit one is accepted.
-func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (*sessionstorage.FactorCode, error) {
+func (a *Auth[S, U, Tx]) verifyEmailCode(
+	ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, code string,
+) (*sessionstorage.FactorCode, error) {
 	standing, err := a.storage.FactorCode(ctx, p.ID)
 	if err != nil {
 		if !httpio.HasNotFound(err) {
@@ -565,19 +581,38 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 		}
 		standing = nil
 	}
-	last, err := a.takeInvitationGuess(ctx, p, standing)
+	lastOfInvitation, err := a.takeInvitationGuess(ctx, p, standing)
 	if err != nil {
 		return nil, err
 	}
+	var lastOfAddress bool
+	if typedAddressCode(before, standing) {
+		if lastOfAddress, err = a.countAddressGuess(ctx, standing.Email); err != nil {
+			return nil, err
+		}
+	}
 	if err := a.judgeEmailCode(ctx, p, standing, code); err != nil {
-		if refused := sessioninfo.LoginRefusalCodeOf(err); last && (refused == sessioninfo.RefusedInvalidCode || refused == sessioninfo.RefusedCodeExpired) {
-			return nil, errInvitationSpent()
+		if refused := sessioninfo.LoginRefusalCodeOf(err); refused == sessioninfo.RefusedInvalidCode || refused == sessioninfo.RefusedCodeExpired {
+			switch {
+			case lastOfInvitation:
+				return nil, errInvitationSpent()
+			case lastOfAddress:
+				return nil, errAddressSpent()
+			}
 		}
 
 		return nil, err
 	}
 
 	return standing, nil
+}
+
+// typedAddressCode reports whether code was mailed to an address a person typed at the
+// step: it names no invitation, and the account of the wait, as it was read before the
+// code was judged (before), holds no address. A wait that names no account (before is
+// nil) types none.
+func typedAddressCode(before *sessionstorage.SessionUser, code *sessionstorage.FactorCode) bool {
+	return before != nil && before.Email == nil && code != nil && !code.InvitationID.Valid
 }
 
 // judgeEmailCode compares code with standing, the code standing for p (nil for none),
@@ -624,14 +659,16 @@ func (a *Auth[S, U, Tx]) judgeEmailCode(ctx context.Context, p *pendingState, st
 }
 
 // completeWithEmailCode completes the pending MFA wait p once code proved the person
-// reads email: the pending identity is consumed, the address of the account's own code
-// is written on the user verified when it was not, and the session starts with an
-// email-code event. A code mailed to an address the account no longer holds completes
-// nothing (codeHolder). A sign-up through an invitation makes its account here, the
-// code entered (invitedSignUpAttempt). With remember, a session that starts makes the
-// browser a trusted device of the user. The account of a wait that names its user is
-// read before the code is consumed, so a change of its address that lands after the
-// code is consumed is told from one made before the code was mailed (codeHolder).
+// reads email: the pending identity is consumed, and the session starts with an
+// email-code event. The address of the account's own code is written on the user,
+// confirmed, where the user had confirmed none, by the store in the transaction that
+// inserts the session (signInAttempt.codeAddress): a sign-in refused or held again after
+// the code writes no address. A code mailed to an address the account no longer holds
+// completes nothing (codeHolder). A sign-up through an invitation makes its account
+// here, the code entered (invitedSignUpAttempt). With remember, a session that starts
+// makes the browser a trusted device of the user. The account of a wait that names its
+// user is read before the code is consumed, so a change of its address that lands after
+// the code is consumed is told from one made before the code was mailed (codeHolder).
 //
 // A code that accepts an invitation is held to the invitation it was mailed for
 // (verifyEmailCode), and its address is written by that invitation's acceptance alone
@@ -645,15 +682,19 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 		}
 		before = user
 	}
-	entered, err := a.verifyEmailCode(ctx, p, code)
+	entered, err := a.verifyEmailCode(ctx, p, before, code)
 	if err != nil {
 		return nil, err
 	}
 	email := entered.Email
-	// The code reached the person: the counts it was sent under are reset.
+	// The code reached the person: the counts it was sent under are reset, and so is
+	// the count of the codes entered for an address they typed.
 	a.clearCodeLimit(ctx, email)
 	a.clearMailLimit(ctx, email)
 	a.clearInvitationCodeOf(ctx, email)
+	if typedAddressCode(before, entered) {
+		a.clearAddressGuesses(ctx, email)
+	}
 
 	at, err := a.attemptWithCode(ctx, p, before, entered)
 	if err != nil {
@@ -664,6 +705,9 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 		return nil, err
 	}
 	if outcome.pending == nil {
+		if claim := at.codeAddress; claim != nil && claim.Written {
+			logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", outcome.userID, claim.Email)
+		}
 		// The person proved who they are: the name's failed attempts are reset.
 		if p.Username != "" {
 			a.clearAttempts(ctx, p.Username)
@@ -695,39 +739,62 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 // entered, was found right: the wait is consumed, so it completes once, and the sign-in
 // carries the invitation the code was mailed for, if any. A wait that names its user
 // holds the code to the address the account holds now (codeHolder), whether it is the
-// account's own or was mailed for an invitation. The account's own code then writes its
-// address on the account first where the account has confirmed none
-// (claimCodeAddress). A code mailed for an invitation writes nothing here, whether the
-// wait names an account or none: the sign-in that carries it is that invitation's
-// acceptance, which makes or finds the account and writes the invited address in its
-// own transaction, and the code counts for that acceptance alone. An invitation that
-// turns out used or withdrawn so leaves nothing written. The account of a sign-up
-// through an invitation is made here (invitedSignUpAttempt). before is the account of a
-// wait that names its user as it was read before the code was consumed (codeHolder).
-func (a *Auth[S, U, Tx]) attemptWithCode(ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, entered *sessionstorage.FactorCode) (*signInAttempt, error) {
+// account's own or was mailed for an invitation. The account's own code writes nothing
+// here: the sign-in carries the address it confirms (codeAddressOf), which the store
+// writes on the account in the transaction that inserts the session, or with the
+// acceptance of an invitation that rests on that code, and only then. A code mailed for
+// an invitation carries no address, whether the wait names an account or none: the
+// sign-in that carries it is that invitation's acceptance, which makes or finds the
+// account and writes the invited address in its own transaction, and the code counts
+// for that acceptance alone. An invitation that turns out used or withdrawn so leaves
+// nothing written. The account of a sign-up through an invitation is made here
+// (invitedSignUpAttempt). before is the account of a wait that names its user as it was
+// read before the code was consumed (codeHolder).
+func (a *Auth[S, U, Tx]) attemptWithCode(
+	ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, entered *sessionstorage.FactorCode,
+) (at *signInAttempt, err error) {
 	if signsUpInvited(p) {
 		return a.invitedSignUpAttempt(ctx, p, entered.Email)
 	}
-	switch {
-	case p.UserID.Valid && entered.InvitationID.Valid:
-		if _, err := a.codeHolder(ctx, p, before, entered.Email); err != nil {
+	var claim *sessionstorage.CodeAddress
+	if p.UserID.Valid {
+		holder, err := a.codeHolder(ctx, p, before, entered.Email)
+		if err != nil {
 			return nil, err
 		}
-	case p.UserID.Valid:
-		if err := a.claimCodeAddress(ctx, p, before, entered.Email); err != nil {
-			return nil, err
+		if !entered.InvitationID.Valid {
+			claim = codeAddressOf(holder, entered.Email)
 		}
 	}
 	if err := a.consumePending(ctx, p); err != nil {
 		return nil, err
 	}
-	at, err := a.pendingAttempt(p, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
+	at, err = a.pendingAttempt(p, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
 	if err != nil {
 		return nil, err
 	}
 	at.codeInvitation = entered.InvitationID
+	at.codeAddress = claim
 
 	return at, nil
+}
+
+// codeAddressOf is the address the account's own code, mailed to email, confirms on
+// user, the account as the code was checked against it (codeHolder): held is the
+// address the account holds, byte for byte, nil for none, and the address written is
+// the account's own spelling of it where it holds one, else email, the address the
+// person gave. The code proves the mailbox under either spelling of its ASCII letters,
+// and the spelling on the account is the last one an administrator or the person gave
+// it. An account that holds a confirmed address carries the claim too, and is written
+// nothing: a code proves the person, and a confirmed address is replaced only by the
+// link that confirms a new one.
+func codeAddressOf(user *sessionstorage.SessionUser, email string) *sessionstorage.CodeAddress {
+	written := email
+	if user.Email != nil {
+		written = *user.Email
+	}
+
+	return &sessionstorage.CodeAddress{Held: user.Email, Email: written}
 }
 
 // codeHolder holds the code the person entered for the pending MFA wait p, mailed to
@@ -759,59 +826,6 @@ func (a *Auth[S, U, Tx]) codeHolder(ctx context.Context, p *pendingState, before
 	}
 
 	return user, nil
-}
-
-// claimCodeAddress holds the code the person entered for the pending MFA wait p to the
-// address the account holds now, and writes that address onto the user, verified, when
-// the user has confirmed none: the first code confirms the address the account was
-// made with or the person gave. A code is good only for the address the account holds
-// when it is entered (codeStands): one mailed to an address the account no longer
-// holds, confirmed or not, is dead, as one that expired is (the person asks for
-// another, which goes to the address the account holds now), on every wait, and
-// nothing is written, so an administrator's change of the address stands. An account
-// that holds a confirmed address keeps it: a code proves the person, and a confirmed
-// address is replaced only by the link that confirms a new one. before is the account
-// as it was read before the code was consumed: a code whose account holds another
-// address by now, or none where it held one, is dead. The write is taken only while
-// the account still holds what it held when it was read here (VerifyUserEmailIfHeld):
-// a change of the address that commits in between, or another account that took the
-// address, ends the code as a dead one, and any other failure of the write is the
-// server's error. Either way the completion is refused: nothing is written or linked,
-// and no session starts.
-func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, email string) error {
-	user, err := a.codeHolder(ctx, p, before, email)
-	if err != nil {
-		return err
-	}
-	if user.EmailVerified() {
-		return nil
-	}
-	// The address is confirmed as the account spells it. The code proves the mailbox
-	// under either spelling of its ASCII letters, and the spelling on the account is the
-	// last one an administrator or the person gave it.
-	written := email
-	if user.Email != nil {
-		written = *user.Email
-	}
-	if err := a.storage.VerifyUserEmailIfHeld(ctx, user.ID, user.Email, written); err != nil {
-		if httpio.HasConflict(err) {
-			logger.FromCtx(ctx).Infof(
-				"the address of user %s changed while the sign-in code mailed to %s was entered, or another account holds it now: the code is dead, and nothing is written",
-				user.ID, email)
-
-			return errCodeExpired()
-		}
-
-		return errors.Wrap(err, "sessionstorage.AuthStore.VerifyUserEmailIfHeld()")
-	}
-	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", user.ID, written)
-	if a.registered().usernameIsEmail() && !sameAddress(user.Username, written) && a.userRenamed != nil {
-		if err := a.userRenamed(ctx, user.ID, user.Username, written); err != nil {
-			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, written, err)
-		}
-	}
-
-	return nil
 }
 
 // sameHeldAddress reports whether two reads of an account hold the same address, byte
@@ -1122,12 +1136,14 @@ func (p *AuthAPI[S, U, Tx]) SendEmailCode(ctx context.Context) (codeEmail string
 }
 
 // EnrollEmail mails the code to email for a pending identity whose user holds no
-// address; the address is written on the user, verified, when the code is entered. A
-// user who holds an address is refused (Conflict). An address another account holds
-// is told so by mail, and the call returns as if sent. An address that an invitation
-// which stands was mailed to is mailed no code either: its mailbox is sent a message
-// that says to open the invitation's link, and the call returns as if sent. See
-// SendEmailCode.
+// address; the address is written on the user, verified, as the session the code
+// completes starts. A user who holds an address is refused (Conflict). An address
+// another account holds is told so by mail, and the call returns as if sent. An
+// address that an invitation which stands was mailed to is mailed no code either: its
+// mailbox is sent a message that says to open the invitation's link, and the call
+// returns as if sent. An address for which twenty-five wrong codes were entered at
+// this step is refused with a *sessioninfo.LoginRefusal carrying RefusedAddressSpent,
+// and nothing is mailed. See SendEmailCode.
 func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -1154,7 +1170,9 @@ func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error
 // carries RefusedInvitationSpent once twenty-five codes were entered for that
 // invitation, RefusedInvitationNotOpen in a browser that carries no invitation or
 // another one, and RefusedInvitationExpired where the invitation was used, withdrawn
-// or ran out. If the sign-in must wait again, the error is a
+// or ran out. A code mailed to an address typed at this step carries
+// RefusedAddressSpent once twenty-five wrong codes were entered for that address,
+// and is then compared with nothing. If the sign-in must wait again, the error is a
 // *signin.PendingSignInError.
 func (p *AuthAPI[S, U, Tx]) VerifyEmailCode(ctx context.Context, w http.ResponseWriter, code string, rememberDevice bool) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)

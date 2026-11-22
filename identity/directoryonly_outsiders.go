@@ -50,7 +50,10 @@ import (
 // of the row of a group they are refused for (@callerEnters on the method,
 // TenantsToEnter on the list), so a page offers what the method will do. The whole
 // application's methods that take a role away from a person and from a group name no
-// row, and are offered wherever their grant is held.
+// row, and the rows a page runs them from answer for them: a row of the roles people
+// hold, of the roles held for a set time and of the roles the groups hold leaves the
+// method out for a caller it refuses (@callerEnters naming the lists, TenantsToEnter on
+// each).
 //
 // What makes a person a tenant's administrator is the permission engine's to say, and
 // the judgment asks the engine's own statement of it (access.AdministersTenant, over

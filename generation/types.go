@@ -593,6 +593,14 @@ type routeTestParam struct {
 	Value string
 }
 
+// rpcOfferingRow is a resource struct whose rows offer a method that names no row
+// (@callerEnters(Row, ...)): the struct's name and its resource's, the two names rpcTarget
+// carries for a row a method names.
+type rpcOfferingRow struct {
+	RootStruct   string
+	RootResource string
+}
+
 type rpcMethodInfo struct {
 	*parser.Struct
 	outletMembership
@@ -631,6 +639,11 @@ type rpcMethodInfo struct {
 	// caller whose session enters every tenant the row names, which the target's struct
 	// names (TenantsToEnter). Only a method with a Target carries it.
 	CallerEnters bool
+	// OfferedOn is the method's validated @callerEnters(Row, ...): the resource structs whose
+	// rows offer a method that names no row, each only to a caller whose session enters every
+	// tenant the row names (TenantsToEnter), in the order declared. Only a method with no Target
+	// carries it.
+	OfferedOn []rpcOfferingRow
 	// Statuses is the method's validated @answers declaration: the statuses
 	// its result may choose per response, in declaration order. Nil for a
 	// method that answers 200.
@@ -2574,7 +2587,7 @@ const (
 	stateRootKeyword            string = "stateRoot"            // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
 	transitionKeyword           string = "transition"           // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
 	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
-	callerEntersKeyword         string = "callerEnters"         // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter)
+	callerEntersKeyword         string = "callerEnters"         // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter), or, for a method that names no row, each struct the annotation names
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
 	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed

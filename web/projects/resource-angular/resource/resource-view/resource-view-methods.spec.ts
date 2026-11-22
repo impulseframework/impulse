@@ -51,6 +51,7 @@ class Blank {}
 describe('ResourceViewComponent row methods', () => {
   const accounts = 'Accounts' as Resource;
   const ships = 'Ships' as Resource;
+  const berths = 'Berths' as Resource;
   const descriptor: ApiDescriptor = {
     permissionDigestRoute: 'permission-digest',
     userDomainsRoute: 'user-domains',
@@ -69,6 +70,15 @@ describe('ResourceViewComponent row methods', () => {
         resource: ships,
         property: 'ships',
         route: 'ships',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+      },
+      [berths]: {
+        resource: berths,
+        property: 'berths',
+        route: 'berths',
         scope: 'global',
         consolidated: false,
         keys: ['id'],
@@ -106,6 +116,12 @@ describe('ResourceViewComponent row methods', () => {
         route: 'issue-bulletin',
         scope: 'global',
       },
+      SweepBerth: {
+        method: 'SweepBerth' as Method,
+        property: 'sweepBerth',
+        route: 'sweep-berth',
+        scope: 'global',
+      },
     },
   };
   const onAccount = (extra: MethodMeta['fields'] = []): MethodMeta => ({
@@ -119,6 +135,12 @@ describe('ResourceViewComponent row methods', () => {
     RenameAccount: onAccount([{ fieldName: 'username', displayType: 'string', required: true }]),
     DeleteAccount: onAccount(),
     IssueBulletin: { route: 'issue-bulletin', fields: [] },
+    // Names no row, and the server answers for it on the rows of the berths it is run from.
+    SweepBerth: {
+      route: 'sweep-berth',
+      fields: [{ fieldName: 'berth', displayType: 'string', required: true }],
+      offeredOn: [berths],
+    },
   };
   const fieldMeta = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
     ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
@@ -133,6 +155,10 @@ describe('ResourceViewComponent row methods', () => {
     },
     [ships]: {
       route: 'ships',
+      fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name')],
+    },
+    [berths]: {
+      route: 'berths',
       fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name')],
     },
   };
@@ -152,7 +178,10 @@ describe('ResourceViewComponent row methods', () => {
 
   const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
     const url = new URL(request.url, 'http://rows.test');
-    if (request.method === 'GET' && (url.pathname === '/api/accounts/a-1' || url.pathname === '/api/ships/s-1')) {
+    if (
+      request.method === 'GET' &&
+      (url.pathname === '/api/accounts/a-1' || url.pathname === '/api/ships/s-1' || url.pathname === '/api/berths/b-1')
+    ) {
       return row ? { status: 200, body: row } : { status: 404, body: { message: 'no such row' } };
     }
     // The row's own Delete: the row is gone from then on.
@@ -261,7 +290,7 @@ describe('ResourceViewComponent row methods', () => {
   /** The capabilities each read of the row asked for, in order. */
   const asked = (): (string | null)[] =>
     transport.requests
-      .filter((r) => r.method === 'GET' && /\/api\/(accounts|ships)\//.test(r.url))
+      .filter((r) => r.method === 'GET' && /\/api\/(accounts|ships|berths)\//.test(r.url))
       .map((r) => new URL(r.url, 'http://rows.test').searchParams.get('capabilities'));
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const labels = (): string[] => component.rowMethods().map((method) => method.label);
@@ -300,6 +329,13 @@ describe('ResourceViewComponent row methods', () => {
 
     expect(asked()).toEqual(['Update,Delete']);
     expect(element().querySelector('button.row-methods')).toBeNull();
+  });
+
+  it("asks for the row's Execute answer on a resource a method that names no row is offered on", async () => {
+    row = { id: 'b-1', name: 'North', zzCapabilities: { Execute: ['SweepBerth'] } };
+    await create({ primaryResource: berths, elements: [field({ name: 'name' as FieldName, label: 'Name' })] }, 'b-1');
+
+    expect(asked()).toEqual(['Update,Delete,Execute']);
   });
 
   it('draws no menu on a row whose answer lists no method', async () => {

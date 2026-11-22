@@ -12,6 +12,7 @@ import {
   filledBody,
   filledMethods,
   holdsValue,
+  methodsOfferedOn,
   methodsTargeting,
   nameInWords,
   offered,
@@ -105,6 +106,45 @@ describe('methodsTargeting', () => {
 
   it('passes over a name with no metadata', () => {
     expect(methodsTargeting(['Unknown'], () => undefined, people)).toEqual([]);
+  });
+});
+
+// The whole application's methods on roles name no row, yet the server answers for them on
+// the rows they are run from: the roles a person holds and takes, and a group's roles.
+const takenRoles = 'CrewTakenRoles' as Resource;
+const groupRoles = 'CrewListedGroupRoles' as Resource;
+const offeredMeta: Record<string, MethodMeta> = {
+  ...meta,
+  RemoveCrewRole: { ...meta['RemoveCrewRole'], offeredOn: [heldRoles, takenRoles] },
+  TakeCrewGroupRole: {
+    route: 'take-group-role',
+    fields: [
+      { fieldName: 'groupId', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'string', required: true },
+    ],
+    offeredOn: [groupRoles],
+  },
+};
+const offeredMetaOf = (method: string): MethodMeta | undefined => offeredMeta[method];
+
+describe('methodsOfferedOn', () => {
+  it('lists the methods that name no row and are offered on the rows of the resource, by resource', () => {
+    const all = Object.keys(offeredMeta);
+    expect(methodsOfferedOn(all, offeredMetaOf, heldRoles)).toEqual(['RemoveCrewRole']);
+    expect(methodsOfferedOn(all, offeredMetaOf, takenRoles)).toEqual(['RemoveCrewRole']);
+    expect(methodsOfferedOn(all, offeredMetaOf, groupRoles)).toEqual(['TakeCrewGroupRole']);
+    // A method that targets a row of the resource is not offered on it: it names the row.
+    expect(methodsOfferedOn(all, offeredMetaOf, people)).toEqual([]);
+    expect(methodsOfferedOn(all, offeredMetaOf, 'Missions' as Resource)).toEqual([]);
+  });
+
+  it('keeps the order given and passes over a name with no metadata', () => {
+    const onHeld = (method: string): MethodMeta | undefined =>
+      method === 'Unknown' ? undefined : { route: method, fields: [], offeredOn: [heldRoles] };
+    expect(methodsOfferedOn(['TakeCrewGroupRole', 'Unknown', 'RemoveCrewRole'], onHeld, heldRoles)).toEqual([
+      'TakeCrewGroupRole',
+      'RemoveCrewRole',
+    ]);
   });
 });
 
@@ -262,8 +302,8 @@ describe('a method the page names more than once', () => {
   });
 
   it('is filled as the presentation offered fills it, not as the first that names the method does', () => {
-    const on = filledMethods(row(true), twice, metaOf, () => true);
-    const off = filledMethods(row(false), twice, metaOf, () => true);
+    const on = filledMethods(row(true), people, twice, metaOf, () => true);
+    const off = filledMethods(row(false), people, twice, metaOf, () => true);
     expect(on.map((m) => [m.label, filledBody(m, row(true))])).toEqual([['Turn on', { username: 'ada', role: 'on' }]]);
     expect(off.map((m) => [m.label, filledBody(m, row(false))])).toEqual([
       ['Turn off', { username: 'ada', role: 'off' }],
@@ -297,14 +337,14 @@ describe('a method the page names more than once', () => {
       ['Make an officer', 'Enable the account first'],
       ['Make a cadet', undefined],
     ]);
-    expect(filledMethods(row(false), said, metaOf, () => true).map((m) => [m.label, m.says])).toEqual([
+    expect(filledMethods(row(false), people, said, metaOf, () => true).map((m) => [m.label, m.says])).toEqual([
       ['Turn on', 'On already'],
       ['Turn off', undefined],
     ]);
     // A presentation the page hides says nothing, whatever words it carries.
     const hidden = said.map((presentation) => ({ ...presentation, hidden: true }));
     expect(rowMethods(row(true), targeting, metaOf, hidden)).toEqual([]);
-    expect(filledMethods(row(false), hidden, metaOf, () => true)).toEqual([]);
+    expect(filledMethods(row(false), people, hidden, metaOf, () => true)).toEqual([]);
   });
 
   it('offered finds the first presentation of a name, and offeredAs takes the one it is given', () => {
@@ -493,13 +533,14 @@ describe('filledMethods and filledBody', () => {
   const all = (): boolean => true;
 
   it('offers on a row the methods the page fills from it, while the caller holds Execute on each', () => {
-    expect(filledMethods(held, presentations, metaOf, all).map((m) => m.label)).toEqual(['Take the role away']);
-    expect(filledMethods({ ...held, kind: 'global' }, presentations, metaOf, all).map((m) => m.label)).toEqual([
+    expect(filledMethods(held, heldRoles, presentations, metaOf, all).map((m) => m.label)).toEqual([
       'Take the role away',
-      'Give a role',
     ]);
-    expect(filledMethods(held, presentations, metaOf, () => false)).toEqual([]);
-    expect(filledMethods(held, presentations, metaOf, (method) => method === 'AssignCrewRole')).toEqual([]);
+    expect(
+      filledMethods({ ...held, kind: 'global' }, heldRoles, presentations, metaOf, all).map((m) => m.label),
+    ).toEqual(['Take the role away', 'Give a role']);
+    expect(filledMethods(held, heldRoles, presentations, metaOf, () => false)).toEqual([]);
+    expect(filledMethods(held, heldRoles, presentations, metaOf, (method) => method === 'AssignCrewRole')).toEqual([]);
   });
 
   it("says what the page gives in a filled method's place where the row predicate keeps it off, while the caller holds Execute on it", () => {
@@ -512,15 +553,15 @@ describe('filledMethods and filledBody', () => {
         otherwise: (row) => (row['kind'] === 'domain' ? 'Given in the sector' : undefined),
       },
     ];
-    expect(filledMethods(held, said, metaOf, all).map((m) => [m.method, m.says])).toEqual([
+    expect(filledMethods(held, heldRoles, said, metaOf, all).map((m) => [m.method, m.says])).toEqual([
       ['AssignCrewRole', 'Given in the sector'],
     ]);
-    expect(filledMethods({ ...held, kind: 'global' }, said, metaOf, all).map((m) => [m.label, m.says])).toEqual([
-      ['Give a role', undefined],
-    ]);
+    expect(
+      filledMethods({ ...held, kind: 'global' }, heldRoles, said, metaOf, all).map((m) => [m.label, m.says]),
+    ).toEqual([['Give a role', undefined]]);
     // Words that come back empty say nothing, and nothing is said of a method the caller may not run.
-    expect(filledMethods({ ...held, kind: 'every' }, said, metaOf, all)).toEqual([]);
-    expect(filledMethods(held, said, metaOf, () => false)).toEqual([]);
+    expect(filledMethods({ ...held, kind: 'every' }, heldRoles, said, metaOf, all)).toEqual([]);
+    expect(filledMethods(held, heldRoles, said, metaOf, () => false)).toEqual([]);
   });
 
   it('offers a method the page presents twice as each entry presents it: its own words, predicate and fill', () => {
@@ -539,18 +580,20 @@ describe('filledMethods and filledBody', () => {
         fill: (row) => ({ role: row['role'] }),
       },
     ];
-    const here = filledMethods(held, twice, metaOf, all);
+    const here = filledMethods(held, heldRoles, twice, metaOf, all);
     expect(here.map((m) => m.label)).toEqual(['Take it for this sector']);
     expect(filledBody(here[0], held)).toEqual({ role: 'Cadet', domain: 'anvil' });
-    const everywhere = filledMethods({ ...held, kind: 'global' }, twice, metaOf, all);
+    const everywhere = filledMethods({ ...held, kind: 'global' }, heldRoles, twice, metaOf, all);
     expect(everywhere.map((m) => m.label)).toEqual(['Take it everywhere']);
     expect(filledBody(everywhere[0], held)).toEqual({ role: 'Cadet' });
   });
 
   it('offers nothing a page hides, nothing with no metadata, and nothing where the page names no method', () => {
-    expect(filledMethods(held, [{ ...presentations[0], hidden: true }], metaOf, all)).toEqual([]);
-    expect(filledMethods(held, [{ method: 'Unknown' as Method, fill: () => ({}) }], () => undefined, all)).toEqual([]);
-    expect(filledMethods(held, undefined, metaOf, all)).toEqual([]);
+    expect(filledMethods(held, heldRoles, [{ ...presentations[0], hidden: true }], metaOf, all)).toEqual([]);
+    expect(
+      filledMethods(held, heldRoles, [{ method: 'Unknown' as Method, fill: () => ({}) }], () => undefined, all),
+    ).toEqual([]);
+    expect(filledMethods(held, heldRoles, undefined, metaOf, all)).toEqual([]);
   });
 
   it('fills the request from the row and leaves out what the page left undefined', () => {
@@ -578,5 +621,66 @@ describe('filledMethods and filledBody', () => {
   it('asks for the fields the page did not fill', () => {
     expect(askedFields(metaOf('AssignCrewRole'), ['username']).map((f) => f.fieldName)).toEqual(['role', 'domain']);
     expect(askedFields(metaOf('RemoveCrewRole'), ['username', 'role', 'domain'])).toEqual([]);
+  });
+});
+
+describe('filledMethods on a method the rows answer for (offeredOn)', () => {
+  // A role a person holds, read with or without the server's answer for the row.
+  const answered = (execute: string[] | undefined): RecordData =>
+    ({
+      user: 'ada',
+      role: 'Cadet',
+      kind: 'domain',
+      domain: 'anvil',
+      ...(execute ? { zzCapabilities: { Execute: execute } } : {}),
+    }) as unknown as RecordData;
+  const remove: MethodPresentation = {
+    method: 'RemoveCrewRole' as Method,
+    label: 'Take the role away',
+    fill: (row) => ({ username: row['user'], role: row['role'], domain: row['domain'] }),
+  };
+  const all = (): boolean => true;
+
+  it('offers it on a row whose Execute answer lists it, while the caller holds Execute on it', () => {
+    expect(
+      filledMethods(answered(['RemoveCrewRole']), heldRoles, [remove], offeredMetaOf, all).map((m) => m.label),
+    ).toEqual(['Take the role away']);
+    // The digest's grant holds as for any filled method.
+    expect(filledMethods(answered(['RemoveCrewRole']), heldRoles, [remove], offeredMetaOf, () => false)).toEqual([]);
+  });
+
+  it('offers it on no row whose answer leaves it out and on no row read without an answer, and says nothing there', () => {
+    // The page's words where its predicate says no are for a row the server lets the caller run the method on.
+    const said: MethodPresentation = { ...remove, when: () => false, otherwise: () => 'Held through a group' };
+    for (const row of [answered(['DisableCrewSectorUser']), answered([]), answered(undefined)]) {
+      expect(filledMethods(row, heldRoles, [remove], offeredMetaOf, all)).toEqual([]);
+      expect(filledMethods(row, heldRoles, [said], offeredMetaOf, all)).toEqual([]);
+    }
+    expect(
+      filledMethods(answered(['RemoveCrewRole']), heldRoles, [said], offeredMetaOf, all).map((m) => m.says),
+    ).toEqual(['Held through a group']);
+  });
+
+  it('offers a method with no offeredOn, or an empty one, by the grant alone, whatever the row answers', () => {
+    const emptyOf = (method: string): MethodMeta | undefined =>
+      method === 'RemoveCrewRole' ? { ...meta['RemoveCrewRole'], offeredOn: [] } : meta[method];
+    for (const metaFor of [metaOf, emptyOf]) {
+      for (const row of [answered(undefined), answered([]), answered(['RemoveCrewRole'])]) {
+        expect(filledMethods(row, heldRoles, [remove], metaFor, all).map((m) => m.label)).toEqual([
+          'Take the role away',
+        ]);
+      }
+    }
+  });
+
+  it('offers it by the grant alone on a row of a resource its metadata does not list, and where no resource is given, whatever the row answers', () => {
+    for (const resource of [groupRoles, undefined]) {
+      for (const row of [answered(undefined), answered([]), answered(['RemoveCrewRole'])]) {
+        expect(filledMethods(row, resource, [remove], offeredMetaOf, all).map((m) => m.label)).toEqual([
+          'Take the role away',
+        ]);
+        expect(filledMethods(row, resource, [remove], offeredMetaOf, () => false)).toEqual([]);
+      }
+    }
   });
 });

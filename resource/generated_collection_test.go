@@ -545,11 +545,10 @@ func TestGeneratedCollection_roundTrip(t *testing.T) {
 func TestGeneratedCollection_readMethods(t *testing.T) {
 	t.Parallel()
 
-	// Build the same collection through both CollectionBuilder exit paths -
-	// GeneratedCollection() directly, and Data() round-tripped through
-	// NewGeneratedCollection - and require every read method to agree, so the two paths
-	// production code takes (in-run vs. deserialized-from-generated-code) can never
-	// diverge.
+	// What the builder took and what a load of its Data() answers must agree for every
+	// read method: a declaration a setter takes and Data() drops is found here. The
+	// builder's own state is read (b.g), since GeneratedCollection() is itself a load of
+	// Data().
 	listSet, err := NewSetData([]FieldTags{
 		{Field: "ID", JSON: "id", Perm: "-"},
 		{Field: "Name", JSON: "name"},
@@ -576,7 +575,7 @@ func TestGeneratedCollection_readMethods(t *testing.T) {
 		t.Fatalf("AddMethodResource() error = %v", err)
 	}
 
-	direct := b.GeneratedCollection()
+	direct := b.g
 	fromData, err := NewGeneratedCollection(b.Data())
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -640,7 +639,10 @@ func TestGeneratedCollection_TypescriptDataExcluding(t *testing.T) {
 	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "DoThing"); err != nil {
 		t.Fatalf("AddMethodResource() error = %v", err)
 	}
-	g := b.GeneratedCollection()
+	g, err := b.GeneratedCollection()
+	if err != nil {
+		t.Fatalf("GeneratedCollection() error = %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -843,8 +845,8 @@ func TestGeneratedCollection_methodCallerEnters(t *testing.T) {
 	if diff := cmp.Diff(want, marks(loaded)); diff != "" {
 		t.Errorf("MethodsTargeting(Tasks) CallerEnters after a load (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(want, marks(b.GeneratedCollection())); diff != "" {
-		t.Errorf("MethodsTargeting(Tasks) CallerEnters on the built collection (-want +got):\n%s", diff)
+	if diff := cmp.Diff(want, marks(b.g)); diff != "" {
+		t.Errorf("MethodsTargeting(Tasks) CallerEnters on the builder's own state (-want +got):\n%s", diff)
 	}
 
 	_, err = NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
@@ -856,6 +858,103 @@ func TestGeneratedCollection_methodCallerEnters(t *testing.T) {
 	wantErr := `method resource "RunReport" is offered only to a caller who enters its row's tenants but names no target row`
 	if err == nil || !strings.Contains(err.Error(), wantErr) {
 		t.Errorf("NewGeneratedCollection() of a marked method with no target error = %v, want %q", err, wantErr)
+	}
+}
+
+// TestGeneratedCollection_methodOfferedOn pins the carriage of the rows that offer a
+// method that names no row (@callerEnters(Row, ...)): a method the builder gives rows comes
+// back from MethodsOfferedOn for each of them and for no other resource, through Data(),
+// which hands the rows back sorted, through a load of that data and in the builder's own
+// state; and a load refuses rows given to a method that names its row, a row
+// with no name and a row named twice.
+func TestGeneratedCollection_methodOfferedOn(t *testing.T) {
+	t.Parallel()
+
+	b := NewCollectionBuilder()
+	for _, res := range []accesstypes.Resource{"Docks", "Keepers", "Cranes"} {
+		if err := b.AddResource(accesstypes.DomainPermissionScope, accesstypes.Read, res); err != nil {
+			t.Fatalf("AddResource(%s) error = %v", res, err)
+		}
+	}
+	for _, method := range []accesstypes.Resource{"SweepKeepers", "CloseDock"} {
+		if err := b.AddMethodResource(accesstypes.DomainPermissionScope, accesstypes.Execute, method); err != nil {
+			t.Fatalf("AddMethodResource(%s) error = %v", method, err)
+		}
+	}
+	b.SetMethodTarget(accesstypes.DomainPermissionScope, "CloseDock", "Docks")
+	b.SetMethodOfferedOn(accesstypes.DomainPermissionScope, "SweepKeepers", []accesstypes.Resource{"Cranes"})
+	b.SetMethodOfferedOn(accesstypes.DomainPermissionScope, "SweepKeepers", []accesstypes.Resource{"Keepers", "Docks"})
+
+	data := b.Data()
+	for _, res := range data.Resources {
+		var want []accesstypes.Resource
+		if res.Name == "SweepKeepers" {
+			want = []accesstypes.Resource{"Docks", "Keepers"}
+		}
+		if diff := cmp.Diff(want, res.OfferedOn); diff != "" {
+			t.Errorf("Data() OfferedOn of %s mismatch (-want +got):\n%s", res.Name, diff)
+		}
+	}
+	loaded, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection(Data()) error = %v", err)
+	}
+	want := map[accesstypes.Resource][]accesstypes.Resource{"Docks": {"SweepKeepers"}, "Keepers": {"SweepKeepers"}, "Cranes": nil, "SweepKeepers": nil}
+	for name, g := range map[string]*GeneratedCollection{"a load of Data()": loaded, "the builder's own state": b.g} {
+		for row, methods := range want {
+			if diff := cmp.Diff(methods, g.MethodsOfferedOn(row)); diff != "" {
+				t.Errorf("%s: MethodsOfferedOn(%s) mismatch (-want +got):\n%s", name, row, diff)
+			}
+		}
+	}
+
+	tests := []struct {
+		name    string
+		res     CollectionResource
+		wantErr string
+	}{
+		{
+			name: "rows given to a method that names its row",
+			res: CollectionResource{
+				Name: "CloseDock", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target: "Docks", OfferedOn: []accesstypes.Resource{"Docks", "Keepers"},
+			},
+			wantErr: `method resource "CloseDock" is offered on the rows of Docks, Keepers and names a target row: a method that names its row is offered on that row alone`,
+		},
+		{
+			name: "rows given to a transition",
+			res: CollectionResource{
+				Name: "CloseDock", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Transition: &TransitionData{Target: "Docks", From: []string{"open"}, To: "closed"}, OfferedOn: []accesstypes.Resource{"Keepers"},
+			},
+			wantErr: `method resource "CloseDock" is offered on the rows of Keepers and names a target row: a method that names its row is offered on that row alone`,
+		},
+		{
+			name: "a row with no name",
+			res: CollectionResource{
+				Name: "SweepKeepers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+				OfferedOn: []accesstypes.Resource{"Keepers", ""},
+			},
+			wantErr: `method resource "SweepKeepers" is offered on the rows of a resource with no name`,
+		},
+		{
+			name: "a row named twice",
+			res: CollectionResource{
+				Name: "SweepKeepers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+				OfferedOn: []accesstypes.Resource{"Keepers", "Keepers"},
+			},
+			wantErr: `method resource "SweepKeepers" is offered on the rows of "Keepers" twice`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{tt.res}})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("NewGeneratedCollection() error = %v, want %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -1133,7 +1232,7 @@ func TestCollectionBuilder_SetActionClasses_joins(t *testing.T) {
 	b.SetActionClasses(accesstypes.GlobalPermissionScope, "SetPassword", nil)
 
 	want := []accesstypes.ActionClass{accesstypes.ClassCredential, "sensitive"}
-	if diff := cmp.Diff(want, b.GeneratedCollection().ActionClasses(accesstypes.GlobalPermissionScope, "SetPassword")); diff != "" {
+	if diff := cmp.Diff(want, b.g.ActionClasses(accesstypes.GlobalPermissionScope, "SetPassword")); diff != "" {
 		t.Errorf("ActionClasses() after two registrations mismatch (-want +got):\n%s", diff)
 	}
 	for _, res := range b.Data().Resources {

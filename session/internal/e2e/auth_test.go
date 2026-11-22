@@ -212,6 +212,10 @@ type authApp[Tx any] struct {
 	// setEmail writes a person's address as an administrator does, the store's own
 	// write; nil takes the address off the account.
 	setEmail func(ctx context.Context, userID impulse.UUID, email *string) error
+	// signInAttempts reads a count the sign-in attempts table keeps, and
+	// clearSignInAttempts clears one, the store's own calls.
+	signInAttempts      func(ctx context.Context, name string) (*sessionstorage.SignInAttempts, error)
+	clearSignInAttempts func(ctx context.Context, name string) error
 }
 
 // confirmedAddress writes email as the confirmed address of a seeded person. A person
@@ -475,7 +479,10 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail}
+	return &authApp[Tx]{
+		db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail,
+		signInAttempts: store.SignInAttempts, clearSignInAttempts: store.ClearSignInAttempts,
+	}
 }
 
 // browser is a user agent of an Auth app.
@@ -804,12 +811,20 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTrustedDevicePerUser[Tx],
 		},
 		{
-			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified once the code is entered",
+			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified as the session starts",
 			run:  seamEmailCodeEnrollment[Tx],
 		},
 		{
 			name: "a code mailed to an address an administrator then takes off the account is dead: nothing is written back, and the code for the address the person then gives at the step writes it",
 			run:  seamEmailCodeAddressTakenOff[Tx],
+		},
+		{
+			name: "an address typed at the step takes twenty-five wrong codes and no more, whichever account types it: two accounts' wrong codes for one address are counted together, the twenty-fifth is answered address_spent, the right code that stands for it is not compared, and no code is mailed to it from the step any more, while another address is",
+			run:  seamTypedAddressSpent[Tx],
+		},
+		{
+			name: "a right code within an address's twenty-five signs in, writes the address and starts its count again: taken off the account by an administrator and typed again, the address takes wrong codes afresh",
+			run:  seamTypedAddressRightCodeWithinBudget[Tx],
 		},
 		{
 			name: "five wrong codes kill the code sent, a new one is sent in its place, an address sent five codes it did not use is refused a sixth with too_many_emails, and a code is refused where the policy accepts another factor",

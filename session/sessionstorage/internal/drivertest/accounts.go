@@ -24,8 +24,9 @@ func entra(subject, signInName string) *sessioninfo.Identity {
 
 // codeEntered are the events of a sign-in that finishes the wait for the mailed code:
 // the code's own. A first link to an account created ahead of its person, which
-// nothing but the sign-in name ties to them, is made by the sign-in that carries it.
-// The wait before it is the sign-in flow's own to test, and the scenarios'.
+// nothing but the sign-in name ties to them, is made by the sign-in that carries it with
+// the address the code confirms (signInByCode): the event alone links nothing. The wait
+// before it is the sign-in flow's own to test, and the scenarios'.
 func codeEntered() []sessioninfo.AuthEvent {
 	return []sessioninfo.AuthEvent{{Method: sessioninfo.MethodEmailCode}}
 }
@@ -76,6 +77,20 @@ func organizationOf(identity *sessioninfo.Identity, organization string) *sessio
 func signInRequest(ctx context.Context, in *AuthInstance, req *sessioninfo.NewSessionRequest) error {
 	if _, err := in.SignIn(ctx, newInsertSession(req.Username), req); err != nil {
 		return errors.Wrap(err, "AuthInstance.SignIn()")
+	}
+
+	return nil
+}
+
+// signInByCode establishes a session for req through the instance's sign-in flow as the
+// sign-in that enters the code mailed to the address holder holds: req carries the
+// code's event and the address the code confirms, as the Auth reads it off the account
+// when the code is checked.
+func signInByCode(ctx context.Context, in *AuthInstance, req *sessioninfo.NewSessionRequest, holder *dbtype.SessionUser) error {
+	req.AuthEvents = codeEntered()
+	claim := &dbtype.CodeAddress{Held: holder.Email, Email: *holder.Email}
+	if _, err := in.SignInByCode(ctx, newInsertSession(req.Username), req, claim); err != nil {
+		return errors.Wrap(err, "AuthInstance.SignInByCode()")
 	}
 
 	return nil
@@ -171,8 +186,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		identity *sessioninfo.Identity
 		// roleNames are the role names the method asserted; nil for no role sync.
 		roleNames []string
-		// events are the events the sign-in carries; nil for a first sign-in's none.
-		events []sessioninfo.AuthEvent
+		// byCode says the sign-in enters the code mailed to the address the seeded user
+		// holds (signInByCode); false for a first sign-in's no event.
+		byCode bool
 		check  func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser)
 	}{
 		{
@@ -203,9 +219,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name:     "open: a pre-created user without a password and no identity is linked by the sign-in that carries the mailed code's event",
 			accounts: Open,
-			events:   codeEntered(),
+			byCode:   true,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
-				return createUser(ctx, t, d, name)
+				return createUserHolding(ctx, t, d, name, name)
 			},
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
 				assertNewlyLinked(ctx, t, d, err, req, entra("oid-pat", name), seeded, "tenant-1")
@@ -214,9 +230,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name:     "open: the pre-created user is matched without regard to case, and keeps its spelling",
 			accounts: Open,
-			events:   codeEntered(),
+			byCode:   true,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
-				return createUser(ctx, t, d, "Pat.Lee@Lakeside.edu")
+				return createUserHolding(ctx, t, d, "Pat.Lee@Lakeside.edu", "Pat.Lee@Lakeside.edu")
 			},
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
 				assertNewlyLinked(ctx, t, d, err, req, entra("oid-pat", name), seeded, "tenant-1")
@@ -284,9 +300,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name:     "invite only: a pre-created user is linked by the sign-in that carries the mailed code's event",
 			accounts: InviteOnly,
-			events:   codeEntered(),
+			byCode:   true,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
-				return createUser(ctx, t, d, name)
+				return createUserHolding(ctx, t, d, name, name)
 			},
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
 				assertNewlyLinked(ctx, t, d, err, req, entra("oid-pat", name), seeded, "tenant-1")
@@ -366,10 +382,15 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 				identity = entra("oid-pat", name)
 			}
 			req := &sessioninfo.NewSessionRequest{
-				Reason: sessioninfo.ReasonLogin, Username: identity.SignInName, Identity: identity, RoleNames: tt.roleNames, AuthEvents: tt.events,
+				Reason: sessioninfo.ReasonLogin, Username: identity.SignInName, Identity: identity, RoleNames: tt.roleNames,
 			}
 
-			err := signInRequest(ctx, in, req)
+			var err error
+			if tt.byCode {
+				err = signInByCode(ctx, in, req, seeded)
+			} else {
+				err = signInRequest(ctx, in, req)
+			}
 
 			tt.check(ctx, t, in.Driver, err, req, seeded)
 		})
@@ -638,10 +659,10 @@ func testCustomRuleBeforeStandardRule(_ context.Context, t *testing.T, h *AuthHa
 func testStandardRuleRunsOnce(ctx context.Context, t *testing.T, h *AuthHarness) {
 	const name = "pat.lee@lakeside.edu"
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
-	user := createUser(ctx, t, in.Driver, name)
+	user := createUserHolding(ctx, t, in.Driver, name, name)
 
-	first := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name), AuthEvents: codeEntered()}
-	if err := signInRequest(ctx, in, first); err != nil {
+	first := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
+	if err := signInByCode(ctx, in, first, user); err != nil {
 		t.Fatalf("first sign-in error = %v", err)
 	}
 	// The directory renames the person: the link, not the name, finds the user, and
