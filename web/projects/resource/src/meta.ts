@@ -336,6 +336,16 @@ export interface ResourceMeta {
    */
   live?: boolean;
   /**
+   * Set on a computed resource (a `@computed` struct). No query selects its rows: the
+   * server's handler orders and filters them by their real values, so the server refuses
+   * a sort or a filter by a field unless the caller holds List on the field with no
+   * condition. A list draws a column the caller lists under a condition with its heading
+   * as words and no filter control, so it offers nothing the server would refuse. Absent
+   * on a table and a view, whose sorts and filters run over what the caller may see.
+   * Emitted by the impulse TypeScript generator.
+   */
+  computed?: true;
+  /**
    * The words a row of the resource goes by. A list names its row by them on the button
    * that adds one ("Add a hangar pass"), in the question before one is deleted ("Delete
    * this hangar pass?") and in the message after ("Hangar pass deleted."). The generator

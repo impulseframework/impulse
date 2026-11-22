@@ -1030,6 +1030,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'invitation', many: 'invitations' },
     fields: [
@@ -1050,6 +1051,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
@@ -1070,6 +1072,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
@@ -1087,6 +1090,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'length of time', many: 'lengths of time' },
     fields: [
@@ -1100,6 +1104,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
@@ -1113,6 +1118,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
@@ -1126,6 +1132,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
@@ -1139,6 +1146,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [

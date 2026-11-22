@@ -1,4 +1,4 @@
-import { ApiError, Resource, ResourceMeta } from '@impulseframework/resource';
+import { ApiError, FieldMeta, PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
 import {
   ColumnFilterability,
   ColumnFilterChoices,
@@ -96,6 +96,36 @@ export function filterEligibility(meta: ResourceMeta | undefined, columns: reado
  */
 export function unorderedFields(meta: ResourceMeta | undefined): ReadonlySet<string> {
   return new Set((meta?.fields ?? []).filter((field) => field.sortable === false).map((field) => field.fieldName));
+}
+
+/**
+ * The listed resource's metadata as this caller may sort and filter by it. The server
+ * refuses a sort or a filter by a field of a computed resource that the caller lists
+ * only under a condition, so such a field comes back marked `sortable: false` and
+ * without its `filterable` and its `search`: the table draws its heading as words and
+ * no filter control on it. A table, a view, and a computed resource the caller lists
+ * with no condition come back as they are, the same object.
+ */
+export function queryableMeta(
+  meta: ResourceMeta | undefined,
+  listStates: Readonly<Record<string, PermissionDigestState>>,
+): ResourceMeta | undefined {
+  if (meta?.computed !== true || !meta.fields.some((field) => listStates[field.fieldName] === 'conditional')) {
+    return meta;
+  }
+
+  return {
+    ...meta,
+    fields: meta.fields.map((field) => {
+      if (listStates[field.fieldName] !== 'conditional') {
+        return field;
+      }
+      const narrowed: FieldMeta = { ...field, sortable: false };
+      delete narrowed.filterable;
+      delete narrowed.search;
+      return narrowed;
+    }),
+  };
 }
 
 /**
