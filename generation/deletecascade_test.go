@@ -159,6 +159,38 @@ func Test_deleteCascade_description(t *testing.T) {
 	}
 }
 
+// Test_deleteWords pins the words a sentence about a delete calls a kind of record by:
+// its name in words, one and many, in lower case, where a name that ends in an acronym
+// keeps the acronym's letters where there are several.
+func Test_deleteWords(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "rowwordfixture"))
+
+	tests := []struct {
+		name     string
+		wantOne  string
+		wantMany string
+	}{
+		{name: "ShipClass", wantOne: "ship class", wantMany: "ship classes"},
+		{name: "PilotID", wantOne: "pilot id", wantMany: "pilot IDs"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := structs[tt.name]
+			if s == nil {
+				t.Fatalf("struct %q not found in fixture package", tt.name)
+			}
+			one, many := (&client{}).deleteWords(&resourceInfo{TypeInfo: s.TypeInfo})
+			if one != tt.wantOne || many != tt.wantMany {
+				t.Errorf("deleteWords(%s) = %q and %q, want %q and %q", tt.name, one, many, tt.wantOne, tt.wantMany)
+			}
+		})
+	}
+}
+
 // Test_kindsUnder pins which kinds refuse a record's plain delete, over a schema where
 // the database removes some rows itself: a kind the database removes with the record is
 // not one, whether by a foreign key that says so or by an interleave that does while a

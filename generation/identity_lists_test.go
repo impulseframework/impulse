@@ -595,6 +595,8 @@ func Test_tenantRecordIn_label(t *testing.T) {
 	}{
 		{name: "no label: the record's name in words", record: "Customer", tenant: "@tenant", wantWord: "customer"},
 		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant", wantWord: "service area"},
+		{name: "a record whose name ends in a plural acronym keeps its letters", record: "PartnerAPIs", tenant: "@tenant", wantWord: "partner APIs"},
+		{name: "a record named by a plural acronym alone keeps it as written", record: "FAQs", tenant: "@tenant", wantWord: "FAQs"},
 		{name: "a label of two words", record: "Tenant", tenant: `@tenant(label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
 		{name: "a label that opens with an initialism keeps it", record: "Tenant", tenant: `@tenant(label: "HQ unit")`, wantLabel: "HQ unit", wantWord: "HQ unit"},
 	}

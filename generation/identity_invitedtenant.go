@@ -15,6 +15,7 @@ import (
 
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // The invitation that makes a tenant, in an auth's generated management. Staff bring an
@@ -490,7 +491,7 @@ func (r *resourceGenerator) holdIdentityTenantInvitation() error {
 		// code, which gives a tenant whatever its create requires.
 		return nil
 	}
-	word := withArticle(strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')))
+	word := withArticle(words.InWords(record.Name()))
 	for _, field := range record.Fields {
 		switch {
 		case field.IsOutputOnly() || !field.IsInputOnly() || !field.IsRequired():
