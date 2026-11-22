@@ -563,11 +563,12 @@ class SideBuilder {
    * The list and the method's form are the server's: a row carries the tenant record's
    * fields as staff entered them, each under the record's name (`sectorName`), and the
    * method takes the same fields, so the columns and the form's inputs follow the record
-   * with nothing written here for it. A field the caller may not read on the tenant
-   * record is absent from a row, and its cell is empty. The caller sees an action only
-   * while their roles grant its method, as on every list. To change an invitation's
-   * details, it is withdrawn and another sent, which the question before a withdrawal
-   * says.
+   * with nothing written here for it. The starting role is picked from the roles the
+   * server lists for the invitation, each by its name and description. A field the
+   * caller may not read on the tenant record is absent from a row, and its cell is
+   * empty. The caller sees an action only while their roles grant its method, as on
+   * every list. To change an invitation's details, it is withdrawn and another sent,
+   * which the question before a withdrawal says.
    */
   invitedTenants(): RootConfig | undefined {
     const { lists, methods } = this.side;
@@ -647,6 +648,7 @@ class SideBuilder {
                 [directoryOnly]: 'Entered through its directory only',
                 defaultRole: "Role its directory's people start with",
               },
+              shows: { defaultRole: ['name', 'description'] },
             },
           ],
         ]),
