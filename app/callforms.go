@@ -38,8 +38,8 @@ var calledByName = map[string][]string{
 // refused nothing here.
 func (a *App) refuseHiddenCalls(rel string, data []byte) error {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, rel, data, parser.ImportsOnly|parser.SkipObjectResolution)
-	if err != nil {
+	f := parsedOrNil(fset, rel, data, parser.ImportsOnly)
+	if f == nil {
 		return nil
 	}
 	listed := map[string][]string{}
@@ -68,12 +68,26 @@ func (a *App) refuseHiddenCalls(rel string, data []byte) error {
 		return nil
 	}
 
-	f, err = parser.ParseFile(fset, rel, data, parser.SkipObjectResolution)
+	if f = parsedOrNil(fset, rel, data, 0); f == nil {
+		return nil
+	}
+	if pkg, name := functionValue(f, listed); pkg != nil {
+		return errors.Newf("%s:%d: %s.%s is named here without being called, and impulse reads a call where the source writes it, so it would not see a call made through this value: call %s.%s where the call is made",
+			rel, fset.Position(pkg.Pos()).Line, pkg.Name, name, pkg.Name, name)
+	}
+
+	return nil
+}
+
+// parsedOrNil is the file parsed with its objects left unresolved, or nil when it does
+// not parse: what is wrong with it is the compiler's to say.
+func parsedOrNil(fset *token.FileSet, rel string, data []byte, mode parser.Mode) *ast.File {
+	f, err := parser.ParseFile(fset, rel, data, mode|parser.SkipObjectResolution)
 	if err != nil {
 		return nil
 	}
 
-	return functionValue(rel, fset, f, listed)
+	return f
 }
 
 // readsCallsInto reports whether the scan may read calls into the package at an import
@@ -87,13 +101,13 @@ func (a *App) readsCallsInto(importPath string) bool {
 	return own
 }
 
-// functionValue refuses the first function of listed (by the name the file imports its
-// package under) that the file names anywhere but as the function of a call.
-func functionValue(rel string, fset *token.FileSet, f *ast.File, listed map[string][]string) error {
+// functionValue is the first function of listed (by the name the file imports its
+// package under) that the file names anywhere but as the function of a call: the package's
+// name as the file writes it and the function's, or nil.
+func functionValue(f *ast.File, listed map[string][]string) (pkg *ast.Ident, name string) {
 	called := map[*ast.SelectorExpr]bool{}
-	var refusal error
 	ast.Inspect(f, func(n ast.Node) bool {
-		if refusal != nil {
+		if pkg != nil {
 			return false
 		}
 		switch e := n.(type) {
@@ -102,20 +116,17 @@ func functionValue(rel string, fset *token.FileSet, f *ast.File, listed map[stri
 				called[sel] = true
 			}
 		case *ast.SelectorExpr:
-			pkg, ok := e.X.(*ast.Ident)
-			if !ok || called[e] || !slices.Contains(listed[pkg.Name], e.Sel.Name) {
-				return true
-			}
-			refusal = errors.Newf("%s:%d: %s.%s is named here without being called, and impulse reads a call where the source writes it, so it would not see a call made through this value: call %s.%s where the call is made",
-				rel, fset.Position(e.Pos()).Line, pkg.Name, e.Sel.Name, pkg.Name, e.Sel.Name)
+			if id, ok := e.X.(*ast.Ident); ok && !called[e] && slices.Contains(listed[id.Name], e.Sel.Name) {
+				pkg, name = id, e.Sel.Name
 
-			return false
+				return false
+			}
 		}
 
 		return true
 	})
 
-	return refusal
+	return pkg, name
 }
 
 // calledFunction is the function a call is made to as the source writes it, looking
