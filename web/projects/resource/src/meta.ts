@@ -151,6 +151,15 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
 }
 
 /** When the server accepts a filter on a field: on its own, or only beside an indexed field. */

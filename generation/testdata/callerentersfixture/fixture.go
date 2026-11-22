@@ -13,7 +13,21 @@ type Keeper struct {
 }
 
 func (Keeper) TenantsToEnter() resource.TenantsToEnter {
-	return resource.TenantsToEnter{Query: "SELECT KeeperId AS RowKey, Tenant FROM KeeperPosts", Column: "Id"}
+	return resource.TenantsToEnter{Query: "SELECT KeeperId AS RowKey, Tenant FROM KeeperPosts", Match: map[string]string{"RowKey": "Id"}}
+}
+
+// Bollard says which tenants a caller must enter, in the one form, as Keeper does.
+type Bollard struct {
+	ID string `spanner:"Id"`
+}
+
+func (Bollard) TenantsToEnter() resource.TenantsToEnter {
+	return resource.TenantsToEnter{Query: "SELECT BollardId AS RowKey, Tenant FROM BollardPosts", Match: map[string]string{"RowKey": "Id"}}
+}
+
+// Mooring is a struct of the package that is no resource.
+type Mooring struct {
+	ID string `spanner:"Id"`
 }
 
 // Dock says nothing.
@@ -36,7 +50,7 @@ type Hoist struct {
 }
 
 func (Hoist) TenantsToEnter(column string) resource.TenantsToEnter {
-	return resource.TenantsToEnter{Column: column}
+	return resource.TenantsToEnter{Match: map[string]string{"RowKey": column}}
 }
 
 // Winch says it as a string.
@@ -105,6 +119,45 @@ type (
 	CallerEntersString struct {
 		// @target(Winch)
 		WinchID string
+	}
+
+	// SweepPosts names no row and is offered on the rows of Keeper and Bollard, in the
+	// order written, only to a caller who enters a row's tenants.
+	//
+	// @rpc
+	// @callerEnters(Keeper, Bollard)
+	SweepPosts struct {
+		KeeperID string
+	}
+
+	// @rpc
+	// @callerEnters(Keeper, , Bollard)
+	CallerEntersEmptyName struct {
+		KeeperID string
+	}
+
+	// @rpc
+	// @callerEnters(Keeper, Bollard, Keeper)
+	CallerEntersTwice struct {
+		KeeperID string
+	}
+
+	// @rpc
+	// @callerEnters(Keeper, Mooring)
+	CallerEntersNotResource struct {
+		KeeperID string
+	}
+
+	// @rpc
+	// @callerEnters(Keeper)
+	CallerEntersOtherScope struct {
+		KeeperID string
+	}
+
+	// @rpc
+	// @callerEnters(Keeper, Dock)
+	CallerEntersOfferedUndeclared struct {
+		KeeperID string
 	}
 
 	// Tower is a resource that marks itself as if it were a method.

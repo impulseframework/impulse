@@ -1552,6 +1552,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				OfferedOn:   []accesstypes.Resource{"MembersHeldRoles", "MembersTakenRoles"},
 			},
 			{
 				Name:         "RemoveStaffGroupMember",
@@ -1574,6 +1575,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				OfferedOn:   []accesstypes.Resource{"StaffHeldRoles", "StaffTakenRoles"},
 			},
 			{
 				Name:         "RenameMembersUser",
@@ -2135,6 +2137,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				OfferedOn:   []accesstypes.Resource{"MembersListedGroupRoles"},
 			},
 			{
 				Name:        "TakeMembersRole",
@@ -2150,6 +2153,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				OfferedOn:   []accesstypes.Resource{"StaffListedGroupRoles"},
 			},
 			{
 				Name:        "TakeStaffRole",

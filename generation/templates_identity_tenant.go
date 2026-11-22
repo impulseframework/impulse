@@ -111,6 +111,47 @@ const (
 // of that {{ .TenantWord }}'s administrator roles there: a caller whose session does not
 // enter it is not offered the methods that put a person in the group or take one out.`
 
+	// identityRoleTenantsToEnterDoc is the comment of TenantsToEnter on the whole
+	// application's lists of the roles people hold and of the roles held for a set time
+	// (OffersToEntering).
+	identityRoleTenantsToEnterDoc = `// TenantsToEnter names the {{ .TenantWord }} the row's role makes its holder an administrator of,
+// where a person holds the role of their own in that {{ .TenantWord }} itself: a caller whose
+// session does not enter it is not offered the method that takes the role away.`
+
+	// identityGroupRoleTenantsToEnterDoc is the comment of TenantsToEnter on the whole
+	// application's list of the roles the groups hold (OffersToEntering).
+	identityGroupRoleTenantsToEnterDoc = `// TenantsToEnter names the {{ .TenantWord }} the group is kept in, where the row's role is one
+// of that {{ .TenantWord }}'s administrator roles held there: a caller whose session does not
+// enter it is not offered the method that takes the role away from the group.`
+
+	// identityRoleRemovalEntersNote is the paragraph the whole application's method that
+	// takes a role from a person adds to its comment where the rows a page runs it from
+	// offer it only to a caller who enters the tenant the role administers
+	// (RoleRemovalRows): the method the identity package's requireEnteringToChange
+	// refuses for such a role.
+	identityRoleRemovalEntersNote = `
+{{- if .RoleRemovalRows }}
+//
+// It names no row: a page runs it from a row of the roles people hold, filling the
+// request from the row. Where the role is one of a {{ .TenantWord }}'s administrator roles held
+// in that {{ .TenantWord }} itself, such a row offers it only to a caller whose session enters
+// the {{ .TenantWord }} (@callerEnters); the method refuses anyone else.
+{{- end }}`
+
+	// identityGroupRoleRemovalEntersNote is the paragraph the whole application's method
+	// that takes a role away from a group adds to its comment, after identityJudgedNote,
+	// where a row of the roles the groups hold offers it only to a caller who enters the
+	// tenant the group is kept in (OffersToEntering). A tenant's own group is changed under
+	// the tenant's address, which a caller has entered, so its method says nothing.
+	identityGroupRoleRemovalEntersNote = `
+{{- if and .OffersToEntering (not .ForTenant) }}
+//
+// Where the group is kept in a {{ .TenantWord }} and the role is one of that {{ .TenantWord }}'s
+// administrator roles held there, a row of the roles the groups hold offers it only to a
+// caller whose session enters the {{ .TenantWord }} (@callerEnters); the method refuses anyone
+// else.
+{{- end }}`
+
 	// identityTenantGuard opens the body of a tenant's method that hands the identity
 	// package nothing of the tenant: the frame has located the row within the tenant,
 	// and the method still runs for a request under the tenant's address alone.

@@ -64,7 +64,7 @@ import {
 import { from, map, mergeMap, Observable, of, tap, throwError, toArray } from 'rxjs';
 import { PagedList, PagedListRequest } from './paged-list';
 import { PagePosition, positionAfter } from './resource-list/list-request';
-import { methodsTargeting } from './row-methods/row-methods';
+import { methodsOfferedOn, methodsTargeting } from './row-methods/row-methods';
 
 /** One page of the listed resource as the table shows it, positioned in the server's list. */
 export interface ListPage {
@@ -536,6 +536,16 @@ export class ResourceStore {
     return methodsTargeting(Object.keys(this.client.descriptor.methods), this.methodMeta, resource);
   }
 
+  /**
+   * The generated methods that name no target row and are offered on the rows of the
+   * resource (`offeredOn` naming it), by the method metadata: the methods a page of the
+   * resource asks the server about with a row, and offers where the row's answer lists them
+   * and the page fills them from the row.
+   */
+  methodsOfferedOn(resource: Resource): string[] {
+    return methodsOfferedOn(Object.keys(this.client.descriptor.methods), this.methodMeta, resource);
+  }
+
   overrideRoute = signal<string>('');
   resourceRoute = computed(() => this.resourceMeta()?.route);
   route = computed(() => {
@@ -795,8 +805,12 @@ export class ResourceStore {
             domain: this.scopedDomain(descriptor),
             live: live(),
             // The row's Execute answer is asked for where a generated method runs
-            // against a row of the resource and the page offers its rows' methods.
-            execute: this.viewMethods() && this.methodsTargeting(descriptor.resource as Resource).length > 0,
+            // against a row of the resource, or is offered on its rows, and the page
+            // offers its rows' methods.
+            execute:
+              this.viewMethods() &&
+              (this.methodsTargeting(descriptor.resource as Resource).length > 0 ||
+                this.methodsOfferedOn(descriptor.resource as Resource).length > 0),
           };
         },
         stream: ({ params }) => {

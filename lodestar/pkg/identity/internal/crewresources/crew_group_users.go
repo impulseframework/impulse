@@ -67,15 +67,16 @@ func (CrewGroupUser) Subquery() (query string, params map[string]any) {
 }
 
 // crewGroupAdministeredTenantsQuery answers the sector each group of the
-// Crew auth makes its people administrators of, a row for each, RowKey the group's id
-// and Tenant the sector: a group kept in a sector that holds there one of
-// the roles the auth's permission engine names as a sector's administrator's
-// (@enteringAdministratorRoles), in an assignment that has not ended, one that has
-// not begun included. The methods that put a person in a group and take one out refuse a
-// caller by the same count (the identity package's requireEnteringToChange), and each row
-// of the whole application's groups and of their people reads it (TenantsToEnter).
+// Crew auth makes its people administrators of, a row for each, RowKey the group's id,
+// Tenant the sector, and the kind, the sector and the name of the role: a
+// group kept in a sector that holds there one of the roles the auth's permission
+// engine names as a sector's administrator's (@enteringAdministratorRoles), in
+// an assignment that has not ended, one that has not begun included. The methods that put a
+// person in a group and take one out refuse a caller by the same count (the identity
+// package's requireEnteringToChange), and each row of the whole application's groups, of
+// their people and of the roles they hold reads it (TenantsToEnter).
 const crewGroupAdministeredTenantsQuery = `
-SELECT tr.GroupId AS RowKey, tg.DomainId AS Tenant
+SELECT tr.GroupId AS RowKey, tr.Kind AS Kind, tr.DomainId AS DomainId, tr.Role AS Role, tg.DomainId AS Tenant
 FROM CrewGroupRoles tr
 JOIN CrewGroups tg ON tg.Id = tr.GroupId
 WHERE tg.Kind = 'domain' AND tg.Axis = ''

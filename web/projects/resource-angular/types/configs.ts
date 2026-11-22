@@ -169,7 +169,10 @@ export interface MethodPresentation {
    * is run from that row: a role given to a person by the id of their account, above the
    * list of the roles the person holds. Named among `rowMethods`, a method with no
    * target row and a `fill` is offered on every row while the digest grants the
-   * caller Execute on it; the server gives no answer for a row it does not name.
+   * caller Execute on it, since the server gives no answer for a row a method does not
+   * name; a method whose metadata lists the resources whose rows answer for it
+   * (`offeredOn`) is offered on a row of one of those resources only where the row's
+   * Execute answer lists it, and on a row of any other resource by the grant alone.
    */
   fill?: (row: RecordData) => Record<string, unknown>;
   /**

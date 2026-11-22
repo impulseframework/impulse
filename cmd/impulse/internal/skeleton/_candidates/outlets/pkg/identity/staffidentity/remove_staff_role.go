@@ -25,7 +25,13 @@ import (
 // identity links and sessions, in the same transaction: an account nothing admits is
 // not kept.
 //
+// It names no row: a page runs it from a row of the roles people hold, filling the
+// request from the row. Where the role is one of a tenant's administrator roles held
+// in that tenant itself, such a row offers it only to a caller whose session enters
+// the tenant (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters(StaffHeldRole, StaffTakenRole)
 // @outlet(default)
 // @answers(204)
 // @class(access)

@@ -746,6 +746,15 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
@@ -1056,6 +1065,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffRole]: {
     route: 'remove-staff-role',
+    offeredOn: [Resources.StaffHeldRoles, Resources.StaffTakenRoles],
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1228,6 +1238,7 @@ const methodMap: MethodMap = {
   },
   [Methods.TakeStaffGroupRole]: {
     route: 'take-staff-group-role',
+    offeredOn: [Resources.StaffListedGroupRoles],
     statuses: [204],
     dryRun: true,
     fields: [

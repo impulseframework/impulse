@@ -165,13 +165,14 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 		case accesstypes.Execute:
 			// The affordance question is per targeted method: the RPC method
 			// resources whose @target row is this resource — a declared
-			// transition or the plain located-row form (§09, §12).
+			// transition or the plain located-row form (§09, §12) — and the
+			// methods that name no row and are offered on its rows.
 			if q.collection == nil {
 				continue
 			}
 			resources = resources[:0]
 			var held accesstypes.Resource
-			for _, tm := range q.collection.MethodsTargeting(q.resourceSet.BaseResource()) {
+			for _, tm := range executeCandidates(q.collection, q.resourceSet.BaseResource()) {
 				resources = append(resources, tm.Method)
 				if tm.CallerEnters && held == "" {
 					held = tm.Method
@@ -181,8 +182,9 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 				continue
 			}
 			// A method offered only to a caller whose session enters the row's
-			// tenants (@callerEnters) needs the tenants this session does not
-			// enter, asked once for the statement.
+			// tenants (@callerEnters), one that names the row or one offered on
+			// it, needs the tenants this session does not enter, asked once for
+			// the statement.
 			if held != "" {
 				if err := q.askUnentered(ctx, held); err != nil {
 					return err
@@ -385,14 +387,16 @@ func (q *QuerySet[Resource]) plannedUpdate(perm accesstypes.Permission, decision
 // only to a caller whose session enters the row's tenants (@callerEnters)
 // ANDs the entering term into its boolean, or takes the term alone, while the
 // session does not enter some tenant; while it enters every one, the method is
-// planned as any other. Distinct expressions share one boolean per statement,
-// the held apart from the rest.
+// planned as any other. A method that names no row and is offered on the
+// resource's rows (@callerEnters naming the resource) is a candidate beside them,
+// planned as a plain method held to the tenants the caller enters. Distinct
+// expressions share one boolean per statement, the held apart from the rest.
 func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, groups *capabilityGroups) (plannedCapability, error) {
 	planned := plannedCapability{perm: accesstypes.Execute, group: -1}
 	if q.collection == nil {
 		return planned, nil
 	}
-	for _, tm := range q.collection.MethodsTargeting(q.resourceSet.BaseResource()) {
+	for _, tm := range executeCandidates(q.collection, q.resourceSet.BaseResource()) {
 		decision := decisions[tm.Method]
 		var exprs []condition.Expr
 		if tm.Transition != nil {
@@ -405,9 +409,10 @@ func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, gro
 			if err != nil {
 				return plannedCapability{}, err
 			}
-			// Deploy validation rejects new. on Execute grants; the bound is
-			// posture parity with intern — a post-image term would count
-			// potentially-true, never render.
+			// A term that reads the request (new.<field>) has nothing to read here: a
+			// row is answered before a request is written. It is dropped as potentially
+			// true, the posture intern takes, so the method is offered and the call
+			// itself is judged.
 			expr = condition.WithoutPostImage(expr)
 			if _, ok := expr.(condition.Truth); !ok {
 				exprs = append(exprs, expr)
@@ -434,6 +439,27 @@ func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, gro
 	}
 
 	return planned, nil
+}
+
+// executeCandidates lists the Execute affordance's candidates on a row of res, in one
+// list in method-name order: every method that targets res (MethodsTargeting), and every
+// method that names no row and is offered on the rows of res (MethodsOfferedOn), the
+// latter as a plain method that targets res and is held to the tenants the caller's
+// session enters.
+func executeCandidates(collection *GeneratedCollection, res accesstypes.Resource) []TargetedMethod {
+	candidates := collection.MethodsTargeting(res)
+	offered := collection.MethodsOfferedOn(res)
+	if len(offered) == 0 {
+		return candidates
+	}
+	for _, method := range offered {
+		candidates = append(candidates, TargetedMethod{Method: method, Target: res, CallerEnters: true})
+	}
+	slices.SortFunc(candidates, func(a, b TargetedMethod) int {
+		return strings.Compare(string(a.Method), string(b.Method))
+	})
+
+	return candidates
 }
 
 // plannedCreate builds the create-under-parent affordance's recipe (§11): the

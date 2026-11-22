@@ -50,7 +50,11 @@ import (
 // not begun included. Nor do the rows of Bastion's group offer her to put a person in it
 // or take one out while the group holds the marshal's role there, begun or not, which
 // they offer the governor; with the role taken from the group they offer her both, as
-// the rows of a group of the whole fleet's and of one of Anvil's do. In Anvil, which
+// the rows of a group of the whole fleet's and of one of Anvil's do. Nor do the rows of
+// the roles she reads offer her to take the marshal's role at Bastion away, from a person
+// who holds it of their own, begun or not, or from Bastion's group, which they offer the
+// governor; a role at Anvil, a role held in every sector and a role of the whole fleet's
+// group they offer her. In Anvil, which
 // admits her, she names a marshal as Headquarters does, and the governor, a super administrator, gives
 // Bastion's role. A session established by an impersonation gains nothing either: one
 // that views the application as Bastion's marshal does not enter Bastion, and one the
@@ -397,6 +401,92 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		t.Errorf("Bastion's group's row, as the pilot reads it, offers beside %s %v, want %v, as the row of Anvil's group does", addMember, got, want)
 	}
 
+	// What the server refuses the pilot on who holds Bastion's marshal's role, the rows of
+	// the roles she reads do not offer her: taking the role at Bastion from a person who
+	// holds it of their own, begun or not, on the rows of the roles people hold and of the
+	// roles held for a set time, and from Bastion's group, begun or not, on the rows of the
+	// roles the groups hold. The governor is offered each. A role at Anvil, a role held in
+	// every sector and a role of the whole fleet's group are offered her, and where she
+	// runs one the call runs. The bosun, who administers no sector, is given each role of
+	// a person's in turn and loses it before the next.
+	const (
+		removeRole    = "RemoveCrewRole"
+		takeGroupRole = "TakeCrewGroupRole"
+		heldRoles     = "crew-held-roles"
+		takenRoles    = "crew-taken-roles"
+		groupRoles    = "crew-listed-group-roles"
+	)
+	roleOffers := func(what, list, by, id, sector, method string, offered bool) {
+		t.Helper()
+
+		if got := slices.Contains(offeredOnRole(ctx, t, pilot, list, by, id, sector), method); got != offered {
+			t.Errorf("%s: its row of %s, as the pilot reads it, offers %s: %t, want %t", what, list, method, got, offered)
+		}
+		if got := slices.Contains(offeredOnRole(ctx, t, governor, list, by, id, sector), method); !got {
+			t.Errorf("%s: its row of %s, as the governor reads it, offers %s: false, want true", what, list, method)
+		}
+	}
+	bosunRole := func(sector string, period map[string]any) map[string]any {
+		role := map[string]any{"userId": bosunID, "role": "SectorMarshal", "everyDomain": true}
+		if sector != "" {
+			role = map[string]any{"userId": bosunID, "role": "SectorMarshal", "domain": sector}
+		}
+		for key, value := range period {
+			role[key] = value
+		}
+
+		return role
+	}
+	roleOffers("the rigger's own marshal's role at Bastion", heldRoles, "userId", riggerID, bastion, removeRole, false)
+
+	give("giving the bosun the marshal's role at Bastion from an hour on", "assign-crew-role", bosunRole(bastion, map[string]any{"startsAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)}))
+	roleOffers("the bosun's marshal's role at Bastion from an hour on", heldRoles, "userId", bosunID, bastion, removeRole, false)
+	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), jsonBody(t, bosunRole(bastion, nil))); status != http.StatusForbidden || !strings.Contains(string(answer), roleKept) {
+		t.Errorf("taking the bosun's marshal's role at Bastion, not begun, as the pilot: status %d, want 403 saying %q: %s", status, roleKept, answer)
+	}
+	give("taking the bosun's marshal's role at Bastion that has not begun", "remove-crew-role", bosunRole(bastion, nil))
+
+	give("giving the bosun the marshal's role at Anvil", "assign-crew-role", bosunRole(anvil, nil))
+	roleOffers("the bosun's marshal's role at Anvil", heldRoles, "userId", bosunID, anvil, removeRole, true)
+	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), jsonBody(t, bosunRole(anvil, nil))); status != http.StatusNoContent {
+		t.Errorf("taking the bosun's marshal's role at Anvil as the pilot: status %d, want 204: Anvil admits her: %s", status, answer)
+	}
+
+	give("giving the bosun the marshal's role in every sector", "assign-crew-role", bosunRole("", nil))
+	roleOffers("the bosun's marshal's role in every sector", heldRoles, "userId", bosunID, "", removeRole, true)
+	give("taking the bosun's marshal's role in every sector", "remove-crew-role", bosunRole("", nil))
+
+	// A role given with an end and a reason is a row of the roles held for a set time and
+	// of the roles people hold, and each says the same of it.
+	forATime := map[string]any{"endsAt": time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339Nano), "reason": "Covering the sector's watch"}
+	for _, sector := range []struct {
+		name, id string
+		offered  bool
+	}{{"Bastion", bastion, false}, {"Anvil", anvil, true}} {
+		what := "the bosun's marshal's role at " + sector.name + ", given with an end and a reason"
+		give("giving "+what, "assign-crew-role", bosunRole(sector.id, forATime))
+		roleOffers(what, takenRoles, "userId", bosunID, sector.id, removeRole, sector.offered)
+		roleOffers(what, heldRoles, "userId", bosunID, sector.id, removeRole, sector.offered)
+		give("taking "+what, "remove-crew-role", bosunRole(sector.id, nil))
+	}
+
+	roleOffers("Bastion's group's marshal's role at Bastion", groupRoles, "groupId", wardroom, bastion, takeGroupRole, false)
+	give("taking the marshal's role from Bastion's group", "take-crew-group-role", wardroomRole)
+	give("giving Bastion's group the marshal's role there from an hour on", "give-crew-group-role", laterRole)
+	roleOffers("Bastion's group's marshal's role at Bastion from an hour on", groupRoles, "groupId", wardroom, bastion, takeGroupRole, false)
+	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("take-crew-group-role"), jsonBody(t, wardroomRole)); status != http.StatusForbidden || !strings.Contains(string(answer), roleKept) {
+		t.Errorf("taking the marshal's role from Bastion's group, not begun, as the pilot: status %d, want 403 saying %q: %s", status, roleKept, answer)
+	}
+	give("taking the role that has not begun from Bastion's group", "take-crew-group-role", wardroomRole)
+	give("giving Bastion's group the marshal's role there once more", "give-crew-group-role", wardroomRole)
+	roleOffers("the fleet's group's marshal's role at Bastion", groupRoles, "groupId", fleetGroup, bastion, takeGroupRole, true)
+	roleOffers("Anvil's group's marshal's role at Anvil", groupRoles, "groupId", anvilGroup, anvil, takeGroupRole, true)
+	anvilGroupRole := map[string]any{"groupId": anvilGroup, "role": "SectorMarshal", "domain": anvil}
+	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("take-crew-group-role"), jsonBody(t, anvilGroupRole)); status != http.StatusNoContent {
+		t.Errorf("taking Anvil's marshal's role from Anvil's group as the pilot: status %d, want 204: Anvil admits her: %s", status, answer)
+	}
+	give("giving Anvil's group Anvil's marshal's role back", "give-crew-group-role", anvilGroupRole)
+
 	// The row and the server count Bastion's marshal alike, whichever way she holds the
 	// role: by a role of her own alone, through Bastion's group alone, and by a role that
 	// has not begun, which counts for both though it opens Bastion to nobody yet. With
@@ -570,6 +660,28 @@ func offeredOnRow(ctx context.Context, t *testing.T, b *browser, list, id string
 		}
 	}
 	t.Fatalf("the list %s does not carry the row %s: %s", list, id, body)
+
+	return nil
+}
+
+// offeredOnRole is what the row of a marshal's role offers the browser's user in one of
+// the crew's lists of roles of the whole fleet, read with capabilities=Execute as a list
+// page reads it: the row found by its key's columns, the person or the group (the column
+// by, holding id), the sector the role is held in (empty for every sector) and the role,
+// the person's own where the list names a group a role comes through. The methods of the
+// row's Execute answer, sorted.
+func offeredOnRole(ctx context.Context, t *testing.T, b *browser, list, by, id, sector string) []string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, crewMethod(list+"?limit=200&capabilities=Execute&filter="+by+":eq:"+id), nil)
+	assertStatus(t, status, http.StatusOK, body)
+	for _, row := range decodeRows(t, body) {
+		own := by == "groupId" || row["groupId"] == nil || row["groupId"] == ""
+		if row[by] == id && row["domainId"] == sector && row["role"] == "SectorMarshal" && own {
+			return executeOffered(t, row)
+		}
+	}
+	t.Fatalf("the list %s does not carry the marshal's role of %s in the sector %q: %s", list, id, sector, body)
 
 	return nil
 }
