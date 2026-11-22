@@ -109,7 +109,12 @@ func (p Policy[Tx]) Then(next Policy[Tx]) Policy[Tx] {
 }
 
 // NewUser is the user a rule provisions. It has no password unless PasswordHash is
-// set.
+// set. PasswordHash carries over a password the person already had: the account is
+// written with the hash as given. The library judges a password's strength from the
+// password itself, when a person chooses one; a hash says nothing of the password
+// behind it, so no judgment is made of this one. A rule never makes up a password
+// here: an account with none gets one when the person chooses it, on a path that
+// judges it.
 type NewUser struct {
 	Username     string
 	PasswordHash *securehash.Hash
