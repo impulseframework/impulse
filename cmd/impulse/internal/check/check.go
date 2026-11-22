@@ -217,6 +217,7 @@ func All() []Check {
 		ciWorkflow{},
 		paging{},
 		rpcExecute{},
+		constantAnnotations{},
 		featureFlags{},
 		sitesGenerators{},
 		envTemplate{},

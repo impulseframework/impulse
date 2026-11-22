@@ -78,6 +78,10 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		opt(options)
 	}
 	options.collection = collection
+	if options.roleFiles > 1 {
+		return nil, errors.Newf("access.WithDefaultRoles() is among the options %d times, and an engine holds the roles of one auth, so it takes one role file: "+
+			"hand it its own auth's, once (another auth has an engine of its own)", options.roleFiles)
+	}
 
 	// Every Client defines the Super Administrator role, with or without a role
 	// file: the file's roles are compiled beside it. A Client opened without a

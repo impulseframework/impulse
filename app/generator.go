@@ -314,9 +314,10 @@ func generationLocalName(f *ast.File) string {
 	return localImportName(f, generationImportPath)
 }
 
-// isQualified reports whether fun is the selector pkg.name.
+// isQualified reports whether fun is the selector pkg.name, looking through parentheses
+// around it: (pkg.name)(...) is the call pkg.name(...) is.
 func isQualified(fun ast.Expr, pkg, name string) bool {
-	sel, ok := fun.(*ast.SelectorExpr)
+	sel, ok := ast.Unparen(fun).(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != name {
 		return false
 	}

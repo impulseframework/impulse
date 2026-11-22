@@ -78,6 +78,10 @@ func (defaultsCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (defaultsCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
 func (defaultsCollection) Auths() []string {
 	return nil
 }

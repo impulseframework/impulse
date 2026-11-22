@@ -72,6 +72,11 @@ func (declared) SubjectSetAuth(string) string {
 	return ""
 }
 
+// SubjectSetDefinition implements access.PermissionCollection.
+func (declared) SubjectSetDefinition(string) []string {
+	return nil
+}
+
 // Auths implements access.PermissionCollection.
 func (declared) Auths() []string {
 	return nil
