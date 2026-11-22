@@ -904,9 +904,12 @@ type signInHold struct {
 // in the transaction on the user row it reads, with nothing written and no error: a
 // refusal, or what unproven answers for an account that may still enter the code mailed
 // to the invited address. An account that holds another address by then, confirmed or
-// not, is refused there as it is before the transaction (addressRefusal). An error is
-// the driver's or the acceptor's, and nothing is written either. inv.Accepted is set to
-// the outcome.
+// not, is refused there as it is before the transaction (addressRefusal). A transaction
+// the users table ends because another account took the invited address at the same
+// moment (dbtype.EmailConflict, the sign-in carrying no claim) is answered as it is
+// where that account held the address before: stop is the refusal of an acceptance with
+// another address, and nothing is written. An error is the driver's or the acceptor's,
+// and nothing is written either. inv.Accepted is set to the outcome.
 //
 // signIn is what the acceptance a sign-in makes is held to, nil for one by hand. It
 // goes on only while the user, read in its transaction, still holds the password the
@@ -1000,10 +1003,16 @@ func acceptInvitation[Tx any](
 		if errors.Is(err, errAcceptanceSkipped) {
 			return false, nil, nil
 		}
-		if claim != nil && d.SignInConflict(err) == dbtype.EmailConflict {
-			// Another account took the code's address at the same moment: the code no
-			// longer stands, and the invitation does.
-			return false, codeAddressGone(userID, claim), nil
+		if d.SignInConflict(err) == dbtype.EmailConflict {
+			if claim != nil {
+				// Another account took the code's address at the same moment: the code no
+				// longer stands, and the invitation does.
+				return false, codeAddressGone(userID, claim), nil
+			}
+			// Another account took the invited address at the same moment: the
+			// acceptance is answered as it is where that account held it before, and the
+			// invitation stands.
+			return false, Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
 		}
 
 		return false, nil, errors.Wrap(err, "Driver.Transact()")

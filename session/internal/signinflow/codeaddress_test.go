@@ -350,7 +350,10 @@ func wantHeldFor(factor sessioninfo.AuthMethod) func(t *testing.T, err error) {
 // with code_expired, no session and nothing written, as it is where the other account
 // held the address before. That is so for the transaction that inserts the session and
 // for an invitation's acceptance on the account's own code, whose invitation stands.
-// Without a claim the error is the store's.
+// An invitation's acceptance that carries no claim, on the invitation's code, is refused
+// as an acceptance with another address is (invitation_address), as it is where the
+// other account held the invited address before, and its invitation stands. The
+// transaction that inserts the session, with no claim, ends with the store's error.
 func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testing.T) {
 	t.Parallel()
 
@@ -363,9 +366,11 @@ func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testin
 		name string
 		// address is the address the account holds, unconfirmed, "" for none; invited
 		// says the sign-in carries an invitation mailed to it, which the sign-in accepts
-		// on the account's own code; claim is the address the code confirms.
+		// on the account's own code, or on the invitation's where proven says the sign-in
+		// entered it (Invitation.AddressProven); claim is the address the code confirms.
 		address string
 		invited bool
+		proven  bool
 		claim   *dbtype.CodeAddress
 		wantErr func(t *testing.T, err error)
 	}{
@@ -378,6 +383,11 @@ func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testin
 			name:    "the account's own address, taken as the invitation is accepted on its code: refused code_expired, the invitation standing",
 			address: invited, invited: true, claim: &dbtype.CodeAddress{Held: addressOf(invited), Email: invited},
 			wantErr: wantRefusal(sessioninfo.RefusedCodeExpired),
+		},
+		{
+			name:    "the invited address, taken as the invitation is accepted on the invitation's code: refused invitation_address, the invitation standing",
+			invited: true, proven: true,
+			wantErr: wantRefusal(sessioninfo.RefusedInvitationAddress),
 		},
 		{
 			name:    "a sign-in that carries no claim: the store's error",
@@ -402,6 +412,7 @@ func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testin
 			var inv *sessioninfo.Invitation
 			if tt.invited {
 				inv = store.invite(invited, "lakeside", "Coach")
+				inv.AddressProven = tt.proven
 				req.Invitation = inv
 			}
 
