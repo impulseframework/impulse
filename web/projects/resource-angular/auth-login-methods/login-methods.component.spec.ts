@@ -2899,10 +2899,10 @@ describe('LoginMethodsComponent over an auth that registers no password method',
       { home: '/dashboard' },
     );
     expect(page.component.invitationPaths()).toEqual({
-      known: true,
       redirects: [google, entra],
       password: false,
       create: false,
+      existing: false,
     });
     expect(buttonsOf(page)).toEqual([
       'Continue with Google as ensign@fleet.example',
