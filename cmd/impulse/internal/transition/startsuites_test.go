@@ -267,9 +267,9 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 			tenants: Tenancy{Table: "Tenants", OneTenantPerPerson: true},
 			wants: map[string][]string{
 				"test/authz/harness_test.go":                     {"app.NewTenantMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(tenantAdministrators), identity.WithOneTenantPerPerson())", "app.NewTenantRoster(resource.NewSpannerClient(db.Client))"},
-				"test/integration/harness_test.go":               {"app.NewTenantRoster(", "app.NewTenantDeclarationReader()", "app.NewTenantDirectoryReader()", "app.NewTenantMaker(roster, svc)", "Persona: members.PersonaSettings{", "auth.SeedCast(ctx, io.Discard)", `north = "` + devTenantNorth + `"`},
+				"test/integration/harness_test.go":               {"func newDeployed(ctx context.Context, t *testing.T) *served {", "app.NewTenantRoster(", "app.NewTenantDeclarationReader()", "app.NewTenantDirectoryReader()", "app.NewTenantMaker(roster, svc)", "personaSettings = members.PersonaSettings{Issuer: ", "Persona: personaSettings,", "auth.SeedCast(ctx, io.Discard)", `north = "` + devTenantNorth + `"`},
 				"test/integration/sign_in_skipauth_test.go":      {"//go:build skipAuth\n", `"APP_"+strings.ToUpper(registration)+"_USERNAME"`},
-				"test/integration/login_test.go":                 {"members.PersonaRegistration", "members.GoogleRegistration", "members.AzureRegistration", "RefusedNotInvited"},
+				"test/integration/login_test.go":                 {"members.PersonaRegistration", "members.GoogleRegistration", "members.AzureRegistration", "RefusedNotInvited", "func TestLoginMethods(t *testing.T) {", "stack: newDeployed"},
 				"test/integration/invited_administrator_test.go": {"func TestFirstAdministrator_invitedThroughADirectory(t *testing.T) {"},
 				"test/integration/groups_test.go":                {"s.auth.SeedCastFile(ctx, io.Discard,"},
 				"test/integration/grants_test.go":                {"unconditionalRows(accesstypes.DomainScope(north), config.Roles.Domain)"},
@@ -354,6 +354,9 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 		wantMethods [][3]string
 		wantButtons string
 		wantLinks   string
+		// wantDeployed is what the spec holds of the page where no persona provider is
+		// configured, where the start registers the persona method.
+		wantDeployed []string
 	}{
 		{
 			name: "Directory roles through Google",
@@ -394,6 +397,12 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 			wantMethods: [][3]string{{"google", "google", "Google"}, {"azure", "azure", "Microsoft"}, {"persona", "oidc", "Persona"}},
 			wantButtons: "expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft', 'Sign in with Persona']);",
 			wantLinks:   "const links: Record<string, string>[] = [{ invitation: 'token' }, { verify: 'token' }];",
+			wantDeployed: []string{
+				"methods: METHODS.methods.filter((method) => method.name !== 'persona'),",
+				"describe('LoginComponent, where no persona provider is configured', () => {",
+				"? { status: 200, body: DEPLOYED_METHODS }",
+				"expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft']);",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -432,7 +441,7 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 			if got := strings.Count(spec, "kind: '"); got != len(tt.wantMethods) {
 				t.Errorf("%s answers the methods route with %d method(s), want %d", loginPageSpec, got, len(tt.wantMethods))
 			}
-			for _, want := range []string{tt.wantButtons, tt.wantLinks, "expect(element.querySelector('impulse-login-methods form')).toBeNull();"} {
+			for _, want := range append([]string{tt.wantButtons, tt.wantLinks, "expect(element.querySelector('impulse-login-methods form')).toBeNull();"}, tt.wantDeployed...) {
 				if !strings.Contains(spec, want) {
 					t.Errorf("%s does not contain %q", loginPageSpec, want)
 				}
