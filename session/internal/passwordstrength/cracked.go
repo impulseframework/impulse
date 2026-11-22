@@ -14,7 +14,8 @@ import (
 const entrySize = 6
 
 // cracked is the table makecracked writes: the first entrySize bytes of the SHA-256 of each
-// of the 100,000 passwords most often found in data breaches, sorted ascending, each once.
+// of the 99,839 passwords of the list published as the 100,000 most often found in data
+// breaches, sorted ascending, each once.
 //
 //go:embed cracked.bin
 var cracked []byte

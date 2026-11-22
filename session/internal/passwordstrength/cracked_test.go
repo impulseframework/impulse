@@ -2,7 +2,15 @@ package passwordstrength
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
+)
+
+// The table makecracked writes: a table cut short or changed by anything else fails.
+const (
+	crackedEntries = 99_839
+	crackedSHA256  = "e0fe15179a4df963613f7b3cc06c190dca9fc5369a2d6f7df22a2b5137591725"
 )
 
 func TestJudge_listedPasswords(t *testing.T) {
@@ -55,6 +63,12 @@ func TestCracked_table(t *testing.T) {
 	n := len(cracked) / entrySize
 	if n < 90_000 {
 		t.Errorf("cracked.bin holds %d entries, want at least 90,000", n)
+	}
+	if n != crackedEntries {
+		t.Errorf("cracked.bin holds %d entries, want the %d makecracked writes", n, crackedEntries)
+	}
+	if sum := sha256.Sum256(cracked); hex.EncodeToString(sum[:]) != crackedSHA256 {
+		t.Errorf("cracked.bin's SHA-256 = %x, want %s as makecracked writes it", sum, crackedSHA256)
 	}
 	for i := 1; i < n; i++ {
 		if bytes.Compare(entryAt(i-1), entryAt(i)) >= 0 {
