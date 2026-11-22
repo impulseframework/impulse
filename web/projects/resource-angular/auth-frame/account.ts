@@ -13,9 +13,10 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
  * password change where the person's auth has the password method, the removal of the
  * password where the server serves it, a first password where the person has none and the
  * server serves one, and forgetting this browser where it is remembered for them. Under the
- * lines, where the person is signed in, where the server serves the list, and forgetting
- * every browser remembered for them, where it serves that. An impersonated session changes
- * nothing of the person it acts as, and is shown none of their sessions.
+ * lines, the person's tenants, where the server serves their list, and where the person is
+ * signed in, where the server serves that list, and forgetting every browser remembered for
+ * them, where it serves that. An impersonated session changes nothing of the person it acts
+ * as, and is shown none of their tenants or sessions.
  *
  * The password follows what the server says the person signs in with (`signInMeans`):
  * neither the change nor the removal is offered to a person who holds no password, and the
@@ -161,6 +162,13 @@ export class Account {
    */
   readonly sessions = computed(
     () => this.own() && this.methods.hasValue() && this.methods.value().ownSessions !== undefined,
+  );
+  /**
+   * The server serves the list of the person's tenants, with leaving one of them, and the
+   * session is the person's own.
+   */
+  readonly tenants = computed(
+    () => this.own() && this.methods.hasValue() && this.methods.value().ownTenants !== undefined,
   );
   /** The server serves forgetting every browser remembered for the person, and the session is the person's own. */
   readonly forgetBrowsers = computed(

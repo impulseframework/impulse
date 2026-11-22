@@ -386,6 +386,49 @@
     </div>
   }
 
+  @if (tenantsShown()) {
+    <section class="impulse-account-page-tenants">
+      <h2>{{ tenantsHeading() }}</h2>
+      @if (tenantsFailed()) {
+        <p class="impulse-account-page-tenants-failed" role="alert">
+          We could not read your {{ tenantsWord }}. Reload the page to try again.
+        </p>
+      } @else {
+        @if (tenants().length > 0) {
+          <ul class="impulse-account-page-tenant-list">
+            @for (tenant of tenants(); track tenant.domain) {
+              <li class="impulse-account-page-tenant">
+                <div class="impulse-account-page-tenant-what">
+                  <span class="impulse-account-page-tenant-name">{{ tenant.name }}</span>
+                  <span class="impulse-account-page-tenant-roles">
+                    {{ tenant.roles.length > 0 ? tenant.roles.join(', ') : 'No role' }}
+                  </span>
+                  @if (tenant.refusal) {
+                    <span class="impulse-account-page-tenant-refusal">{{ tenant.refusal }}</span>
+                  }
+                </div>
+                @if (!tenant.refusal) {
+                  <button
+                    mat-button
+                    type="button"
+                    class="impulse-account-page-leave"
+                    [attr.aria-label]="'Leave ' + tenant.name"
+                    [disabled]="busy()"
+                    (click)="leave(tenant)">
+                    Leave
+                  </button>
+                }
+              </li>
+            }
+          </ul>
+        }
+        @if (tenantsSaid()) {
+          <p class="impulse-account-page-tenants-said" role="status">{{ tenantsSaid() }}</p>
+        }
+      }
+    </section>
+  }
+
   @if (signedInRead()) {
     <section class="impulse-account-page-signed-in">
       <h2>Where you are signed in</h2>
