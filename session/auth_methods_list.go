@@ -267,27 +267,26 @@ type pendingAnswer struct {
 }
 
 // Methods answers the login page with the sign-in methods it offers: for each listed
-// method its name, the method behind it, how it starts (a form for the password
-// method, a redirect for an external one), its label and its path, in the list's
-// order, the pending sign-in routes when the list names them, and the password
-// change route when the password method is listed, with the route that removes the
-// password when the list names it. When the list names the invitation
-// routes and the browser carries a live invitation (the cookie Invitation().Open()
-// set), the invitation block also reports it under "standing": the address it was
-// sent to, its tenant (for an invitation that makes a tenant, "newTenant" with the
-// tenant's name, and "directoryOnly" where it is accepted through an organization's
-// directory alone), when it stops being accepted, whether an account created from
-// it takes the address as its username, and the names of the listed external
-// registrations that could admit the address (see Invitation().Open()), so a page
-// that arrives without the mailed link's token, as it does when an external sign-in
-// was refused and sent it back, still shows the invitation and hides the methods that
-// would refuse the person. A browser without the cookie, or whose invitation is no
-// longer live, gets the block without it. The answer is public: route it beside the
-// login routes, behind StartSession and before ValidateSession, and it needs no XSRF
-// token. The sign-up block is in the answer only while the password method is open to
-// sign-up: an administrator's choice in the running application, which the answer
-// reads as each request arrives, so a page loaded after the method is opened offers
-// to sign up and one loaded after it is closed does not.
+// method its name, the method behind it, how it starts (a form for the password method, a
+// redirect for an external one), its label and its path, in the list's order, the pending
+// sign-in routes when the list names them, and the password change route when the
+// password method is listed, with the route that removes the password when the list names
+// it. When the list names the invitation routes and the browser carries a live invitation
+// (the cookie Invitation().Open() set), the invitation block also reports it under
+// "standing": the address it was sent to, the name the inviter gave, its tenant (for an
+// invitation that makes a tenant, "newTenant" with the tenant's name, and "directoryOnly"
+// where it is accepted through an organization's directory alone), when it stops being
+// accepted, whether an account created from it takes the address as its username, and the
+// names of the listed external registrations that could admit the address (see
+// Invitation().Open()), so a page that arrives without the mailed link's token, as it
+// does when an external sign-in was refused and sent it back, still shows the invitation
+// and hides the methods that would refuse the person. A browser without the cookie, or
+// whose invitation is no longer live, gets the block without it. The answer is public:
+// route it beside the login routes, behind StartSession and before ValidateSession, and
+// it needs no XSRF token. The sign-up block is in the answer only while the password
+// method is open to sign-up: an administrator's choice in the running application, which
+// the answer reads as each request arrives, so a page loaded after the method is opened
+// offers to sign up and one loaded after it is closed does not.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
@@ -295,7 +294,8 @@ type pendingAnswer struct {
 //	 "changePassword": "/api/user/password",
 //	 "passwordStrength": "/api/user/password/strength",
 //	 "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-//	                "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["google"]}}}
+//	                "standing": {"email": "pat@lakeside.edu", "name": "Pat Reyes", "newTenant": false, "directoryOnly": false, "expiresAt": "2026-10-31T20:00:00Z",
+//	                             "usernameIsEmail": false, "methods": ["google"], "accountExists": false, "hasPassword": false}}}
 //
 // Methods is called where the routes are wired, after every method is registered, and
 // panics on a wiring mistake, the way a registration does: an empty list, a method

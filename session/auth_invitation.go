@@ -243,20 +243,22 @@ type InvitationHandlers struct {
 }
 
 // Open accepts {"token"}, the token the mailed link carried, and answers {"email",
-// "tenant", "expiresAt", "signUp", "usernameIsEmail", "methods"}: the address the
-// invitation was sent to, the tenant it seats the person in ("" for the application's
-// global surface), when it stops being accepted, whether the person may create an
-// account with a password here (the password method is registered), whether that
-// account's username is the address, and the names of the listed external
-// registrations that could admit the address (as the methods listing advertises
+// "name", "tenantId", "expiresAt", "signUp", "usernameIsEmail", "methods",
+// "accountExists", "hasPassword"}: the address the invitation was sent to, the person's
+// name as the inviter gave it (absent for none), the tenant it seats the person in
+// (absent for the application's global surface), when it stops being accepted, whether
+// the person may create an account with a password here (the password method is
+// registered), whether that account's username is the address, the names of the listed
+// external registrations that could admit the address (as the methods listing advertises
 // them; empty when none could), so the page hides the methods that would refuse the
-// person. An invitation that makes a tenant answers "newTenant" true and the tenant's
-// name as the invitation carries it ("tenantName"; it has no id yet), and
-// "directoryOnly" true where it is accepted through an organization's directory
-// alone: "signUp" is then false, since an account with a password could not accept
-// it, and the page offers the directory buttons. It sets the invitation cookie, so
-// the sign-in that follows carries the invitation. A token whose invitation is no
-// longer live is 404. Route it behind StartSession and ValidateXSRFToken.
+// person, and whether an account already holds the address and signs in with a password.
+// An invitation that makes a tenant answers "newTenant" true and the tenant's name as the
+// invitation carries it ("tenantName"; it has no id yet), and "directoryOnly" true where
+// it is accepted through an organization's directory alone: "signUp" is then false, since
+// an account with a password could not accept it, and the page offers the directory
+// buttons. It sets the invitation cookie, so the sign-in that follows carries the
+// invitation. A token whose invitation is no longer live is 404. Route it behind
+// StartSession and ValidateXSRFToken.
 func (h *InvitationHandlers) Open() http.HandlerFunc { return h.open }
 
 // Accept accepts the invitation the browser carries for the signed-in user, whose
