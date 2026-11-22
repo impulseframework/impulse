@@ -156,6 +156,13 @@ func TestFeatureFlags(t *testing.T) {
 			wantCalls: []string{goListResource},
 		},
 		{
+			name:       "a comment that holds a semicolon stands before the table's statement",
+			files:      with(generated, map[string]string{"schema/migrations/000005_FeatureFlags.up.sql": strings.Replace(featureMigration, "-- The feature flags.", "-- The feature flags; one row a flag.", 1)}),
+			answers:    map[string]fakeAnswer{goListResource: {out: moduleDir + "\n"}},
+			wantStatus: Pass, wantSummary: "FeatureFlags and FeatureFlagChanges match the resource package's statements; no flag declared",
+			wantCalls: []string{goListResource},
+		},
+		{
 			name:       "a module the cache does not hold yet is downloaded first",
 			files:      generated,
 			answers:    downloadedLater(moduleDir),

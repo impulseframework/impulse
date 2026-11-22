@@ -356,8 +356,7 @@ func migrationStatement(a *app.App, rel, table string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "os.ReadFile()")
 	}
-	for stmt := range strings.SplitSeq(string(data), ";") {
-		stmt = stripSQLComments(stmt)
+	for stmt := range strings.SplitSeq(stripSQLComments(string(data)), ";") {
 		m := createTableRE.FindStringSubmatch(stmt)
 		if len(m) > 1 && m[1] == table {
 			return normalizeSQL(stmt), nil
