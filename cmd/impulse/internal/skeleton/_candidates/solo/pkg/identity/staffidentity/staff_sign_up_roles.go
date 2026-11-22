@@ -32,6 +32,7 @@ import (
 type StaffSignUpRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Staff)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
 }

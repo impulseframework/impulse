@@ -202,14 +202,18 @@ func (m *Manager) refuseAbsentRole(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 		if inTenants {
-			return httpio.NewBadRequestMessagef(
-				"%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s",
-				role, m.tenantWord, m.tenantWord, m.tenantWord,
+			const held = "%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s"
+
+			return httpio.NewBadRequestMessageWithErrorf(
+				errors.Newf(held, role, m.tenantWord, m.tenantWord, m.tenantWord),
+				held, roleInWords(role), m.tenantWord, m.tenantWord, m.tenantWord,
 			)
 		}
 	}
 
-	return httpio.NewBadRequestMessagef("role %q does not exist where the invitation gives it", role)
+	const said = "role %q does not exist where the invitation gives it"
+
+	return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, role), said, roleInWords(role))
 }
 
 // roleExistsIn reports whether the role exists in one of the scopes, by the rule a

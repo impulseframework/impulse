@@ -98,7 +98,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			// the set names the auth whose groups they are.
 			"// @subjectSet(crewGroups, value: GroupID, domain: GroupID.DomainID, auth: crew, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
 		},
-		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "Role      string       `spanner:\"Role\"`"},
+		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "// @roleOf(Crew)\n\t\tRole      string     `spanner:\"Role\"`"},
 		"internal/crewresources/crew_group_users.go": {
 			"// @virtual", "CrewGroupUser struct {", "// @primarykey\n\t\t// @attribute(group)\n\t\tGroupID impulse.UUID", "// @primarykey\n\t\tUserID    impulse.UUID",
 			"FROM CrewGroups g\nJOIN CrewGroupMembers m ON m.GroupId = g.Id\nJOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\n`",
@@ -265,7 +265,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			"JOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE g.Kind = 'domain' AND g.Axis = ''\n  AND " + standingSQL("m") + "\n`",
 		},
 		"internal/crewresources/crew_ship_group_roles.go": {
-			"CrewShipGroupRole struct {", "// @primarykey\n\t\t// @attribute(role)\n\t\tRole      string",
+			"CrewShipGroupRole struct {", "// @primarykey\n\t\t// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRole      string",
 			// A tenant's group holds roles in its own tenant alone.
 			"AND r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId\n  AND " + standingSQL("r") + "\n`",
 		},

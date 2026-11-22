@@ -67,7 +67,7 @@ func Test_prepareIdentity_periods(t *testing.T) {
 			"StartsAt  *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time `spanner:\"EndsAt\"`\n\t}",
 		},
 		"internal/crewresources/crew_group_roles.go": {
-			"StartsAt  *time.Time   `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time   `spanner:\"EndsAt\"`\n\t}",
+			"StartsAt  *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time `spanner:\"EndsAt\"`\n\t}",
 		},
 		"crewidentity/assign_crew_role.go": {
 			periodAndReasonFields, requestPeriod, "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason))",

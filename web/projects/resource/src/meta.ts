@@ -296,6 +296,17 @@ export interface FieldMeta {
    * draws it. The generated row type makes it optional. Absent on an ungated field.
    */
   feature?: string;
+  /**
+   * Set on a field that holds a role's name (`@roleOf`): the stored names of the roles the
+   * field may hold that the auth's role file defines, sorted, a tenant's roles alone on a
+   * tenant-scoped resource and the Super Administrator role too on every other. A list
+   * writes the field's value in words, "Night shift lead" for `NightShiftLead`, and its
+   * column's filter offers these roles to pick, in words, and sends the stored name. A role
+   * made at run time is written the same way and is not listed here: the table asks the
+   * list which roles it holds beyond these, and offers them too. Empty where the generator
+   * had no role file to read. Absent on every other field. Emitted by the generator.
+   */
+  roles?: string[];
 }
 
 /** One @searchAlso branch of a resource's search box, as the metadata describes it. */

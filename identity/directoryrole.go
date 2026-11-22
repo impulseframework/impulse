@@ -72,7 +72,9 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 		return err
 	}
 	if !exists {
-		return httpio.NewBadRequestMessagef("%q is not a role of this %s: choose one of the roles the picker lists", string(role), m.tenantWord)
+		const said = "%q is not a role of this %s: choose one of the roles the picker lists"
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord), said, roleInWords(role), m.tenantWord)
 	}
 
 	return nil

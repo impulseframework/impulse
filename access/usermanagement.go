@@ -953,7 +953,7 @@ func refuseSuperAdministratorOutsideGlobal(scope accesstypes.PolicyScope, role a
 		return nil
 	}
 
-	return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a tenant or in every tenant: give it with no tenant named", string(role))
+	return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a tenant or in every tenant: give it with no tenant named", roleInWords(role))
 }
 
 // roleExists reports whether role exists in scope under exactly that spelling:

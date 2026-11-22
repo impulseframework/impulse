@@ -41,6 +41,7 @@ type (
 		// @primarykey
 		DomainID string `spanner:"DomainId" index:"true"`
 		// @primarykey
+		// @roleOf(Staff)
 		Role      string     `spanner:"Role"      index:"true"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

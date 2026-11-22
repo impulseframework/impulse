@@ -13,6 +13,12 @@ CREATE TABLE DataChangeEvents (
   ChangeSet JSON,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
 
+-- How long change records are kept: Spanner removes a record once it is older than this
+-- many days. The table's two statements are the library's own
+-- (resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))),
+-- which a test pins.
+ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
+
 -- The pipeline's migration guard reads this database's migration version through the
 -- migrations_reader database role, which holds select on the migrations table alone,
 -- and the environment layer grants the test environment's deploy identity the role.

@@ -259,7 +259,9 @@ type recordRename struct {
 // routes, the create-your-tenant route with its body and answer, the route parameter,
 // the directories record's tenant field, and the generated methods of the tenant's own:
 // the two that turn the record's directory-only switch and the two that say how it
-// admits its directory's people, each with its route).
+// admits its directory's people, each with its route), and last the role a tenant's
+// administrator holds, which the command names for the record (AdministratorRole), so a
+// spec's role and the sentence that says it in words both speak of the application's.
 func (tn Tenancy) recordRenames() []recordRename {
 	rec, table := tn.Record(), tn.Table
 	r, t := lowerFirst(rec), lowerFirst(table)
@@ -301,6 +303,7 @@ func (tn Tenancy) recordRenames() []recordRename {
 		{regexp.MustCompile(`'/tenants'`), "'/" + kt + "'"},
 		{regexp.MustCompile(`\btenantID\b`), r + "ID"},
 		{regexp.MustCompile(`\btenantId\b`), r + "Id"},
+		{regexp.MustCompile(`\b` + referenceTenantAdministrator + `\b`), tn.AdministratorRole()},
 	}
 }
 

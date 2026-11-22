@@ -38,6 +38,7 @@ type (
 		Email    string  `spanner:"Email"    index:"true"`
 		Name     *string `spanner:"Name"`
 		// @attribute(role)
+		// @roleOf(Staff)
 		RoleNames       []string      `spanner:"RoleNames"`
 		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
 		CreatedAt       time.Time     `spanner:"CreatedAt"       index:"true"`

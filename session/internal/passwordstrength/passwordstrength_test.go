@@ -471,42 +471,80 @@ func TestJudge_detailsAreReadByTheirFirstCharacters(t *testing.T) {
 
 func TestJudge_aLongDetailCostsNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates
 	withoutCollection(t)
-	const password, minimum = "vexillumtrek", 30
+	const password, minimum, bound = "vexillumtrek", 30, 64 << 10
 	long := strings.Repeat("שּׁ", 4<<20/3)
 	first := firstRunes(long, maxDetailTyped)
-	allocated := func(name string) uint64 {
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
+	short, got, calls := leastAllocated(func(name string) {
 		Judge(password, Details{Name: name}, minimum)
-		runtime.ReadMemStats(&after)
-
-		return after.TotalAlloc - before.TotalAlloc
-	}
-	allocated(first)
-	short := allocated(first)
-	if got := allocated(long); got > short+64<<10 {
-		t.Errorf("Judge with a name of %d bytes allocated %d bytes, want no more than the %d of its first %d characters, within 64 KiB", len(long), got, short, maxDetailTyped)
+	}, first, long, bound)
+	if got > short+bound {
+		t.Errorf("Judge with a name of %d bytes allocated at least %d bytes in each of %d calls, want no more than the %d of its first %d characters (the least of %d calls), within 64 KiB", len(long), got, calls, short, maxDetailTyped, firstCalls)
 	}
 }
 
 func TestJudge_aLongPasswordAllocatesNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates
 	withoutCollection(t)
-	const minimum = 30
+	const minimum, bound = 30, 64 << 10
 	long := strings.Repeat("vexillumtrek", 4<<20/12)
 	first := firstRunes(long, MaxJudged)
-	allocated := func(password string) uint64 {
+	short, got, calls := leastAllocated(func(password string) {
+		Judge(password, Details{}, minimum)
+	}, first, long, bound)
+	if got > short+bound {
+		t.Errorf("Judge of a password of %d bytes allocated at least %d bytes in each of %d calls, want no more than the %d of its first %d characters (the least of %d calls), within 64 KiB", len(long), got, calls, short, MaxJudged, firstCalls)
+	}
+}
+
+const (
+	// firstCalls is how many calls with a text's first characters leastAllocated takes the
+	// least of.
+	firstCalls = 8
+
+	// longCalls is how many calls with the long text leastAllocated makes at most: more than
+	// the race detector's drops (leastAllocated) put all past the bound, though they put more
+	// than half the calls with a long password past it.
+	longCalls = 20
+)
+
+// leastAllocated gives the least that a call of judge with first allocates, of firstCalls
+// calls; the least that a call with long allocates, of the calls it makes with long; and how
+// many those are. Both are from the process's TotalAlloc, after one call with first that fills
+// what the estimate keeps between calls. The calls with long stop at the first within bound of
+// first's least, at the first more than long's length over it, or at longCalls.
+//
+// A call with a text allocates the same bytes every time but for the objects the library
+// takes from a sync.Pool (the regular expressions' backtracking state, the decoder of the JSON
+// it reads a keyboard's layout from): the race detector drops one in four of the objects put
+// back in a pool, at random, and the call that next asks for one allocates it again, tens of
+// kilobytes that come and go from call to call whatever is judged. A drop only ever adds
+// bytes, so the least of several calls is what a call itself allocates, and a text read whole
+// adds its bytes to every call, the least among them. No drop comes near the megabytes of
+// long, so a call more than its length over first's least has read it whole, and another call
+// would only spend memory the collector, off, does not take back.
+func leastAllocated(judge func(text string), first, long string, bound uint64) (short, got uint64, calls int) {
+	allocated := func(text string) uint64 {
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		Judge(password, Details{}, minimum)
+		judge(text)
 		runtime.ReadMemStats(&after)
 
 		return after.TotalAlloc - before.TotalAlloc
 	}
-	allocated(first)
-	short := allocated(first)
-	if got := allocated(long); got > short+64<<10 {
-		t.Errorf("Judge of a password of %d bytes allocated %d bytes, want no more than the %d of its first %d characters, within 64 KiB", len(long), got, short, MaxJudged)
+	judge(first)
+	short = math.MaxUint64
+	for range firstCalls {
+		short = min(short, allocated(first))
 	}
+	got = math.MaxUint64
+	for calls < longCalls {
+		got = min(got, allocated(long))
+		calls++
+		if got <= short+bound || got > short+uint64(len(long)) {
+			break
+		}
+	}
+
+	return short, got, calls
 }
 
 // withoutCollection turns the garbage collector off until t ends, so the calls a test measures

@@ -160,7 +160,7 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 			ctx:   func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
 			held:  []access.MembershipKey{erinSuper},
 			scope: alphaScope, role: accesstypes.SuperAdministrator,
-			wantErr: httpio.HasBadRequest, wantSays: "the SuperAdministrator role is held for the whole application alone, never in a tenant or in every tenant",
+			wantErr: httpio.HasBadRequest, wantSays: "the Super administrator role is held for the whole application alone, never in a tenant or in every tenant",
 		},
 		{
 			name:  "the role is refused in every tenant",
@@ -212,7 +212,7 @@ func TestTenant_AssignRole_superAdministrator(t *testing.T) {
 	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		return tenant.AssignRole(asCallerThrough(ctx, managedAuth, erin), txn, userID, accesstypes.SuperAdministrator)
 	})
-	want := "the SuperAdministrator role is held for the whole application alone, never in a customer or in every customer: give it with no customer named"
+	want := "the Super administrator role is held for the whole application alone, never in a customer or in every customer: give it with no customer named"
 	if !httpio.HasBadRequest(err) || httpio.Message(err) != want {
 		t.Fatalf("Tenant.AssignRole() error = %v, want the refusal reading %q", err, want)
 	}
@@ -237,7 +237,7 @@ func TestManager_Invite_superAdministrator(t *testing.T) {
 	}{
 		{name: "a super administrator invites a person to the role", held: []access.MembershipKey{erinSuper}, wantRows: 1},
 		{name: "a caller who does not hold the role is refused", held: []access.MembershipKey{erinSteward}, wantErr: httpio.HasForbidden, wantSays: "Only a super administrator invites a person to the Super Administrator role"},
-		{name: "an invitation into a tenant never gives it", held: []access.MembershipKey{erinSuper}, domain: &alpha, wantErr: httpio.HasBadRequest, wantSays: `role "SuperAdministrator" does not exist where the invitation gives it`},
+		{name: "an invitation into a tenant never gives it", held: []access.MembershipKey{erinSuper}, domain: &alpha, wantErr: httpio.HasBadRequest, wantSays: `role "Super administrator" does not exist where the invitation gives it`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

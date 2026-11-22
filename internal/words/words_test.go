@@ -39,3 +39,32 @@ func TestInWords(t *testing.T) {
 		})
 	}
 }
+
+// TestRoleInWords pins how a sentence a person reads names a role: as a role picker shows
+// it, its words in lower case with the first in upper case, never its code name.
+func TestRoleInWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		role string
+		want string
+	}{
+		{role: "NightShiftLead", want: "Night shift lead"},
+		{role: "SuperAdministrator", want: "Super administrator"},
+		{role: "Reader", want: "Reader"},
+		{role: "night_shift_lead", want: "Night shift lead"},
+		{role: "Night shift lead", want: "Night shift lead"},
+		{role: "HQAuditor", want: "Hq auditor"},
+		{role: "KeyIDs", want: "Key IDs"},
+		{role: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.role, func(t *testing.T) {
+			t.Parallel()
+
+			if got := RoleInWords(tt.role); got != tt.want {
+				t.Errorf("RoleInWords(%q) = %q, want %q", tt.role, got, tt.want)
+			}
+		})
+	}
+}

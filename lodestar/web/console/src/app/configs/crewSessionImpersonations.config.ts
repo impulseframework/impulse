@@ -4,6 +4,7 @@ import {
   listViewConfig,
   multiColumnConfig,
   RecordData,
+  roleInWords,
   rootConfig,
 } from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
@@ -50,13 +51,14 @@ export function ended(row: RecordData): string {
 
 /**
  * Who a session is held as, where no account answers by name: the role in words that
- * say it is a role ("the Dispatcher role") for a session held as a role, and the id the
- * record keeps for a person whose account the caller may not list or which is gone.
+ * say it is a role ("the Dispatcher role", "the Sector marshal role") for a session
+ * held as a role, and the id the record keeps for a person whose account the caller
+ * may not list or which is gone.
  */
 export function heldAs(row: RecordData): string {
   const role = row[record.principalRole];
   if (role) {
-    return `the ${String(role)} role`;
+    return `the ${roleInWords(String(role))} role`;
   }
   return String(row[record.principalUserId] || '');
 }

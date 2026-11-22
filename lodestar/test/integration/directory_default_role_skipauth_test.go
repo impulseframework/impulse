@@ -116,6 +116,16 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 			t.Errorf("the warning of opening Cinder with %q = %q under the button %q, want %q under what the button does", role, said.Consequence, said.Confirm, want)
 		}
 	}
+	// A role whose name is several words is said in words, here as the governor asks it.
+	var inWords struct {
+		Consequence string `json:"consequence"`
+	}
+	if status, body := warns(governor, "SectorCrew"); status != http.StatusOK || json.Unmarshal(body, &inWords) != nil {
+		t.Fatalf("asking as the governor what opening Cinder with SectorCrew would do: status %d: %s", status, body)
+	}
+	if want := who + " and gets the role Sector crew."; inWords.Consequence != want {
+		t.Errorf("the warning of opening Cinder with SectorCrew = %q, want %q", inWords.Consequence, want)
+	}
 	if got := seat(); got != "SectorCrew" {
 		t.Fatalf("Cinder's default role after the warnings = %q, want SectorCrew still: asking writes nothing", got)
 	}

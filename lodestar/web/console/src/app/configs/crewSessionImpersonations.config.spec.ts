@@ -353,6 +353,7 @@ describe("the watch desk's words", () => {
 
   it('says who a session is held as: the role in words that say it is a role, else the id the record keeps', () => {
     expect(heldAs({ principalKind: 'Role', principalRole: 'Dispatcher' })).toBe('the Dispatcher role');
+    expect(heldAs({ principalKind: 'Role', principalRole: 'SectorMarshal' })).toBe('the Sector marshal role');
     expect(heldAs({ principalKind: 'User', principalUserId: cadet })).toBe(cadet);
     expect(heldAs({})).toBe('');
   });

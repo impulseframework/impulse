@@ -369,6 +369,7 @@ type (
 		Username string       ` + "`spanner:\"Username\" index:\"true\"`" + `
 		// @primarykey
 		// @attribute(role)
+		// @roleOf({{ .Auth }})
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		// @attribute(everyDomain)
 		EveryDomain bool       ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
@@ -466,6 +467,7 @@ type (
 		Email      string        ` + "`spanner:\"Email\" index:\"true\"`" + `
 		Name       *string       ` + "`spanner:\"Name\"`" + `
 		// @attribute(role)
+		// @roleOf({{ .Auth }})
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
 		InvitedByUserID  *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `
 		CreatedAt  time.Time     ` + "`spanner:\"CreatedAt\" index:\"true\"`" + `

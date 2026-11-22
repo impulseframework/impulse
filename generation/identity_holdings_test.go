@@ -80,7 +80,7 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 		},
 		"internal/crewresources/crew_held_roles.go": {
 			"// @virtual\n\t// @suppress(readHandler)\n\t// @outlet(default)\n\t// @order(Username asc, Role asc, GroupName asc)",
-			"// @primarykey\n\t\tRole string `spanner:\"Role\" index:\"true\"`",
+			"// @primarykey\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`",
 			"// @enumerate(CrewListedGroups)\n\t\t// @primarykey\n\t\tGroupID   string     `spanner:\"GroupId\"   index:\"true\"`",
 			"Reason    *string    `spanner:\"Reason\"`",
 			"  m.Role AS Role,\n  '' AS GroupId,\n  '' AS GroupName,",
@@ -95,7 +95,7 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 		"internal/crewresources/crew_listed_groups.go": {
 			"// @virtual\n\t// @outlet(default)\n\t// @order(Name asc)",
 			"// @primarykey\n\t\t// @attribute(group)\n\t\tID          impulse.UUID `spanner:\"Id\"          index:\"true\"`",
-			"People      int64        `spanner:\"People\"`\n\t\tRoles       []string     `spanner:\"Roles\"`",
+			"People      int64        `spanner:\"People\"`\n\t\t// @roleOf(Crew)\n\t\tRoles []string `spanner:\"Roles\"`",
 			"  (SELECT COUNT(*) FROM CrewGroupMembers cm WHERE cm.GroupId = g.Id AND " + standingSQL("cm") + ") AS People,\n",
 			// An application with no tenant record holds every role where its groups are kept.
 			"  ARRAY(SELECT cr.Role FROM CrewGroupRoles cr WHERE cr.GroupId = g.Id AND " + standingSQL("cr") + " ORDER BY cr.Role) AS Roles\nFROM CrewGroups g\n`",
@@ -263,7 +263,7 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 	requireLines(t, map[string][]string{
 		"internal/crewresources/crew_ship_held_roles.go": {
 			"// @virtual\n\t// @suppress(readHandler)\n\t// @permissionScope(domain)\n",
-			"// @primarykey\n\t\t// @attribute(role)\n\t\tRole string `spanner:\"Role\" index:\"true\"`",
+			"// @primarykey\n\t\t// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`",
 			"// @primarykey\n\t\tGroupID     string `spanner:\"GroupId\"     index:\"true\"`\n\t\tGroupName   string `spanner:\"GroupName\"   index:\"true\"`\n\t\tGlobalGroup bool   `spanner:\"GlobalGroup\"`",
 			// A row opens the page of a group the tenant keeps, and no other.
 			"// @enumerate(CrewShipGroups)\n\t\tGroupPage string     `spanner:\"GroupPage\"`",
@@ -276,7 +276,7 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 		// The tenant's own list of the roles people hold themselves stays as it was, a row
 		// named by its person and its role, with the reason beside the period.
 		"internal/crewresources/crew_ship_user_roles.go": {
-			"// @primarykey\n\t\t// @attribute(role)\n\t\tRole string `spanner:\"Role\" index:\"true\"`\n\t\t// @attribute(everyDomain)\n\t\tEveryDomain bool       `spanner:\"EveryDomain\" index:\"true\"`\n\t\tCreatedAt",
+			"// @primarykey\n\t\t// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`\n\t\t// @attribute(everyDomain)\n\t\tEveryDomain bool       `spanner:\"EveryDomain\" index:\"true\"`\n\t\tCreatedAt",
 			"EndsAt      *time.Time `spanner:\"EndsAt\"`\n\t\tReason      *string    `spanner:\"Reason\"`\n\t}",
 			"  t.EndsAt AS EndsAt,\n  t.Reason AS Reason\nFROM (",
 		},
@@ -288,7 +288,7 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 		},
 		"crewidentity/assign_crew_ship_role.go": {"\tReason *string\n}", "identity.RequestReason(m.Reason)"},
 		"internal/crewresources/crew_ship_groups.go": {
-			"People      int64     `spanner:\"People\"`\n\t\tRoles       []string  `spanner:\"Roles\"`",
+			"People      int64     `spanner:\"People\"`\n\t\t// @roleOf(Crew)\n\t\tRoles []string `spanner:\"Roles\"`",
 			"  (SELECT COUNT(*) FROM CrewGroupMembers cm WHERE cm.GroupId = g.Id AND " + standingSQL("cm") + ") AS People,\n",
 			"      WHEN cr.Kind = g.Kind AND cr.Axis = g.Axis AND cr.DomainId = g.DomainId THEN cr.Role\n",
 			"    WHERE cr.GroupId = g.Id AND " + standingSQL("cr") + "\n    ORDER BY cr.Role, cr.Kind, cr.DomainId\n  ) AS Roles\nFROM CrewGroups g\nWHERE g.Kind = 'domain' AND g.Axis = ''",

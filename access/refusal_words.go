@@ -1,8 +1,6 @@
 package access
 
 import (
-	"strings"
-
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -12,18 +10,11 @@ import (
 // groupNotFoundMessage is what a person is told when the group they act on is not there.
 const groupNotFoundMessage = "This group does not exist."
 
-// roleInWords names a role as a role picker shows it: its words in lower case with the
-// first in upper case, so "NightShiftLead" is "Night shift lead". A sentence a person
-// reads names a role this way, never by its code name, which the refusal's cause keeps
-// for the server's log. It is the identity package's rule, held to the same cases. A
-// plural acronym keeps its letters: "KeyIDs" is "Key IDs".
+// roleInWords names a role as a sentence a person reads names it, "Night shift lead" for
+// NightShiftLead, never by its code name, which a refusal's cause keeps for the server's
+// log. The rule is the library's one (words.RoleInWords).
 func roleInWords(role accesstypes.Role) string {
-	spelled := words.InWords(string(role))
-	if spelled == "" {
-		return spelled
-	}
-
-	return strings.ToUpper(spelled[:1]) + spelled[1:]
+	return words.RoleInWords(string(role))
 }
 
 // roleNotFound is the answer for a role that does not exist where it is asked for: 404

@@ -41,6 +41,7 @@ type (
 		GroupName string       `spanner:"GroupName" index:"true"`
 		// @primarykey
 		// @attribute(role)
+		// @roleOf(Staff)
 		Role      string     `spanner:"Role"      index:"true"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

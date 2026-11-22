@@ -151,7 +151,9 @@ func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransactio
 		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef("you may not give yourself the role %s there, so you cannot take it: someone who may give the role gives it to you", string(role))
+		const said = "you may not give yourself the role %s there, so you cannot take it: someone who may give the role gives it to you"
+
+		return httpio.NewForbiddenMessageWithErrorf(errors.Newf(said, string(role)), said, roleInWords(role))
 	}
 	from := m.now().UTC().Truncate(time.Microsecond)
 	period := accesstypes.Period{Start: from, End: from.Add(lasts)}

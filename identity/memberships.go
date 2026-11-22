@@ -131,8 +131,10 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
-		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
-			string(role), m.tenantWord, m.tenantWord, m.tenantWord)
+		const said = "the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named"
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord, m.tenantWord, m.tenantWord),
+			said, roleInWords(role), m.tenantWord, m.tenantWord, m.tenantWord)
 	}
 	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)

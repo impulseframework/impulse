@@ -141,8 +141,9 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	}
 	if everywhere {
 		word := t.manager.tenantWord
+		const said = "%s holds the role %s in every %s, which is not one %s's to take away"
 
-		return httpio.NewConflictMessagef("%s holds the role %s in every %s, which is not one %s's to take away", username, role, word, word)
+		return httpio.NewConflictMessageWithErrorf(errors.Newf(said, username, role, word, word), said, username, roleInWords(role), word, word)
 	}
 
 	return nil
