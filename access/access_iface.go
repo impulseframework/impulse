@@ -411,8 +411,10 @@ type UserManager interface {
 	DeleteRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// DeleteAllRolePermissions removes all permissions from role, scope-wide
-	// and resource-specific alike. Errors if role is not a custom role held
-	// in scope.
+	// and resource-specific alike. Each row is removed by the columns the
+	// store holds it under, so a row no write could have made, which a load
+	// skips and reports, is removed with the rest. Errors if role is not a
+	// custom role held in scope.
 	DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 
 	// RoleUsers returns the users who hold role in scope now, each once,

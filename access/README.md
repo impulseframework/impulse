@@ -249,7 +249,11 @@ rollback, or after a release removes a field or a permission, the grant is
 denied and reported, and everything else keeps working. The row stays in the
 store until it is removed (`DeleteRolePermission`, `DeleteRoleGrant`), so a
 later release that declares the name again carries the grant again: the
-report is the notice to remove a grant nobody means any more.
+report is the notice to remove a grant nobody means any more. A row no write
+could have made (a dot in its resource or its field column, or a field and no
+resource) is skipped and reported whatever the collection declares. No removal
+by name reaches such a row: `DeleteAllRolePermissions` removes it with the
+role's other grants, and `DeleteRole` with the role.
 
 A load reports two more findings the same way. A custom role whose name a
 default role of the running release has, in the same kind of scope, is a
@@ -741,9 +745,10 @@ a directory's group (a Google group is an email address, so its name is
 lowercase), finds the role the role file spelled. A custom role held in one
 domain alone cannot be assigned in every domain.
 
-No two roles in a scope differ only in case: the role file is refused at `New`
-when it declares such a pair, and `AddRole` refuses a custom role whose name
-matches an existing role of the scope without regard to case, so a resolution
+The library keeps two roles in a scope from differing only in case: the role
+file is refused at `New` when it declares such a pair, and `AddRole` refuses a
+custom role whose name matches an existing role of the scope without regard to
+case, so a resolution
 is ambiguous only where a pair came about another way: a release that brings a
 default role whose name differs only in case from a custom role a tenant already
 holds, or two such names added at the same moment. `ResolveRole` then answers an
