@@ -535,6 +535,16 @@ func (c *Client) ForRole(role accesstypes.Role) *RoleChecker {
 	return NewRoleChecker(c, role)
 }
 
+// Auth returns the name of the auth whose roles the engine holds: the name its
+// role file carries and was handed over under (WithDefaultRoles). It is empty for
+// an engine opened with no role file, and for one whose file was handed over
+// under no name. What takes an engine on an auth's behalf asks it, so that one
+// auth's engine is never taken for another's (the resource package's
+// SessionPermissions does, for the requests of an auth).
+func (c *Client) Auth() string {
+	return c.defaults.authName()
+}
+
 // UserManager returns the UserManager for managing users, roles, and permissions.
 func (c *Client) UserManager() UserManager {
 	return c.userManager

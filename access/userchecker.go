@@ -26,6 +26,9 @@ type UserResourceChecker interface {
 	UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
 
 	UserAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error)
+
+	// Auth names the auth the engine was opened for (Client.Auth).
+	Auth() string
 }
 
 // UserChecker is the request-bound permission checker for one user: the
@@ -118,4 +121,11 @@ func (u *UserChecker) AdministersTenant(ctx context.Context, domain accesstypes.
 // User returns the bound user.
 func (u *UserChecker) User() accesstypes.User {
 	return u.user
+}
+
+// Auth names the auth whose engine the checker answers from, empty for an engine
+// opened under no auth's name: the resource package asks it before it answers a
+// request that came through an auth.
+func (u *UserChecker) Auth() string {
+	return u.checker.Auth()
 }

@@ -291,3 +291,37 @@ func TestNew_fileAuthAfterAuthName(t *testing.T) {
 		t.Fatalf("ValidateRoles() error = %v, want it to contain %q and say nothing of the file's auth", err, want)
 	}
 }
+
+// TestClient_Auth pins that an engine says the auth whose roles it holds: the name its
+// role file carries and was handed over under, and nothing for an engine opened under
+// no name or with no file. Its checkers answer the same.
+func TestClient_Auth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		auths []string
+		opts  []Option
+		want  string
+	}{
+		{name: "a file handed over under its name", auths: []string{"members", "staff"}, opts: []Option{WithDefaultRoles(readerRoleFile("staff"), "staff")}, want: "staff"},
+		{name: "a file handed over under no name", auths: []string{"staff"}, opts: []Option{WithDefaultRoles(readerRoleFile(""), "")}},
+		{name: "no role file", auths: []string{"staff"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newPolicyClient(t, newFakeStore(), setsCollection{auths: tt.auths}, tt.opts...)
+			if got := client.Auth(); got != tt.want {
+				t.Errorf("Client.Auth() = %q, want %q", got, tt.want)
+			}
+			if got := client.ForUser("ada").Auth(); got != tt.want {
+				t.Errorf("Client.ForUser().Auth() = %q, want %q", got, tt.want)
+			}
+			if got := client.ForRole("Clerk").Auth(); got != tt.want {
+				t.Errorf("Client.ForRole().Auth() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
