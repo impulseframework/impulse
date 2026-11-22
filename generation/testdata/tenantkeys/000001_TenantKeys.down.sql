@@ -1,0 +1,5 @@
+DROP TABLE Shelves;
+DROP INDEX VaultsByRealmIdId;
+DROP TABLE Vaults;
+DROP TABLE Bins;
+DROP TABLE Depots;
