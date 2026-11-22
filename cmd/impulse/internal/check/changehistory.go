@@ -21,8 +21,8 @@ import (
 // framework module the application pins declares for it (resource.DataChangeEventsDDL,
 // read from the module's source as feature-flags reads its statements), created with the
 // table or added by a later migration, and a migration creates each index the function
-// declares, statement for statement. A tracked write fills exactly the library's columns,
-// and one tenant's change records are read by the index.
+// declares, statement for statement, spacing and letter case aside. A tracked write fills
+// exactly the library's columns, and one tenant's change records are read by the index.
 type changeHistory struct{}
 
 // changeHistoryName is the check's name.
@@ -38,12 +38,15 @@ const (
 // CREATE INDEX.
 var createIndexRE = regexp.MustCompile("(?i)^\\s*CREATE\\s+INDEX\\s+`?([A-Za-z_][A-Za-z0-9_]*)`?")
 
+// createIndexIfNotExistsRE finds a CREATE INDEX statement's IF NOT EXISTS.
+var createIndexIfNotExistsRE = regexp.MustCompile(`(?i)^\s*CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+`)
+
 // addChangeHistoryColumnRE finds the column a statement adds to the change history table.
 var addChangeHistoryColumnRE = regexp.MustCompile("(?i)ALTER\\s+TABLE\\s+`?" + changeHistoryTable + "`?\\s+ADD\\s+COLUMN\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?")
 
 // changeHistoryDDL is what the library declares for the change history table: its
-// columns in order, and each index statement by the index's name, normalized for
-// comparison. source names the file they were read from.
+// columns in order, and each index statement by the index's name, in indexForm. source
+// names the file they were read from.
 type changeHistoryDDL struct {
 	source  string
 	columns []string
@@ -77,12 +80,16 @@ func (c changeHistory) Run(ctx context.Context, env *Env) Result {
 	if !ok {
 		return skip(c.Name(), "no migration creates the "+changeHistoryTable+" table")
 	}
-	library, problem, err := libraryChangeHistory(ctx, env)
+	library, declared, problem, err := libraryChangeHistory(ctx, env)
 	switch {
 	case err != nil:
 		return fail(c.Name(), err.Error())
 	case problem != "":
 		return fail(c.Name(), "1 change history problem(s)", append([]string{problem}, unread...)...)
+	case !declared:
+		// That library fills no column this check holds: the application has nothing
+		// to fix.
+		return skip(c.Name(), "the framework module the application pins declares no resource."+changeHistoryDDLFunc)
 	}
 	statements, err := upMigrationStatements(a, p)
 	if err != nil {
@@ -127,11 +134,11 @@ func (changeHistory) columnFindings(file, created string, statements []string, l
 }
 
 // indexFindings names each index of the library no up migration creates with the
-// library's statement.
+// library's statement, both brought to indexForm.
 func (changeHistory) indexFindings(dir string, statements []string, library changeHistoryDDL) []string {
 	carried := make(map[string]bool, len(statements))
 	for _, stmt := range statements {
-		carried[normalizeSQL(stmt)] = true
+		carried[indexForm(stmt)] = true
 	}
 	names := make([]string, 0, len(library.indexes))
 	for name := range library.indexes {
@@ -149,6 +156,18 @@ func (changeHistory) indexFindings(dir string, statements []string, library chan
 	return details
 }
 
+// indexForm brings a CREATE INDEX statement to the one form two spellings of it share:
+// comments stripped, IF NOT EXISTS after CREATE INDEX dropped, backquotes dropped, all
+// whitespace removed, letters folded to lower case, the terminator dropped. An index over
+// other columns, or over them in another order, keeps a form of its own.
+func indexForm(stmt string) string {
+	stmt = createIndexIfNotExistsRE.ReplaceAllString(stripSQLComments(stmt), "CREATE INDEX ")
+	stmt = strings.ReplaceAll(stmt, "`", "")
+	stmt = strings.Join(strings.Fields(stmt), "")
+
+	return strings.TrimSuffix(strings.ToLower(stmt), ";")
+}
+
 // namedFold reports whether the list holds the name, case aside.
 func namedFold(list []string, name string) bool {
 	for _, item := range list {
@@ -163,22 +182,23 @@ func namedFold(list []string, name string) bool {
 // libraryChangeHistory reads the Spanner statements of resource.DataChangeEventsDDL from
 // the resource package of the framework module the application pins: the columns of the
 // table's statement (the first word of each line between its first line and its
-// ") PRIMARY KEY" line) and each CREATE INDEX statement. A module that cannot be found,
-// a package that declares no such function, and a function with no table statement are
+// ") PRIMARY KEY" line) and each CREATE INDEX statement. declared is false when the
+// package declares no such function: its version predates the library's change history
+// statements. A module that cannot be found, and a function with no table statement, are
 // the problem returned; a file that cannot be read is an error.
-func libraryChangeHistory(ctx context.Context, env *Env) (ddl changeHistoryDDL, problem string, err error) {
+func libraryChangeHistory(ctx context.Context, env *Env) (ddl changeHistoryDDL, declared bool, problem string, err error) {
 	dir, name, data, problem, err := libraryFunctionFile(ctx, env, changeHistoryDDLFunc)
 	switch {
 	case err != nil:
-		return changeHistoryDDL{}, "", err
+		return changeHistoryDDL{}, false, "", err
 	case problem != "":
-		return changeHistoryDDL{}, problem, nil
+		return changeHistoryDDL{}, false, problem, nil
 	case data == nil:
-		return changeHistoryDDL{}, fmt.Sprintf("the resource package at %s declares no %s: its version predates the library's change history statements, so the schema cannot be compared with it", dir, changeHistoryDDLFunc), nil
+		return changeHistoryDDL{}, false, "", nil
 	}
 	raw, err := spannerDDL(name, data, changeHistoryDDLFunc)
 	if err != nil {
-		return changeHistoryDDL{}, "", err
+		return changeHistoryDDL{}, true, "", err
 	}
 	ddl = changeHistoryDDL{source: path.Join(path.Base(dir), name), indexes: map[string]string{}}
 	table := false
@@ -190,14 +210,14 @@ func libraryChangeHistory(ctx context.Context, env *Env) (ddl changeHistoryDDL, 
 			continue
 		}
 		if m := createIndexRE.FindStringSubmatch(stmt); m != nil {
-			ddl.indexes[m[1]] = normalizeSQL(stmt)
+			ddl.indexes[m[1]] = indexForm(stmt)
 		}
 	}
 	if !table {
-		return changeHistoryDDL{}, fmt.Sprintf("%s in %s declares no CREATE TABLE statement for %s, so the schema cannot be compared with it", changeHistoryDDLFunc, filepath.Join(dir, name), spannerDBTypeIdent), nil
+		return changeHistoryDDL{}, true, fmt.Sprintf("%s in %s declares no CREATE TABLE statement for %s, so the schema cannot be compared with it", changeHistoryDDLFunc, filepath.Join(dir, name), spannerDBTypeIdent), nil
 	}
 
-	return ddl, "", nil
+	return ddl, true, "", nil
 }
 
 // tableColumns answers the first word of each line of a CREATE TABLE statement between

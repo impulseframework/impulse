@@ -152,6 +152,13 @@ func TestChangeHistory(t *testing.T) {
 			wantCalls:   []string{goListResource},
 		},
 		{
+			name:       "the index written in lower case, spaced another way, with IF NOT EXISTS",
+			files:      application(strings.Replace(changeHistoryMigration, changeHistoryIndex, "create index if not exists DataChangeEventsByTenant on DataChangeEvents (TenantId, EventTime desc, TableName, RowId, Sequence desc);\n", 1), nil),
+			answers:    library,
+			wantStatus: Pass, wantSummary: passed,
+			wantCalls: []string{goListResource},
+		},
+		{
 			name:       "an index of that name over other columns",
 			files:      application(strings.Replace(changeHistoryMigration, changeHistoryIndex, "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC);\n", 1), nil),
 			answers:    library,
@@ -163,10 +170,7 @@ func TestChangeHistory(t *testing.T) {
 			name:       "the framework module predates the library's change history statements",
 			files:      application(changeHistoryMigration, nil),
 			answers:    map[string]fakeAnswer{goListResource: {out: oldModuleDir + "\n"}},
-			wantStatus: Fail, wantSummary: "1 change history problem(s)",
-			wantDetails: []string{
-				"the resource package at " + filepath.Join(oldModuleDir, "resource") + " declares no DataChangeEventsDDL: its version predates the library's change history statements, so the schema cannot be compared with it",
-			},
+			wantStatus: Skip, wantSummary: "the framework module the application pins declares no resource.DataChangeEventsDDL",
 			wantCalls: []string{goListResource},
 		},
 	}
