@@ -54,8 +54,8 @@ func Test_typescriptGenerator_excludeFromOutlet(t *testing.T) {
 }
 
 // Test_typescriptGenerator_validateOutletMemberReferences pins the fail-loud rule for
-// cross-outlet references: a member whose transition root, rows it is offered on, or
-// declared enumeration names an excluded resource fails generation — on a method's field, a resource's
+// cross-outlet references: a member whose transition root, row it names (@target), rows it
+// is offered on, or declared enumeration names an excluded resource fails generation — on a method's field, a resource's
 // field, or a computed resource's field — because the emitted metadata would
 // reference a Resources constant the filtered constants file no longer declares. A
 // key's inferred enumeration is no declaration and passes here (it degrades instead).
@@ -91,6 +91,17 @@ func Test_typescriptGenerator_validateOutletMemberReferences(t *testing.T) {
 			method:       &rpcMethodInfo{Struct: structs["DoSomething"], Transition: &rpcTransition{rpcTarget: rpcTarget{RootResource: "Gadgets"}}},
 			excluded:     []accesstypes.Resource{"Gadgets"},
 			wantContains: "declares a transition on Gadgets, which is not on the outlet",
+		},
+		{
+			name:         "a method that names a row of a resource on another outlet fails",
+			method:       &rpcMethodInfo{Struct: structs["DoSomething"], Target: &rpcTarget{RootStruct: "Gadget", RootResource: "Gadgets"}},
+			excluded:     []accesstypes.Resource{"Gadgets"},
+			wantContains: `outlet "portal": RPC method DoSomething names a row of Gadgets (@target), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach Gadgets to the outlet via @outlet, or move the method off it`,
+		},
+		{
+			name:     "a method that names a row of a resource on the outlet passes",
+			method:   &rpcMethodInfo{Struct: structs["DoSomething"], Target: &rpcTarget{RootStruct: "Widget", RootResource: "Widgets"}},
+			excluded: []accesstypes.Resource{"Gadgets"},
 		},
 		{
 			name: "a method offered on the rows of a resource on another outlet fails",
