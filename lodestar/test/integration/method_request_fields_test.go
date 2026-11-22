@@ -270,7 +270,7 @@ func TestMethodRequestFieldsNoTarget(t *testing.T) {
 		{name: "the delegate gives a role the condition admits", user: fieldDelegate, role: "BulletinOfficer", wantStatus: http.StatusNoContent, wantRoles: []string{"BulletinOfficer", "ClientBrowser", "CrewCommon"}},
 		{name: "the role the condition names is refused, in the words of no grant", user: fieldDelegate, role: "Headquarters", wantStatus: http.StatusForbidden, wantBody: refusal, wantRoles: []string{"BulletinOfficer", "ClientBrowser", "CrewCommon"}},
 		{name: "a caller with no grant hears the same words", user: "cadet", role: "BulletinOfficer", wantStatus: http.StatusForbidden, wantBody: refusal, wantRoles: []string{"BulletinOfficer", "ClientBrowser", "CrewCommon"}},
-		{name: "a role that does not exist passes the grant and is the body's to refuse", user: fieldDelegate, role: "NoSuchRole", wantStatus: http.StatusNotFound, wantBody: "NoSuchRole", wantRoles: []string{"BulletinOfficer", "ClientBrowser", "CrewCommon"}},
+		{name: "a role that does not exist passes the grant and is the body's to refuse", user: fieldDelegate, role: "NoSuchRole", wantStatus: http.StatusNotFound, wantBody: "The role No such role does not exist.", wantRoles: []string{"BulletinOfficer", "ClientBrowser", "CrewCommon"}},
 		{name: "two grants, one with no condition: the role the condition names is given", user: fieldBoth, role: "Headquarters", wantStatus: http.StatusNoContent, wantRoles: []string{"BulletinOfficer", "ClientBrowser", "CrewCommon", "Headquarters"}},
 	}
 	for _, tt := range fires {

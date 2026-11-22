@@ -547,7 +547,7 @@ func (m *Manager) WithdrawTenantInvitation(ctx context.Context, txn resource.Rea
 		stands = stands || inv.ID == invitationID
 	}
 	if !stands {
-		return httpio.NewNotFoundMessagef("no invitation %q that makes a %s stands: it was accepted, withdrawn or has expired, or it never was one", invitationID, m.tenantWord)
+		return invitationNoLongerStands(errors.Newf("no invitation %q that makes a %s stands: it was accepted, withdrawn or has expired, or it never was one", invitationID, m.tenantWord))
 	}
 	if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
 		return errors.Wrap(err, "identity.Store.ConsumeMailLink()")

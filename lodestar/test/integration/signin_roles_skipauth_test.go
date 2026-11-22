@@ -175,7 +175,7 @@ func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
 	var refused struct {
 		Message string `json:"message"`
 	}
-	if want := `role "Stevedore" is not a valid role. Please check that the role exists.`; json.Unmarshal(body, &refused) != nil || refused.Message != want {
+	if want := `The role Stevedore does not exist.`; json.Unmarshal(body, &refused) != nil || refused.Message != want {
 		t.Errorf("the cadet's refusal = %s, want the message %q", body, want)
 	}
 	if !invitationStands(ctx, t, s, cadetInvitation) {
