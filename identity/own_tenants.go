@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -165,6 +166,49 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 	}
 
 	return judged.deletesAccount, nil
+}
+
+// OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
+// over auth's tables: List runs PersonTenants and Leave runs LeaveTenant, each in a
+// transaction of the hook's own on client, the application's database, and answers what
+// it answered, field for field. An error is wrapped with auth's name, as SignedIn wraps
+// its own; a refusal stays the refusal it is, so the person's page is answered its status
+// and words.
+func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTenantsHook {
+	return session.OwnTenantsHook{
+		List: func(ctx context.Context, userID impulse.UUID) ([]session.OwnTenant, error) {
+			var held []PersonTenant
+			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				held, err = m.PersonTenants(ctx, txn, userID)
+
+				return err
+			})
+			if err != nil {
+				return nil, errors.Wrapf(err, "%s: reading what %s holds in each %s", auth, User(userID), m.tenantWord)
+			}
+			tenants := make([]session.OwnTenant, 0, len(held))
+			for _, t := range held {
+				tenants = append(tenants, session.OwnTenant{Domain: t.Domain, Roles: t.Roles, Refusal: t.Refusal, DeletesAccount: t.DeletesAccount})
+			}
+
+			return tenants, nil
+		},
+		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain, deletesAccount bool) (bool, error) {
+			var deleted bool
+			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				deleted, err = m.LeaveTenant(ctx, txn, userID, domain, deletesAccount)
+
+				return err
+			})
+			if err != nil {
+				return false, errors.Wrapf(err, "%s: %s leaving the %s %q", auth, User(userID), m.tenantWord, domain)
+			}
+
+			return deleted, nil
+		},
+	}
 }
 
 // applyLeaving buffers what a judged leaving takes: the account first where it goes

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
 )
 
 // The sentences of a person's leaving, in the word the tests' manager calls a tenant.
@@ -537,5 +539,108 @@ func TestManager_LeaveTenant_impersonator(t *testing.T) {
 	}
 	if len(store.writes) != 0 {
 		t.Errorf("buffered writes = %v, want none", store.writes)
+	}
+}
+
+// TestManager_OwnTenants pins the session library's own-tenants hook: List and Leave
+// each run the manager's rule in one transaction of their own on the client and answer
+// what it answered, field for field, and a refusal of the leaving comes out of the hook
+// the refusal it was, its status and words, with the auth's name on the error.
+func TestManager_OwnTenants(t *testing.T) {
+	t.Parallel()
+
+	t.Run("List answers the person's tenants, field for field, from a transaction of its own that writes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		store := leavingStore()
+		store.memberships[danaAlphaWarden] = true
+		m, _, _ := leavingManager(t, store, false)
+		want := listTenants(t, m)
+		client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
+
+		got, err := m.OwnTenants(managedAuth, client).List(asCaller(t.Context(), dana), userID)
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		if len(want) != 1 || want[0].Refusal != lastAdministratorSays || !want[0].DeletesAccount || len(want[0].Roles) == 0 {
+			t.Fatalf("the fixture's list = %+v, want alpha alone, refused to its last administrator, leaving it deleting the account", want)
+		}
+		if diff := cmp.Diff([]session.OwnTenant{{Domain: "alpha", Roles: want[0].Roles, Refusal: lastAdministratorSays, DeletesAccount: true}}, got); diff != "" {
+			t.Errorf("List() mismatch (-want +got):\n%s", diff)
+		}
+		if client.opened != 1 || len(store.writes) != 0 {
+			t.Errorf("List() opened %d transaction(s) and wrote %v, want one and nothing", client.opened, store.writes)
+		}
+	})
+
+	for name, tt := range map[string]struct {
+		held        []access.MembershipKey
+		deletes     bool
+		wantDeleted bool
+	}{
+		"Leave takes the person out of the tenant and keeps the account":        {held: []access.MembershipKey{danaAlphaReader, danaBetaReader}},
+		"Leave takes the person out of the last tenant and deletes the account": {held: []access.MembershipKey{danaAlphaReader}, deletes: true, wantDeleted: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := leavingStore()
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
+			m, engine, _ := leavingManager(t, store, false)
+			client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
+
+			deleted, err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "alpha", tt.deletes)
+			if err != nil || deleted != tt.wantDeleted {
+				t.Fatalf("Leave() = (%v, %v), want (%v, nil)", deleted, err, tt.wantDeleted)
+			}
+			if !slices.Contains(store.writes, "delete membership "+membershipText(&danaAlphaReader)) {
+				t.Errorf("Leave() wrote %v, want dana's Reader role in alpha deleted", store.writes)
+			}
+			if client.opened != 1 || engine.changed != 1 {
+				t.Errorf("Leave() opened %d transaction(s) and told the engine %d time(s), want one of each", client.opened, engine.changed)
+			}
+		})
+	}
+
+	for name, tt := range map[string]struct {
+		held     []access.MembershipKey
+		domain   accesstypes.Domain
+		deletes  bool
+		wantErr  func(error) bool
+		wantSays string
+	}{
+		"the last administrator: Forbidden": {
+			held: []access.MembershipKey{danaAlphaWarden, danaGlobal}, domain: "alpha", wantErr: httpio.HasForbidden, wantSays: lastAdministratorSays,
+		},
+		"a tenant the person holds nothing in: Not Found": {
+			held: []access.MembershipKey{danaAlphaReader}, domain: "beta", deletes: true, wantErr: httpio.HasNotFound, wantSays: notInTenantSays,
+		},
+		"an account the page said stays: Conflict": {
+			held: []access.MembershipKey{danaAlphaReader}, domain: "alpha", wantErr: httpio.HasConflict, wantSays: changedSays,
+		},
+		"no tenant named: Bad Request": {
+			held: []access.MembershipKey{danaAlphaReader}, domain: "", wantErr: httpio.HasBadRequest, wantSays: noTenantNamedSays,
+		},
+	} {
+		t.Run("a refusal comes out of the hook the refusal it was: "+name, func(t *testing.T) {
+			t.Parallel()
+
+			store := leavingStore()
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
+			m, engine, _ := leavingManager(t, store, false)
+			client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
+
+			_, err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, tt.domain, tt.deletes)
+			if err == nil || !tt.wantErr(err) || httpio.Message(err) != tt.wantSays || !strings.Contains(err.Error(), managedAuth+": ") {
+				t.Fatalf("Leave() error = %v, want the refusal %q under the auth's name", err, tt.wantSays)
+			}
+			if len(store.writes) != 0 || engine.changed != 0 {
+				t.Errorf("buffered writes = %v and the engine told %d time(s), want nothing", store.writes, engine.changed)
+			}
+		})
 	}
 }

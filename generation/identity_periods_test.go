@@ -91,6 +91,7 @@ func Test_prepareIdentity_periods(t *testing.T) {
 		},
 		"crewidentity/client.go": {
 			"func (c *Client) SignedIn(db resource.Client) session.SignedInHook {\n\treturn c.manager.SignedIn(\"Crew\", db)\n}",
+			"func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {\n\treturn c.manager.OwnTenants(\"Crew\", db)\n}",
 		},
 		"internal/crewresources/crew_group_users.go": {
 			"m.CreatedAt AS CreatedAt,\n  m.StartsAt AS StartsAt,\n  m.EndsAt AS EndsAt\nFROM CrewGroups g",
