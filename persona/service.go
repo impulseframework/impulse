@@ -40,11 +40,10 @@ type Service struct {
 	provider *op.Provider
 	callback func(ctx context.Context, requestID string) string
 
-	keysMu      sync.Mutex
-	keys        []*SigningKey
-	keysReadAt  time.Time
-	keysHeldAt  map[string]time.Time
-	cryptoKeyID string
+	keysMu     sync.Mutex
+	keys       []*SigningKey
+	keysReadAt time.Time
+	keysHeldAt map[string]time.Time
 }
 
 // New builds the service. It refuses a configuration without an issuer, an actor reader or
@@ -100,7 +99,6 @@ func New(ctx context.Context, host Host, store Store, config *Config) (*Service,
 		SupportedClaims:    []string{"sub", "aud", "exp", "iat", "iss", "auth_time", "nonce", "name", "preferred_username", "email", "email_verified"},
 		SupportedUILocales: []language.Tag{language.English},
 	}
-	s.cryptoKeyID = first.ID
 	opts := []op.Option{}
 	if cfg.AllowInsecureIssuer {
 		opts = append(opts, op.WithAllowInsecure())
@@ -223,6 +221,9 @@ func (s *Service) signingKeys(ctx context.Context) ([]*SigningKey, error) {
 		// one of the two, so read back rather than trust ours.
 		if keys, err = s.store.SigningKeys(ctx); err != nil {
 			return nil, errors.Wrap(err, "persona.Store.SigningKeys()")
+		}
+		if len(keys) == 0 {
+			return nil, errors.New("persona.Store.SigningKeys() returned no key after AddFirstSigningKey() added or found one")
 		}
 	}
 	answered := s.now()

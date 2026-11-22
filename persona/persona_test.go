@@ -157,6 +157,9 @@ func newDatabase(ctx context.Context, t *testing.T) *spanner.Client {
 		t.Fatalf("SpannerContainer.CreateDatabase() error = %v", err)
 	}
 	t.Cleanup(func() {
+		if err := database.DropDatabase(context.Background()); err != nil {
+			t.Errorf("SpannerDB.DropDatabase() error = %v", err)
+		}
 		if err := database.Close(); err != nil {
 			t.Errorf("SpannerDB.Close() error = %v", err)
 		}

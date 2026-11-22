@@ -82,6 +82,16 @@ func (s *gatedStore) AddFirstSigningKey(ctx context.Context, key *persona.Signin
 	return s.Store.AddFirstSigningKey(ctx, key) //nolint:wrapcheck // the store's own error is what the service reads
 }
 
+// noKeyStore is the Spanner store with a SigningKeys that always answers an empty list,
+// also after a first key was added.
+type noKeyStore struct {
+	*spannerstore.Store
+}
+
+func (noKeyStore) SigningKeys(context.Context) ([]*persona.SigningKey, error) {
+	return []*persona.SigningKey{}, nil
+}
+
 // grant is one code with its verifier.
 type grant struct {
 	code, verifier string
@@ -606,5 +616,21 @@ func TestSignIn_rotationFromASlowClock(t *testing.T) {
 	advance(61 * time.Second)
 	if kidA, kidS := signedKeyID(ctx, t, hostA), signedKeyID(ctx, t, hostS); kidA != sKey || kidS != sKey {
 		t.Errorf("A signs with the key S added %v, S signs with it %v; want both", kidA == sKey, kidS == sKey)
+	}
+}
+
+// TestNew_storeThatReturnsNoKey: a store that answers no signing key after the first was
+// added is refused when the service starts.
+func TestNew_storeThatReturnsNoKey(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client := newDatabase(ctx, t)
+	host := &fakeHost{apps: map[string]*persona.Application{}, deny: map[string]bool{}}
+	issuer := "http://127.0.0.1/persona"
+	_, err := persona.New(ctx, host, noKeyStore{spannerstore.New(client)}, &persona.Config{
+		Issuer: issuer, Actor: actorFromContext, LoginURL: "/login", Deployers: fakeDeployers{issuer: issuer}, AllowInsecureIssuer: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "returned no key") {
+		t.Errorf("persona.New() error = %v, want one that says the store returned no key", err)
 	}
 }
