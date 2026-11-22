@@ -20,10 +20,11 @@ type Package struct {
 // Constant is a package-level typed constant declaration, carrying its doc and line
 // comments so godoc annotations on constants can be scanned.
 type Constant struct {
-	name     string
-	typeName string // fully qualified declared type, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
-	value    string
-	comments string
+	name          string
+	typeName      string // fully qualified declared type, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
+	value         string
+	comments      string
+	groupComments string
 }
 
 // Name returns the constant's identifier.
@@ -45,6 +46,14 @@ func (c *Constant) Value() string {
 // Comments returns the constant's doc and line comments.
 func (c *Constant) Comments() string {
 	return c.comments
+}
+
+// GroupComments returns the comment above the constant's const declaration when
+// Comments does not carry it: the comment of a group of several constants, or of a group
+// of one whose constant has a comment of its own. An annotation there is read by
+// nothing, and the Resource Generator refuses one.
+func (c *Constant) GroupComments() string {
+	return c.groupComments
 }
 
 // TypeInfo provides convience methods over a go/types' Object.

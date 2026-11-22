@@ -248,11 +248,67 @@ func TestUserManager_RoleGrants_saysTheLoadsReason(t *testing.T) {
 	}
 }
 
+// TestUserManager_RoleGrants_ofARoleHeldInEveryDomain pins that a custom role held in
+// every domain lists its grants when it is asked for in one tenant: the rows are read
+// where the role is held, and the one a load leaves out is marked with the load's
+// reason, as it is when the role is asked for in every domain.
+func TestUserManager_RoleGrants_ofARoleHeldInEveryDomain(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const clerk accesstypes.Role = "Clerk"
+	const open = "status = 'open'"
+	store := newFakeStore()
+	for _, err := range []error{
+		store.InsertRole(ctx, everyDomainPolicy, clerk, aDescription),
+		store.InsertGrant(ctx, everyDomainPolicy, clerk, accesstypes.Read, "Documents", "", open),
+		store.InsertGrant(ctx, everyDomainPolicy, clerk, accesstypes.Execute, "DoThing", "", ""),
+	} {
+		if err != nil {
+			t.Fatalf("seeding fake store: %v", err)
+		}
+	}
+	hook := &reloadErrors{}
+	client := newPolicyClient(t, store, storedGrantsRelease(t), WithReloadErrorHandler(hook.collect))
+	settle(client.snapEngine)
+
+	var skipped []*SkippedGrant
+	for _, err := range hook.list() {
+		var grant *SkippedGrant
+		if !errors.As(err, &grant) {
+			t.Fatalf("the hook received %v, want nothing but a skipped grant", err)
+		}
+		skipped = append(skipped, grant)
+	}
+	if len(skipped) != 1 || skipped[0].Scope != everyDomainPolicy || skipped[0].Permission != accesstypes.Execute || skipped[0].Resource != "DoThing" {
+		t.Fatalf("the load reported %v, want the one DoThing row, in every domain", skipped)
+	}
+	reason := plainText(skipped[0].Reason)
+	const wantReason = "role Clerk is a domain role but grants Execute on DoThing, a global-scoped resource — a role's grants live at its declared scope; move the grant to a global role"
+	if reason != wantReason {
+		t.Errorf("the load's reason = %q, want %q", reason, wantReason)
+	}
+
+	want := map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{
+		accesstypes.Read:    {"Documents": {{Condition: open}}},
+		accesstypes.Execute: {"DoThing": {{Skipped: reason}}},
+	}
+	for _, scope := range []accesstypes.PolicyScope{tenant1Policy, everyDomainPolicy} {
+		got, err := client.UserManager().RoleGrants(ctx, scope, clerk)
+		if err != nil {
+			t.Fatalf("RoleGrants(%s) error = %v", scope, err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("RoleGrants(%s) mismatch (-want +got):\n%s", scope, diff)
+		}
+	}
+}
+
 // Test_newSnapshot_holdsARolesStoredGrantsToTheWritesRule pins who the write's rule is
 // asked of at a load. A grant given straight to a person names no role, so there is no
 // role's scope to hold it to and it is held to its names alone; a grant for the whole
 // of a scope names no resource, so it is held to its permission and to a condition
-// that reads no row; and a role the release declares was held to the rule when the
+// a scope-wide check can settle; and a role the release declares was held to the rule when the
 // role file was read, so its grants are not asked again. What a role holds on a
 // resource in the store is asked the whole rule, and the reason says which part broke,
 // the names before the place and the place before the condition.
@@ -394,6 +450,85 @@ func TestClient_oneBadStoredConditionLeavesTheOtherGrants(t *testing.T) {
 		listed = append(listed, warning.String())
 	}
 	want := []string{`skipped a grant this release cannot use, so it is denied: role Broken in scope tenant1, Read on Documents under condition "ghost = 'open'": condition references "ghost", which is not an attribute of Documents`}
+	if diff := cmp.Diff(want, listed); diff != "" {
+		t.Errorf("CheckPolicy() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestClient_oneUnsettledScopeWideConditionLeavesTheOtherGrants pins what a person holds
+// for the whole of a tenant when one of two roles carries a stored scope-wide condition
+// no scope-wide check could settle, an instant that is not RFC 3339: the other role's
+// condition still decides. The bad row is skipped at the load and reported, so it gives
+// nobody the permission, is no foothold for a person who holds that role alone, and
+// fails no check. Before the load held a scope-wide condition to what a check can
+// settle, the row was kept, and every check of the permission by a holder of the role
+// was a server error, the sound role's holder's included.
+func TestClient_oneUnsettledScopeWideConditionLeavesTheOtherGrants(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const exportLedger accesstypes.Permission = "ExportLedger"
+	release := generated(t, resource.CollectionData{
+		Permissions: []accesstypes.Permission{exportLedger},
+		Resources: []resource.CollectionResource{
+			{Name: "Documents", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},
+		},
+	})
+	store := newFakeStore()
+	for _, err := range []error{
+		store.InsertRole(ctx, tenant1Policy, "Broken", aDescription),
+		store.InsertGrant(ctx, tenant1Policy, "Broken", exportLedger, "", "", "now >= '2026'"),
+		store.InsertRole(ctx, tenant1Policy, "Sound", aDescription),
+		store.InsertGrant(ctx, tenant1Policy, "Sound", exportLedger, "", "", "now >= '2026-01-01T00:00:00Z'"),
+		store.InsertUserRole(ctx, tenant1Policy, "dana", "Broken", accesstypes.Period{}, ""),
+		store.InsertUserRole(ctx, tenant1Policy, "dana", "Sound", accesstypes.Period{}, ""),
+		store.InsertUserRole(ctx, tenant1Policy, "erin", "Broken", accesstypes.Period{}, ""),
+	} {
+		if err != nil {
+			t.Fatalf("seeding fake store: %v", err)
+		}
+	}
+	client := newPolicyClient(t, store, release)
+	env := accesstypes.EnvironmentAt(time.Date(2027, 6, 1, 12, 0, 0, 0, time.UTC))
+
+	decision, err := client.CheckUser(ctx, env, "dana", tenant1Scope, exportLedger)
+	if err != nil {
+		t.Fatalf("CheckUser(dana) error = %v, want the sound role to decide", err)
+	}
+	if !decision.IsGranted() {
+		t.Errorf("CheckUser(dana) = %s, want Granted by the sound role", decision)
+	}
+	decision, err = client.CheckUser(ctx, env, "erin", tenant1Scope, exportLedger)
+	if err != nil {
+		t.Fatalf("CheckUser(erin) error = %v, want a denial as for a person with no grant", err)
+	}
+	if !decision.IsDenied() {
+		t.Errorf("CheckUser(erin) = %s, want Denied", decision)
+	}
+	foothold, err := client.UserHasGrants(ctx, "erin", tenant1Scope)
+	if err != nil {
+		t.Fatalf("UserHasGrants(erin) error = %v", err)
+	}
+	if foothold {
+		t.Error("UserHasGrants(erin) = true, want the skipped row to be no foothold")
+	}
+	decision, err = client.CheckRole(ctx, env, "Broken", tenant1Scope, exportLedger)
+	if err != nil {
+		t.Fatalf("CheckRole(Broken) error = %v, want a denial", err)
+	}
+	if !decision.IsDenied() {
+		t.Errorf("CheckRole(Broken) = %s, want Denied", decision)
+	}
+
+	warnings, err := client.CheckPolicy(ctx)
+	if err != nil {
+		t.Fatalf("CheckPolicy() error = %v", err)
+	}
+	var listed []string
+	for _, warning := range warnings {
+		listed = append(listed, warning.String())
+	}
+	want := []string{`skipped a grant this release cannot use, so it is denied: role Broken in scope tenant1, ExportLedger scope-wide under condition "now >= '2026'": now is the time of the request; "2026" is not an RFC 3339 timestamp`}
 	if diff := cmp.Diff(want, listed); diff != "" {
 		t.Errorf("CheckPolicy() mismatch (-want +got):\n%s", diff)
 	}

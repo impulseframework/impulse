@@ -47,6 +47,52 @@ func TestNew_refusesANilCollection(t *testing.T) {
 	}
 }
 
+// TestNew_refusalsDoNotNameNew pins that New's own refusals are their sentences alone,
+// as the refusal of a nil collection is: the caller that wraps New's errors names New,
+// and a person would read the name twice.
+func TestNew_refusalsDoNotNameNew(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		collection PermissionCollection
+		opts       []Option
+		// wantPrefix is the start of the refusal; the whole of it when whole is set.
+		wantPrefix string
+		whole      bool
+	}{
+		{
+			name:       "no role file over a collection that knows several auths",
+			collection: setsCollection{auths: []string{"members", "staff"}},
+			wantPrefix: "the collection knows several auths (members, staff), and the engine is handed no role file, so it is told none of them. " +
+				"An engine holds the roles of one auth and holds each role's grants to that auth's sets of people: open it with the auth's role file under the auth's name, access.WithDefaultRoles(file, name)",
+			whole: true,
+		},
+		{
+			name:       "a super administrator's method the collection does not declare",
+			collection: grammarCollection{},
+			opts:       []Option{WithSuperAdministratorMethods("Restore")},
+			wantPrefix: "WithSuperAdministratorMethods names",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, err := New(newFakeStore(), tt.collection, tt.opts...)
+			if err == nil {
+				t.Fatalf("New() = %v, want a refusal", client)
+			}
+			switch got := plainText(err); {
+			case tt.whole && got != tt.wantPrefix:
+				t.Errorf("New() error = %q, want %q", got, tt.wantPrefix)
+			case !strings.HasPrefix(got, tt.wantPrefix):
+				t.Errorf("New() error = %q, want it to start %q", got, tt.wantPrefix)
+			}
+		})
+	}
+}
+
 // TestNew_withoutTheCollectionDoesNotCompile type-checks the nocollection program, which
 // builds a Client in each way an application could before the collection became an
 // argument of New, and pins that the Go type checker refuses each: a Client is built

@@ -20,13 +20,14 @@ type policyFinding interface {
 }
 
 // SkippedGrant reports a grant the policy store holds that the running release
-// cannot use: its condition does not parse, a row-referencing condition sits
-// on a scope-wide grant, it names a permission, resource or field the
-// release does not declare, or it is a role's grant on a resource that a write
-// would be refused for any other reason: the resource is of another scope than
-// the role's, Update is given on what the release marks immutable, or the
-// condition reads what the release does not declare or cannot judge the
-// permission by. The snapshot loaded without the grant, so the
+// cannot use: its condition does not parse, a scope-wide grant carries a
+// condition no scope-wide check could settle (it reads a row or a subject
+// value, or its time is not one the check can read), it names a permission,
+// resource or field the release does not declare, or it is a role's grant on a
+// resource that a write would be refused for any other reason: the resource is
+// of another scope than the role's, Update is given on what the release marks
+// immutable, or the condition reads what the release does not declare or
+// cannot judge the permission by. The snapshot loaded without the grant, so the
 // permission it would grant is denied and the rest of the policy is in force.
 // One report per such grant reaches the reload-error hook
 // (WithReloadErrorHandler) each time a snapshot compiles; the default hook
