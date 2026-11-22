@@ -168,6 +168,33 @@ func TestSubscribing(t *testing.T) {
 	}
 }
 
+// TestSubscribing_groupBound proves that a request its outlet's group bound keeps the
+// group's auth: Subscribing serves it, and what answers for the request reads the
+// group's auth, not the one Subscribing names.
+func TestSubscribing_groupBound(t *testing.T) {
+	t.Parallel()
+
+	ran, gotAuth, gotOK := false, "", false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ran = true
+		gotAuth, gotOK = resource.AuthFrom(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+	req := httptest.NewRequestWithContext(withUser(t.Context(), "dispatcher"), http.MethodGet, "/api/ships", http.NoBody)
+	rr := httptest.NewRecorder()
+	resource.BindAuth(crewAuth)(Subscribing(membersAuth)(next)).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !ran {
+		t.Error("handler ran = false, want true")
+	}
+	if gotAuth != crewAuth || !gotOK {
+		t.Errorf("resource.AuthFrom() = %q, %v, want %q, true", gotAuth, gotOK, crewAuth)
+	}
+}
+
 // TestSubscribing_authName proves the refusal of an auth name that cannot begin a
 // principal id: it panics as the routes are registered, naming what is wrong.
 func TestSubscribing_authName(t *testing.T) {

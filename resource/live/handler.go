@@ -43,11 +43,13 @@ func Tab(r *http.Request) (string, error) {
 // auth is the name of the auth whose sessions the outlet serves (the auth package's
 // Name); every request has it bound (resource.WithAuth), so the live layer keys the
 // session principal by it (PrincipalID) and the rules that keep a person from acting on
-// themselves tell the caller from a person of another auth. A request carrying the subscribe header has the tab noted on its
-// request log line and is refused when the tab is malformed; a request without the
-// header passes on with nothing else done. An auth name that is empty, or that carries
-// AuthSeparator or a "/", panics as the routes are registered, so a server never
-// starts with a name that cannot begin a principal id.
+// themselves tell the caller from a person of another auth. A request its outlet's
+// group bound already (resource.BindAuth) keeps the group's auth, which is the same
+// name wherever the generated router mounts both. A request carrying the subscribe
+// header has the tab noted on its request log line and is refused when the tab is
+// malformed; a request without the header passes on with nothing else done. An auth
+// name that is empty, or that carries AuthSeparator or a "/", panics as the routes are
+// registered, so a server never starts with a name that cannot begin a principal id.
 func Subscribing(auth string) func(http.Handler) http.Handler {
 	if err := checkAuthName(auth); err != nil {
 		panic(err.Error())
