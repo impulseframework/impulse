@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/impulseframework/impulse/internal/apptree"
@@ -180,16 +181,21 @@ func TestEveryReadWriteTransactionNamesItsLevel(t *testing.T) {
 	if !apptree.HoldsModule(root) {
 		t.Fatalf("%s holds no go.mod: the walk starts at the module's root", root)
 	}
+	tree, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tree.Close()
 	var findings []string
 	allowed := map[string]bool{}
-	err = filepath.WalkDir(root, func(abs string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(tree.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return errors.Wrap(err, "fs.WalkDir()")
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if abs != root && (apptree.SkipsDir(name) || apptree.HoldsModule(abs)) {
-				return filepath.SkipDir
+			if rel != "." && (apptree.SkipsDir(name) || apptree.HoldsModule(filepath.Join(root, filepath.FromSlash(rel)))) {
+				return fs.SkipDir
 			}
 
 			return nil
@@ -197,22 +203,17 @@ func TestEveryReadWriteTransactionNamesItsLevel(t *testing.T) {
 		if !apptree.GoToolReads(name) || strings.HasSuffix(name, "_test.go") {
 			return nil
 		}
-		data, err := os.ReadFile(abs)
+		data, err := fs.ReadFile(tree.FS(), rel)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "fs.ReadFile()")
 		}
 		if !slices.ContainsFunc(openerWords, func(word []byte) bool { return bytes.Contains(data, word) }) {
 			return nil
 		}
-		rel, err := filepath.Rel(root, abs)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
 		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, abs, data, parser.SkipObjectResolution)
+		f, err := parser.ParseFile(fset, rel, data, parser.SkipObjectResolution)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, o := range opensReadWriteTransaction(f) {
 			function := o.function
