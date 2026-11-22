@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -89,7 +90,7 @@ func TestOwnTenants_aPersonLeavesASector(t *testing.T) {
 	if strangerStatus == http.StatusOK {
 		t.Fatalf("GET Cinder's wings as the cadet, who holds nothing there: status 200, want a refusal: %s", strangerBody)
 	}
-	if status, body := hazards.do(ctx, http.MethodGet, sectorPath(cinder, "wings"), nil); status != strangerStatus || string(body) != string(strangerBody) {
+	if status, body := hazards.do(ctx, http.MethodGet, sectorPath(cinder, "wings"), nil); status != strangerStatus || !bytes.Equal(body, strangerBody) {
 		t.Errorf("GET Cinder's wings as the hazard analyst after she left: status %d %s, want a stranger's answer, %d %s", status, body, strangerStatus, strangerBody)
 	}
 	if got := hazards.domains(ctx); slices.Contains(got, cinder) || !slices.Contains(got, anvil) {
