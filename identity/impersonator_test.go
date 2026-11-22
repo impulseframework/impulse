@@ -569,20 +569,20 @@ func TestManager_ownAccount_withoutACaller(t *testing.T) {
 	}
 }
 
-// TestManager_UnlockSignIn_impersonatorsOwnCounts pins every row of the sign-in attempts
-// table the person who impersonates may not clear: the count under their username,
-// however it is spelled, and the library's own counts for their account, the mail and
-// the reset links their confirmed address is sent, the wrong sign-in codes entered for
-// their account and the guesses at the code of their first password. The two kept under
-// the account are refused whether or not the store knows a confirmed address for them.
-// Another person's rows are cleared.
+// TestManager_UnlockSignIn_impersonatorsOwnCounts pins every row of the sign-in
+// attempts table the person who impersonates may not clear: the count under their
+// username, however it is spelled, and the library's own counts for their account, the
+// mail, the sign-in codes and the reset links their confirmed address is sent, the
+// wrong sign-in codes entered for their account and the guesses at the code of their
+// first password. The two kept under the account are refused whether or not the store
+// knows a confirmed address for them. Another person's rows are cleared.
 func TestManager_UnlockSignIn_impersonatorsOwnCounts(t *testing.T) {
 	t.Parallel()
 
 	// The rows are written out as the table keeps them, so the test does not take the
 	// session library's word for which rows are an account's.
 	own := []string{
-		"dana", "Dana", "DANA", "MAIL:dana@example.com", "RESET:dana@example.com", "CODE-GUESS:" + userID.String(), "FIRST-PASSWORD:" + userID.String(),
+		"dana", "Dana", "DANA", "MAIL:dana@example.com", "CODE:dana@example.com", "RESET:dana@example.com", "CODE-GUESS:" + userID.String(), "FIRST-PASSWORD:" + userID.String(),
 	}
 	refused := func(t *testing.T, store *fakeStore, name string) {
 		t.Helper()
@@ -612,7 +612,7 @@ func TestManager_UnlockSignIn_impersonatorsOwnCounts(t *testing.T) {
 		delete(store.emails, "dana@example.com")
 		refused(t, store, "CODE-GUESS:"+userID.String())
 	})
-	for _, name := range []string{"frank", "MAIL:frank@example.com", "RESET:frank@example.com", "CODE-GUESS:" + frankID.String(), "FIRST-PASSWORD:" + frankID.String()} {
+	for _, name := range []string{"frank", "MAIL:frank@example.com", "CODE:frank@example.com", "RESET:frank@example.com", "CODE-GUESS:" + frankID.String(), "FIRST-PASSWORD:" + frankID.String()} {
 		t.Run("another person's: "+name, func(t *testing.T) {
 			t.Parallel()
 

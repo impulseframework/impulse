@@ -37,15 +37,15 @@ func SignInAttemptKey(listed string) string {
 // AccountAttemptKeys returns the key of every row the sign-in attempts table may keep
 // for one account: the failed sign-ins counted under its username, the wrong sign-in
 // codes entered for it and the guesses at the code of its first password, both kept
-// under the account's id, and the mail and the password reset links its address is
-// sent. email is the account's address, empty for an account that has none. A caller
-// that asks whether a listed row is an account's compares the row's key
+// under the account's id, and the mail, the sign-in codes and the password reset links
+// its address is sent. email is the account's address, empty for an account that has
+// none. A caller that asks whether a listed row is an account's compares the row's key
 // (SignInAttemptKey) with these, as the generated user management does for its rule
 // that nobody unlocks themselves while they act as someone else.
 func AccountAttemptKeys(userID impulse.UUID, username, email string) []string {
 	keys := []string{SignInAttemptName(username), firstPasswordKey(userID), codeGuessKey(userID)}
 	if strings.TrimSpace(email) != "" {
-		keys = append(keys, mailLimitKey(email), resetLimitKey(email))
+		keys = append(keys, mailLimitKey(email), codeLimitKey(email), resetLimitKey(email))
 	}
 
 	return keys
