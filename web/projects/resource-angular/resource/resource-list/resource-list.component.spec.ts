@@ -1494,15 +1494,16 @@ describe('ResourceListComponent', () => {
 
     describe('over a computed resource, offers no box the server would refuse', () => {
       // The server searches a computed resource over its real values, so it refuses the
-      // whole search unless the caller lists every searched field with no condition.
+      // whole search when the caller does not list a searched field. A field listed under a
+      // condition keeps the box: the server may settle the condition from the request.
       const refused = (): string | undefined =>
         (fixture.nativeElement as HTMLElement)
           .querySelector('.impulse-resource-list-search-refused')
           ?.textContent?.trim();
-      const listing = (name: 'granted' | 'conditional'): PermissionDigest => ({
+      const listing = (name: 'granted' | 'conditional' | 'absent'): PermissionDigest => ({
         [clients]: { List: 'granted' },
         [`${clients}.id`]: { List: 'granted' },
-        [`${clients}.name`]: { List: name },
+        ...(name === 'absent' ? {} : { [`${clients}.name`]: { List: name } }),
         [`${clients}.contactEmail`]: { List: 'granted' },
         [`${clients}.notes`]: { List: 'granted' },
         [contacts]: { List: 'granted' },
@@ -1548,11 +1549,17 @@ describe('ResourceListComponent', () => {
         await settle();
       };
 
-      it('a searched field listed under a condition: no box, and the page says which field', async () => {
-        await createUnder(listing('conditional'), true);
+      it('a searched field the digest does not list: no box, and the page says which field', async () => {
+        await createUnder(listing('absent'), true);
         expect(box()).toBeNull();
         expect(fixture.componentInstance.searchFields()).toEqual([]);
-        expect(refused()).toBe('You cannot search this list: your role does not see Name on every row.');
+        expect(refused()).toBe('You cannot search this list: your role does not see Name.');
+      });
+
+      it('a searched field listed under a condition: the box, and no sentence', async () => {
+        await createUnder(listing('conditional'), true);
+        expect(box()).not.toBeNull();
+        expect(refused()).toBeUndefined();
       });
 
       it('every searched field listed with no condition: the box, and no sentence', async () => {
@@ -1561,8 +1568,8 @@ describe('ResourceListComponent', () => {
         expect(refused()).toBeUndefined();
       });
 
-      it('a table with a searched field listed under a condition draws the box as before', async () => {
-        await createUnder(listing('conditional'), false);
+      it('a table with a searched field the digest does not list draws the box as before', async () => {
+        await createUnder(listing('absent'), false);
         expect(box()).not.toBeNull();
         expect(refused()).toBeUndefined();
       });

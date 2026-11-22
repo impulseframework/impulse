@@ -1,10 +1,4 @@
-import {
-  ListPermission,
-  PermissionDigestState,
-  Resource,
-  ResourceMeta,
-  SearchBranchMeta,
-} from '@impulseframework/resource';
+import { ListPermission, Resource, ResourceMeta, SearchBranchMeta } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { filterFields } from '@impulseframework/resource-angular/grid';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
@@ -16,9 +10,12 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 // fewer fields lists a view projecting fewer. A field of the resource's key takes no
 // grant of its own, so no role's digest names it: whoever lists the resource searches
 // it, as the server does, and the box never says a role leaves it out. A computed
-// resource is searched over its real values, so the server refuses the whole search
-// unless the caller lists every searched field with no condition; the box is then not
-// offered, and the page says which fields the caller's role does not see on every row.
+// resource is searched over its real values, so the server refuses the whole search when
+// the caller does not list one of the searched fields; the box is then not offered, and
+// the page says which fields the caller's role does not see. A field the digest lists
+// under a condition does not withhold the box: the digest folds nothing, and the server
+// answers the search where the condition is one the check settles from the request and
+// it holds.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -137,25 +134,22 @@ export function deniedSearchFields(
 }
 
 /**
- * The search fields for which the server refuses a computed list's whole search: each of
- * the resource's own search fields, other than a key field, that the digest does not
- * list or lists only under a condition (`listStates`, the digest's List state by field).
- * None on a table or a view, and none where the digest holds no List on the resource at
- * all, since the page lists nothing.
+ * The search fields for which the server is sure to refuse a computed list's whole
+ * search: each of the resource's own search fields, other than a key field, that the
+ * digest does not list. None on a table or a view; none where the digest holds no List on
+ * the resource at all, since the page lists nothing; none where nothing is known. A field
+ * listed under a condition is not among them: the server may settle the condition from
+ * the request and answer.
  */
 export function refusedSearchFields(
   meta: ResourceMeta | undefined,
   listable: ReadonlySet<string> | undefined,
-  listStates: Readonly<Record<string, PermissionDigestState>>,
 ): string[] {
-  if (meta?.computed !== true || listable?.size === 0) {
+  if (meta?.computed !== true || listable === undefined || listable.size === 0) {
     return [];
   }
   return (meta.searchFields ?? []).filter(
-    (field) =>
-      !field.includes('.') &&
-      !keyField(meta, field) &&
-      ((listable !== undefined && !listable.has(field)) || listStates[field] === 'conditional'),
+    (field) => !field.includes('.') && !keyField(meta, field) && !listable.has(field),
   );
 }
 
@@ -209,12 +203,12 @@ export function searchDeniedHint(labels: readonly string[]): string {
 
 /**
  * What the page says where it offers no box because the server would refuse the search:
- * the fields the caller's role does not see on every row, by label; nothing when none.
+ * the fields the caller's role does not see, by label; nothing when none.
  */
 export function searchRefusedNotice(labels: readonly string[]): string {
   if (labels.length === 0) {
     return '';
   }
   const fields = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
-  return `You cannot search this list: your role does not see ${fields} on every row.`;
+  return `You cannot search this list: your role does not see ${fields}.`;
 }

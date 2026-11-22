@@ -626,21 +626,16 @@ export class ResourceListComponent implements OnInit {
   filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns()));
 
   /**
-   * The search fields for which the server would refuse this caller's whole search of a
-   * computed list (refusedSearchFields): the fields the digest does not list, or lists
-   * only under a condition. Across tenants no one digest speaks for the rows, so nothing
-   * is refused here.
+   * The search fields for which the server is sure to refuse this caller's whole search
+   * of a computed list (refusedSearchFields): the fields the digest does not list. Across
+   * tenants no one digest speaks for the rows, so nothing is refused here.
    */
   searchRefused = computed<string[]>(() => {
     const resource = this.config().primaryResource;
     if (this.across() || !resource) {
       return [];
     }
-    return refusedSearchFields(
-      this.meta(),
-      this.listableFields(),
-      this.auth.fieldPermissionStates({ resource, permission: ListPermission }),
-    );
+    return refusedSearchFields(this.meta(), this.listableFields());
   });
 
   /**
@@ -689,8 +684,8 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * What the page says where it offers no box because the server would refuse the
-   * search: the fields the caller's role does not see on every row, by the labels the box
-   * gives them. Nothing when the config hides the box.
+   * search: the fields the caller's role does not see, by the labels the box gives
+   * them. Nothing when the config hides the box.
    */
   searchNotice = computed(() =>
     this.config().showSearchBox === false

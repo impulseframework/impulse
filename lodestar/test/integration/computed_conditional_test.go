@@ -4,8 +4,8 @@ package integration
 // computed_conditional_test (design plan §9): the hazard board answers under the
 // analyst's row-free `now < '2099-01-01T00:00:00Z'` grant before the certification
 // instant and refuses after it (pinned through the engine at two instants), the
-// analyst's search box is refused whole, and a row-bearing condition on the same grant
-// is refused when the role file is validated.
+// analyst's search box is answered, since the check settles the board's condition, and a
+// row-bearing condition on the same grant is refused when the role file is validated.
 
 import (
 	"net/http"
@@ -48,15 +48,14 @@ func TestComputedConditionalGrant(t *testing.T) {
 		}
 	})
 
-	t.Run("the analyst's search box is refused whole, and the same list without it answers", func(t *testing.T) {
+	t.Run("the analyst's search box is answered: the check settles the board's condition from the time of the request", func(t *testing.T) {
 		t.Parallel()
 
 		// The board is searched over its rows' real values, so a search needs every searched
-		// field granted with no condition; the analyst holds the ship's name under the
-		// board's condition. The box travels in the URL, as the browser sends it.
+		// field granted with no condition left once the check has run. The analyst's
+		// condition reads the time of the request alone, so the check settles it and grants
+		// the ship's name. The box travels in the URL, as the browser sends it.
 		status, body := doRequestAs(t, h, "hazards", http.MethodGet, sectorPath(anvil, "sector-hazard-boards?"+filter(`*:search:"king"`)), "")
-		assertStatus(t, status, http.StatusForbidden, body)
-		status, body = doRequestAs(t, h, "hazards", http.MethodGet, sectorPath(anvil, "sector-hazard-boards"), "")
 		assertStatus(t, status, http.StatusOK, body)
 	})
 
