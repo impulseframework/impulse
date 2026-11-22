@@ -19,16 +19,41 @@ import (
 func writeCheckCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
-	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
-		Name:        enforcedResource,
-		Scope:       accesstypes.DomainPermissionScope,
-		Permissions: []accesstypes.Permission{accesstypes.Read},
-		Attributes: []AttributeData{
-			{Name: "owner", Column: "Owner", Type: AttributeTypeString},
-			{Name: "pub", Column: "Public", Type: AttributeTypeString},
+	// Three attributes read through a foreign key: to a depot, which keeps its tenant in a
+	// column; to a crate, which reads its tenant through its depot; and to a color, which
+	// is no tenant's.
+	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+		{
+			Name:        enforcedResource,
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.Read},
+			Attributes: []AttributeData{
+				{Name: "owner", Column: "Owner", Type: AttributeTypeString},
+				{Name: "pub", Column: "Public", Type: AttributeTypeString},
+				{Name: "depotKind", Column: "Tagged", Type: AttributeTypeString, Path: []BindingHop{{Table: "Depots", JoinColumn: "Id", Column: "Kind"}}},
+				{Name: "crateKind", Column: "Public", Type: AttributeTypeString, Path: []BindingHop{{Table: "Crates", JoinColumn: "Id", Column: "Kind"}}},
+				{Name: "colorKind", Column: "Frozen", Type: AttributeTypeString, Path: []BindingHop{{Table: "Colors", JoinColumn: "Id", Column: "Kind"}}},
+			},
+			Domain: &DomainBindingData{Column: "Station"},
 		},
-		Domain: &DomainBindingData{Column: "Station"},
-	}}})
+		{
+			Name:        "Depots",
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.Read},
+			Domain:      &DomainBindingData{Column: "Station"},
+		},
+		{
+			Name:        "Crates",
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.Read},
+			Domain:      &DomainBindingData{Column: "DepotId", Path: []BindingHop{{Table: "Depots", JoinColumn: "Id", Column: "Station"}}},
+		},
+		{
+			Name:        "Colors",
+			Scope:       accesstypes.GlobalPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.Read},
+		},
+	}})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
 	}
@@ -46,6 +71,8 @@ func TestPatchSet_writeCheckStatement(t *testing.T) {
 		name       string
 		patchType  PatchType
 		permission accesstypes.Permission
+		// global makes the request one of no tenant.
+		global     bool
 		set        map[accesstypes.Field]any
 		decisions  accesstypes.Decisions
 		wantGroups int
@@ -139,6 +166,69 @@ func TestPatchSet_writeCheckStatement(t *testing.T) {
 			wantParams: map[string]any{"_c1": "fresh", "_c2": "locked"},
 		},
 		{
+			name:       "insert reads a row it names that keeps its tenant in a column only in the request's tenant",
+			patchType:  CreatePatchType,
+			permission: accesstypes.Create,
+			set:        map[accesstypes.Field]any{"Tagged": "depot-1"},
+			decisions: accesstypes.Decisions{
+				enforcedResource + ".tagged": conditionalOn(enforcedResource+".tagged", "depotKind = 'open'"),
+			},
+			wantGroups: 1,
+			wantSQL:    "SELECT ((SELECT `ca1`.`Kind` FROM `Depots` `ca1` WHERE `ca1`.`Id` = @_c1 AND `ca1`.`Station` = @domain) = @_c2) AS g1",
+			wantParams: map[string]any{"_c1": "depot-1", "_c2": "open", "domain": "testDomain"},
+		},
+		{
+			name:       "insert reads a row it names that reads its tenant through a path only in the request's tenant",
+			patchType:  CreatePatchType,
+			permission: accesstypes.Create,
+			set:        map[accesstypes.Field]any{"Public": "crate-1"},
+			decisions: accesstypes.Decisions{
+				enforcedResource + ".public": conditionalOn(enforcedResource+".public", "crateKind = 'open'"),
+			},
+			wantGroups: 1,
+			wantSQL: "SELECT ((SELECT `ca1`.`Kind` FROM `Crates` `ca1` WHERE `ca1`.`Id` = @_c1 AND " +
+				"EXISTS (SELECT 1 FROM `Depots` `ca2` WHERE `ca2`.`Id` = `ca1`.`DepotId` AND `ca2`.`Station` = @domain)) = @_c2) AS g1",
+			wantParams: map[string]any{"_c1": "crate-1", "_c2": "open", "domain": "testDomain"},
+		},
+		{
+			name:       "insert reads a row it names of a table that is no tenant's as it stands",
+			patchType:  CreatePatchType,
+			permission: accesstypes.Create,
+			set:        map[accesstypes.Field]any{"Frozen": "color-1"},
+			decisions: accesstypes.Decisions{
+				enforcedResource + ".frozen": conditionalOn(enforcedResource+".frozen", "colorKind = 'open'"),
+			},
+			wantGroups: 1,
+			wantSQL:    "SELECT ((SELECT `ca1`.`Kind` FROM `Colors` `ca1` WHERE `ca1`.`Id` = @_c1) = @_c2) AS g1",
+			wantParams: map[string]any{"_c1": "color-1", "_c2": "open"},
+		},
+		{
+			name:       "insert in a request of no tenant reads a row it names as it stands",
+			patchType:  CreatePatchType,
+			permission: accesstypes.Create,
+			global:     true,
+			set:        map[accesstypes.Field]any{"Tagged": "depot-1"},
+			decisions: accesstypes.Decisions{
+				enforcedResource + ".tagged": conditionalOn(enforcedResource+".tagged", "depotKind = 'open'"),
+			},
+			wantGroups: 1,
+			wantSQL:    "SELECT ((SELECT `ca1`.`Kind` FROM `Depots` `ca1` WHERE `ca1`.`Id` = @_c1) = @_c2) AS g1",
+			wantParams: map[string]any{"_c1": "depot-1", "_c2": "open"},
+		},
+		{
+			name:       "update reads a row its record names as it stands",
+			patchType:  UpdatePatchType,
+			permission: accesstypes.Update,
+			set:        map[accesstypes.Field]any{"Tagged": "depot-1"},
+			decisions: accesstypes.Decisions{
+				enforcedResource + ".tagged": conditionalOn(enforcedResource+".tagged", "depotKind = 'open'"),
+			},
+			wantGroups: 1,
+			wantSQL: "SELECT ((SELECT `ca1`.`Kind` FROM `Depots` `ca1` WHERE `ca1`.`Id` = `enforcementResources`.`Tagged`) = @_c1) AS g1 " +
+				"FROM enforcementResources WHERE `Id` = @_id AND (`enforcementResources`.`Station` = @domain)",
+			wantParams: map[string]any{"_c1": "open", "_id": id, "domain": "testDomain"},
+		},
+		{
 			name:       "insert condition over an unset column fails loud",
 			patchType:  CreatePatchType,
 			permission: accesstypes.Create,
@@ -186,7 +276,11 @@ func TestPatchSet_writeCheckStatement(t *testing.T) {
 				SetPatchType(tt.patchType)
 			p.querySet.env = accesstypes.EnvironmentAt(now)
 			p.querySet.collection = writeCheckCollection(t)
-			p.EnableUserPermissionEnforcement(rSet, renderStubPermissions{}, testScope, tt.permission)
+			scope := testScope
+			if tt.global {
+				scope = accesstypes.GlobalScope()
+			}
+			p.EnableUserPermissionEnforcement(rSet, renderStubPermissions{}, scope, tt.permission)
 			p.querySet.conditionalDecisions = tt.decisions
 			for field, value := range tt.set {
 				p.Set(field, value)

@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
 )
 
@@ -364,7 +365,7 @@ func (ctx *loweringContext) resolveRef(ref condition.Ref, registry *paramRegistr
 			return start, nil
 		}
 
-		return pathScalar(&start, binding.Path, registry), nil
+		return ctx.insertPathScalar(&start, binding.Path, registry), nil
 	}
 
 	if ref.PostImage {
@@ -414,6 +415,45 @@ func pathScalar(start *comparand, path []BindingHop, registry *paramRegistry) co
 	}
 
 	return previous
+}
+
+// insertPathScalar renders a join path read from an insert's image as
+// pathScalar does, except that in a partitioned request the first hop reads its
+// row only where it is the request's tenant's: where the first hop's table is
+// a resource of the collection with a domain binding, its subquery also holds
+// that table's tenancy filter, the one a subject anchor's takes
+// (withTenancy). A row of another tenant then reads as no row, as one that is
+// not there does. The hops after the first follow from that row as they
+// stand.
+func (ctx *loweringContext) insertPathScalar(start *comparand, path []BindingHop, registry *paramRegistry) comparand {
+	previous := *start
+	for i, hop := range path {
+		alias := registry.alias()
+		var where ExpressionNode = &loweredComparisonNode{
+			left:  columnComparand(alias, hop.JoinColumn),
+			op:    "=",
+			right: previous,
+		}
+		if i == 0 {
+			where = ctx.withTenancy(where, ctx.tableDomain(hop.Table), alias, registry)
+		}
+		previous = subqueryComparand(&scalarSubqueryNode{table: hop.Table, alias: alias, column: hop.Column, where: where})
+	}
+
+	return previous
+}
+
+// tableDomain is the domain binding of the resource whose table is named, nil
+// where the collection declares no such resource or the resource is no
+// tenant's.
+func (ctx *loweringContext) tableDomain(table string) *DomainBindingData {
+	res := accesstypes.Resource(table)
+	bindings, ok := ctx.collection.Bindings(ctx.collection.Scope(res), res)
+	if !ok {
+		return nil
+	}
+
+	return bindings.Domain
 }
 
 // proposedValue resolves a column to its proposed parameter in an insert's
@@ -671,20 +711,29 @@ func (ctx *loweringContext) subjectValueSubquery(name string, registry *paramReg
 // the filter follows the row: the anchor's tenant is compared to the tenant of
 // the row being checked (requestTenant).
 func (ctx *loweringContext) withAnchorTenancy(where ExpressionNode, anchor *SubjectAnchor, alias string, registry *paramRegistry) ExpressionNode {
-	if !ctx.partitioned || anchor.Domain == nil {
+	return ctx.withTenancy(where, anchor.Domain, alias, registry)
+}
+
+// withTenancy adds a row's tenancy filter to where, the row read under alias:
+// applied exactly when the request is partitioned and the row's table has a
+// domain binding. The binding is the row's own column that holds the tenant's
+// key, compared as it stands, or a path from a column of the row to that column
+// on another table, compared inside its EXISTS chain.
+func (ctx *loweringContext) withTenancy(where ExpressionNode, domain *DomainBindingData, alias string, registry *paramRegistry) ExpressionNode {
+	if !ctx.partitioned || domain == nil {
 		return where
 	}
 
 	var filter ExpressionNode
-	if len(anchor.Domain.Path) == 0 {
+	if len(domain.Path) == 0 {
 		filter = &loweredComparisonNode{
-			left:  columnComparand(alias, anchor.Domain.Column),
+			left:  columnComparand(alias, domain.Column),
 			op:    "=",
 			right: ctx.requestTenant(registry),
 		}
 	} else {
-		anchorColumn := columnComparand(alias, anchor.Domain.Column)
-		target, wrap := ctx.pathTarget(&anchorColumn, anchor.Domain.Path, registry)
+		column := columnComparand(alias, domain.Column)
+		target, wrap := ctx.pathTarget(&column, domain.Path, registry)
 		filter = wrap(&loweredComparisonNode{left: target, op: "=", right: ctx.requestTenant(registry)})
 	}
 

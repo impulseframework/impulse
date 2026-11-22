@@ -68,6 +68,10 @@ type (
 	// library's for every column a set follows to an auth's groups (the generated
 	// GroupColumns), so nothing in this file states it.
 	//
+	// A pass names its hangar by its sector and the hangar's id: the foreign key holds
+	// both, so the database refuses a pass that names another sector's hangar, when it is
+	// created and when an update moves it, in the sentence of a pass that names no hangar.
+	//
 	// A check of either set finds the requester's passes by UserId, by SquadronId and by
 	// GroupId, so the table carries an index for each (the sector, the column, the
 	// hangar); without one the generator warns, naming the CREATE INDEX it wants.

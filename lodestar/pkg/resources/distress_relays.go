@@ -20,10 +20,11 @@ type (
 	// case number.
 	//
 	// AnswersRelayID names the relay this one answers, a row of this same table. The
-	// relay lists its own kind in @deleteCascade, so a relay's delete asks first and then
-	// takes its answers, and theirs, however deep; and a call's delete follows the same
-	// link, so an answer goes with the call even where it names another call's case
-	// number.
+	// foreign key is the relay's sector and that relay's id, so an answer names a relay of
+	// its own sector and never another's. The relay lists its own kind in @deleteCascade,
+	// so a relay's delete asks first and then takes its answers, and theirs, however deep;
+	// and a call's delete follows the same link, so an answer goes with the call even
+	// where it names another call's case number.
 	//
 	// RelayedByName and RelayedAt are the server's: the session's username as it was then
 	// and the commit timestamp, written at create and never by the wire.
