@@ -2,7 +2,8 @@
 # Lodestar persona walkthrough: drives every persona's proof by curl through real
 # sessions (login, cookies, XSRF: the served stack, not the test router), plus the droid
 # channel under its bearer token and the client portal under its own prefix through the
-# simulated directory. Prints PASS/FAIL per check.
+# simulated directory. Prints PASS/FAIL per check and a summary line, and exits 1 when
+# a check failed.
 #
 # Run it against a FRESHLY bootstrapped stack (overmind start, or the Procfile's spanner +
 # server commands, both under -tags skipAuth) with the .envrc variables exported here
@@ -997,7 +998,7 @@ r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"r
 r=$(req navigator GET "$API/user-domains"); check "giving the role ends nothing: the session he holds, through the fleet's directory, answers as before" 200 "$r"
 assert_py "and that session is a super administrator's from then on: his chart lights every sector, Bastion among them, with none closed" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
 r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$BASTION_ID"'/sector-directories","value":{}}]'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
-assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider persona. A sector has one directory: remove it first to set another.' in rows['message']"
+assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider Persona. A sector has one directory: remove it first to set another.' in rows['message']"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\"}]"); check "the navigator removes Cinder's directory: the Workspace is free for another sector" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/crew-sector-user-roles"); assert_py "the role the directory gave him at Cinder stands once the directory is removed" "$r" "'SectorCrew' in [h['role'] for h in rows if h['username']=='navigator']"
 r=$(req navigator PATCH "$API/resources" "$MAKE_ANVILS"); check "the navigator makes the directory he is signed in through Anvil's, with a create that names no directory" 200 "$r"
@@ -1035,7 +1036,7 @@ second_factor bosun "$API" bosun@fleet.example "$LOG"
 r=$(req bosun GET "$API/user/session"); assert_py "and the bosun signs in" "$r" "rows['authenticated'] and rows['username']=='bosun'"
 # Turning it on is held to its rules. The governor holds the grant and signed in with a
 # password: he is not signed in through Bastion's directory.
-NOT_THROUGH_IT='Directory only is turned on by a person who is signed in through this sector'"'"'s directory, OpenID Connect provider persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider persona and try again.'
+NOT_THROUGH_IT='Directory only is turned on by a person who is signed in through this sector'"'"'s directory, OpenID Connect provider Persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider Persona and try again.'
 r=$(warning governor "$MAKE_ONLY" '{}'); check "the governor asks what turning it on would do, and is refused: he is not signed in through Bastion's directory" 409 "$r"
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NOT_THROUGH_IT\""
 r=$(req governor POST "$MAKE_ONLY" '{}'); check "and the method is refused the same way: turning directory only on takes a person signed in through the sector's directory" 409 "$r"
@@ -1087,7 +1088,7 @@ r=$(req rookie POST "$API/user/first-password" "{\"code\":\"$FIRST_CODE\",\"pass
 r=$(req rookie GET "$API/user/session"); assert_py "his session stands, the one the persona provider opened: a first password ends no session" "$r" "rows['authenticated'] and rows['username']=='rookie' and rows['directory']=={'method':'oidc','connection':'persona'}"
 r=$(req rookie POST "$API/user/first-password/code"); check "and his account takes no second first password" 409 "$r"
 r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, signed in through Bastion's directory and with a password of his own, asks what turning it on would do" 200 "$r"
-assert_py "the server writes the words: who will be able to enter, that an administrator of the sector who has a password still gets in, how many seated there will not, and what the button says; the count takes in the portal's members, whom a marshal does not list, so the sentence says the names are the people he may list" "$r" "(lambda m: m is not None and int(m.group(1)) > len(rows['names']) and int(m.group(2)) == len(rows['names']))(__import__('re').fullmatch(r'Only people who sign in through persona will be able to enter this sector\. An administrator of this sector who has a password can still sign in with it and a code sent to their email\. (\d+) people seated here sign in another way and will lose access\. The (\d+) of them you may list are named here\.', rows['consequence'])) and rows['confirm']=='Admit only people who sign in through persona'"
+assert_py "the server writes the words: who will be able to enter, that an administrator of the sector who has a password still gets in, how many seated there will not, and what the button says; the count takes in the portal's members, whom a marshal does not list, so the sentence says the names are the people he may list" "$r" "(lambda m: m is not None and int(m.group(1)) > len(rows['names']) and int(m.group(2)) == len(rows['names']))(__import__('re').fullmatch(r'Only people who sign in through Persona will be able to enter this sector\. An administrator of this sector who has a password can still sign in with it and a code sent to their email\. (\d+) people seated here sign in another way and will lose access\. The (\d+) of them you may list are named here\.', rows['consequence'])) and rows['confirm']=='Admit only people who sign in through Persona'"
 assert_py "and names them to him as a list of their own, since a marshal lists the sector's people, each by name and sign-in name in the order of their sign-in names: the rigger, the bosun and the pilot among them, and neither the rookie, who signed in through the directory, nor the governor, a super administrator" "$r" "(lambda users: users==sorted(users) and {'rigger','bosun','pilot'} <= set(users) and not {'rookie','governor'} & set(users))([n.split(' (')[-1].rstrip(')') for n in rows['names']])"
 r=$(req rigger GET "$API/user-domains"); assert_py "asking writes nothing: the rigger still charts Bastion" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID']"
 r=$(req rookie POST "$MAKE_ONLY" '{}'); check "the rookie turns Bastion's directory only on with the sector's method: he is its marshal, signed in through its directory" 200 "$r"
@@ -1386,14 +1387,14 @@ r=$(req pilot POST "$API/impersonate/end" '{}'); assert_py "the pilot returns to
 r=$(req marshal POST "$API/impersonate" '{"kind":"role","principal":"Headquarters","reason":"walkthrough"}'); check "the marshal acts as the Headquarters role" 200 "$r"
 assert_py "with no mask" "$r" "rows['mask']=='everything'"
 r=$(req marshal POST "$API/assign-crew-role" "{\"userId\":\"$MARSHAL_ID\",\"role\":\"StandIn\"}"); check "acting as headquarters, she is refused a role given to her own account" 403 "$r"
-assert_py "and told that she is acting as someone else, and what to do" "$r" "rows['message']=='you are acting as someone else, so you cannot give yourself a role: while you act as another person, nothing you do is done to your own account. Stop acting as them first'"
+assert_py "and told that she is acting as someone else, so she cannot give herself a role" "$r" "rows['message']=='You are acting as someone else, so you cannot give yourself a role.'"
 curl -s -L -c "$S/stranger.jar" -b "$S/stranger.jar" -o /dev/null "$API/user/session"
 r=$(curl -s -w '\n%{http_code}' -c "$S/stranger.jar" -b "$S/stranger.jar" -H "X-XSRF-TOKEN: $(xsrf stranger)" -H 'Content-Type: application/json' \
   -d '{"username":"marshal","password":"not the password"}' "$API/user/password/login"); check "a wrong password for the marshal, from a browser of nobody's, is counted under her name" 401 "$r"
 r=$(req marshal POST "$API/unlock-crew-sign-in" '{"name":"marshal"}'); check "nor does she unlock her own sign-in" 403 "$r"
-assert_py "for the same reason" "$r" "rows['message'].startswith('you are acting as someone else, so you cannot unlock your own sign-in:')"
+assert_py "for the same reason" "$r" "rows['message']=='You are acting as someone else, so you cannot unlock your own sign-in.'"
 r=$(req marshal PATCH "$API/resources" '[{"op":"patch","path":"/pilots/30000000-0000-4000-8000-000000000002","value":{"clearance":5}}]'); check "nor write her own row of the pilots' registry, which her clearance is read from: the record's generated write asks the same rule" 403 "$r"
-assert_py "for the same reason" "$r" "'you are acting as someone else, so you cannot change your own pilot record:' in json.dumps(rows)"
+assert_py "for the same reason" "$r" "'You are acting as someone else, so you cannot change your own pilot record.' in json.dumps(rows)"
 r=$(dryrun marshal POST "$API/assign-crew-role" "{\"userId\":\"$CADET_ID\",\"role\":\"StandIn\"}"); check "the same role given to another person would go through: the dry run would commit" 200 "$r"
 r=$(req marshal GET "$API/crew-session-users/$MARSHAL_ID"); check "her own row is still read" 200 "$r"
 r=$(req marshal GET "$API/crew-session-impersonations"); assert_py "the generated list of impersonation records says each session's mask in words" "$r" "any(s['sessionId']=='$ACTING' and s['mask']=='$ACT_MASK' for s in rows) and any(s['mask']=='everything' and s['endedAt'] is None for s in rows) and any(s['mask']=='reading only' for s in rows)"
@@ -1421,4 +1422,4 @@ token_only_in_mail "the token of the invitation mailed to founder@flint.example 
 token_only_in_mail "the token of the invitation mailed to gus@example.com is in the server's log only where the mail is: no request line holds it" "$GUS_TOKEN" "$LOG"
 
 echo
-if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "$fails CHECK(S) FAILED"; fi
+if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "$fails CHECK(S) FAILED"; exit 1; fi
