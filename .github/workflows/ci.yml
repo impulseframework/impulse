@@ -941,9 +941,9 @@ jobs:
     # Microsoft's (--method oidc:okta, the provider named by its issuer), held to what the
     # fourth is. Each of the eight passes go vet with and without the skipAuth tag as
     # impulse new made it, its tests then being the start's own, and passes those tests
-    # under the tag (the served suites, on the emulator); the fifth and the sixth are also
-    # regenerated, which changes nothing, checked again by impulse check, and tested under
-    # no tag. What the commands wrote is held to each application's own formatters and
+    # under the tag (the served suites, on the emulator); the fifth, the sixth and the four
+    # with no password sign-in are also regenerated, which changes nothing, checked again by
+    # impulse check, and tested under no tag. What the commands wrote is held to each application's own formatters and
     # lint (in every package that compiles), and the tests that do not compile once a
     # method is added to the brief, which must name each. A rendered skeleton
     # (impulse-skeletons) proves a candidate; this proves what the transitions write over

@@ -523,6 +523,14 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 	}
 }
 
+// directoryRolesChecks are the lines impulse check says of an application that started
+// from Directory roles, whichever directory gives the roles: the one method through it,
+// and nobody of the auth invited as its first administrator.
+var directoryRolesChecks = []string{
+	"1 directory method(s)",
+	"no auth brings in a first administrator",
+}
+
 // holdsDirectoryRoles holds an application that started from Directory roles to that,
 // whichever directory gives the roles: impulse audit reads the staff auth as the shape,
 // with the one method wanted and nothing of a password (holdsNoPassword); nobody is
@@ -591,6 +599,12 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // named by its tenant id, and is held to the same with the Microsoft method in the
 // Google method's place.
 //
+// The third, the fourth and its twin, and the seventh below, the applications that start
+// with no password sign-in, are each held to every step as they are made too
+// (everyStepAsMade): each regenerates to itself, builds under both tag sets, passes
+// impulse check, which counts its directory methods and says who brings in its first
+// administrator, and passes its tests under no tag.
+//
 // The fifth is an application with a second browser application and a machine outlet,
 // both composed into the creation (--outlet, --api-outlet) and no shape named. The
 // command wires both, so it leaves no brief, and the application is held to every step
@@ -615,8 +629,8 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // It costs about eighteen minutes and under eight gigabytes on a machine whose Go caches
 // and emulator image are warm: each command regenerates against the emulator (about
 // twenty-five seconds), each application runs its tests as it is made (about as long; the
-// fifth twice and the sixth three times), and the rest is each application's build, vet
-// and lint runs.
+// fifth and the four with no password sign-in twice, the sixth three times), and the rest
+// is each application's build, vet and lint runs.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
 		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about eighteen minutes", runAuthored)
@@ -780,16 +794,22 @@ func TestAuthoredApplication(t *testing.T) {
 				t.Errorf("the brief impulse new left does not say %q", want)
 			}
 		}
+		everyStepAsMade(t, made, []string{
+			"3 directory method(s)",
+			"the first administrator is invited: staff",
+		})
 	})
 
 	t.Run("roles from one directory, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
 		made := author(t, checkout, "pier", "directory-roles", []string{"--method", "google", "--organization", "fleet.example"}, nil)
 		holdsDirectoryRoles(t, made, "google: the accounts of one Google Workspace; the directory gives the roles", "APP_STAFF_GOOGLE_HOSTED_DOMAIN=fleet.example")
+		everyStepAsMade(t, made, directoryRolesChecks)
 	})
 
 	t.Run("roles from a Microsoft Entra tenant, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
 		made := author(t, checkout, "dock", "directory-roles", []string{"--method", "azure", "--organization", "3f2504e0-4f89-11d3-9a0c-0305e82c3301"}, nil)
 		holdsDirectoryRoles(t, made, "azure: the accounts of one Microsoft Entra tenant; the directory gives the roles", "APP_STAFF_AZURE_TENANT_ID=3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+		everyStepAsMade(t, made, directoryRolesChecks)
 	})
 
 	t.Run("a second browser application and a machine outlet", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
@@ -844,6 +864,7 @@ func TestAuthoredApplication(t *testing.T) {
 	t.Run("roles from another identity provider, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
 		made := author(t, checkout, "berth", "directory-roles", []string{"--method", "oidc:okta", "--organization", "https://id.fleet.example"}, nil)
 		holdsDirectoryRoles(t, made, "okta: the accounts of one organization's identity provider; the directory gives the roles", "APP_STAFF_OKTA_ISSUER=https://id.fleet.example")
+		everyStepAsMade(t, made, directoryRolesChecks)
 	})
 }
 
