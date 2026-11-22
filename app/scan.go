@@ -714,7 +714,7 @@ func parseRosterConstructions(rel string, src []byte) ([]RosterConstruction, err
 		}
 		r := RosterConstruction{File: rel, Line: fset.Position(call.Pos()).Line, Package: path.Dir(rel), Constructor: name, Holder: holders[call]}
 		for _, arg := range call.Args {
-			if option, ok := arg.(*ast.CallExpr); ok && calleeName(option.Fun) == tenantSignalsFunc {
+			if option, ok := ast.Unparen(arg).(*ast.CallExpr); ok && calleeName(option.Fun) == tenantSignalsFunc {
 				r.Signals = true
 			}
 		}
@@ -732,7 +732,7 @@ func parseRosterConstructions(rel string, src []byte) ([]RosterConstruction, err
 func rosterHolders(f *ast.File) map[*ast.CallExpr]string {
 	holders := map[*ast.CallExpr]string{}
 	bind := func(target ast.Expr, value ast.Expr) {
-		call, ok := value.(*ast.CallExpr)
+		call, ok := ast.Unparen(value).(*ast.CallExpr)
 		if !ok {
 			return
 		}
@@ -764,11 +764,11 @@ func rosterHolders(f *ast.File) map[*ast.CallExpr]string {
 	return holders
 }
 
-// calleeName is the final name of an identifier or selector expression: the name a call
-// is made by, or the name a value is bound to (tenants for conf.tenants); empty for any
-// other expression.
+// calleeName is the final name of an identifier or selector expression, looking through
+// parentheses around it: the name a call is made by ((F)(...) is made by F), or the name a
+// value is bound to (tenants for conf.tenants); empty for any other expression.
 func calleeName(fun ast.Expr) string {
-	switch fun := fun.(type) {
+	switch fun := ast.Unparen(fun).(type) {
 	case *ast.Ident:
 		return fun.Name
 	case *ast.SelectorExpr:
@@ -977,7 +977,7 @@ func parsePolicyChecks(rel string, src []byte) ([]PolicyCheck, error) {
 		if !ok {
 			return true
 		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == checkPolicyFunc {
+		if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok && sel.Sel.Name == checkPolicyFunc {
 			checks = append(checks, PolicyCheck{File: rel, Line: fset.Position(call.Pos()).Line})
 		}
 

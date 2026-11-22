@@ -236,8 +236,9 @@ func engine(store Store, collection PermissionCollection) (*Client, error) {
 
 // TestScan_callsInParentheses pins that the scan reads a call whose function is written in
 // parentheses, or with a comment before its parenthesis, as the call it is: the engine, the
-// role file handed to it, the validation of a role file, the retirement of secret versions
-// and the construction of an Auth.
+// role file handed to it, the validation of a role file, the retirement of secret versions,
+// the construction of an Auth, a proof of a grant, the construction of a tenant roster (its
+// option and the name its result is bound to in parentheses too) and a policy check.
 func TestScan_callsInParentheses(t *testing.T) {
 	t.Parallel()
 
@@ -315,15 +316,57 @@ func New() {
 	_, _ = (session.NewAuth)(nil)
 }
 `
+	const proof = `package integration
+
+import (
+	"testing"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func TestConditions(t *testing.T) {
+	(provesGrant)(t, staff.Roles(), "Cadet", "List", "Missions", "hazard IN (1, 2)")
+}
+`
+	const rosters = `package data
+
+import (
+	"github.com/impulseframework/impulse/resource"
+
+	"example.com/harbor/pkg/resources"
+)
+
+func build(client resource.Client, service resource.TenantSignals) {
+	tenants := (resources.NewAccountsRoster)(client, (resource.WithTenantSignals)(service))
+	wrapped := resources.NewAccountsRoster(client, (resource.WithTenantSignals(service)))
+	whole := (resources.NewAccountsRoster(client, resource.WithTenantSignals(service)))
+	_, _, _ = tenants, wrapped, whole
+}
+`
+	const policy = `package deploy
+
+import (
+	"context"
+
+	"github.com/impulseframework/impulse/access"
+)
+
+func check(ctx context.Context, engine *access.Client) ([]access.Warning, error) {
+	return (engine.CheckPolicy)(ctx)
+}
+`
 
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
-		"go.mod":                       "module example.com/harbor\n\ngo 1.26\n",
-		"pkg/auth/staff/staff.go":      staff,
-		"pkg/auth/staff/members.go":    members,
-		"pkg/auth/staff/roles_test.go": validation,
-		"pkg/auth/staff/auth.go":       auth,
-		"pkg/deploy/deploy.go":         retirement,
+		"go.mod":                         "module example.com/harbor\n\ngo 1.26\n",
+		"pkg/auth/staff/staff.go":        staff,
+		"pkg/auth/staff/members.go":      members,
+		"pkg/auth/staff/roles_test.go":   validation,
+		"pkg/auth/staff/auth.go":         auth,
+		"pkg/deploy/deploy.go":           retirement,
+		"pkg/deploy/policy.go":           policy,
+		"pkg/data/data.go":               rosters,
+		"test/integration/proof_test.go": proof,
 	})
 	a, err := Discover(root)
 	if err != nil {
@@ -361,5 +404,21 @@ func New() {
 	}
 	if diff := cmp.Diff([]string{"pkg/auth/staff/auth.go:6"}, auths); diff != "" {
 		t.Errorf("Auths mismatch (-want +got):\n%s", diff)
+	}
+	wantProofs := []GrantProof{{File: "test/integration/proof_test.go", Line: 10, RolesPackage: "example.com/harbor/pkg/auth/staff", Role: "Cadet", Permission: "List", Resource: "Missions", Condition: "hazard IN (1, 2)"}}
+	if diff := cmp.Diff(wantProofs, a.GrantProofs); diff != "" {
+		t.Errorf("GrantProofs mismatch (-want +got):\n%s", diff)
+	}
+	wantRosters := []RosterConstruction{
+		{File: "pkg/data/data.go", Line: 10, Package: "pkg/data", Constructor: "NewAccountsRoster", Holder: "tenants", Signals: true},
+		{File: "pkg/data/data.go", Line: 11, Package: "pkg/data", Constructor: "NewAccountsRoster", Holder: "wrapped", Signals: true},
+		{File: "pkg/data/data.go", Line: 12, Package: "pkg/data", Constructor: "NewAccountsRoster", Holder: "whole", Signals: true},
+	}
+	if diff := cmp.Diff(wantRosters, a.RosterConstructions); diff != "" {
+		t.Errorf("RosterConstructions mismatch (-want +got):\n%s", diff)
+	}
+	wantChecks := []PolicyCheck{{File: "pkg/deploy/policy.go", Line: 10}}
+	if diff := cmp.Diff(wantChecks, a.PolicyChecks); diff != "" {
+		t.Errorf("PolicyChecks mismatch (-want +got):\n%s", diff)
 	}
 }

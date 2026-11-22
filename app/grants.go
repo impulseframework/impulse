@@ -60,7 +60,7 @@ func parseGrantProofs(rel string, src []byte) ([]GrantProof, error) {
 		if !ok {
 			return true
 		}
-		if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != ProvesGrantFunc {
+		if id, ok := ast.Unparen(call.Fun).(*ast.Ident); !ok || id.Name != ProvesGrantFunc {
 			return true
 		}
 		proofs = append(proofs, readGrantProof(rel, fset.Position(call.Pos()).Line, call, imports, consts))
