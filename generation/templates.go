@@ -4967,6 +4967,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .Target }}
 				Target: "{{ . }}",
 				{{- end }}
+				{{- if .CallerEnters }}
+				CallerEnters: true,
+				{{- end }}
 				{{- with .Parent }}
 				Parent: "{{ . }}",
 				{{- end }}
