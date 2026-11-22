@@ -26,10 +26,13 @@ const collectionFile = "pkg/router/" + app.CollectionFileName
 // tenantedRegeneration is a runner whose go generate ./... does what the generator of an
 // application with tenants does: it writes the permission collection that names the
 // tenant record and each auth's management of one tenant, and leaves the auth's
-// management without the handlers named.
+// management without the handlers named. Each run records the role file roleFile names
+// as the generator reads it (read), where one is named.
 type tenantedRegeneration struct {
 	regeneration
 	collection []byte
+	roleFile   string
+	read       []string
 }
 
 func (r *tenantedRegeneration) Run(ctx context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
@@ -37,9 +40,29 @@ func (r *tenantedRegeneration) Run(ctx context.Context, dir string, env []string
 		if err := os.WriteFile(r.a.Abs(collectionFile), r.collection, 0o600); err != nil {
 			return nil, errors.Wrap(err, "os.WriteFile()")
 		}
+		if r.roleFile != "" {
+			data, err := os.ReadFile(r.a.Abs(r.roleFile))
+			if err != nil {
+				return nil, errors.Wrap(err, "os.ReadFile()")
+			}
+			r.read = append(r.read, string(data))
+		}
 	}
 
 	return r.regeneration.Run(ctx, dir, env, name, args...)
+}
+
+// newTenantedRegeneration is the regeneration of an application with tenants made from
+// a base with the auth: it writes the collection, and removes the generated list of the
+// roles a person who signs up is given where the base has one.
+func newTenantedRegeneration(a *app.App, auth string, collection []byte) *tenantedRegeneration {
+	run := &tenantedRegeneration{collection: collection}
+	run.a = a
+	if signUpRoles := "pkg/identity/" + auth + "handlers/zz_gen_" + auth + "_sign_up_roles.go"; exists(a, signUpRoles) {
+		run.removes = []string{signUpRoles}
+	}
+
+	return run
 }
 
 // referenceCollection reads the permission collection of the tenanted reference
@@ -74,12 +97,7 @@ func tenanted(t *testing.T, tn Tenancy, auth string, collection []byte) (*app.Ap
 func tenantedOn(t *testing.T, a *app.App, tn Tenancy, auth string, collection []byte) *Change {
 	t.Helper()
 
-	run := &tenantedRegeneration{collection: collection}
-	run.a = a
-	if signUpRoles := "pkg/identity/" + auth + "handlers/zz_gen_" + auth + "_sign_up_roles.go"; exists(a, signUpRoles) {
-		run.removes = []string{signUpRoles}
-	}
-	ch, err := tn.Apply(t.Context(), a, run)
+	ch, err := tn.Apply(t.Context(), a, newTenantedRegeneration(a, auth, collection))
 	if err != nil {
 		t.Fatalf("Tenancy.Apply() error = %v", err)
 	}
@@ -469,6 +487,37 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 			t.Error("the brief says the roles are written, or does not say what the served tests wait for")
 		}
 	})
+}
+
+// TestTenancy_Apply_regeneratesWithTheRole pins that the application is regenerated once
+// the role a tenant's administrator holds is in the role file: the generated metadata
+// lists the roles a field may hold from that file, and the role is written after the
+// regeneration that serves the tenant record, so an application made without one more
+// run fails impulse check's regen as it was made.
+func TestTenancy_Apply_regeneratesWithTheRole(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a := newBase(t, "staff")
+	run := newTenantedRegeneration(a, "staff", referenceCollection(t))
+	run.roleFile = roles
+	ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, run)
+	if err != nil {
+		t.Fatalf("Tenancy.Apply() error = %v", err)
+	}
+
+	if roleNamed(roleFileOf(t, a, roles).Roles.Domain, "TenantAdministrator") == nil {
+		t.Fatalf("%s has no domain role TenantAdministrator; the change skipped %q", roles, ch.Skipped)
+	}
+	if len(run.read) == 0 || strings.Contains(run.read[0], `"TenantAdministrator"`) {
+		t.Fatalf("the first go generate ./... read a role file that held TenantAdministrator already, or none ran (%d run(s)), so this proves nothing of the order", len(run.read))
+	}
+	if last := run.read[len(run.read)-1]; !strings.Contains(last, `"TenantAdministrator"`) {
+		t.Errorf("go generate ./... ran %d time(s), and the last read a role file without TenantAdministrator, so the generated metadata does not list the role", len(run.read))
+	}
+	if got := linesWith(ch.Did, "ran go generate ./... again once the role file held TenantAdministrator", nil); len(got) != 1 {
+		t.Errorf("the change does not say once that it regenerated with the role: %q", ch.Did)
+	}
 }
 
 // TestRoleFile_keepsTheFile pins that a role file read to be changed is written back as

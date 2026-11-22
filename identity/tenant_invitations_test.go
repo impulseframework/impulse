@@ -149,6 +149,17 @@ func TestManager_InviteTenant(t *testing.T) {
 			wantAsked: 1,
 		},
 		{
+			name:   "a starting role that is no role of a tenant is named in words",
+			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("NightShiftLead")},
+			caller: dana,
+			maker:  &fakeMaker{seats: true},
+			wantErr: func(err error) bool {
+				return httpio.HasBadRequest(err) &&
+					httpio.Message(err) == `role "Night shift lead" is no role of a tenant: the people of the new tenant's directory start with one of its roles`
+			},
+			wantAsked: 1,
+		},
+		{
 			name:   "a sender who may give no such role is told so before whether it is a role at all",
 			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Steward")},
 			caller: dana,
@@ -165,7 +176,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			caller: dana,
 			maker:  &fakeMaker{seats: true},
 			wantErr: func(err error) bool {
-				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "whole application")
+				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "the Super administrator role is held for the whole application alone")
 			},
 			wantAsked: 1,
 		},

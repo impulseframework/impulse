@@ -597,11 +597,15 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"'end-service-area-directory-only',",
 		"'open-service-area-to-directory',",
 		"'make-service-area-invite-only',",
-		"expect(calls('open-service-area-to-directory')).toEqual([{ role: 'TenantAdministrator' }]);",
+		// The role a service area's administrator holds is the application's, and the
+		// sentence that says it in words names the same role.
+		"const seated: ServiceAreaDirectories = { ...workspace, defaultSeat: 'ServiceAreaAdministrator' };",
+		"expect(calls('open-service-area-to-directory')).toEqual([{ role: 'ServiceAreaAdministrator' }]);",
+		"each is given the role Service area administrator at their first sign-in through it.",
 		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
 		"'Your role in this service area does not cover its directory.',",
 		"expect(texts('.make-directory')).toEqual([\"Make acme.example this service area's directory\"]);",
-	}, []string{"tenantID", "/tenants/", "TenantDirectoryOnly", "tenant-directory-only", "TenantToDirectory", "tenant-to-directory", "TenantInviteOnly", "tenant-invite-only", "TenantDirectoryRoles", "tenant-directory-roles"})
+	}, []string{"tenantID", "/tenants/", "TenantDirectoryOnly", "tenant-directory-only", "TenantToDirectory", "tenant-to-directory", "TenantInviteOnly", "tenant-invite-only", "TenantDirectoryRoles", "tenant-directory-roles", "TenantAdministrator", "Tenant administrator"})
 	wantContains(t, a, src+"configs/tenants.config.ts", []string{
 		"import { Resources, ServiceAreas } from '@app/service/zz_gen_constants';",
 		"export const tenantsConfig = rootConfig({",

@@ -142,7 +142,7 @@ func (k *GroupRoleKey) Scope() (accesstypes.PolicyScope, error) {
 // (groupRoleRefusal), in words a person can act on.
 func refuseGroupRole(kept, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
-		return httpio.NewBadRequestMessagef("the %s role is given to a person, never to a group: only a super administrator makes another, one person at a time", string(role))
+		return httpio.NewBadRequestMessagef("the %s role is given to a person, never to a group: only a super administrator makes another, one person at a time", roleInWords(role))
 	}
 	if groupRoleRefusal(kept, scope, role) != "" {
 		return httpio.NewBadRequestMessage("a group kept in one tenant holds roles in that tenant alone: give the role there, or give it to a group kept for the whole application")

@@ -1,4 +1,4 @@
-import { EnumeratedConfig, nameInWords } from '@impulseframework/resource-angular/types';
+import { EnumeratedConfig, roleInWords } from '@impulseframework/resource-angular/types';
 import {
   ApiError,
   matchesSearch,
@@ -33,22 +33,43 @@ export function optionColumns(
 }
 
 /**
+ * What a key reads as where the picker shows the key itself: a role's name in words where
+ * the source's key field holds one (`roleFields`), and the key as it is stored otherwise.
+ * Every place the picker shows a bare key asks here, so a role reads the same with a row
+ * and without one.
+ */
+export function keyDisplay(key: string, roleFields: ReadonlySet<string> = new Set(), keyField = 'id'): string {
+  return roleFields.has(keyField) ? roleInWords(key) : key;
+}
+
+/**
  * What an option shows: the display fields the page configured, concatenated, or the
- * key where the page configured none (a form drawn from the metadata alone). The key
- * of a role is then shown in words, "Sector marshal" for `SectorMarshal`, as the
- * server's sentences name a role; any other key is shown as it is stored.
+ * key where the page configured none (a form drawn from the metadata alone). A field
+ * that holds a role's name (`roleFields`, the source's fields whose metadata lists
+ * `roles`) is written in words, "Night shift lead" for `NightShiftLead`, as the server's
+ * sentences name a role: a display field among them before the fields are joined, the
+ * row handed in left as it is, and the key where the source's key field (`keyField`) is
+ * one (keyDisplay). Any other text is shown as it is stored.
  */
 export function optionDisplay(
   row: Record<string, string>,
   key: string,
   displayFields: readonly string[],
   concat: (row: Record<string, string>, ...fields: string[]) => string,
-  role = false,
+  roleFields: ReadonlySet<string> = new Set(),
+  keyField = 'id',
 ): string {
   if (displayFields.length > 0) {
-    return concat(row, ...displayFields);
+    const written = { ...row };
+    for (const field of displayFields) {
+      const value = written[field];
+      if (roleFields.has(field) && typeof value === 'string') {
+        written[field] = roleInWords(value);
+      }
+    }
+    return concat(written, ...displayFields);
   }
-  return role ? nameInWords(key) : key;
+  return keyDisplay(key, roleFields, keyField);
 }
 
 /**
@@ -122,11 +143,19 @@ export function refuseUnsearchablePicker(resource: string, display: string | und
 /**
  * The display of a stored value resolved from the option list — the path a picker takes
  * on a source read whole (no maximum page size), where the list holds every row and a
- * read route is not needed: the matching option, or the id shown as itself when the
- * list holds no match, never a blank.
+ * read route is not needed: the matching option, or the id shown by itself when the
+ * list holds no match (keyDisplay, with the source's `roleFields` and `keyField`), never
+ * a blank.
  */
-export function displayFromOptions(options: readonly PickerOption[], value: string): PickerOption {
-  return options.find((option) => option.id === value) ?? { id: value, display: value };
+export function displayFromOptions(
+  options: readonly PickerOption[],
+  value: string,
+  roleFields: ReadonlySet<string> = new Set(),
+  keyField = 'id',
+): PickerOption {
+  return (
+    options.find((option) => option.id === value) ?? { id: value, display: keyDisplay(value, roleFields, keyField) }
+  );
 }
 
 /**

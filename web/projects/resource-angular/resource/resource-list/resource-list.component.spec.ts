@@ -73,6 +73,13 @@ const metas: Record<string, ResourceMeta> = {
       field('id', { primaryKey: { ordinalPosition: 0 } }),
       field('name'),
       field('cargoBays', { displayType: 'number[]', sortable: false }),
+      // A list of roles' names: the metadata lists the roles it may hold.
+      field('crewRoles', { displayType: 'string[]', sortable: false, roles: ['NightShiftLead', 'Reader'] }),
+      // A role's name the server filters by, and one it does not.
+      field('dutyRole', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
+      field('reliefRole', { roles: ['Reader'] }),
+      // A role's name the server filters by, on a resource whose role file names none it may hold.
+      field('watchRole', { isIndex: true, filterable: 'always', roles: [] }),
       field('digest', { displayType: 'bytes', sortable: false }),
       field('lastRefitAt', { displayType: 'date' }),
       field('decommissioned', { displayType: 'boolean' }),
@@ -572,6 +579,253 @@ describe('ResourceListComponent', () => {
           .flat()
           .some((cell) => cell.querySelector('.cell-yes, .cell-no')),
       ).toBe(false);
+    });
+  });
+
+  describe('hands a list drawn a line each to the table as a list', () => {
+    it("writing each item as its text, and a role's name in words where the field holds one", async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'crewRoles' as FieldName, lines: true },
+            { id: 'cargoBays' as FieldName, lines: true },
+          ],
+        },
+        [{ id: 's-1', name: 'Kestrel', crewRoles: ['NightShiftLead', 'DockMaster'], cargoBays: [1, 2] }],
+      );
+      fixture.detectChanges();
+      await settle();
+      const [row] = fixture.componentInstance.processedRowData();
+      // A role the metadata does not list is in words all the same.
+      expect(row['crewRoles']).toEqual(['Night shift lead', 'Dock master']);
+      expect(row['cargoBays']).toEqual(['1', '2']);
+    });
+  });
+
+  describe("asks the list's own resource for the roles a role column's rows hold, when its filter menu opens", () => {
+    const fleet = [{ id: 's-1', name: 'Kestrel', dutyRole: 'NightShiftLead' }];
+    /** The roles the rows hold, the server's whole answer to a question: those the question does not name, sorted. */
+    let held: string[];
+    /** What the server answers a question with in place of a row, by the question's position. */
+    let refuse: Record<number, TransportResponse>;
+    let consoleError: ReturnType<typeof vi.spyOn>;
+
+    const questions = (): URLSearchParams[] =>
+      transport.requests
+        .map((request) => new URL(request.url, 'http://test'))
+        .filter((url) => url.pathname === '/api/ships' && url.searchParams.get('limit') === '1')
+        .map((url) => url.searchParams);
+    const notin = (question: URLSearchParams | undefined): string[] =>
+      /dutyRole:notin:\(([^)]*)\)/.exec(question?.get('filter') ?? '')?.[1].split(',') ?? [];
+    const server = (request: TransportRequest): TransportResponse => {
+      const url = new URL(request.url, 'http://test');
+      if (url.searchParams.get('limit') !== '1') {
+        return { status: 200, body: fleet, headers: { 'total-count': String(fleet.length) } };
+      }
+      const asked = questions().length - 1;
+      if (refuse[asked]) {
+        return refuse[asked];
+      }
+      // The column asked for is the field the question is about.
+      const field = url.searchParams.get('columns') ?? '';
+      const filter = url.searchParams.get('filter') ?? '';
+      const notIn = `${field}:notin:(`;
+      const from = filter.indexOf(notIn);
+      const known = from < 0 ? [] : filter.slice(from + notIn.length, filter.indexOf(')', from)).split(',');
+      const next = held.filter((role) => !known.includes(role)).sort()[0];
+      return { status: 200, body: next === undefined ? [] : [{ [field]: next }] };
+    };
+    /** Waits until the questions stop: each answer may ask the next. */
+    const quiet = async (): Promise<void> => {
+      let before = -1;
+      while (before !== transport.requests.length) {
+        before = transport.requests.length;
+        for (let i = 0; i < 10; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+      fixture.detectChanges();
+    };
+    const grid = (): AppGridComponent =>
+      fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+    const picks = (column = 'dutyRole'): string[] =>
+      (grid().filterChoices()[column] ?? []).map((choice) => choice.label);
+    /** Opens a column's filter menu by its button, waits for the questions, and closes it. */
+    const openMenuOf = async (header: string): Promise<void> => {
+      const heading = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('th.data-col')).find(
+        (th) => th.querySelector('.col-header')?.textContent?.trim() === header,
+      );
+      const trigger = heading?.querySelector<HTMLButtonElement>('button.filter-trigger');
+      if (!trigger) {
+        throw new Error(`no filter button on the column ${header}`);
+      }
+      trigger.click();
+      await quiet();
+      document.body.querySelector<HTMLElement>('.cdk-overlay-backdrop')?.click();
+      await quiet();
+    };
+    /** Opens the duty role column's filter menu. */
+    const openDutyRoleMenu = async (): Promise<void> => {
+      await openMenuOf('Duty Role');
+    };
+    const open = async (options: Partial<ListViewConfigOptions> = {}): Promise<void> => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'dutyRole' as FieldName }],
+          ...options,
+        },
+        fleet,
+        server,
+      );
+      fixture.detectChanges();
+      await settle();
+    };
+
+    beforeEach(() => {
+      held = ['ArchiveKeeper', 'DockMaster', 'NightShiftLead', 'Reader'];
+      refuse = {};
+      consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      consoleError.mockRestore();
+    });
+
+    it("asks with the metadata's roles left out, sorted by the field, one row and the one column, under the page's own filter alone", async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'dutyRole' as FieldName }, { id: 'clientId' as FieldName }],
+          filter: () => 'registry:eq:Civil',
+        },
+        fleet,
+        server,
+      );
+      // A child list's parent key comes in as the list's filter.
+      fixture.componentRef.setInput('filter', 'homePort:eq:Anvil');
+      fixture.detectChanges();
+      await settle();
+      // The person's own filter and search text narrow the page, not the question.
+      fixture.componentInstance.onFilterChange([{ field: 'clientId', operator: 'eq', value: 'c-1' }]);
+      fixture.componentInstance.onSearchChange('kestrel');
+      await settle();
+      const rows = fixture.componentInstance.store.page().rows;
+
+      await openDutyRoleMenu();
+
+      const first = questions()[0];
+      expect(first.get('filter')).toBe(
+        '((homePort:eq:Anvil),(registry:eq:Civil)),(dutyRole:notin:(NightShiftLead,Reader))',
+      );
+      expect(first.get('sort')).toBe('dutyRole:asc');
+      expect(first.get('columns')).toBe('dutyRole');
+      expect(first.has('count')).toBe(false);
+      // Each answered role joins the picks, in words, and the next question names it among the known.
+      expect(questions().map(notin)).toEqual([
+        ['NightShiftLead', 'Reader'],
+        ['NightShiftLead', 'Reader', 'ArchiveKeeper'],
+        ['NightShiftLead', 'Reader', 'ArchiveKeeper', 'DockMaster'],
+      ]);
+      expect(picks()).toEqual(['Night shift lead', 'Reader', 'Archive keeper', 'Dock master']);
+      // The table's rows are the page's still.
+      expect(fixture.componentInstance.store.page().rows).toBe(rows);
+    });
+
+    it('asks first for a cell that holds a role where the metadata lists none, then names the role answered', async () => {
+      await open({ listColumns: [{ id: 'name' as FieldName }, { id: 'watchRole' as FieldName }] });
+
+      await openMenuOf('Watch Role');
+
+      // An empty cell sorts first, and is never the answer: the first question asks for a value.
+      expect(questions().map((question) => question.get('filter'))).toEqual([
+        'watchRole:isnotnull',
+        'watchRole:notin:(ArchiveKeeper)',
+        'watchRole:notin:(ArchiveKeeper,DockMaster)',
+        'watchRole:notin:(ArchiveKeeper,DockMaster,NightShiftLead)',
+        'watchRole:notin:(ArchiveKeeper,DockMaster,NightShiftLead,Reader)',
+      ]);
+      expect(picks('watchRole')).toEqual(['Archive keeper', 'Dock master', 'Night shift lead', 'Reader']);
+    });
+
+    it('stops at a refusal, writing it to the console, and keeps the picks it had', async () => {
+      refuse = { 1: { status: 403, body: { message: 'forbidden' } } };
+      await open();
+
+      await openDutyRoleMenu();
+
+      expect(questions().length).toBe(2);
+      expect(picks()).toEqual(['Night shift lead', 'Reader', 'Archive keeper']);
+      expect(consoleError).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops at a row that carries no role in the field', async () => {
+      refuse = { 0: { status: 200, body: [{}] } };
+      await open();
+
+      await openDutyRoleMenu();
+
+      expect(questions().length).toBe(1);
+      expect(picks()).toEqual(['Night shift lead', 'Reader']);
+    });
+
+    it('finds fifty roles at most: the fifty-first is not asked for', async () => {
+      held = Array.from({ length: 60 }, (_, i) => `Role${String(i).padStart(2, '0')}`);
+      await open();
+
+      await openDutyRoleMenu();
+
+      expect(questions().length).toBe(50);
+      expect(picks().length).toBe(52);
+
+      // A second opening has nothing left to look for.
+      await openDutyRoleMenu();
+      expect(questions().length).toBe(50);
+    });
+
+    it('asks once more at a second opening, from what was found', async () => {
+      await open();
+      await openDutyRoleMenu();
+      expect(questions().length).toBe(3);
+
+      // A role made since.
+      held = [...held, 'Quartermaster'];
+      await openDutyRoleMenu();
+
+      expect(questions().slice(3).map(notin)).toEqual([
+        ['NightShiftLead', 'Reader', 'ArchiveKeeper', 'DockMaster'],
+        ['NightShiftLead', 'Reader', 'ArchiveKeeper', 'DockMaster', 'Quartermaster'],
+      ]);
+      expect(picks()).toEqual(['Night shift lead', 'Reader', 'Archive keeper', 'Dock master', 'Quartermaster']);
+    });
+
+    it('asks nothing for a column whose field holds no role, a list of roles, or a role the server does not filter by', async () => {
+      await open({
+        listColumns: [
+          { id: 'name' as FieldName },
+          { id: 'crewRoles' as FieldName },
+          { id: 'reliefRole' as FieldName },
+          { id: 'clientId' as FieldName },
+        ],
+      });
+
+      for (const column of ['name', 'crewRoles', 'reliefRole', 'clientId']) {
+        fixture.componentInstance.onFilterMenuOpened(column);
+      }
+      await quiet();
+
+      expect(questions()).toEqual([]);
+    });
+
+    it('asks nothing for a role column that opts out of its filter control', async () => {
+      await open({ listColumns: [{ id: 'name' as FieldName }, { id: 'dutyRole' as FieldName, filterable: false }] });
+
+      fixture.componentInstance.onFilterMenuOpened('dutyRole');
+      await quiet();
+
+      expect(questions()).toEqual([]);
     });
   });
 

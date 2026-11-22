@@ -1,5 +1,5 @@
 import { FieldMeta } from '@impulseframework/resource';
-import { FormatType, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
+import { FormatType, roleInWords, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
 import { placeWords } from './place-words';
 
@@ -130,10 +130,12 @@ export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, 
  * (the generated metadata's `enumeration`) is written by the value's name, the one its
  * picker shows on a form, never by the stored key; a value the set does not list is
  * written as it is, so no cell is left empty for a value the metadata has no name for.
- * Every other field is written by its display type (formatByDisplayType).
+ * A field that holds a role's name (`roles`) is written in words (roleInWords), a list of
+ * roles each by its words, whether or not the metadata lists the role. Every other field
+ * is written by its display type (formatByDisplayType).
  */
 export function formatFieldValue(
-  field: Pick<FieldMeta, 'displayType' | 'enumeration'> | undefined,
+  field: Pick<FieldMeta, 'displayType' | 'enumeration' | 'roles'> | undefined,
   value: unknown,
 ): string {
   if (value !== null && value !== undefined && field?.enumeration) {
@@ -142,6 +144,11 @@ export function formatFieldValue(
     if (named) {
       return named.display;
     }
+  }
+  if (value !== null && value !== undefined && field?.roles) {
+    return Array.isArray(value)
+      ? value.map((item) => roleInWords(String(item ?? ''))).join(', ')
+      : roleInWords(String(value));
   }
   return formatByDisplayType(field?.displayType, value);
 }

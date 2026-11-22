@@ -17,7 +17,7 @@ import {
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { METHOD_META, RecordData, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
+import { METHOD_META, RecordData, RESOURCE_DOMAIN, roleInWords } from '@impulseframework/resource-angular/types';
 import { EMPTY } from 'rxjs';
 import { EnumeratedFieldComponent } from '../resource-field/fields/enumerated-field/enumerated-field.component';
 import { offered } from '../row-methods/row-methods';
@@ -1092,7 +1092,7 @@ describe('MethodDialogComponent running a method that warns', () => {
       body: {
         consequence:
           'Anyone with a Google account will be able to sign in without an invitation.' +
-          (body['defaultRole'] ? ` Each of them gets the role ${String(body['defaultRole'])}.` : ''),
+          (body['defaultRole'] ? ` Each of them gets the role ${roleInWords(String(body['defaultRole']))}.` : ''),
         confirm: 'Open to anyone with a Google account',
       },
     });

@@ -34,10 +34,11 @@ import (
 // @rowWord(way to sign in, plural: ways to sign in)
 type StaffSignInMethod struct {
 	// @primarykey
-	Name                string `spanner:"Name"`
-	Label               string `spanner:"Label"`
-	Admits              string `spanner:"Admits"`
-	OpenSignUp          bool   `spanner:"OpenSignUp"`
+	Name       string `spanner:"Name"`
+	Label      string `spanner:"Label"`
+	Admits     string `spanner:"Admits"`
+	OpenSignUp bool   `spanner:"OpenSignUp"`
+	// @roleOf(Staff)
 	DefaultRole         string `spanner:"DefaultRole"`
 	DirectoryGivesRoles bool   `spanner:"DirectoryGivesRoles"`
 	OwnRule             bool   `spanner:"OwnRule"`

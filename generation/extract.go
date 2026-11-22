@@ -75,7 +75,7 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 			continue
 		}
 		resource.Fields = fields
-		if err := declareFieldEnumerations(pStruct, fields, annotations); err != nil {
+		if err := errors.Join(declareFieldEnumerations(pStruct, fields, annotations), declareRoleOf(pStruct, fields, annotations)); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -553,7 +553,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 
 		// A view declares the pickers its fields list and its order and page sizes as a
 		// table does, and its list handler and descriptor carry them the same way.
-		if err := errors.Join(declareFieldEnumerations(pStruct, fields, annotations), resolveResourcePaging(resource, annotations)); err != nil {
+		if err := errors.Join(declareFieldEnumerations(pStruct, fields, annotations), declareRoleOf(pStruct, fields, annotations), resolveResourcePaging(resource, annotations)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -866,7 +866,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectRoleOf(s, annotations), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -1218,6 +1218,13 @@ func (c *client) computedFields(res *computedResource, annotations genlang.Struc
 				arg := annotations.Fields[i].Get(enumerateKeyword)
 				field.enumerateArg = &arg
 			}
+		}
+		if annotations.Fields[i].Has(roleOfKeyword) {
+			auth, err := roleOfArgument(res.Name(), field.Field, annotations.Fields[i].Get(roleOfKeyword))
+			if err != nil {
+				errs = append(errs, err)
+			}
+			field.roleOfAuth = auth
 		}
 
 		if err := checkOpaqueField(res.Name(), field); err != nil {

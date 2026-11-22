@@ -19,7 +19,7 @@ import (
 // words the Sign-in page's dialog shows before an administrator opens it.
 const (
 	inviteOnlySays  = "Invite only: a person signs in once they are invited."
-	openConsequence = "Anyone with an email address will be able to sign up without an invitation. Each of them gets the role FeatureAdministrator."
+	openConsequence = "Anyone with an email address will be able to sign up without an invitation. Each of them gets the role Feature administrator."
 	openConfirm     = "Open to anyone with an email address"
 )
 

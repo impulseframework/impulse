@@ -17,6 +17,20 @@ export function nameInWords(name: string): string {
 }
 
 /**
+ * A role's name in words, as the server's sentences name a role: `NightShiftLead` is
+ * "Night shift lead". A role's name holds no space, so what follows one, the words a line
+ * says where the role is held in, is kept as written. The one place the browser spells a
+ * role.
+ */
+export function roleInWords(text: string): string {
+  const space = text.indexOf(' ');
+  if (space < 0) {
+    return nameInWords(text);
+  }
+  return nameInWords(text.slice(0, space)) + text.slice(space);
+}
+
+/**
  * A name in words inside a sentence, all in lower case but for a plural acronym:
  * `CostCenter` is "cost center", `PartnerAPIs` is "partner APIs".
  */
