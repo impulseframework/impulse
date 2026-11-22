@@ -1,6 +1,8 @@
 package transition
 
 import (
+	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -215,6 +217,108 @@ func TestTenancyBrowserMenuSpec(t *testing.T) {
 		}
 		if skipped := strings.Join(ch.Skipped, "\n"); !strings.Contains(skipped, spec+" does not list the pages the System menu places as the skeleton's test does ('Mailed links', then 'Sessions'), so it was left as it is: the System menu gains Invited service areas, the page staff bring a service area in from, after Mailed links") {
 			t.Errorf("Skipped does not say what the menu test gains:\n%s", skipped)
+		}
+	})
+}
+
+// TestTenancyBrowserDialogsSpec pins what add tenancy does to the test of the dialogs.
+// The base skeleton's test expects the dialog that invites a person to ask for no place,
+// and once there are tenants that dialog asks for the tenant, so a test still as the
+// skeleton rendered it, for the console's auth, is written again as the tenanted
+// skeleton's, which has no test of that dialog. A test of the application's own is left
+// and the brief says what it must expect; an application with no such test, or with the
+// tenanted skeleton's already, is left without a word.
+func TestTenancyBrowserDialogsSpec(t *testing.T) {
+	t.Parallel()
+
+	spec := "web/console/src/" + appDialogsSpecFile
+	base := skeletonWeb(t, appDialogsSpecFile)
+	reference, err := referenceText(TenancyReferenceCandidate, appDialogsSpecFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The reference's test names no tenant and no auth, so in the record's words and for
+	// any auth it is the reference's as it is.
+	for _, word := range []string{"tenant", "Tenant", "Staff", "staff"} {
+		if strings.Contains(reference, word) {
+			t.Fatalf("the %s skeleton's %s holds %q, which this test expects it not to:\n%s", TenancyReferenceCandidate, appDialogsSpecFile, word, reference)
+		}
+	}
+	with := func(specText string) func(files map[string]string) {
+		return func(files map[string]string) {
+			files[spec] = specText
+		}
+	}
+	said := func(ch *Change) string {
+		return strings.Join(append(append([]string{}, ch.Did...), ch.Skipped...), "\n")
+	}
+	wantDid := spec + ": written again as the tenanted skeleton's, which has no test of the dialog that invites a person: the base skeleton's test expects that dialog to ask for no place, and with service areas it asks for the service area"
+
+	t.Run("the skeleton's test is written again as the tenanted skeleton's, in the record's words", func(t *testing.T) {
+		t.Parallel()
+
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, with(base)))
+		if diff := cmp.Diff(reference, read(t, a, spec)); diff != "" {
+			t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
+		}
+		if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, wantDid) {
+			t.Errorf("Did does not say the dialogs test was written again:\n%s", did)
+		}
+	})
+
+	t.Run("the skeleton's test as impulse new renders it for another auth is written again for that auth", func(t *testing.T) {
+		t.Parallel()
+
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, func(files map[string]string) {
+			for _, rel := range boundWebFiles {
+				files["web/console/src/"+rel] = names.Rename(files["web/console/src/"+rel], skeleton.PlaceholderAuth, "people")
+			}
+			files[spec] = names.Rename(base, skeleton.PlaceholderAuth, "people")
+		}))
+		got := read(t, a, spec)
+		if diff := cmp.Diff(reference, got); diff != "" {
+			t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
+		}
+		for _, placeholder := range []string{"Staff", "staff", "STAFF"} {
+			if strings.Contains(got, placeholder) {
+				t.Errorf("%s names the placeholder %q", spec, placeholder)
+			}
+		}
+		if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, wantDid) {
+			t.Errorf("Did does not say the dialogs test was written again:\n%s", did)
+		}
+	})
+
+	t.Run("a test of the application's own is left, and the brief says what it must expect", func(t *testing.T) {
+		t.Parallel()
+
+		own := "// the application's own dialogs test\n"
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, with(own)))
+		if got := read(t, a, spec); got != own {
+			t.Errorf("dialogs test = %q, want it left", got)
+		}
+		if skipped := strings.Join(ch.Skipped, "\n"); !strings.Contains(skipped, spec+" was edited since the skeleton rendered it, so it was left as it is: the dialog that invites a person now asks for the service area, so a test that expects it to ask for no place, as the base skeleton's does, fails until it expects the service area or is taken out") {
+			t.Errorf("Skipped does not say what the dialogs test must expect:\n%s", skipped)
+		}
+	})
+
+	t.Run("no such test, or the tenanted skeleton's already, is left without a word", func(t *testing.T) {
+		t.Parallel()
+
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, nil))
+		if _, err := os.Stat(a.Abs(spec)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s was written where the application had none (stat error %v)", spec, err)
+		}
+		if got := said(ch); strings.Contains(got, appDialogsSpecFile) {
+			t.Errorf("the brief speaks of a dialogs test the application does not have:\n%s", got)
+		}
+
+		a, ch = applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, with(reference)))
+		if diff := cmp.Diff(reference, read(t, a, spec)); diff != "" {
+			t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
+		}
+		if got := said(ch); strings.Contains(got, appDialogsSpecFile) {
+			t.Errorf("the brief speaks of a dialogs test that was left as it is:\n%s", got)
 		}
 	})
 }
