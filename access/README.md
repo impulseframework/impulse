@@ -24,7 +24,7 @@ go get github.com/impulseframework/impulse/access
 
 ## Core Concepts
 
-- **Scope**: Where a request is — the global partition (`accesstypes.GlobalScope()`) or one tenant domain (`accesstypes.DomainScope(domain)`). Permission checks, permission digests and the foothold question take a `Scope`, because a request is in exactly one partition. Global-ness is structural: no domain string means "global", so any tenant name is legal data (a tenant literally named "global" is an ordinary tenant). Scopes are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown tenants.
+- **Scope**: Where a request is — the global partition (`accesstypes.GlobalScope()`) or one tenant domain (`accesstypes.DomainScope(domain)`). Permission checks, permission digests and the foothold question take a `Scope`, because a request is in exactly one partition. Global-ness is structural: no domain string means "global", so any tenant name is legal data (a tenant literally named "global" is an ordinary tenant). Scopes are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown tenants. A scope that names nothing (the zero `accesstypes.Scope`, which `DomainScope` of an empty tenant also is) is refused with `accesstypes.ErrNoScope`: the code that asked made a mistake.
 - **PolicyScope**: Where policy is held — a role membership, a custom role and its grants live in the global partition (`accesstypes.GlobalPolicyScope()`), in one tenant domain (`accesstypes.DomainPolicyScope(domain)`), or in every tenant domain (`accesstypes.EveryDomainPolicyScope()`). The policy store and the user manager take a `PolicyScope`. A membership held in every domain reaches every tenant, including a tenant the store holds no other row in, so a tenant created at run time needs nothing written for its every-domain members. Every domain is not a place a request can be in, so nothing converts a `PolicyScope` into a `Scope`, and passing a `PolicyScope` to a check fails to compile. `Scope.PolicyScope()` converts the other way, and `PolicyScope.Covers(scope)` answers whether policy held somewhere applies in a partition.
 - **User**: Individual with assigned roles
 - **Role**: Named collection of permissions, of one of two kinds. A default role is declared in the release's role file (see Default Roles): a global default is held in the global partition, a domain default in every tenant domain, and the store holds no row for either. A custom role is created at run time through the user manager and held where it was created; its identity is `(policy scope, role)`.
@@ -525,7 +525,9 @@ for _, tenant := range tenants { // the application's own tenant list
 There is no tenant validation on the check path: an unknown tenant scope
 holds no grants, so everything comes back denied (fail closed). If your API
 wants to answer 400 for an invalid tenant rather than 403, validate the
-tenant in your own guard — your application owns the tenant table.
+tenant in your own guard — your application owns the tenant table. The one
+scope the check path refuses is the zero `accesstypes.Scope`, with
+`accesstypes.ErrNoScope`.
 
 ### User Management
 
