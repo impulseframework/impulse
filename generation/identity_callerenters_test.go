@@ -1,0 +1,247 @@
+package generation
+
+import (
+	"go/format"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/session"
+)
+
+// Test_identityUsersTemplate_administeredTenants pins what the users table's file says
+// of the tenants a person administers, where the tenant record declares the
+// directory-only switch: the query, a row for each tenant a person holds one of the
+// engine's administrator roles in, in the tenant itself and in an assignment that has
+// not ended; the roles, set by the client; and the account's TenantsToEnter over its
+// id. Where the auth keeps groups the query also reads a role a group kept in the tenant
+// holds there; where the record declares no switch, the file says nothing of it.
+func Test_identityUsersTemplate_administeredTenants(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	data := func(directory *identityTenantDirectory, groups bool) *identitySourceData {
+		inst := &identityInstance{auth: "Crew", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}, tables: map[identityTable]bool{identityUsers: true, identityMemberships: true}}
+		d := &identitySourceData{
+			Source: "Auth", Package: "crewresources", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default",
+			Tables: session.Tables{Users: "CrewSessionUsers"},
+			Policy: access.Tables{UserRoles: "CrewUserRoles"},
+		}
+		if groups {
+			d.groupSet = "crewGroups"
+			d.tables[identityGroups], d.tables[identityGroupMembers], d.tables[identityGroupRoles] = true, true, true
+			d.Policy.Groups, d.Policy.GroupMembers, d.Policy.GroupRoles = "CrewGroups", "CrewGroupMembers", "CrewGroupRoles"
+		}
+
+		return d
+	}
+	own := "const crewSessionUserAdministeredTenantsQuery = `\n" +
+		"SELECT ta.UserId AS RowKey, ta.DomainId AS Tenant\n" +
+		"FROM CrewUserRoles ta\n" +
+		"WHERE ta.Kind = 'domain' AND ta.Axis = ''\n" +
+		"  AND ta.Role IN UNNEST(@enteringAdministratorRoles)\n" +
+		"  AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())\n"
+	declared := []string{
+		"var crewSessionUserAdministrators atomic.Pointer[[]string]",
+		"func SetCrewSessionUserAdministratorRoles(roles []accesstypes.Role) {",
+		"administrators := []string{}",
+		"Params: map[string]any{\"enteringAdministratorRoles\": administrators},",
+		"func (CrewSessionUser) TenantsToEnter() resource.TenantsToEnter {\n\treturn crewSessionUserTenantsToEnter(\"Id\")\n}",
+		"\"sync/atomic\"", "\"github.com/impulseframework/impulse/accesstypes\"", "\"github.com/impulseframework/impulse/resource\"",
+	}
+	tests := []struct {
+		name            string
+		data            *identitySourceData
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name: "a tenant record that declares the switch, an auth that keeps no groups: one SELECT, of the person's own memberships",
+			data: data(directory, false),
+			wantContains: append([]string{
+				// A role that has not begun counts, as the refusal counts it (Standing).
+				own + "`",
+			}, declared...),
+			wantNotContains: []string{"UNION", "StartsAt"},
+		},
+		{
+			name: "an auth that keeps groups also reads a role a group kept in the tenant holds there",
+			data: data(directory, true),
+			wantContains: append([]string{
+				own + "UNION DISTINCT\n" +
+					"SELECT tm.UserId AS RowKey, tg.DomainId AS Tenant\n" +
+					"FROM CrewGroupRoles tr\n" +
+					"JOIN CrewGroups tg ON tg.Id = tr.GroupId\n" +
+					"JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId\n" +
+					"WHERE tg.Kind = 'domain' AND tg.Axis = ''\n" +
+					"  AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = tg.DomainId\n" +
+					"  AND tr.Role IN UNNEST(@enteringAdministratorRoles)\n" +
+					"  AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())\n" +
+					"  AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())\n`",
+			}, declared...),
+			wantNotContains: []string{"StartsAt"},
+		},
+		{
+			name:            "a tenant record that declares no switch",
+			data:            data(nil, true),
+			wantContains:    []string{"CrewSessionUser struct {"},
+			wantNotContains: []string{"AdministeredTenants", "enteringAdministratorRoles", "AdministratorRoles", "TenantsToEnter", "sync/atomic", "accesstypes", "impulse/resource\""},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := (&client{}).generateTemplateOutput("identityUsersTemplate", identityUsersTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(out); err != nil {
+				t.Fatalf("the rendered users table does not parse: %v\n%s", err, out)
+			}
+			assertContains(t, "the users table", string(out), tt.wantContains, tt.wantNotContains)
+		})
+	}
+}
+
+// Test_prepareIdentity_callerEnters pins the eight methods that change how a person
+// signs in, or whether their account stands, on a tree written for a tenant record that
+// declares the directory-only switch: on both sides each carries @callerEnters after its
+// scope's line, with the sentence that says so, and each names a row whose struct
+// answers TenantsToEnter over the column that holds the account's id; no other method
+// carries it, and the client hands the rows the engine's roles. Written for a record that
+// declares no switch, the tree says nothing of it.
+func Test_prepareIdentity_callerEnters(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	if err := citadelGenerator(t, citadelTenantSource, nil).prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+	// read answers a written source with each line's indentation taken off: a method
+	// declared in a type block carries its comment one level in.
+	read := func(file string) string {
+		lines := strings.Split(identitySource(t, file), "\n")
+		for i := range lines {
+			lines[i] = strings.TrimLeft(lines[i], " ")
+		}
+
+		return strings.Join(lines, "\n")
+	}
+
+	// Each of the eight, on the whole application's side and the tenant's.
+	held := map[string]string{
+		"crewidentity/delete_crew_user.go":                     "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/disable_crew_user.go":                    "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/enable_crew_user.go":                     "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/remove_crew_password.go":                 "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/rename_crew_user.go":                     "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/require_crew_password_change.go":         "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/set_crew_user_email.go":                  "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/unlink_crew_session_identity.go":         "// @rpc\n// @callerEnters\n// @outlet(",
+		"crewidentity/delete_crew_citadel_user.go":             "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/disable_crew_citadel_user.go":            "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/enable_crew_citadel_user.go":             "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/remove_crew_citadel_password.go":         "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/rename_crew_citadel_user.go":             "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/require_crew_citadel_password_change.go": "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/set_crew_citadel_user_email.go":          "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"crewidentity/unlink_crew_citadel_session_identity.go": "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"membersidentity/delete_members_user.go":               "// @rpc\n// @callerEnters\n// @outlet(",
+		"membersidentity/disable_members_user.go":              "// @rpc\n// @callerEnters\n// @outlet(",
+		"membersidentity/enable_members_user.go":               "// @rpc\n// @callerEnters\n// @outlet(",
+		"membersidentity/rename_members_user.go":               "// @rpc\n// @callerEnters\n// @outlet(",
+		"membersidentity/set_members_user_email.go":            "// @rpc\n// @callerEnters\n// @outlet(",
+		"membersidentity/delete_members_citadel_user.go":       "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"membersidentity/disable_members_citadel_user.go":      "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"membersidentity/enable_members_citadel_user.go":       "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"membersidentity/rename_members_citadel_user.go":       "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+		"membersidentity/set_members_citadel_user_email.go":    "// @rpc\n// @permissionScope(domain)\n// @callerEnters\n// @outlet(",
+	}
+	files := identityTreeFiles(t, "pkg/identity")
+	var marked []string
+	for _, file := range files {
+		if strings.Contains(read(file), "\n// @callerEnters\n") {
+			marked = append(marked, file)
+		}
+	}
+	want := make([]string, 0, len(held))
+	for file := range held {
+		want = append(want, file)
+	}
+	slices.Sort(want)
+	if diff := cmp.Diff(want, marked); diff != "" {
+		t.Errorf("the methods that carry @callerEnters (-want +got):\n%s", diff)
+	}
+
+	target := regexp.MustCompile(`// @target\((\w+)\)`)
+	for file, annotations := range held {
+		source := read(file)
+		for _, line := range []string{
+			annotations,
+			"// A row offers it only to a caller whose session enters every citadel the person\n// administers (@callerEnters); the method refuses anyone else.\n//\n// @rpc",
+		} {
+			if !strings.Contains(source, line) {
+				t.Errorf("%s lacks %q:\n%s", file, line, source)
+			}
+		}
+		// The row the method names answers TenantsToEnter in its one form, where the
+		// generator's check of @callerEnters looks for it.
+		named := target.FindStringSubmatch(source)
+		if named == nil {
+			t.Errorf("%s names no row by @target:\n%s", file, source)
+
+			continue
+		}
+		declaration := "func (" + named[1] + ") TenantsToEnter() resource.TenantsToEnter {"
+		declaring := slices.DeleteFunc(slices.Clone(files), func(other string) bool {
+			return !strings.Contains(read(other), declaration)
+		})
+		if len(declaring) != 1 {
+			t.Errorf("%s names %s, declared with TenantsToEnter in %v, want in one file", file, named[1], declaring)
+		}
+	}
+
+	// The four structs answer it over the column that holds the account's id.
+	for file, lines := range map[string][]string{
+		"internal/crewresources/crew_session_users.go": {
+			"const crewSessionUserAdministeredTenantsQuery = `",
+			"func SetCrewSessionUserAdministratorRoles(roles []accesstypes.Role) {",
+			"func (CrewSessionUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}",
+		},
+		"internal/crewresources/crew_session_identities.go": {"func (CrewSessionIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
+		"internal/crewresources/crew_citadel_users.go":      {"func (CrewCitadelUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
+		"internal/crewresources/crew_citadel_identities.go": {"func (CrewCitadelIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
+		"crewidentity/client.go":                            {"crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())"},
+		"membersidentity/client.go":                         {"membersresources.SetMembersSessionUserAdministratorRoles(manager.TenantAdministratorRoles())"},
+	} {
+		source := read(file)
+		for _, line := range lines {
+			if !strings.Contains(source, line) {
+				t.Errorf("%s lacks %q:\n%s", file, line, source)
+			}
+		}
+	}
+	// An auth that keeps no groups reads no group.
+	if source := identitySource(t, "internal/crewresources/crew_session_users.go"); strings.Contains(source, "UNION") {
+		t.Errorf("the crew keeps no groups, and its query reads them:\n%s", source)
+	}
+
+	// Written for a tenant record that declares no switch, the tree says nothing of it.
+	r := citadelGenerator(t, shipTenantSource, nil)
+	r.tableMap["Ships"] = shipsTable()
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() without the switch error = %v", err)
+	}
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		source := identitySource(t, file)
+		for _, word := range []string{"@callerEnters", "TenantsToEnter", "enteringAdministratorRoles", "AdministeredTenants", "SessionUserAdministrator"} {
+			if strings.Contains(source, word) {
+				t.Errorf("%s, written for a record that declares no switch, holds %q:\n%s", file, word, source)
+			}
+		}
+	}
+}

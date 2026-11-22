@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -131,4 +132,11 @@ JOIN CrewSessionIdentities i ON i.UserId = u.Id
 // Subquery is the query the rows are read from.
 func (CrewSectorIdentity) Subquery() (query string, params map[string]any) {
 	return crewSectorIdentityQuery, nil
+}
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (CrewSectorIdentity) TenantsToEnter() resource.TenantsToEnter {
+	return crewSessionUserTenantsToEnter("UserId")
 }

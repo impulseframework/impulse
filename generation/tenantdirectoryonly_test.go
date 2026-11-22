@@ -1271,17 +1271,26 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			data: withPassword(data(directory, identityUsers, identityMemberships, identityIdentities)),
 			wantContains: []string{
 				"crewresources.SetCrewSectorUserAdministratorRoles(manager.TenantAdministratorRoles())",
+				"crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())",
 				"func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {",
 				"func (c *Client) AdministratorsEnterWithPassword() bool {",
 			},
 		},
 		{
-			name: "the client of an auth with no password method tells the list nothing, and still answers the frame",
+			name: "the client of an auth with no password method tells the people's list nothing, tells the rows who administers, and still answers the frame",
 			data: data(directory, identityUsers, identityMemberships, identityIdentities),
 			wantContains: []string{
+				// A row offers the methods that change how a person signs in by the
+				// engine's names whatever the auth's sign-ins (@callerEnters).
+				"crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())",
 				"func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {",
 				"func (c *Client) AdministratorsEnterWithPassword() bool {",
 			},
+			wantNotContains: []string{"SetCrewSectorUserAdministratorRoles(manager"},
+		},
+		{
+			name:            "the client of an application whose tenant record declares no switch tells nobody who administers",
+			data:            withPassword(data(nil, identityUsers, identityMemberships, identityIdentities)),
 			wantNotContains: []string{"AdministratorRoles(manager"},
 		},
 	} {

@@ -22,7 +22,11 @@ type (
 	// directory's to change. The answer says whether the link went (Sent) and, where
 	// it did not, why (Reason).
 	//
+	// A row offers it only to a caller whose session enters every sector the person
+	// administers (@callerEnters); the method refuses anyone else.
+	//
 	// @rpc
+	// @callerEnters
 	// @outlet(portal, default)
 	// @class(credential)
 	SetMembersUserEmail struct {

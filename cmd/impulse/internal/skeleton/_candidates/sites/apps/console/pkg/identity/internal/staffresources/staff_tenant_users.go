@@ -9,6 +9,7 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -250,4 +251,11 @@ func (StaffTenantUser) Subquery() (query string, params map[string]any) {
 	}
 
 	return staffTenantUserQuery, map[string]any{"tenantAdministratorRoles": administrators}
+}
+
+// TenantsToEnter names the tenants the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (StaffTenantUser) TenantsToEnter() resource.TenantsToEnter {
+	return staffSessionUserTenantsToEnter("Id")
 }

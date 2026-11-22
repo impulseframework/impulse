@@ -18,6 +18,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/internal/membersresources"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -75,6 +76,10 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
+	// A row of the auth's people offers the methods that change how a tenant's
+	// administrator signs in only to a caller who enters the tenants the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	membersresources.SetMembersSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
 
 	return &Client{manager: manager}, nil
 }

@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -43,7 +44,10 @@ import (
 // a place in the group or the marshal's place taken from it, and for Bastion's marshal
 // a password required to change or removed, a new username, a new address, an identity
 // unlinked, and the account disabled, enabled or deleted, each in a sentence that says
-// who does it. In Anvil, which admits her, she
+// who does it. Nor do the rows she reads offer her those acts on the marshal's account,
+// which the bosun's row offers her and the marshal's row offers the governor; the row
+// and the server count the marshal alike whichever way she holds the role, one that has
+// not begun included. In Anvil, which admits her, she
 // names a marshal as Headquarters does, and the governor, a super administrator, gives
 // Bastion's role. A session established by an impersonation gains nothing either: one
 // that views the application as Bastion's marshal does not enter Bastion, and one the
@@ -236,6 +240,48 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		roleKept    = "Sector marshal is a role that administers a sector, and this sector admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator."
 		accountKept = "This person administers a sector that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that sector's administrators, or by a super administrator."
 	)
+	// What the server refuses the pilot on the account of Bastion's marshal, the rows do
+	// not offer her. The seven acts on an account below are each a method that names the
+	// person's row; the unlink names the identity's row. Each is in the row of the bosun,
+	// who administers no sector, so what is missing from the rigger's is the row's and not
+	// the grant's, and the governor, a super administrator, is offered every one on the
+	// rigger's row. The acts the server does not refuse her stay, as on any other row.
+	accountActs := []string{"DeleteCrewUser", "DisableCrewUser", "EnableCrewUser", "RemoveCrewPassword", "RenameCrewUser", "RequireCrewPasswordChange", "SetCrewUserEmail"}
+	const unlink = "UnlinkCrewSessionIdentity"
+	acts := func(offered []string) []string {
+		return slices.DeleteFunc(slices.Clone(offered), func(method string) bool {
+			return !slices.Contains(accountActs, method)
+		})
+	}
+	others := func(offered []string) []string {
+		return slices.DeleteFunc(slices.Clone(offered), func(method string) bool {
+			return slices.Contains(accountActs, method)
+		})
+	}
+	bosunID := crewUserID(ctx, t, governor, "bosun").String()
+	pilotOnRigger := offeredOnRow(ctx, t, pilot, crewAccountsPath, riggerID)
+	pilotOnBosun := offeredOnRow(ctx, t, pilot, crewAccountsPath, bosunID)
+	if got := acts(pilotOnRigger); len(got) != 0 {
+		t.Errorf("the rigger's row of the fleet's accounts, as the pilot reads it, offers %v, want none of the acts on the account of Bastion's marshal", got)
+	}
+	if got := acts(pilotOnBosun); !slices.Equal(got, accountActs) {
+		t.Errorf("the bosun's row of the fleet's accounts, as the pilot reads it, offers the acts on an account %v, want %v", got, accountActs)
+	}
+	if got, want := others(pilotOnRigger), others(pilotOnBosun); len(want) == 0 || !slices.Equal(got, want) {
+		t.Errorf("the rigger's row of the fleet's accounts, as the pilot reads it, offers beside them %v, want %v, as the bosun's row does", got, want)
+	}
+	if got := acts(offeredOnPage(ctx, t, pilot, crewAccountsPath, riggerID)); len(got) != 0 {
+		t.Errorf("the rigger's account's page, as the pilot reads it, offers %v, want none of the acts on the account of Bastion's marshal", got)
+	}
+	if got := acts(offeredOnRow(ctx, t, governor, crewAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
+		t.Errorf("the rigger's row of the fleet's accounts, as the governor reads it, offers the acts on an account %v, want %v", got, accountActs)
+	}
+	if offered := offeredOnRow(ctx, t, pilot, "crew-session-identities", riggersLink); slices.Contains(offered, unlink) {
+		t.Errorf("the rigger's sign-in identity, as the pilot reads it, offers %v, want no %s", offered, unlink)
+	}
+	if offered := offeredOnRow(ctx, t, governor, "crew-session-identities", riggersLink); !slices.Contains(offered, unlink) {
+		t.Errorf("the rigger's sign-in identity, as the governor reads it, offers %v, want %s", offered, unlink)
+	}
 	for _, refused := range []struct {
 		what   string
 		method string
@@ -263,6 +309,46 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 			t.Errorf("%s as the pilot, Headquarters whose session Bastion does not admit: status %d, want 403 saying %q: %s", refused.what, status, refused.says, answer)
 		}
 	}
+	// The row and the server count Bastion's marshal alike, whichever way she holds the
+	// role: by a role of her own alone, through Bastion's group alone, and by a role that
+	// has not begun, which counts for both though it opens Bastion to nobody yet. With
+	// neither the row offers the pilot the acts again and the server runs them. The call
+	// renames the rigger to the name she has, which changes nothing where it runs.
+	sameName := map[string]any{"userId": riggerID, "username": "rigger"}
+	judged := func(how string, administers bool) {
+		t.Helper()
+
+		offered := acts(offeredOnRow(ctx, t, pilot, crewAccountsPath, riggerID))
+		status, answer := pilot.do(ctx, http.MethodPost, crewMethod("rename-crew-user"), jsonBody(t, sameName))
+		if !administers {
+			if !slices.Equal(offered, accountActs) {
+				t.Errorf("the rigger's row as the pilot reads it, the rigger %s, offers the acts on an account %v, want %v", how, offered, accountActs)
+			}
+			if status != http.StatusNoContent {
+				t.Errorf("renaming the rigger to her own name as the pilot, the rigger %s: status %d, want 204: %s", how, status, answer)
+			}
+
+			return
+		}
+		if len(offered) != 0 {
+			t.Errorf("the rigger's row as the pilot reads it, the rigger Bastion's marshal %s, offers %v, want none of the acts on her account", how, offered)
+		}
+		if status != http.StatusForbidden || !strings.Contains(string(answer), accountKept) {
+			t.Errorf("renaming the rigger to her own name as the pilot, the rigger Bastion's marshal %s: status %d, want 403 saying %q: %s", how, status, accountKept, answer)
+		}
+	}
+	give("taking the rigger out of Bastion's group", "remove-crew-group-member", place)
+	judged("by a role of her own alone", true)
+	give("putting the rigger in Bastion's group", "add-crew-group-member", place)
+	give("taking the rigger's own marshal's role at Bastion", "remove-crew-role", atBastion)
+	judged("through Bastion's group alone", true)
+	give("taking the rigger out of Bastion's group", "remove-crew-group-member", place)
+	give("giving the rigger the marshal's role at Bastion from an hour on", "assign-crew-role", fromLater)
+	judged("by a role of her own that has not begun", true)
+	give("taking the role that has not begun back", "remove-crew-role", atBastion)
+	judged("by neither", false)
+	give("giving the rigger the marshal's role at Bastion once more", "assign-crew-role", atBastion)
+	give("putting the rigger in Bastion's group once more", "add-crew-group-member", place)
 	stands("the rigger, Bastion's marshal, once Headquarters was refused", rigger, []string{anvil, bastion, cinder}, "", "")
 	if got := pilot.domains(ctx); slices.Contains(got, bastion) {
 		t.Errorf("the pilot's chart once she was refused = %v, want Bastion out of it", got)
@@ -380,4 +466,52 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		t.Fatalf("the rigger's second sign-in through the fleet's Workspace: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
 	}
 	stands("the rigger through the Workspace, once Bastion is not directory only", again, []string{anvil, bastion, cinder}, "", "")
+}
+
+// offeredOnRow is what the row with the id offers the browser's user in one of the
+// crew's lists of the whole fleet, read with capabilities=Execute as a list page reads
+// it: the methods of the row's Execute answer, sorted.
+func offeredOnRow(ctx context.Context, t *testing.T, b *browser, list, id string) []string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, crewMethod(list+"?limit=200&capabilities=Execute"), nil)
+	assertStatus(t, status, http.StatusOK, body)
+	for _, row := range decodeRows(t, body) {
+		if row["id"] == id {
+			return executeOffered(t, row)
+		}
+	}
+	t.Fatalf("the list %s does not carry the row %s: %s", list, id, body)
+
+	return nil
+}
+
+// offeredOnPage is what the row with the id offers the browser's user read alone, as
+// its page reads it, with capabilities=Execute: the methods of its Execute answer,
+// sorted.
+func offeredOnPage(ctx context.Context, t *testing.T, b *browser, list, id string) []string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, crewMethod(list+"/"+id+"?capabilities=Execute"), nil)
+	assertStatus(t, status, http.StatusOK, body)
+
+	return executeOffered(t, decodeRow(t, body))
+}
+
+// executeOffered is the row's Execute answer (zzCapabilities), sorted.
+func executeOffered(t *testing.T, row map[string]any) []string {
+	t.Helper()
+
+	capabilities, ok := row["zzCapabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("the row %v carries no zzCapabilities", row["id"])
+	}
+	offered, _ := capabilities["Execute"].([]any)
+	methods := make([]string, 0, len(offered))
+	for _, method := range offered {
+		methods = append(methods, fmt.Sprint(method))
+	}
+	slices.Sort(methods)
+
+	return methods
 }

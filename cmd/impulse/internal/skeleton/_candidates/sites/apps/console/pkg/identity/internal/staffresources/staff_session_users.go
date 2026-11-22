@@ -4,9 +4,12 @@
 package staffresources
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -34,3 +37,71 @@ type (
 		LastSignInAt           *time.Time   `spanner:"LastSignInAt"`
 	}
 )
+
+// staffSessionUserAdministeredTenantsQuery answers the tenants each person of the Staff
+// auth administers, a row for each, RowKey the account's id and Tenant the tenant: one of
+// the roles the auth's permission engine names as a tenant's administrator's
+// (@enteringAdministratorRoles) held in the tenant itself, by a membership of the
+// person's own or through a group kept in that tenant, in an assignment that has not ended,
+// one that has not begun included. The methods that change how a person signs in refuse a
+// caller by the same count (the identity package's requireEnteringFor), and each row of
+// the auth's people reads it (TenantsToEnter).
+const staffSessionUserAdministeredTenantsQuery = `
+SELECT ta.UserId AS RowKey, ta.DomainId AS Tenant
+FROM StaffUserRoles ta
+WHERE ta.Kind = 'domain' AND ta.Axis = ''
+  AND ta.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+UNION DISTINCT
+SELECT tm.UserId AS RowKey, tg.DomainId AS Tenant
+FROM StaffGroupRoles tr
+JOIN StaffGroups tg ON tg.Id = tr.GroupId
+JOIN StaffGroupMembers tm ON tm.GroupId = tr.GroupId
+WHERE tg.Kind = 'domain' AND tg.Axis = ''
+  AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+  AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// staffSessionUserAdministrators are the roles whose holders administer a tenant, as the
+// Staff auth's permission engine names them: what the query reads as
+// @enteringAdministratorRoles. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var staffSessionUserAdministrators atomic.Pointer[[]string]
+
+// SetStaffSessionUserAdministratorRoles tells the lists of the Staff auth which roles administer a
+// tenant: the ones its permission engine answers who administers a tenant by. The
+// auth's generated identity client calls it where it is built, so a row offers the methods
+// that change how a tenant's administrator signs in by the names the methods themselves
+// refuse by.
+func SetStaffSessionUserAdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	staffSessionUserAdministrators.Store(&names)
+}
+
+// staffSessionUserTenantsToEnter is what each row of the Staff auth's people answers
+// TenantsToEnter with: the query, the roles it reads, and column, the row's column that
+// holds the account's id.
+func staffSessionUserTenantsToEnter(column string) resource.TenantsToEnter {
+	administrators := []string{}
+	if named := staffSessionUserAdministrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return resource.TenantsToEnter{
+		Query:  staffSessionUserAdministeredTenantsQuery,
+		Params: map[string]any{"enteringAdministratorRoles": administrators},
+		Column: column,
+	}
+}
+
+// TenantsToEnter names the tenants the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (StaffSessionUser) TenantsToEnter() resource.TenantsToEnter {
+	return staffSessionUserTenantsToEnter("Id")
+}
