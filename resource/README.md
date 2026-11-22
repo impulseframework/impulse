@@ -708,6 +708,14 @@ the row's key) is kept for the log and never sent. A write whose record names an
 that is not there for the caller is answered "A record this one refers to does not
 exist."
 
+A method can also be held to where its caller's session may go. `@callerEnters` on the method
+says a row offers it only to a caller whose session enters every tenant the row names, and the
+row's struct names them in a `TenantsToEnter` method: a query of two columns, `RowKey` and
+`Tenant`, and the column of the row that `RowKey` is matched to. A row read with
+`capabilities=Execute` then leaves the method out for a caller whose session does not enter one
+of those tenants (`UserPermissions.Reaches`). The declaration shapes what a page offers and
+refuses nothing: the method's own code refuses the call.
+
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role

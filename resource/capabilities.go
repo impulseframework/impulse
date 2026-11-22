@@ -81,6 +81,11 @@ type capabilityPlan struct {
 	groups int
 
 	perms []plannedCapability
+
+	// enteringParams are the parameters the TenantsToEnter query binds where a
+	// group holds a row to the tenants its caller enters; the statement merges
+	// them beside its own (mergeEnteringParams). Nil otherwise.
+	enteringParams map[string]any
 }
 
 // plannedCapability is one requested permission's assembly recipe.
@@ -165,11 +170,23 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 				continue
 			}
 			resources = resources[:0]
+			var held accesstypes.Resource
 			for _, tm := range q.collection.MethodsTargeting(q.resourceSet.BaseResource()) {
 				resources = append(resources, tm.Method)
+				if tm.CallerEnters && held == "" {
+					held = tm.Method
+				}
 			}
 			if len(resources) == 0 {
 				continue
+			}
+			// A method offered only to a caller whose session enters the row's
+			// tenants (@callerEnters) needs the tenants this session does not
+			// enter, asked once for the statement.
+			if held != "" {
+				if err := q.askUnentered(ctx, held); err != nil {
+					return err
+				}
 			}
 		case accesstypes.Create:
 			// The affordance question is per member resource: the workflow
@@ -220,6 +237,15 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 type capabilityGroups struct {
 	bySource map[string]int
 	exprs    []condition.Expr
+
+	// held marks, by group, a boolean that also holds the row to the tenants
+	// its caller's session enters (@callerEnters): its expression, if any,
+	// ANDed with the entering term. A held group's expression is nil where the
+	// method has none of its own. heldBySource dedupes the held groups by
+	// their expression's canonical source as bySource dedupes the rest, so a
+	// held and an unheld method with one expression take two booleans.
+	held         []bool
+	heldBySource map[string]int
 }
 
 // intern resolves one Conditional decision's payload to its group index,
@@ -239,15 +265,8 @@ func (g *capabilityGroups) intern(res accesstypes.Resource, decision accesstypes
 		// both polarities, so the bound never simplifies to FALSE).
 		return -1, nil
 	}
-	source := expr.String()
-	idx, ok := g.bySource[source]
-	if !ok {
-		idx = len(g.exprs)
-		g.bySource[source] = idx
-		g.exprs = append(g.exprs, expr)
-	}
 
-	return idx, nil
+	return g.internExpr(expr), nil
 }
 
 // internExpr resolves an already-built expression to its group index, deduped
@@ -259,6 +278,30 @@ func (g *capabilityGroups) internExpr(expr condition.Expr) int {
 		idx = len(g.exprs)
 		g.bySource[source] = idx
 		g.exprs = append(g.exprs, expr)
+		g.held = append(g.held, false)
+	}
+
+	return idx
+}
+
+// internHeld resolves a held method's boolean to its group index: its own
+// expression, nil when it has none, held to the tenants the caller's session
+// enters. Every held method with the same expression, or with none, shares
+// one boolean.
+func (g *capabilityGroups) internHeld(expr condition.Expr) int {
+	source := ""
+	if expr != nil {
+		source = expr.String()
+	}
+	idx, ok := g.heldBySource[source]
+	if !ok {
+		if g.heldBySource == nil {
+			g.heldBySource = make(map[string]int)
+		}
+		idx = len(g.exprs)
+		g.heldBySource[source] = idx
+		g.exprs = append(g.exprs, expr)
+		g.held = append(g.held, true)
 	}
 
 	return idx
@@ -338,8 +381,12 @@ func (q *QuerySet[Resource]) plannedUpdate(perm accesstypes.Permission, decision
 // grants. A transition method's boolean is the row's pre-image state
 // membership in its from set; a conditional grant ANDs its condition into the
 // same boolean (a plain method's is the condition alone); a plain method with
-// an unconditional grant is structural — no boolean, no SQL. Distinct
-// expressions share one boolean per statement.
+// an unconditional grant is structural — no boolean, no SQL. A method offered
+// only to a caller whose session enters the row's tenants (@callerEnters)
+// ANDs the entering term into its boolean, or takes the term alone, while the
+// session does not enter some tenant; while it enters every one, the method is
+// planned as any other. Distinct expressions share one boolean per statement,
+// the held apart from the rest.
 func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, groups *capabilityGroups) (plannedCapability, error) {
 	planned := plannedCapability{perm: accesstypes.Execute, group: -1}
 	if q.collection == nil {
@@ -369,12 +416,19 @@ func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, gro
 			continue
 		}
 
-		group := -1
+		var expr condition.Expr
 		switch len(exprs) {
 		case 1:
-			group = groups.internExpr(exprs[0])
+			expr = exprs[0]
 		case 2:
-			group = groups.internExpr(condition.And{Operands: exprs})
+			expr = condition.And{Operands: exprs}
+		}
+		group := -1
+		switch {
+		case tm.CallerEnters && len(q.unentered) > 0:
+			group = groups.internHeld(expr)
+		case expr != nil:
+			group = groups.internExpr(expr)
 		}
 		planned.fields = append(planned.fields, capabilityField{jsonName: string(tm.Method), group: group})
 	}
@@ -489,11 +543,31 @@ func (q *QuerySet[Resource]) renderCapabilities(dbType DBType, registry *paramRe
 	}
 	lctx := q.loweringCtx()
 
-	terms := make([]string, len(groupExprs))
-	for i, expr := range groupExprs {
-		sql, err := lowerToSQL(expr, lctx, gen, registry)
+	var entering TenantsToEnter
+	if slices.Contains(groups.held, true) {
+		entering, err = q.enteringDeclaration()
 		if err != nil {
 			return nil, "", err
+		}
+		plan.enteringParams = entering.Params
+	}
+
+	terms := make([]string, len(groupExprs))
+	for i, expr := range groupExprs {
+		var sql string
+		if expr != nil {
+			sql, err = lowerToSQL(expr, lctx, gen, registry)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+		if groups.held[i] {
+			term := q.enteringTerm(gen, lctx.outer, entering, registry)
+			if sql == "" {
+				sql = term
+			} else {
+				sql = "(" + sql + ") AND " + term
+			}
 		}
 		terms[i] = "(" + sql + ")"
 	}

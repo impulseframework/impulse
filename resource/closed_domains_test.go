@@ -260,3 +260,156 @@ func TestClosedDomains_otherPermissions(t *testing.T) {
 		})
 	}
 }
+
+// TestUnenteredDomains pins the capability plan's question for a method a row offers
+// only to a caller whose session enters the row's tenants: every tenant of the roster
+// the session does not reach, sorted, for every session the permissions
+// SessionPermissions composes answer, its own seats or not; none where every session
+// reaches every tenant, and none from permissions SessionPermissions did not compose.
+// Never nil.
+func TestUnenteredDomains(t *testing.T) {
+	t.Parallel()
+
+	const (
+		anvil   accesstypes.Domain = "anvil"
+		bastion accesstypes.Domain = "bastion"
+		cove    accesstypes.Domain = "cove"
+	)
+	password := sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}
+	mailedCode := sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode}
+	workspace := sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "acme"}
+	impersonation := sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"}
+	asBob := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")}
+	asBobMasked := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)}
+	// Of the roster's three tenants, bastion admits its own directory only. The reader
+	// counts its reads, so each case reads its own.
+	declared := func() *declarationReader {
+		return &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{
+			bastion: {Directories: []signin.Directory{{Method: sessioninfo.MethodGoogle, Connection: "acme"}}, DirectoryOnly: true},
+		}}
+	}
+	roster := func(context.Context) ([]accesstypes.Domain, error) {
+		return []accesstypes.Domain{cove, bastion, anvil}, nil
+	}
+
+	tests := []struct {
+		name           string
+		ctx            context.Context
+		noRoster       bool
+		noDeclarations bool
+		// holds are the tenants the person holds a grant in; super makes them a super
+		// administrator; administers are the tenants they administer.
+		holds       []accesstypes.Domain
+		super       bool
+		administers []accesstypes.Domain
+		want        []accesstypes.Domain
+	}{
+		{
+			name:  "a password session the directory-only tenant does not admit is given that tenant",
+			ctx:   sessionCtx("alice", nil, password),
+			holds: []accesstypes.Domain{anvil, bastion, cove},
+			want:  []accesstypes.Domain{bastion},
+		},
+		{
+			name: "so is one that holds no grant there: the list is the roster's, not the person's seats",
+			ctx:  sessionCtx("alice", nil, password),
+			want: []accesstypes.Domain{bastion},
+		},
+		{
+			name:  "a session through the tenant's directory is given none",
+			ctx:   sessionCtx("alice", nil, workspace),
+			holds: []accesstypes.Domain{bastion},
+			want:  []accesstypes.Domain{},
+		},
+		{
+			name:  "a super administrator is given none",
+			ctx:   sessionCtx("alice", nil, password),
+			holds: []accesstypes.Domain{anvil},
+			super: true,
+			want:  []accesstypes.Domain{},
+		},
+		{
+			name:        "the tenant's administrator with a password and a second factor is given none",
+			ctx:         sessionCtx("alice", nil, password, mailedCode),
+			holds:       []accesstypes.Domain{bastion},
+			administers: []accesstypes.Domain{bastion},
+			want:        []accesstypes.Domain{},
+		},
+		{
+			name:        "the same administrator without the second factor is given the tenant",
+			ctx:         sessionCtx("alice", nil, password),
+			holds:       []accesstypes.Domain{bastion},
+			administers: []accesstypes.Domain{bastion},
+			want:        []accesstypes.Domain{bastion},
+		},
+		{
+			name:  "a session that views the application as someone else is given the tenant, as the refusal asks of it",
+			ctx:   sessionCtx("bob", asBob, impersonation),
+			holds: []accesstypes.Domain{bastion},
+			want:  []accesstypes.Domain{bastion},
+		},
+		{
+			name:  "under a mask it is what the permissions under the mask answer",
+			ctx:   sessionCtx("bob", asBobMasked, impersonation),
+			holds: []accesstypes.Domain{bastion},
+			want:  []accesstypes.Domain{bastion},
+		},
+		{
+			name:     "an application without tenants is given none",
+			ctx:      sessionCtx("alice", nil, password),
+			noRoster: true,
+			want:     []accesstypes.Domain{},
+		},
+		{
+			name:           "an application that keeps no declarations is given none",
+			ctx:            sessionCtx("alice", nil, password),
+			noDeclarations: true,
+			holds:          []accesstypes.Domain{bastion},
+			want:           []accesstypes.Domain{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			forUser := func(user accesstypes.User) *stubPermissions {
+				return &stubPermissions{user: user, domains: tt.holds, global: tt.super, super: tt.super, administers: tt.administers}
+			}
+			forRole := func(accesstypes.Role) *stubRolePermissions {
+				return &stubRolePermissions{}
+			}
+			var tenants DomainRoster
+			if !tt.noRoster {
+				tenants = roster
+			}
+			var declarations TenantDeclarations
+			if !tt.noDeclarations {
+				declarations = declared().read
+			}
+			perms := SessionPermissions(tt.ctx, forUser, forRole, tenants, declarations, nil)
+
+			got, err := unenteredDomains(context.Background(), perms)
+			if err != nil {
+				t.Fatalf("unenteredDomains() error = %v", err)
+			}
+			if got == nil {
+				t.Fatal("unenteredDomains() = nil, want a list, never nil")
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("unenteredDomains() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("permissions that are not a session's are given none", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := unenteredDomains(context.Background(), &stubPermissions{user: "alice", domains: []accesstypes.Domain{bastion}})
+		if err != nil {
+			t.Fatalf("unenteredDomains() error = %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Errorf("unenteredDomains() = %v, want an empty list, never nil", got)
+		}
+	})
+}
