@@ -80,17 +80,61 @@ type DirectoryOutsider struct {
 // people; an application names none of them.
 type DirectoryOutsiders func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) ([]DirectoryOutsider, error)
 
+// DirectoryAdministrator is one of a tenant's own administrators who has a password: a
+// person who still enters the tenant while it is directory only, with the password and a
+// code mailed to them (signin.TenantDeclaration.AdmitsAdministrator), and whom the
+// warning that turns the switch on names, so the person closing the tenant sees who
+// keeps that way in.
+type DirectoryAdministrator struct {
+	// UserID is the id of the person's account, and Username what identifies them.
+	UserID   impulse.UUID `json:"userId"`
+	Username string       `json:"username"`
+	// Name is the person's name as people read it, absent where the account holds none.
+	Name *string `json:"name,omitempty"`
+}
+
+// DirectoryAdministrators reads the people of one auth who administer tenant and have a
+// password, in the caller's transaction: who holds one of the application's
+// tenant-administrator roles in the tenant itself, of their own or through a group kept
+// in the tenant, inside its period, with a password on the account. They are the people
+// DirectoryOutsiders leaves out for the same reason, so the two never disagree. A
+// disabled account is read like any other; a super administrator is not, since no
+// tenant's settings shut them out. The generated identity client of each auth that has
+// a password method and names the roles that administer a tenant supplies it
+// (DirectoryAdministrators), over the tenant's own list of its people.
+type DirectoryAdministrators func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) ([]DirectoryAdministrator, error)
+
+// DirectoryInvitation is an invitation into a tenant that has not been accepted and gives
+// one of the tenant's administrator roles: whoever accepts it can choose a password and
+// enter the tenant without its directory, as its administrators who have one do.
+type DirectoryInvitation struct {
+	// ID is the invitation's id, and Email the address it was sent to.
+	ID    impulse.UUID `json:"id"`
+	Email string       `json:"email"`
+	// Name is the invited person's name as the invitation holds it, absent where it
+	// holds none.
+	Name *string `json:"name,omitempty"`
+}
+
+// DirectoryInvitations reads one auth's invitations into tenant that stand (not
+// accepted, withdrawn or expired) and give one of the application's tenant-administrator
+// roles, in the caller's transaction. The generated identity client of each auth that
+// has a password method and lists its invitations supplies it (DirectoryInvitations),
+// over the tenant's own list of its invitations.
+type DirectoryInvitations func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) ([]DirectoryInvitation, error)
+
 // DirectoryPeople is one auth's part of what turning a tenant's directory-only switch
-// on would do: the reader of the people it would keep out, and the tenant's list of
-// that auth's people, which decides whether the caller is told who they are. The
-// warning names people only to someone who may list them: a caller who holds List, in
-// the tenant, on the list and, on no condition, on each field of it that names a
-// person. Anyone else is told how many there are and nobody's name. A reader with no
-// list, or with no field named, names nobody.
+// on would do: the reader of the people it would keep out, the readers of who keeps the
+// administrators' way in, and the tenant's lists of that auth's people and invitations,
+// which decide whether the caller is told who they are. The warning names people only
+// to someone who may list them: a caller who holds List, in the tenant, on the list and,
+// on no condition, on each field of it that names a person. Anyone else is told how
+// many there are and nobody's name. A reader with no list, or with no field named,
+// names nobody.
 type DirectoryPeople struct {
 	// List is the tenant's list of the auth's people as grants name it, and Fields the
 	// fields of it that name a person: the ones the warning lists a person by
-	// (DirectoryOutsider).
+	// (DirectoryOutsider, DirectoryAdministrator).
 	List   accesstypes.Resource
 	Fields []accesstypes.Tag
 	// Outsiders reads the people the switch would keep out.
@@ -98,8 +142,24 @@ type DirectoryPeople struct {
 	// AdministratorsEnter says the auth's people keep the administrators' way in: the
 	// auth has a password method and names the roles that administer a tenant, so the
 	// tenant's own administrator who has a password still enters, with a code mailed to
-	// them. The warning says so, since it is the one other way into the tenant.
+	// them. The warning says so, since it is the one other way into the tenant, and
+	// reads who has it through the two readers below; where it is false, neither is
+	// called.
 	AdministratorsEnter bool
+	// Administrators reads the tenant's own administrators among the auth's people who
+	// have a password: the warning counts them in a note of its own, and names them to a
+	// caller who may list the people (List and Fields).
+	Administrators DirectoryAdministrators
+	// InvitationList is the tenant's list of the auth's invitations as grants name it,
+	// and InvitationFields the fields of it that name the person invited: an invitation
+	// is named only to a caller who holds List, in the tenant, on the list and, on no
+	// condition, on each of them.
+	InvitationList   accesstypes.Resource
+	InvitationFields []accesstypes.Tag
+	// Invitations reads the invitations into the tenant that stand and give one of its
+	// administrator roles: the warning counts them in a note of its own, after the
+	// administrators', and names them to a caller who may list them.
+	Invitations DirectoryInvitations
 }
 
 // DirectoryOnly holds a write of tenant's directory-only switch to its rules, in the
@@ -245,6 +305,13 @@ func (w *directoryWrites) removesDirectory(tenant accesstypes.Domain) bool {
 // (CallerFrom) holds the tenant's list of that auth's people (DirectoryPeople), and
 // counted alone where the caller does not. A call outside a request names nobody.
 //
+// Where an auth's people keep the administrators' way in (AdministratorsEnter), the
+// warning also says who has it, in notes under the consequence (Also): first the
+// tenant's own administrators who have a password, then the invitations into the tenant
+// not yet accepted that give one of its administrator roles, each counted and named as
+// the people the switch keeps out are, an invitation by the tenant's list of the auth's
+// invitations. A note with nobody to count is left out.
+//
 // It refuses as DirectoryOnly refuses, with the same sentences, so a page that asks
 // first shows the refusal instead of a dialog; a tenant the record does not hold is
 // NotFound. A tenant that is directory only already has nothing to turn on, and the
@@ -270,55 +337,171 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	caller := CallerFrom(ctx)
 	count, counted, administratorsEnter := 0, false, false
 	var named []DirectoryOutsider
+	var wayIn directoryWayIn
 	for _, auth := range people {
 		administratorsEnter = administratorsEnter || auth.AdministratorsEnter
-		if auth.Outsiders == nil {
-			continue
+		var outsiders []DirectoryOutsider
+		if auth.Outsiders != nil {
+			counted = true
+			outsiders, err = auth.Outsiders(ctx, txn, tenant)
+			if err != nil {
+				return nil, errors.Wrap(err, "resource.DirectoryOutsiders()")
+			}
+			count += len(outsiders)
 		}
-		counted = true
-		outsiders, err := auth.Outsiders(ctx, txn, tenant)
+		administrators, invitations, err := readWayIn(ctx, txn, tenant, &auth)
 		if err != nil {
-			return nil, errors.Wrap(err, "resource.DirectoryOutsiders()")
+			return nil, err
 		}
-		count += len(outsiders)
-		if len(outsiders) == 0 || caller.IsZero() {
-			continue
-		}
-		lists, err := listsPeople(ctx, caller.Permissions, tenant, auth)
+		wayIn.administrators += len(administrators)
+		wayIn.invitations += len(invitations)
+		// One answer for the entry's people names both the people the switch keeps out
+		// and the administrators who keep their way in.
+		lists, err := namesTo(ctx, caller, tenant, auth.List, auth.Fields, len(outsiders)+len(administrators))
 		if err != nil {
 			return nil, err
 		}
 		if lists {
 			named = append(named, outsiders...)
+			wayIn.namedAdministrators = append(wayIn.namedAdministrators, administrators...)
+		}
+		lists, err = namesTo(ctx, caller, tenant, auth.InvitationList, auth.InvitationFields, len(invitations))
+		if err != nil {
+			return nil, err
+		}
+		if lists {
+			wayIn.namedInvitations = append(wayIn.namedInvitations, invitations...)
 		}
 	}
 	slices.SortFunc(named, func(a, b DirectoryOutsider) int {
-		if byName := strings.Compare(strings.ToLower(a.Username), strings.ToLower(b.Username)); byName != 0 {
-			return byName
-		}
-
-		return strings.Compare(a.UserID.String(), b.UserID.String())
+		return listedOrder(a.Username, b.Username, a.UserID, b.UserID)
 	})
 	var names []string
 	for _, person := range named {
-		names = append(names, outsiderName(person))
+		names = append(names, listedName(person.Name, person.Username))
 	}
 
 	return &Warning{
 		Consequence: directoryOnlySentence(r.directoryWords(directory), r.word, administratorsEnter, counted, count, len(names)),
 		Names:       names,
 		Confirm:     fmt.Sprintf("Admit only people who sign in through %s", r.directoryWords(directory)),
+		Also:        wayIn.notes(r.word),
 	}, nil
 }
 
-// outsiderName is a person as the warning lists them: by their name and what identifies
-// them, or by what identifies them alone where the account holds no name.
-func outsiderName(person DirectoryOutsider) string {
-	if person.Name != nil && strings.TrimSpace(*person.Name) != "" {
-		return fmt.Sprintf("%s (%s)", strings.TrimSpace(*person.Name), person.Username)
+// directoryWayIn is who keeps a way into a tenant past its directory, as the
+// directory-only warning counts them across every auth's entry: the tenant's own
+// administrators who have a password, and the invitations not yet accepted that would
+// make another, with the ones the caller may be told of.
+type directoryWayIn struct {
+	administrators      int
+	invitations         int
+	namedAdministrators []DirectoryAdministrator
+	namedInvitations    []DirectoryInvitation
+}
+
+// notes are the warning's notes on who keeps the way in, in the tenant word: first the
+// administrators', then the invitations', each left out where it counts nobody, and nil
+// where both are. A note's names are sorted as the people the switch keeps out are.
+func (w *directoryWayIn) notes(word string) []WarningNote {
+	var notes []WarningNote
+	if w.administrators > 0 {
+		slices.SortFunc(w.namedAdministrators, func(a, b DirectoryAdministrator) int {
+			return listedOrder(a.Username, b.Username, a.UserID, b.UserID)
+		})
+		names := listedNames(w.namedAdministrators, func(person DirectoryAdministrator) string {
+			return listedName(person.Name, person.Username)
+		})
+		notes = append(notes, WarningNote{Says: directoryAdministratorsSentence(word, w.administrators, len(names)), Names: names})
+	}
+	if w.invitations > 0 {
+		slices.SortFunc(w.namedInvitations, func(a, b DirectoryInvitation) int {
+			return listedOrder(a.Email, b.Email, a.ID, b.ID)
+		})
+		names := listedNames(w.namedInvitations, func(invitation DirectoryInvitation) string {
+			return listedName(invitation.Name, invitation.Email)
+		})
+		notes = append(notes, WarningNote{Says: directoryInvitationsSentence(word, w.invitations, len(names)), Names: names})
 	}
 
-	return person.Username
+	return notes
+}
+
+// listedNames are the people a note names, one a line, in the order given, each as name
+// writes them: nil where there is nobody to name, so a note that names nobody carries no
+// list.
+func listedNames[T any](people []T, name func(T) string) []string {
+	if len(people) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(people))
+	for _, person := range people {
+		names = append(names, name(person))
+	}
+
+	return names
+}
+
+// readWayIn reads one auth's part of who keeps a way into tenant past its directory: the
+// tenant's own administrators who have a password and the invitations that would make
+// another, each where the entry supplies its reader. An entry whose people keep no
+// administrators' way in (AdministratorsEnter false) has neither reader called.
+func readWayIn(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, auth *DirectoryPeople) ([]DirectoryAdministrator, []DirectoryInvitation, error) {
+	if !auth.AdministratorsEnter {
+		return nil, nil, nil
+	}
+	var administrators []DirectoryAdministrator
+	if auth.Administrators != nil {
+		var err error
+		administrators, err = auth.Administrators(ctx, txn, tenant)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "resource.DirectoryAdministrators()")
+		}
+	}
+	var invitations []DirectoryInvitation
+	if auth.Invitations != nil {
+		var err error
+		invitations, err = auth.Invitations(ctx, txn, tenant)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "resource.DirectoryInvitations()")
+		}
+	}
+
+	return administrators, invitations, nil
+}
+
+// namesTo reports whether the warning names to the request's caller what it counted on
+// one of the tenant's lists: there is somebody counted, the call has a caller, and the
+// caller may list them (listsPeople). Nothing is asked where nobody was counted or the
+// call is outside a request.
+func namesTo(ctx context.Context, caller *Caller, tenant accesstypes.Domain, list accesstypes.Resource, fields []accesstypes.Tag, counted int) (bool, error) {
+	if counted == 0 || caller.IsZero() {
+		return false, nil
+	}
+
+	return listsPeople(ctx, caller.Permissions, tenant, list, fields)
+}
+
+// listedOrder orders people as the warning lists them: by what identifies them (a
+// username, or an invitation's address) without case, then by id, so two who read alike
+// keep one order.
+func listedOrder(a, b string, aID, bID impulse.UUID) int {
+	if byName := strings.Compare(strings.ToLower(a), strings.ToLower(b)); byName != 0 {
+		return byName
+	}
+
+	return strings.Compare(aID.String(), bID.String())
+}
+
+// listedName is a person as the warning lists them: by their name and what identifies
+// them (a username, or the address an invitation was sent to), or by what identifies
+// them alone where no name is held.
+func listedName(name *string, identifies string) string {
+	if name != nil && strings.TrimSpace(*name) != "" {
+		return fmt.Sprintf("%s (%s)", strings.TrimSpace(*name), identifies)
+	}
+
+	return identifies
 }
 
 // directoryOnlySentence is the consequence of the switch in words: who will be able
@@ -361,6 +544,50 @@ func directoryOnlySentence(directory, word string, administratorsEnter, counted 
 		return lose + " The one of them you may list is named here."
 	default:
 		return fmt.Sprintf("%s The %d of them you may list are named here.", lose, named)
+	}
+}
+
+// directoryAdministratorsSentence is the warning's note on the tenant's own
+// administrators who have a password, in the tenant word: how many can still enter
+// without the directory, and to take the role away first from one who should not, since
+// the switch changes nobody's way in. Where the note names fewer of them than it counts
+// and at least one, it says the names are the ones the caller may list (namedEnding).
+func directoryAdministratorsSentence(word string, administrators, named int) string {
+	says := fmt.Sprintf("%d administrators of this %s have a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in.", administrators, word)
+	if administrators == 1 {
+		says = fmt.Sprintf("1 administrator of this %s has a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in.", word)
+	}
+
+	return says + namedEnding(administrators, named)
+}
+
+// directoryInvitationsSentence is the warning's note on the invitations into the tenant
+// not yet accepted that give a role that administers it, in the tenant word: how many
+// stand, that whoever accepts one can choose a password and enter without the directory,
+// and to withdraw first one that should not stand. Where the note names fewer of them
+// than it counts and at least one, it says the names are the ones the caller may list
+// (namedEnding).
+func directoryInvitationsSentence(word string, invitations, named int) string {
+	says := fmt.Sprintf("%d invitations that have not been accepted give a role that administers this %s. Whoever accepts one can choose a password and enter without the directory. Withdraw first any that should not stand.", invitations, word)
+	if invitations == 1 {
+		says = fmt.Sprintf("1 invitation that has not been accepted gives a role that administers this %s. Whoever accepts it can choose a password and enter without the directory. Withdraw it first if it should not stand.", word)
+	}
+
+	return says + namedEnding(invitations, named)
+}
+
+// namedEnding is what a note of the warning adds after its sentence where it names fewer
+// than it counts and at least one: that the names are the ones the caller may list, so a
+// part of them is never read as all of them. Where the note names nobody, or everyone it
+// counts, it adds nothing.
+func namedEnding(counted, named int) string {
+	switch named {
+	case 0, counted:
+		return ""
+	case 1:
+		return " The one of them you may list is named here."
+	default:
+		return fmt.Sprintf(" The %d of them you may list are named here.", named)
 	}
 }
 
@@ -624,27 +851,28 @@ func holdsOneOf(ctx context.Context, caller *Caller, methods []accesstypes.Resou
 	return methodRefused(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", caller.Scope, caller.Permissions.User(), accesstypes.Execute, methods))
 }
 
-// listsPeople reports whether the caller may list the people of one auth in tenant, as
-// the list itself asks it: List on the tenant's list of them, and List on each field of
-// it that names a person, on no condition. A field grant that holds on a condition
-// lists some of the people and not others, so it names nobody here; and a declaration
-// that names no list, or no field of it, names nobody either. An answer that does not
-// hold a resource that was asked is no grant of it.
-func listsPeople(ctx context.Context, perms UserPermissions, tenant accesstypes.Domain, people DirectoryPeople) (bool, error) {
-	if people.List == "" || len(people.Fields) == 0 {
+// listsPeople reports whether the caller may list the people on one of tenant's lists
+// (an auth's people, or its invitations), as the list itself asks it: List on the list,
+// and List on each of fields, the fields of it that name a person, on no condition. A
+// field grant that holds on a condition lists some of the people and not others, so it
+// names nobody here; and a declaration that names no list, or no field of it, names
+// nobody either. An answer that does not hold a resource that was asked is no grant of
+// it.
+func listsPeople(ctx context.Context, perms UserPermissions, tenant accesstypes.Domain, list accesstypes.Resource, fields []accesstypes.Tag) (bool, error) {
+	if list == "" || len(fields) == 0 {
 		return false, nil
 	}
 	scope := accesstypes.DomainScope(tenant)
-	list, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.List, people.List)
+	listed, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.List, list)
 	if err != nil {
 		return false, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
-	if list[people.List].IsDenied() {
+	if listed[list].IsDenied() {
 		return false, nil
 	}
-	asked := make([]accesstypes.Resource, 0, len(people.Fields))
-	for _, field := range people.Fields {
-		asked = append(asked, people.List.ResourceWithTag(field))
+	asked := make([]accesstypes.Resource, 0, len(fields))
+	for _, field := range fields {
+		asked = append(asked, list.ResourceWithTag(field))
 	}
 	decisions, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.List, asked...)
 	if err != nil {
