@@ -616,7 +616,8 @@ show the two links the generator follows beyond a table's key: a relay names its
 its sector and the call's case number, which is unique within a sector and is not the
 call's key, so a relay never names another sector's call
 ([`@deleteCascade.other-columns`](pkg/resources/distress_relays.go)), and a relay that
-answers another names it in its own table
+answers another names it in its own table, by its sector and that relay's id, so an
+answer never names another sector's relay
 ([`@deleteCascade.own-kind`](pkg/resources/distress_relays.go)), so a call's delete takes
 its relays and the relays that answer them, however deep. The Calls page lists a call's
 relays under it ([`distressCalls.config.ts`](web/console/src/app/configs/distressCalls.config.ts)).

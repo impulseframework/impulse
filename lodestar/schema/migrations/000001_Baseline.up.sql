@@ -419,8 +419,10 @@ CREATE TABLE Hangars (
 -- hangars open to the requester and the hangars the requester runs, each through a pass
 -- in their own name, in the name of a squadron they fly with or in the name of a group
 -- they are in. A pass goes with its hangar, with its squadron and with its group (the
--- foreign key to CrewGroups is added below that table). The holder check counts the
--- three columns and takes exactly one; an empty UserId names nobody and is not counted.
+-- foreign key to CrewGroups is added below that table). Its foreign key to its hangar
+-- holds the sector beside the hangar's id, so a pass never names another sector's
+-- hangar. The holder check counts the three columns and takes exactly one; an empty
+-- UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
@@ -434,7 +436,7 @@ CREATE TABLE HangarPasses (
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL OR UserId = '', 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
   CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
-  CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_SectorIdHangarId FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars(Id, SectorId) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
 ) PRIMARY KEY (Id);
@@ -641,7 +643,9 @@ CREATE UNIQUE INDEX DistressCallsBySectorIdCaseNumber ON DistressCalls(SectorId,
 -- that is not its key, and an answer names the relay it answers, a row of this same table.
 -- A case number is unique within a sector (DistressCallsBySectorIdCaseNumber), and the
 -- relay's foreign key to its call holds the sector beside the case number, so a relay never
--- names another sector's call.
+-- names another sector's call. An answer's foreign key to the relay it answers holds the
+-- sector beside that relay's id in the same way, so an answer never names another
+-- sector's relay.
 -- Neither foreign key carries a delete rule: a call's delete takes its relays, and a
 -- relay's delete its answers, in code (the two resource structs declare it).
 CREATE TABLE DistressRelays (
@@ -657,7 +661,7 @@ CREATE TABLE DistressRelays (
   CONSTRAINT CK_DistressRelays_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_DistressRelays_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_DistressRelays_SectorIdCaseNumber FOREIGN KEY (SectorId, CaseNumber) REFERENCES DistressCalls(SectorId, CaseNumber),
-  CONSTRAINT FK_DistressRelays_AnswersRelayId FOREIGN KEY (AnswersRelayId) REFERENCES DistressRelays(Id),
+  CONSTRAINT FK_DistressRelays_SectorIdAnswersRelayId FOREIGN KEY (AnswersRelayId, SectorId) REFERENCES DistressRelays(Id, SectorId),
 ) PRIMARY KEY (Id);
 
 -- A call's page lists its relays by the case number, and a sector's relays list in the
