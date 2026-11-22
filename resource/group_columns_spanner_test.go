@@ -295,3 +295,78 @@ func TestPatchSet_groupColumns_parent(t *testing.T) {
 		}
 	})
 }
+
+// TestPatchSet_groupColumns_sameTransaction pins the rule for a row created in one
+// transaction with its parent: the parent's yard is what the transaction buffered.
+func TestPatchSet_groupColumns_sameTransaction(t *testing.T) {
+	t.Parallel()
+
+	db := groupDatabase(t, "group-same-transaction")
+	client := NewSpannerClient(db)
+	ctx := context.Background()
+
+	tests := []groupCase{
+		{name: "a group kept in the new parent's yard is written", anchor: groupYardNorth, group: groupOfNorth},
+		{name: "a group kept in another yard is refused", anchor: groupYardNorth, group: groupOfSouth, refused: true},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			share, seal := fmt.Sprintf("new-share-%d", i), fmt.Sprintf("new-seal-%d", i)
+			group := tt.group
+			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				if err := groupSharePatch(CreatePatchType, share, tt.anchor, nil).Buffer(ctx, txn); err != nil {
+					return err
+				}
+				p := NewPatchSet(NewMetadata[groupSeal]()).SetPatchType(CreatePatchType)
+				p.SetKey("ID", seal)
+				p.Set("ShareID", share)
+				p.Set("GroupID", &group)
+
+				return p.Buffer(ctx, txn)
+			})
+			tt.judge(t, err)
+			stored := readGroupRow(t, db, "GroupSeals", "ShareId", seal)
+			if tt.refused != (stored == nil) {
+				t.Errorf("the stored row = %+v, refused = %t", stored, tt.refused)
+			}
+		})
+	}
+}
+
+// TestPatchSet_groupColumns_keyAnchor pins the rule for a create whose way to its yard
+// leaves through its own key: the key names the parent.
+func TestPatchSet_groupColumns_keyAnchor(t *testing.T) {
+	t.Parallel()
+
+	db := groupDatabase(t, "group-key-anchor")
+	client := NewSpannerClient(db)
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("GroupShares", map[string]any{"Id": "north-share", "Yard": groupYardNorth, "Note": "stored"}),
+		spanner.InsertMap("GroupShares", map[string]any{"Id": "south-share", "Yard": groupYardSouth, "Note": "stored"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+
+	tests := []groupCase{
+		{name: "a group kept in the parent's yard is written", anchor: "north-share", group: groupOfNorth},
+		{name: "a group kept in another yard is refused", anchor: "south-share", group: groupOfNorth, refused: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			group := tt.group
+			p := NewPatchSet(NewMetadata[groupPennant]()).SetPatchType(CreatePatchType)
+			p.SetKey("ShareID", tt.anchor)
+			p.Set("GroupID", &group)
+			tt.judge(t, p.Apply(ctx, client))
+			stored := readGroupRow(t, db, "GroupPennants", "ShareId", tt.anchor)
+			if tt.refused != (stored == nil) {
+				t.Errorf("the stored row = %+v, refused = %t", stored, tt.refused)
+			}
+		})
+	}
+}

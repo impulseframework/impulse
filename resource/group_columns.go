@@ -5,11 +5,9 @@ import (
 	"encoding"
 	"reflect"
 
-	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
-	"google.golang.org/api/iterator"
 )
 
 // A row of a tenant's table may name one of an auth's groups of people, and a subject
@@ -72,17 +70,15 @@ func (c *GroupColumn) refusal() error {
 		c.Name, word, word, word)
 }
 
-// textReader runs a statement that yields one text value, and says whether it yielded
-// a row at all.
-type textReader func(ctx context.Context, stmt *Statement) (value string, found bool, err error)
-
 // check holds one group a row names to the row's tenant. anchor is the row's value of
 // the Tenant field, as text. It follows the path from the anchor to the tenant's key,
-// asks where the group is kept, and refuses unless the two are the same tenant.
-func (c *GroupColumn) check(ctx context.Context, dbType DBType, read textReader, anchor, group string) error {
+// asks where the group is kept, and refuses unless the two are the same tenant. read is
+// the transaction's point reader, so a parent or a group the same transaction created
+// is found.
+func (c *GroupColumn) check(ctx context.Context, read pointReader, anchor, group string) error {
 	tenant := anchor
 	for _, hop := range c.Path {
-		next, found, err := read(ctx, pointTextStatement(dbType, hop.Table, hop.JoinColumn, hop.Column, tenant))
+		next, found, err := read(ctx, hop.Table, hop.JoinColumn, tenant, hop.Column)
 		if err != nil {
 			return errors.Wrapf(err, "reading %s.%s", hop.Table, hop.Column)
 		}
@@ -94,7 +90,7 @@ func (c *GroupColumn) check(ctx context.Context, dbType DBType, read textReader,
 		tenant = next
 	}
 
-	kept, found, err := read(ctx, pointTextStatement(dbType, c.Groups, c.Key, c.Kept, group))
+	kept, found, err := read(ctx, c.Groups, c.Key, group, c.Kept)
 	if err != nil {
 		return errors.Wrapf(err, "reading %s.%s", c.Groups, c.Kept)
 	}
@@ -104,6 +100,10 @@ func (c *GroupColumn) check(ctx context.Context, dbType DBType, read textReader,
 
 	return nil
 }
+
+// groupColumnsNotImplemented is the refusal of the group check on a database its
+// reads are not written for.
+const groupColumnsNotImplemented = "holding a group a row names to the row's tenant"
 
 // pointTextStatement renders the read of one column of the row a key names, as text
 // whatever the column's own type.
@@ -151,32 +151,13 @@ func (p *PatchSet[Resource]) checkGroupColumns(ctx context.Context, txn ReadWrit
 		return nil
 	}
 	if txn.DBType() != SpannerDBType {
-		return errors.Newf("holding a group a row names to the row's tenant is not implemented for %s", txn.DBType())
+		return errors.Newf("%s is not implemented for %s", groupColumnsNotImplemented, txn.DBType())
 	}
-	querier := txn.SpannerReadOnlyTransaction()
-	if querier == nil {
+	if txn.SpannerReadOnlyTransaction() == nil {
 		// A mocked transaction holds no tables to ask.
 		return nil
 	}
-	read := func(ctx context.Context, stmt *Statement) (string, bool, error) {
-		it := querier.Query(ctx, stmt.SpannerStatement())
-		defer it.Stop()
-
-		row, err := it.Next()
-		if err != nil {
-			if errors.Is(err, iterator.Done) {
-				return "", false, nil
-			}
-
-			return "", false, errors.Wrap(err, "spanner.RowIterator.Next()")
-		}
-		var value spanner.NullString
-		if err := row.Column(0, &value); err != nil {
-			return "", false, errors.Wrap(err, "spanner.Row.Column()")
-		}
-
-		return value.StringVal, true, nil
-	}
+	read := transactionPointReader(txn, groupColumnsNotImplemented)
 
 	for _, g := range groups {
 		group := g.group
@@ -199,7 +180,7 @@ func (p *PatchSet[Resource]) checkGroupColumns(ctx context.Context, txn ReadWrit
 			// No row to update: the update answers that itself.
 			continue
 		}
-		if err := g.column.check(ctx, txn.DBType(), read, anchor, group); err != nil {
+		if err := g.column.check(ctx, read, anchor, group); err != nil {
 			return err
 		}
 	}
@@ -208,12 +189,20 @@ func (p *PatchSet[Resource]) checkGroupColumns(ctx context.Context, txn ReadWrit
 }
 
 // rowText reads the row's value of one field as text: the patch's own where the patch
-// carries it, and the stored row's otherwise, one point read on the primary key. A
-// create that does not carry the field reads as empty. found is false when the patch
-// carries none and no row is stored.
+// carries it or the field is one of its keys, and the stored row's otherwise, one point
+// read on the primary key. A create that does not carry the field reads as empty. found
+// is false when the patch carries none and no row is stored.
 func (p *PatchSet[Resource]) rowText(ctx context.Context, txn ReadWriteTransaction, field accesstypes.Field) (text string, found bool, err error) {
 	if p.IsSet(field) {
 		text, err := columnText(p.Get(field))
+		if err != nil {
+			return "", false, errors.Wrapf(err, "field %s", field)
+		}
+
+		return text, true, nil
+	}
+	if key := p.Key(field); key != nil {
+		text, err := columnText(key)
 		if err != nil {
 			return "", false, errors.Wrapf(err, "field %s", field)
 		}

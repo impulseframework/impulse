@@ -63,20 +63,21 @@ func TestGroupColumn_check_onPostgres(t *testing.T) {
 		t.Skip("requires a PostgreSQL container")
 	}
 	db := groupPostgres(t)
-	read := func(ctx context.Context, stmt *Statement) (string, bool, error) {
-		var value *string
-		if err := db.QueryRow(ctx, stmt.SQL, pgx.NamedArgs(stmt.Params)).Scan(&value); err != nil {
+	read := func(ctx context.Context, table, keyColumn, value, column string) (string, bool, error) {
+		stmt := pointTextStatement(PostgresDBType, table, keyColumn, column, value)
+		var text *string
+		if err := db.QueryRow(ctx, stmt.SQL, pgx.NamedArgs(stmt.Params)).Scan(&text); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return "", false, nil
 			}
 
 			return "", false, errors.Wrap(err, "pgx.Row.Scan()")
 		}
-		if value == nil {
+		if text == nil {
 			return "", true, nil
 		}
 
-		return *value, true, nil
+		return *text, true, nil
 	}
 	ctx := context.Background()
 
@@ -85,7 +86,7 @@ func TestGroupColumn_check_onPostgres(t *testing.T) {
 		t.Run("yard on the row: "+tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tt.judge(t, onRow.check(ctx, PostgresDBType, read, tt.anchor, tt.group))
+			tt.judge(t, onRow.check(ctx, read, tt.anchor, tt.group))
 		})
 	}
 
@@ -101,7 +102,7 @@ func TestGroupColumn_check_onPostgres(t *testing.T) {
 		t.Run("yard through a parent: "+tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tt.judge(t, throughParent.check(ctx, PostgresDBType, read, tt.anchor, tt.group))
+			tt.judge(t, throughParent.check(ctx, read, tt.anchor, tt.group))
 		})
 	}
 }

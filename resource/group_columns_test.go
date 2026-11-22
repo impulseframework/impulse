@@ -64,6 +64,26 @@ func (groupSeal) GroupColumns() []GroupColumn {
 	}
 }
 
+// groupPennant is a row that names a group and reaches its yard through the share its
+// own key names.
+type groupPennant struct {
+	ShareID string  `spanner:"ShareId"`
+	GroupID *string `spanner:"GroupId"`
+}
+
+func (groupPennant) Resource() accesstypes.Resource {
+	return "GroupPennants"
+}
+
+func (groupPennant) GroupColumns() []GroupColumn {
+	return []GroupColumn{
+		{
+			Field: "GroupID", Name: "groupId", Tenant: "ShareID", Path: []BindingHop{{Table: "GroupShares", JoinColumn: "Id", Column: "Yard"}},
+			Groups: "CastGroups", Key: "Id", Kept: "DomainId", TenantWord: "yard",
+		},
+	}
+}
+
 // groupCase is one row a writer proposes: the value of the field its tenant is found
 // through, the group it names, and whether the library writes it.
 type groupCase struct {
@@ -151,8 +171,8 @@ func TestGroupColumn_check(t *testing.T) {
 		hold("CastGroups", "Id", "DomainId", groupOfEveryone, "")
 		hold("GroupShares", "Id", "Yard", "north-share", groupYardNorth)
 		errRead := errors.New("the database did not answer")
-		read := func(_ context.Context, stmt *Statement) (string, bool, error) {
-			value, _ := stmt.Params["value"].(string)
+		read := func(_ context.Context, table, keyColumn, value, column string) (string, bool, error) {
+			stmt := pointTextStatement(dbType, table, keyColumn, column, value)
 			if value == groupUnread {
 				return "", false, errRead
 			}
@@ -168,14 +188,14 @@ func TestGroupColumn_check(t *testing.T) {
 			t.Run(string(dbType)+", yard on the row: "+tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				tt.judge(t, onRow.check(context.Background(), dbType, read, tt.anchor, tt.group))
+				tt.judge(t, onRow.check(context.Background(), read, tt.anchor, tt.group))
 			})
 		}
 
 		t.Run(string(dbType)+", yard on the row: a read that fails is returned and refuses nothing", func(t *testing.T) {
 			t.Parallel()
 
-			err := onRow.check(context.Background(), dbType, read, groupYardNorth, groupUnread)
+			err := onRow.check(context.Background(), read, groupYardNorth, groupUnread)
 			if !errors.Is(err, errRead) {
 				t.Fatalf("error = %v, want the read's own error", err)
 			}
@@ -194,7 +214,7 @@ func TestGroupColumn_check(t *testing.T) {
 			t.Run(string(dbType)+", yard through a parent: "+tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				tt.judge(t, throughParent.check(context.Background(), dbType, read, tt.anchor, tt.group))
+				tt.judge(t, throughParent.check(context.Background(), read, tt.anchor, tt.group))
 			})
 		}
 	}

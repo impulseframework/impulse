@@ -466,6 +466,10 @@ type Metadata[Resource Resourcer] struct {
 	// generated GroupColumns): the patch machinery holds each group a write names to
 	// the row's own tenant.
 	groupColumns []GroupColumn
+	// tenantBinding is the resource's way to its tenant (the generated TenantBinding),
+	// nil for a resource that belongs to no tenant: the patch machinery writes the
+	// tenant on each change record of the row.
+	tenantBinding *TenantBinding
 	// searchBranches are the resource's @searchAlso declarations (the generated
 	// SearchBranches): the child text its search box also searches.
 	searchBranches []SearchBranch
@@ -502,6 +506,7 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 		trackChanges:   c.cfg.TrackChanges,
 		fileKeys:       c.fileKeys,
 		groupColumns:   c.groupColumns,
+		tenantBinding:  c.tenantBinding,
 		searchBranches: c.searchBranches,
 		secrets:        c.secrets,
 		secretContext:  c.secretContext,
@@ -536,6 +541,7 @@ type resourceMetadataCacheEntry struct {
 	cfg            Config
 	fileKeys       []FileKey
 	groupColumns   []GroupColumn
+	tenantBinding  *TenantBinding
 	searchBranches []SearchBranch
 	secrets        map[accesstypes.Field]struct{}
 	secretContext  []accesstypes.Field
@@ -591,6 +597,12 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		groupColumns = g.GroupColumns()
 	}
 
+	var tenantBinding *TenantBinding
+	if b, ok := res.(tenantBinder); ok {
+		binding := b.TenantBinding()
+		tenantBinding = &binding
+	}
+
 	var searchBranches []SearchBranch
 	if b, ok := res.(searchBrancher); ok {
 		searchBranches = b.SearchBranches()
@@ -620,6 +632,7 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		cfg:            cfg,
 		fileKeys:       fileKeys,
 		groupColumns:   groupColumns,
+		tenantBinding:  tenantBinding,
 		searchBranches: searchBranches,
 		secrets:        secretFields(t),
 		secretContext:  secretContext,

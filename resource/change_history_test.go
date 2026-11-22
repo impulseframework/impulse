@@ -121,19 +121,24 @@ func TestDataChangeEventsDDL(t *testing.T) {
 		})
 	}
 
-	t.Run("the fixture migration is the Spanner statements for 365 days", func(t *testing.T) {
-		t.Parallel()
+	for _, path := range []string{
+		"testdata/patchfork/schema/000001_patch_fork_fixture.up.sql",
+		"testdata/changetenant/schema/000001_change_tenant_fixture.up.sql",
+	} {
+		t.Run("the fixture migration is the Spanner statements for 365 days: "+path, func(t *testing.T) {
+			t.Parallel()
 
-		fixture, err := os.ReadFile("testdata/patchfork/schema/000001_patch_fork_fixture.up.sql")
-		if err != nil {
-			t.Fatalf("os.ReadFile() error = %v", err)
-		}
-		for _, stmt := range DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) {
-			if !strings.Contains(string(fixture), stmt+";") {
-				t.Errorf("the fixture migration does not carry the statement:\n%s", stmt)
+			fixture, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("os.ReadFile() error = %v", err)
 			}
-		}
-	})
+			for _, stmt := range DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) {
+				if !strings.Contains(string(fixture), stmt+";") {
+					t.Errorf("the fixture migration does not carry the statement:\n%s", stmt)
+				}
+			}
+		})
+	}
 }
 
 // TestDataChangeEventColumns holds the change history table's statement to the record a
