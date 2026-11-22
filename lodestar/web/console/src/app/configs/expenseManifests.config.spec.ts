@@ -17,7 +17,9 @@ import { expenseManifestsConfig } from './expenseManifests.config';
 // as the spec plays it answers the Purser in Anvil, who holds the manifests' fields
 // outright: one row per mission, with its sorties and what they cost. The page draws the
 // three columns, offers a sort on each, and draws the search box, which searches the
-// mission's title.
+// mission's title. It answers the Flight Lead too, who holds the fields on the rows of the
+// missions their squadrons fly: the page draws the same columns, offers no sort and no
+// search box, and says why where the box would be.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 
@@ -53,6 +55,12 @@ const digestOf = (state: 'granted' | 'conditional'): PermissionDigest =>
 
 /** The Purser's digest in the sector: the manifests and every field, outright. */
 const purser: PermissionDigest = digestOf('granted');
+
+/**
+ * The Flight Lead's digest in the sector: the manifests and every field under a condition
+ * on the mission's squadron, which the server judges row by row.
+ */
+const flightLead: PermissionDigest = digestOf('conditional');
 
 describe('the expense manifests page', () => {
   let fixture: ComponentFixture<ResourceListComponent>;
@@ -130,6 +138,19 @@ describe('the expense manifests page', () => {
 
       expect(element().querySelector('tr.no-records-row')?.textContent?.trim()).toBe(
         'No mission in this sector has a manifest yet.',
+      );
+    });
+  });
+
+  describe('for the Flight Lead, who sees the fields on some rows only', () => {
+    it('draws the three columns, offers no sort, and offers no search box but says why', async () => {
+      await create(flightLead, manifests);
+
+      expect(headings()).toEqual(['Mission', 'Sorties', 'Expenses']);
+      expect(pressable()).toEqual([]);
+      expect(element().querySelector('impulse-search-box')).toBeNull();
+      expect(element().querySelector('.impulse-resource-list-search-refused')?.textContent?.trim()).toBe(
+        'You cannot search this list: your role sees Mission on some rows only.',
       );
     });
   });
