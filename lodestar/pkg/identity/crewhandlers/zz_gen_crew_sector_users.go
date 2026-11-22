@@ -20,20 +20,21 @@ import (
 
 func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 	type crewSectorUser struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
-		DomainID               string       `json:"domainId"               index:"true"`
-		Username               string       `json:"username"               index:"true"`
-		Name                   *string      `json:"name"`
-		Email                  *string      `json:"email"`
-		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-		Disabled               bool         `json:"disabled"`
-		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-		CreatedAt              time.Time    `json:"createdAt"`
-		LastSignInAt           *time.Time   `json:"lastSignInAt"`
-		HeldElsewhere          bool         `json:"heldElsewhere"          index:"true"`
-		HeldGlobally           bool         `json:"heldGlobally"           index:"true"`
-		OutsideDirectory       bool         `json:"outsideDirectory"       index:"true"`
-		CannotEnter            *string      `json:"cannotEnter"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"                  index:"true"`
+		Username                  string       `json:"username"                  index:"true"`
+		Name                      *string      `json:"name"`
+		Email                     *string      `json:"email"`
+		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+		Disabled                  bool         `json:"disabled"`
+		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
+		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
+		OutsideDirectory          bool         `json:"outsideDirectory"          index:"true"`
+		CannotEnter               *string      `json:"cannotEnter"`
+		AdministratorWithPassword bool         `json:"administratorWithPassword" index:"true"`
 	}
 
 	type response []map[string]any
@@ -132,6 +133,10 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 					if !row.Masked("cannotEnter") {
 						rmap["cannotEnter"] = rec.CannotEnter
 					}
+				case "AdministratorWithPassword":
+					if !row.Masked("administratorWithPassword") {
+						rmap["administratorWithPassword"] = rec.AdministratorWithPassword
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -155,20 +160,21 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 
 func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 	type response struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
-		DomainID               string       `json:"domainId"`
-		Username               string       `json:"username"`
-		Name                   *string      `json:"name"`
-		Email                  *string      `json:"email"`
-		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-		Disabled               bool         `json:"disabled"`
-		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-		CreatedAt              time.Time    `json:"createdAt"`
-		LastSignInAt           *time.Time   `json:"lastSignInAt"`
-		HeldElsewhere          bool         `json:"heldElsewhere"`
-		HeldGlobally           bool         `json:"heldGlobally"`
-		OutsideDirectory       bool         `json:"outsideDirectory"`
-		CannotEnter            *string      `json:"cannotEnter"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"`
+		Username                  string       `json:"username"`
+		Name                      *string      `json:"name"`
+		Email                     *string      `json:"email"`
+		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+		Disabled                  bool         `json:"disabled"`
+		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		HeldElsewhere             bool         `json:"heldElsewhere"`
+		HeldGlobally              bool         `json:"heldGlobally"`
+		OutsideDirectory          bool         `json:"outsideDirectory"`
+		CannotEnter               *string      `json:"cannotEnter"`
+		AdministratorWithPassword bool         `json:"administratorWithPassword"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSectorUser, response](h, accesstypes.Read)
@@ -254,6 +260,10 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 			case "CannotEnter":
 				if !row.Masked("cannotEnter") {
 					rmap["cannotEnter"] = rec.CannotEnter
+				}
+			case "AdministratorWithPassword":
+				if !row.Masked("administratorWithPassword") {
+					rmap["administratorWithPassword"] = rec.AdministratorWithPassword
 				}
 			}
 		}

@@ -2,6 +2,7 @@ import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ApiDescriptor } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { ThemeService } from '@impulseframework/resource-angular/ui-theme';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import {
@@ -12,11 +13,12 @@ import {
   specDescriptor,
   specTransport,
 } from './frame-testing';
+import { ShownEntry } from './menu';
 import { initialsOf, PersonMenuComponent } from './person-menu.component';
 
-// The person's menu holds what is theirs: their account where the page holds something for
-// them, their API keys where the application issues tokens, the application's own entries,
-// Appearance, and Sign out last. Both pages are every place's: they open where the person is.
+// The person's menu holds what is theirs: their account page, their API keys where the
+// application issues tokens, the application's own entries, Appearance, and Sign out last.
+// Both pages are every place's: they open where the person is.
 
 interface Setup {
   methods?: Record<string, unknown>;
@@ -126,6 +128,68 @@ describe('PersonMenuComponent', () => {
     expect(who('.impulse-person-menu-who-login')).toBeUndefined();
   });
 
+  it('heads the menu with each address once: no username where it is the email address, whatever its capitals, and no email address where it already heads the menu', async () => {
+    const lines = (): string[][] =>
+      Array.from(
+        document.querySelectorAll('.cdk-overlay-container .impulse-person-menu-who .impulse-person-menu-lines > span'),
+      ).map((line) => [line.className, line.textContent ?? '']);
+    const openMenu = async (): Promise<void> => {
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>('button.impulse-person-menu-button')
+        ?.click();
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+    };
+    const name = 'impulse-person-menu-who-name';
+    const login = 'impulse-person-menu-who-login';
+    const email = 'impulse-person-menu-who-email';
+    for (const [session, want] of [
+      [
+        { name: 'Rey Gale', username: 'gale', email: 'gale@spec.example' },
+        [
+          [name, 'Rey Gale'],
+          [login, 'gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [
+        { name: 'Rey Gale', username: 'gale@spec.example', email: 'gale@spec.example' },
+        [
+          [name, 'Rey Gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [
+        { name: 'Rey Gale', username: 'Gale@Spec.example', email: 'gale@spec.example' },
+        [
+          [name, 'Rey Gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [{ username: 'gale@spec.example', email: 'gale@spec.example' }, [[name, 'gale@spec.example']]],
+      [
+        { username: 'gale', email: 'gale@spec.example' },
+        [
+          [name, 'gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [
+        { name: 'Rey Gale', username: 'gale' },
+        [
+          [name, 'Rey Gale'],
+          [login, 'gale'],
+        ],
+      ],
+      [{ username: 'gale' }, [[name, 'gale']]],
+    ] as [Record<string, string>, string[][]][]) {
+      TestBed.resetTestingModule();
+      await open({ session: { authenticated: true, ...session } });
+      await openMenu();
+      expect.soft(lines(), JSON.stringify(session)).toEqual(want);
+    }
+  });
+
   it('heads the menu with the same initials as the bar, two for a name of several words and one for a username', async () => {
     const head = (): Element | null =>
       document.querySelector(
@@ -156,14 +220,10 @@ describe('PersonMenuComponent', () => {
     expect(fixture.componentInstance.initials()).toEqual(['G']);
   });
 
-  it('offers the account page for the name alone, where the server serves its change', async () => {
-    await open({ methods: { changeName: passwordMethods.changeName } });
-    expect(labels()).toEqual([['Your account'], ['Appearance'], ['Sign out']]);
-  });
-
-  it('holds only Appearance and Sign out for a person with no account section and no tokens', async () => {
+  it('offers the account page to a person whose sign-in leaves nothing to change, opened where the person is', async () => {
     await open({});
-    expect(labels()).toEqual([['Appearance'], ['Sign out']]);
+    expect(labels()).toEqual([['Your account'], ['Appearance'], ['Sign out']]);
+    expect(fixture.componentInstance.groups()[0]?.entries[0]?.link).toEqual(['account']);
   });
 
   it('offers the account page where it holds something, opened where the person is', async () => {
@@ -172,10 +232,34 @@ describe('PersonMenuComponent', () => {
     expect(fixture.componentInstance.groups()[0]?.entries[0]?.link).toEqual(['account']);
   });
 
-  it('offers Your API keys where the application issues tokens', async () => {
+  it('offers Your API keys after Your account where the application issues tokens', async () => {
     await open({ descriptor: issuingDescriptor });
-    expect(labels()).toEqual([['Your API keys'], ['Appearance'], ['Sign out']]);
-    expect(fixture.componentInstance.groups()[0]?.entries[0]?.link).toEqual(['api-keys']);
+    expect(labels()).toEqual([['Your account', 'Your API keys'], ['Appearance'], ['Sign out']]);
+    expect(fixture.componentInstance.groups()[0]?.entries[1]?.link).toEqual(['api-keys']);
+  });
+
+  it('offers Light, Dark and Match my device under Appearance, the one in force checked, and follows the device on the third', async () => {
+    await open({});
+    const schemes = (): readonly ShownEntry[] =>
+      fixture.componentInstance
+        .groups()
+        .flatMap((group) => group.entries)
+        .find((entry) => entry.label === 'Appearance')?.groups?.[0]?.entries ?? [];
+    const checked = (): [string, boolean | undefined][] => schemes().map((entry) => [entry.label, entry.checked]);
+    expect(checked()).toEqual([
+      ['Light', true],
+      ['Dark', false],
+      ['Match my device', false],
+    ]);
+    const device = schemes()[2];
+    expect(device?.icon).toBe('devices');
+    device?.run?.();
+    expect(TestBed.inject(ThemeService).scheme()).toBe('device');
+    expect(checked()).toEqual([
+      ['Light', false],
+      ['Dark', false],
+      ['Match my device', true],
+    ]);
   });
 
   it("puts the application's own entries above Appearance", async () => {

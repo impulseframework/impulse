@@ -1,7 +1,15 @@
 import { DOCUMENT, inject, Injectable, InjectionToken, signal } from '@angular/core';
 
-/** The two schemes a person chooses between. */
-export type ColorScheme = 'light' | 'dark';
+/**
+ * The three schemes a person chooses between: light, dark, and their device's (`device`),
+ * under which the page is drawn light or dark as the device it is on is set.
+ */
+export type ColorScheme = 'light' | 'dark' | 'device';
+
+/** Whether a value read from elsewhere is one of the schemes. */
+function isScheme(value: unknown): value is ColorScheme {
+  return value === 'light' || value === 'dark' || value === 'device';
+}
 
 /**
  * One palette an application offers: `id` is the key of the application's palette map
@@ -16,7 +24,7 @@ export interface ThemePalette {
 /**
  * The palettes the application offers, in the order the picker shows them; the first is
  * the default. Empty, the default, when the application offers no choice of colors: the
- * picker then offers light and dark alone. provideTheme sets it.
+ * picker then offers Light, Dark and Match my device alone. provideTheme sets it.
  */
 export const THEME_PALETTES = new InjectionToken<readonly ThemePalette[]>('THEME_PALETTES', {
   providedIn: 'root',
@@ -24,8 +32,8 @@ export const THEME_PALETTES = new InjectionToken<readonly ThemePalette[]>('THEME
 });
 
 /**
- * A look as it is kept outside the browser, with the person's account: light or dark, and
- * a palette's id. Either half may be absent, for none chosen.
+ * A look as it is kept outside the browser, with the person's account: light, dark or the
+ * device's, and a palette's id. Either half may be absent, for none chosen.
  */
 export interface ThemeChoice {
   readonly scheme?: ColorScheme;
@@ -42,10 +50,12 @@ interface StoredChoice {
 }
 
 /**
- * The look a person chose: light or dark, and one of the palettes the application offers.
- * The service applies the choice to the root element, `color-scheme` as an inline style
- * (the theme emits both values of every Material token, so the one property flips the whole
- * page) and `data-palette` (the attribute the theme sheet's `palettes` mixin emits each
+ * The look a person chose: light, dark or as their device is set, and one of the palettes
+ * the application offers. The service applies the choice to the root element,
+ * `color-scheme` as an inline style (the theme emits both values of every Material token,
+ * so the one property flips the whole page; for the device's it is `light dark`, under
+ * which the browser draws whichever the device is set to and follows a change of that
+ * setting while the page is open) and `data-palette` (the attribute the theme sheet's `palettes` mixin emits each
  * palette's tokens under), and remembers it in the browser's local storage, so the login
  * page honors it before sign-in and the next visit starts with it. provideTheme calls
  * start() as the application starts. A choice the browser remembers but the application no
@@ -66,7 +76,7 @@ export class ThemeService {
   private document = inject(DOCUMENT);
   private schemeSignal = signal<ColorScheme>('light');
   private paletteSignal = signal<string | undefined>(this.palettes[0]?.id);
-  /** The scheme in force. */
+  /** The scheme in force: light, dark, or the device's, which the browser draws as its device is set. */
   readonly scheme = this.schemeSignal.asReadonly();
   /** The id of the palette in force, undefined when the application offers none. */
   readonly palette = this.paletteSignal.asReadonly();
@@ -81,7 +91,7 @@ export class ThemeService {
   /** Reads the remembered choice, keeps what is still offered, and applies the result. */
   start(): void {
     const stored = this.read();
-    if (stored.scheme === 'light' || stored.scheme === 'dark') {
+    if (isScheme(stored.scheme)) {
       this.schemeSignal.set(stored.scheme);
     }
     if (typeof stored.palette === 'string' && this.offers(stored.palette)) {
@@ -90,9 +100,9 @@ export class ThemeService {
     this.apply();
   }
 
-  /** Switches to light or dark, applies it, and remembers the choice. */
+  /** Switches to light, dark or the device's, applies it, and remembers the choice. */
   setScheme(scheme: ColorScheme): void {
-    if (scheme !== 'light' && scheme !== 'dark') {
+    if (!isScheme(scheme)) {
       return;
     }
     this.schemeSignal.set(scheme);
@@ -120,7 +130,7 @@ export class ThemeService {
    */
   adopt(choice: ThemeChoice): void {
     let moved = false;
-    if ((choice.scheme === 'light' || choice.scheme === 'dark') && choice.scheme !== this.schemeSignal()) {
+    if (isScheme(choice.scheme) && choice.scheme !== this.schemeSignal()) {
       this.schemeSignal.set(choice.scheme);
       moved = true;
     }
@@ -144,7 +154,8 @@ export class ThemeService {
 
   private apply(): void {
     const root = this.document.documentElement;
-    root.style.setProperty('color-scheme', this.schemeSignal());
+    const scheme = this.schemeSignal();
+    root.style.setProperty('color-scheme', scheme === 'device' ? 'light dark' : scheme);
     const palette = this.paletteSignal();
     if (palette === undefined) {
       root.removeAttribute('data-palette');

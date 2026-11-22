@@ -187,6 +187,20 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			wantNotContains: []string{"DirectoryOnlyConsequence", "SetHarborDirectoryOnly", "req.Turn()"},
 		},
 		{
+			name: "the warning reads who keeps the administrators' way in where an auth has the password method, and the invitations where it lists them",
+			data: data(
+				&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}, Administrators: true, InvitationList: "StaffHarborInvitations", InvitationFields: []string{"email", "name"}},
+				&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}, Administrators: true},
+				&directoryOnlyPeople{Accessor: "GuestsIdentity", List: "GuestHarborUsers", Fields: []string{"username", "name"}},
+			),
+			wantContains: []string{
+				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword(), Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffHarborInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations},`,
+				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword(), Administrators: a.MembersIdentity().DirectoryAdministrators},`,
+				`resource.DirectoryPeople{List: "GuestHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword()},`,
+			},
+			wantNotContains: []string{"a.MembersIdentity().DirectoryInvitations", "a.GuestsIdentity().DirectoryAdministrators"},
+		},
+		{
 			name:            "a program that generates no auth's management counts and names no person",
 			data:            data(),
 			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)", "rules := NewHarborDirectoryRules()\n"},
@@ -222,6 +236,40 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	// The tenants file no longer carries a read of the switch: the switch has its own file.
 	if strings.Contains(tenantsTemplate, "DirectoryOnlyHandler") || strings.Contains(tenantsTemplate, "DirectoryOnlyStateHandler") {
 		t.Error("tenantsTemplate still serves a read of the directory-only switch")
+	}
+}
+
+// Test_resourceGenerator_directoryOnlyPeople pins what the handler of the switch hands
+// the warning of each auth whose client answers who the switch keeps out: the client's
+// readers of who keeps the administrators' way in where the auth has the password method,
+// and of the invitations that would make another where it also lists its invitations,
+// with the list and the fields that name the person invited.
+func Test_resourceGenerator_directoryOnlyPeople(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	instance := func(auth string, password bool, tables ...identityTable) *identityInstance {
+		inst := &identityInstance{auth: auth, password: password, tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directory: directory}, tables: map[identityTable]bool{}}
+		for _, kind := range tables {
+			inst.tables[kind] = true
+		}
+
+		return inst
+	}
+	r := &resourceGenerator{client: &client{identity: []*identityInstance{
+		instance("Staff", true, identityUsers, identityMemberships, identityMailLinks),
+		instance("Member", true, identityUsers, identityMemberships),
+		instance("Guest", false, identityUsers, identityMemberships, identityMailLinks),
+		// An auth that lists no people answers nobody, and is no entry.
+		instance("Visitor", true, identityMailLinks),
+	}}}
+	want := []*directoryOnlyPeople{
+		{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}, Administrators: true, InvitationList: "StaffHarborInvitations", InvitationFields: []string{"email", "name"}},
+		{Accessor: "MemberIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}, Administrators: true},
+		{Accessor: "GuestIdentity", List: "GuestHarborUsers", Fields: []string{"username", "name"}},
+	}
+	if diff := cmp.Diff(want, r.directoryOnlyPeople()); diff != "" {
+		t.Errorf("directoryOnlyPeople() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1116,7 +1164,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			wantContains: []string{
 				"return crewSectorUserQuery, nil",
 			},
-			wantNotContains: []string{"PasswordHash", "tenantAdministratorRoles", "AdministratorRoles(", "sync/atomic"},
+			wantNotContains: []string{"PasswordHash", "tenantAdministratorRoles", "AdministratorRoles(", "sync/atomic", "AdministratorWithPassword"},
 		},
 		{
 			name: "an auth with the password method leaves the tenant's own administrator who has a password out of the people the switch keeps out",
@@ -1132,6 +1180,10 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"func SetCrewSectorUserAdministratorRoles(roles []accesstypes.Role) {",
 				"return crewSectorUserQuery, map[string]any{\"tenantAdministratorRoles\": administrators}",
 				"administrators := []string{}",
+				// The same fact is a column of its own, which the warning that turns the
+				// switch on reads the administrators who keep their way in by.
+				"AdministratorWithPassword bool `spanner:\"AdministratorWithPassword\" index:\"true\"`",
+				"NULL) AS CannotEnter,\n  (u.PasswordHash IS NOT NULL AND (EXISTS (\n    SELECT 1 FROM CrewUserRoles ta\n    WHERE ta.UserId = u.Id AND ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = t.DomainId\n      AND ta.Role IN UNNEST(@tenantAdministratorRoles)\n      AND (ta.StartsAt IS NULL OR ta.StartsAt <= CURRENT_TIMESTAMP()) AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())\n  ))) AS AdministratorWithPassword\n",
 			},
 			// An auth that keeps no groups reads none.
 			wantNotContains: []string{"GroupRoles", "return crewSectorUserQuery, nil"},
@@ -1141,13 +1193,15 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			data: withGroups(withPassword(data(directory, identityUsers, identityMemberships, identityIdentities))),
 			wantContains: []string{
 				"  ) OR EXISTS (\n    SELECT 1 FROM CrewGroupRoles tr\n    JOIN CrewGroups tg ON tg.Id = tr.GroupId\n    JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId\n    WHERE tm.UserId = u.Id\n      AND tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = t.DomainId\n      AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = t.DomainId\n      AND tr.Role IN UNNEST(@tenantAdministratorRoles)\n      AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())\n      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())\n  )))) AS OutsideDirectory,",
+				// The column reads the tenant's own group too.
+				"      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())\n  ))) AS AdministratorWithPassword\n",
 			},
 		},
 		{
 			name:            "a tenant record that declares no switch",
 			data:            withPassword(data(nil, identityUsers, identityMemberships, identityIdentities)),
 			wantContains:    []string{"HeldGlobally bool ", "return crewSectorUserQuery, nil"},
-			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles"},
+			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles", "AdministratorWithPassword"},
 		},
 	}
 	for _, tt := range tests {
@@ -1175,9 +1229,29 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 	if unlisted := data(nil, identityUsers, identityMemberships); unlisted.ListsDirectoryOutsiders() {
 		t.Error("ListsDirectoryOutsiders() = true for a record that declares no switch")
 	}
+	// It reads the invitations that would make another administrator where the record
+	// declares the switch, the auth has the password method and lists its people and its
+	// invitations, and not otherwise.
+	if invites := withPassword(data(directory, identityUsers, identityMemberships, identityMailLinks)); !invites.ListsDirectoryInvitations() {
+		t.Error("ListsDirectoryInvitations() = false for an auth with the password method that lists its people and its invitations")
+	}
+	for name, without := range map[string]*identitySourceData{
+		"without the invitations list": withPassword(data(directory, identityUsers, identityMemberships)),
+		"without the password method":  data(directory, identityUsers, identityMemberships, identityMailLinks),
+		"without the switch":           withPassword(data(nil, identityUsers, identityMemberships, identityMailLinks)),
+	} {
+		if without.ListsDirectoryInvitations() {
+			t.Errorf("ListsDirectoryInvitations() = true %s", name)
+		}
+	}
 	for _, want := range []string{
 		"func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {",
 		"QueryClause().DomainID().Equal(string(tenant)).And().OutsideDirectory().Equal(true))",
+		"func (c *Client) DirectoryAdministrators(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryAdministrator, error) {",
+		"QueryClause().DomainID().Equal(string(tenant)).And().AdministratorWithPassword().Equal(true))",
+		"func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryInvitation, error) {",
+		"QueryClause().DomainID().Equal(string(tenant)).And().Pending().Equal(true))",
+		"for _, role := range c.manager.TenantAdministratorRoles() {",
 	} {
 		if !strings.Contains(identityStoreTemplate, want) {
 			t.Errorf("identityStoreTemplate is missing %q", want)

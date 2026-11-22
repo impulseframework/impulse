@@ -963,6 +963,7 @@ export namespace StaffTenantUserRoles {
 
 export namespace StaffTenantUsers {
   export const fieldName = {
+    administratorWithPassword: 'administratorWithPassword' as FieldName,
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
@@ -979,6 +980,7 @@ export namespace StaffTenantUsers {
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    administratorWithPassword: 'StaffTenantUsers.administratorWithPassword' as Resource,
     cannotEnter: 'StaffTenantUsers.cannotEnter' as Resource,
     createdAt: 'StaffTenantUsers.createdAt' as Resource,
     disabled: 'StaffTenantUsers.disabled' as Resource,

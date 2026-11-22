@@ -858,6 +858,7 @@ export namespace CrewSectorUserRoles {
 
 export namespace CrewSectorUsers {
   export const fieldName = {
+    administratorWithPassword: 'administratorWithPassword' as FieldName,
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
@@ -874,6 +875,7 @@ export namespace CrewSectorUsers {
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    administratorWithPassword: 'CrewSectorUsers.administratorWithPassword' as Resource,
     cannotEnter: 'CrewSectorUsers.cannotEnter' as Resource,
     createdAt: 'CrewSectorUsers.createdAt' as Resource,
     disabled: 'CrewSectorUsers.disabled' as Resource,

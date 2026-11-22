@@ -495,6 +495,24 @@ export interface MethodWarning {
   names?: string[];
   /** The words on the button that runs the call, which say what it does. */
   confirm: string;
+  /**
+   * Further notes the person should read before they confirm, each a sentence with the
+   * names it speaks of: a dialog draws them under the consequence, in the order given.
+   * Absent where the method has nothing more to say.
+   */
+  also?: MethodWarningNote[];
+}
+
+/** One further note of a method's warning: a sentence of its own, with its own names. */
+export interface MethodWarningNote {
+  /** The note's sentence, read before the person confirms. */
+  says: string;
+  /**
+   * The people or things the sentence speaks of, where the method names them and the
+   * caller may be told: a dialog lists them under the sentence. Absent where it names
+   * none.
+   */
+  names?: string[];
 }
 
 /**

@@ -252,8 +252,8 @@ func Test_userManager_AddGroupRoles_refusals(t *testing.T) {
 		{name: "a tenant's group, the global scope", group: night, scope: globalPolicy, role: "Steward", wantErr: "holds roles in that tenant alone"},
 		{name: "the Super Administrator role, a global group", group: staff, scope: globalPolicy, role: accesstypes.SuperAdministrator, wantErr: "never to a group"},
 		{name: "the Super Administrator role, a tenant's group", group: night, scope: tenant1Policy, role: accesstypes.SuperAdministrator, wantErr: "never to a group"},
-		{name: "a role that does not exist there", group: staff, scope: tenant2Policy, role: "Editor", wantErr: "not a valid role"},
-		{name: "a group that does not exist", group: "no-such-group", scope: globalPolicy, role: "Steward", wantErr: "the group does not exist"},
+		{name: "a role that does not exist there", group: staff, scope: tenant2Policy, role: "Editor", wantErr: "The role Editor does not exist."},
+		{name: "a group that does not exist", group: "no-such-group", scope: globalPolicy, role: "Steward", wantErr: "This group does not exist."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

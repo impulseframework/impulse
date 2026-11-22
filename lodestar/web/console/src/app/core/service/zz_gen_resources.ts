@@ -242,6 +242,7 @@ export interface CrewSectorUsers {
   heldGlobally?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
+  administratorWithPassword?: boolean;
 }
 
 export interface CrewSectorUserGroupRoles {
@@ -1380,6 +1381,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administratorWithPassword', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.CrewSectorUserGroupRoles]: {
@@ -2339,7 +2341,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     computed: true,
     live: false,
-    rowWords: { one: 'crew givable role', many: 'crew givable roles' },
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },

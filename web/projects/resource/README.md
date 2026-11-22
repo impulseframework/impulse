@@ -706,15 +706,15 @@ empty name took it off), after which the page checks the session again to show i
 `refused` with the server's words (the name is too long, the session is an impersonation).
 The name is shown in place of the username, which stays what the person signs in under.
 
-The look a person chose, light or dark and one of the application's palettes, is kept with
-their account so that it follows them to every browser: the session read carries `look`
-(`{ scheme, palette }`, each half present where the person chose it) when the account holds
-one, the list names the path as `changeLook`, and `changeLook(look)` posts there, reading
-the list again first. The look replaces the one held as a whole, so a half left out is taken
-off. It resolves `changed` with the look as the server keeps it, or `refused` with the
-server's words (a scheme that is neither light nor dark, a palette id too long, an
-impersonated session). The server does not know an application's palettes: a page drops an
-id its application no longer offers.
+The look a person chose, light, dark or their device's setting (`device`) and one of the
+application's palettes, is kept with their account so that it follows them to every browser:
+the session read carries `look` (`{ scheme, palette }`, each half present where the person
+chose it) when the account holds one, the list names the path as `changeLook`, and
+`changeLook(look)` posts there, reading the list again first. The look replaces the one held
+as a whole, so a half left out is taken off. It resolves `changed` with the look as the
+server keeps it, or `refused` with the server's words (a scheme that is not light, dark or
+device, a palette id too long, an impersonated session). The server does not know an
+application's palettes: a page drops an id its application no longer offers.
 
 The server's mailed links all lead to the login page, each with its token in the URL, and the
 list names the routes they post to: `invitation` (`open`, `accept`, and `signUp` when the

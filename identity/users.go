@@ -104,7 +104,7 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "requires a super administrator to change their password"); err != nil {
 		return err
@@ -160,7 +160,7 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "changes a super administrator's email address"); err != nil {
 		return err
@@ -197,7 +197,7 @@ func (m *Manager) SetName(ctx context.Context, txn resource.ReadWriteTransaction
 	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Name: &NameChange{Name: clean}}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
@@ -231,7 +231,7 @@ func (m *Manager) RequireUser(ctx context.Context, txn resource.ReadWriteTransac
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 
 	return nil

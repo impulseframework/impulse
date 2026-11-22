@@ -1917,19 +1917,19 @@ stores the name in the two indexes a list reads without a row of the table.
 
 ### The look a person chose
 
-A user may hold a look: light or dark, and one of the palettes the application offers
-(`sessioninfo.Look{Scheme, Palette}`). It is the person's own choice for how the
+A user may hold a look: light, dark or whichever their device is set to, and one of the
+palettes the application offers (`sessioninfo.Look{Scheme, Palette}`). It is the person's own choice for how the
 application's pages are drawn for them, kept with the account so that it follows them to
 every browser they sign in from. Nobody else sets it: there is no operator's entry for
 it, and the management an application generates for an auth's people neither lists nor
 changes it.
 
-- **The rule** (`sessioninfo.CleanLook`): the scheme is `light`, `dark` or none; the
-  palette is an id as the application names its palettes, kept without the space around
-  it and at most 64 characters (`sessioninfo.MaxPaletteLength`), or none. The session
-  library does not know an application's palettes, so a page drops an id its application
-  no longer offers. A scheme that is neither, a longer id, and an id with a control
-  character in it are a bad request.
+- **The rule** (`sessioninfo.CleanLook`): the scheme is `light`, `dark`, `device` (a page
+  then follows the setting of the device it is drawn on) or none; the palette is an id as
+  the application names its palettes, kept without the space around it and at most 64
+  characters (`sessioninfo.MaxPaletteLength`), or none. The session library does not know
+  an application's palettes, so a page drops an id its application no longer offers. Any
+  other scheme, a longer id, and an id with a control character in it are a bad request.
 - **The person's pages write it**, signed in: `Auth.ChangeLook()` takes `{"scheme",
   "palette"}` and answers the look as it is kept, each half absent when the person now
   holds none. The look is replaced as a whole, so a half left out is taken off. The

@@ -48,7 +48,12 @@ import (
 // a code sent to their email. Everyone else is counted, and
 // a person is named only to a caller who may list them: one who holds List on the
 // sector's list of that auth's people and, on no condition, on the fields of it that name
-// a person.
+// a person. Where an auth has a password method, the client also reads the sector's
+// administrators who have a password (DirectoryAdministrators) and the invitations not
+// yet accepted that give a role that administers a sector (DirectoryInvitations), and the
+// warning carries a note that counts each, naming the administrators to the same caller
+// and the invitations to one who may list the sector's invitations and the fields of
+// them that name one.
 //
 // The flag is written through the record's update patch, so its change event is written
 // with it; this instance's roster rereads what the sector declares once the transaction
@@ -129,7 +134,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
 				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword()},
+					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword(), Administrators: a.CrewIdentity().DirectoryAdministrators, InvitationList: "CrewSectorInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.CrewIdentity().DirectoryInvitations},
 					resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword()},
 				)
 				if err != nil {
