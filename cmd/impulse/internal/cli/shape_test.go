@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"io"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -323,7 +325,7 @@ func Test_settleShape(t *testing.T) {
 		wantSays  string
 	}{
 		{shape: "tenant-owned-users-invite-only", wantOne: true, wantNone: true, wantSays: "A tenant's people come by invitation alone: the application has no tenant directories"},
-		{shape: "tenant-owned-users-by-directory", wantOne: true, wantStart: true, wantSays: "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant's administrator, signed in through their organization's directory, makes it the tenant's"},
+		{shape: "tenant-owned-users-by-directory", wantOne: true, wantStart: true, wantSays: "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant takes its directory when it is made, the organization its founder signs in from"},
 		{shape: "global-users-invite-only", wantNone: true, wantSays: "impulse audit reads the application as 7 Global users, invite only with it as without it."},
 		{shape: "global-users-each-tenant-chooses", wantSays: "Until then impulse audit reads the application as 7 Global users, invite only."},
 	}
@@ -594,6 +596,130 @@ func Test_settleStart_directoryRoles(t *testing.T) {
 	}
 }
 
+// Test_settleStart_directoryRolesAsked settles the one directory of a new application
+// that starts from Directory roles where a flag does not name it and the command is given
+// an input of its own, as a person at the terminal answers: each question in turn, one
+// line each. The answers compose what the flags would; an answer the flag would be
+// refused for is refused as the flag is, with no question after it; and an empty answer
+// is refused as the missing flag is where nobody is there to ask, so Enter alone makes no
+// application.
+func Test_settleStart_directoryRolesAsked(t *testing.T) {
+	t.Parallel()
+
+	const tenant = "0f0c7a52-6f0c-4e3b-9d7e-3f6f2f1d9a10"
+	tests := []struct {
+		name    string
+		args    []string
+		answers []string
+		// asked is every question put to the person, in order.
+		asked []string
+		// sameAs are the flags that compose what the answers do.
+		sameAs  []string
+		wantErr string
+	}{
+		{
+			name: "the directory and its tenant, both answered", answers: []string{"azure:entra\n", tenant + "\n"},
+			asked: []string{directoryQuestion, tenantQuestion}, sameAs: []string{"--method", "azure:entra", "--organization", tenant},
+		},
+		{
+			name: "the Workspace answered beside the directory's flag", args: []string{"--method", "google"}, answers: []string{"fleet.example\n"},
+			asked: []string{workspaceQuestion}, sameAs: []string{"--method", "google", "--organization", "fleet.example"},
+		},
+		{
+			name: "the password method answered", answers: []string{"password\n", "fleet.example\n"}, asked: []string{directoryQuestion},
+			wantErr: "--method password: impulse new starts Directory roles from a Google Workspace (google), a Microsoft Entra tenant (azure) or another identity provider (oidc:<registration>), and the google and azure methods take :<registration> too, to name the registration",
+		},
+		{
+			name: "an empty answer for the directory", answers: []string{"\n", "fleet.example\n"}, asked: []string{directoryQuestion},
+			wantErr: "--method is required with --shape directory-roles: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --organization",
+		},
+		{
+			name: "an empty answer for the Workspace", args: []string{"--method", "google"}, answers: []string{"  \n"}, asked: []string{workspaceQuestion},
+			wantErr: "--organization is required with --shape directory-roles: name the Google Workspace whose directory gives the roles, by its domain (fleet.example)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var asked bytes.Buffer
+			got, err := settledDirectoryRoles(t, tt.args, &lineByLine{lines: tt.answers}, &asked)
+			if want := strings.Join(tt.asked, ""); asked.String() != want {
+				t.Errorf("the command asked %q, want %q", asked.String(), want)
+			}
+			if tt.wantErr != "" {
+				if err == nil || errors.Cause(err).Error() != tt.wantErr {
+					t.Fatalf("settleStart() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("settleStart() error = %v", err)
+			}
+			want, err := settledDirectoryRoles(t, tt.sameAs, nil, io.Discard)
+			if err != nil {
+				t.Fatalf("settleStart() with %q error = %v", tt.sameAs, err)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("the transitions the answers composed mismatch the ones %q compose (-want +got):\n%s", tt.sameAs, diff)
+			}
+		})
+	}
+}
+
+// settledDirectoryRoles settles a new application that starts from Directory roles with
+// the flags, the command given the input (none where in is nil) and its questions written
+// to asked, and answers the transitions composed.
+func settledDirectoryRoles(t *testing.T, args []string, in io.Reader, asked io.Writer) ([]transition, error) {
+	t.Helper()
+
+	var nf newFlags
+	cmd := &cobra.Command{Use: "new"}
+	nf.bind(cmd)
+	if in != nil {
+		cmd.SetIn(in)
+	}
+	cmd.SetErr(asked)
+	if err := cmd.ParseFlags(append([]string{"--module", "example.com/harbor", "--shape", "directory-roles"}, args...)); err != nil {
+		t.Fatal(err)
+	}
+	start, err := nf.opts.settleShape(cmd)
+	if err != nil {
+		t.Fatalf("settleShape() error = %v", err)
+	}
+	nf.opts.authName = "staff"
+	if err := nf.opts.settleStart(cmd, start); err != nil {
+		return nil, err
+	}
+	transitions, err := nf.opts.transitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return transitions, nil
+}
+
+// lineByLine is a person at the terminal: it hands over one line at each read, as each
+// question reads its answer through a reader of its own.
+type lineByLine struct {
+	lines []string
+}
+
+// Read hands over what is left of the next line.
+func (r *lineByLine) Read(p []byte) (int, error) {
+	if len(r.lines) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.lines[0])
+	r.lines[0] = r.lines[0][n:]
+	if r.lines[0] == "" {
+		r.lines = r.lines[1:]
+	}
+
+	return n, nil
+}
+
 // Test_settleShape_tenantDirectories settles whether a tenant can have a directory of
 // its own where impulse new is given no shape, or a flag beside one. Without a shape
 // the flag makes the choice beside --tenancy, and tenancy alone writes the tenant
@@ -816,7 +942,7 @@ func Test_tenancyStartingPoint(t *testing.T) {
 		},
 		{
 			shape:      "tenant-owned-users-by-directory",
-			wantSays:   "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant's administrator",
+			wantSays:   "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant takes its directory when it is made",
 			wantGoogle: directory,
 		},
 		{
