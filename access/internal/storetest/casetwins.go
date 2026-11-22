@@ -54,7 +54,8 @@ func runRoleCaseTwins(t *testing.T, store access.Store, writeRole RoleWriter) {
 		{name: "a twin in another domain lands", held: policy.Role{Scope: tenant1, Name: zed}, scope: tenant2, role: zedUpper},
 		{name: "the same exact name in a place that meets lands", held: policy.Role{Scope: everyDomain, Name: zed}, scope: tenant1, role: zed},
 	}
-	for _, tc := range cases {
+	for i := range cases {
+		tc := &cases[i]
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			if err := store.InsertRole(ctx, tc.held.Scope, tc.held.Name, twinDescription); err != nil {
@@ -121,42 +122,55 @@ func insertTogether(t *testing.T, store access.Store, first, second policy.Role)
 	ctx := t.Context()
 	defer deleteRoles(t, store, first, second)
 
-	roles := [2]policy.Role{first, second}
-	var errs [2]error
+	inserts := [2]twinInsert{{role: first}, {role: second}}
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i, role := range roles {
+	for i := range inserts {
+		insert := &inserts[i]
 		wg.Go(func() {
 			<-start
-			errs[i] = store.InsertRole(ctx, role.Scope, role.Name, twinDescription)
+			insert.err = store.InsertRole(ctx, insert.role.Scope, insert.role.Name, twinDescription)
 		})
 	}
 	close(start)
 	wg.Wait()
 
-	held := -1
-	for i, err := range errs {
-		if err == nil {
-			if held >= 0 {
-				t.Errorf("InsertRole(%v) and InsertRole(%v) at the same moment both answered nil", roles[0], roles[1])
-			}
-			held = i
+	var held, refused *twinInsert
+	for i := range inserts {
+		insert := &inserts[i]
+		if insert.err != nil {
+			refused = insert
+
+			continue
 		}
+		if held != nil {
+			t.Errorf("InsertRole(%v) and InsertRole(%v) at the same moment both answered nil", first, second)
+		}
+		held = insert
 	}
-	if held < 0 {
-		t.Fatalf("InsertRole(%v) and InsertRole(%v) at the same moment both failed: %v; %v", roles[0], roles[1], errs[0], errs[1])
+	if held == nil {
+		t.Fatalf("InsertRole(%v) and InsertRole(%v) at the same moment both failed: %v; %v", first, second, inserts[0].err, inserts[1].err)
 	}
-	refused := 1 - held
+	if !roleExists(t, store, held.role.Scope, held.role.Name) {
+		t.Errorf("InsertRole(%v) answered nil and its row is not there", held.role)
+	}
+	if refused == nil {
+		return
+	}
 	var twin *policy.CaseTwinError
-	if !errors.As(errs[refused], &twin) || twin.Held != roles[held] {
-		t.Errorf("InsertRole(%v) error = %v, want a *policy.CaseTwinError naming %v", roles[refused], errs[refused], roles[held])
+	if !errors.As(refused.err, &twin) || twin.Held != held.role {
+		t.Errorf("InsertRole(%v) error = %v, want a *policy.CaseTwinError naming %v", refused.role, refused.err, held.role)
 	}
-	if !roleExists(t, store, roles[held].Scope, roles[held].Name) {
-		t.Errorf("InsertRole(%v) answered nil and its row is not there", roles[held])
+	if roleExists(t, store, refused.role.Scope, refused.role.Name) {
+		t.Errorf("InsertRole(%v) was refused and its row is there", refused.role)
 	}
-	if roleExists(t, store, roles[refused].Scope, roles[refused].Name) {
-		t.Errorf("InsertRole(%v) was refused and its row is there", roles[refused])
-	}
+}
+
+// twinInsert is one of the two inserts insertTogether releases together: the role it
+// inserts and what the store answered.
+type twinInsert struct {
+	role policy.Role
+	err  error
 }
 
 // roleExists reports whether the (scope, role) row is there.

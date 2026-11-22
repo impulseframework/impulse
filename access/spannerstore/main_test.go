@@ -127,7 +127,7 @@ func roleWriter(database *db.SpannerDB, store *Store) storetest.RoleWriter {
 		m := spanner.Insert(store.names.roles,
 			[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
 			[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
-		if _, err := database.Client.Apply(t.Context(), []*spanner.Mutation{m}); err != nil {
+		if _, err := database.Apply(t.Context(), []*spanner.Mutation{m}); err != nil {
 			t.Fatalf("spanner.Client.Apply() insert role %q in scope %s error = %v", role, scope, err)
 		}
 	}
