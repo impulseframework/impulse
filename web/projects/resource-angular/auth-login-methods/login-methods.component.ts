@@ -1269,6 +1269,7 @@ export class LoginMethodsComponent implements OnInit {
     }
     return {
       email: standing.email,
+      name: standing.name,
       tenantId: standing.tenantId,
       tenantName: standing.tenantName,
       ...(standing.newTenant === true ? { newTenant: true, directoryOnly: standing.directoryOnly === true } : {}),
