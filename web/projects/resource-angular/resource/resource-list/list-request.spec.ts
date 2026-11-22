@@ -147,6 +147,18 @@ describe('queryableMeta', () => {
     expect(narrowed?.route).toBe('hangar-passes');
     expect(passes.fields[1]).toEqual(field('holder', { filterable: 'always', search: ['contains', 'startswith'] }));
   });
+
+  it('a computed resource with a field listed as conditionalOnTime and the rest granted comes back as it is: the server settles the time', () => {
+    expect(queryableMeta(passes, { holder: 'conditionalOnTime', budget: 'granted', bay: 'granted' })).toBe(passes);
+  });
+
+  it('a computed resource narrows a field listed as conditional and leaves one listed as conditionalOnTime the object it was', () => {
+    const narrowed = queryableMeta(passes, { holder: 'conditional', budget: 'granted', bay: 'conditionalOnTime' });
+
+    expect(narrowed).not.toBe(passes);
+    expect(narrowed?.fields[1]).toEqual(field('holder', { sortable: false }));
+    expect(narrowed?.fields[3]).toBe(passes.fields[3]);
+  });
 });
 
 describe('filterInputKinds', () => {

@@ -1,4 +1,10 @@
-import { ListPermission, Resource, ResourceMeta, SearchBranchMeta } from '@impulseframework/resource';
+import {
+  ListPermission,
+  PermissionDigestState,
+  Resource,
+  ResourceMeta,
+  SearchBranchMeta,
+} from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { filterFields } from '@impulseframework/resource-angular/grid';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
@@ -10,12 +16,13 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 // fewer fields lists a view projecting fewer. A field of the resource's key takes no
 // grant of its own, so no role's digest names it: whoever lists the resource searches
 // it, as the server does, and the box never says a role leaves it out. A computed
-// resource is searched over its real values, so the server refuses the whole search when
-// the caller does not list one of the searched fields; the box is then not offered, and
-// the page says which fields the caller's role does not see. A field the digest lists
-// under a condition does not withhold the box: the digest folds nothing, and the server
-// answers the search where the condition is one the check settles from the request and
-// it holds.
+// resource is searched over its real values, so the server refuses the whole search
+// unless the caller holds every searched field with no condition left once the request
+// is checked. The box is then not offered, and the page says why: the fields the
+// caller's role does not see (the digest does not list them) and the fields it sees on
+// some rows only (the digest lists them as conditional). A field the digest lists as
+// conditionalOnTime does not withhold the box: the server settles such a grant from the
+// time of the request and answers the search while it holds.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -135,22 +142,46 @@ export function deniedSearchFields(
 
 /**
  * The search fields for which the server is sure to refuse a computed list's whole
- * search: each of the resource's own search fields, other than a key field, that the
- * digest does not list. None on a table or a view; none where the digest holds no List on
- * the resource at all, since the page lists nothing; none where nothing is known. A field
- * listed under a condition is not among them: the server may settle the condition from
- * the request and answer.
+ * search, in two lists: the fields the caller's role does not see and the fields it sees
+ * on some rows only. Each list holds names, or, handed to searchRefusedNotice, labels.
+ */
+export interface RefusedSearchFields {
+  /** The search fields the digest does not list. */
+  notSeen: string[];
+  /** The search fields the digest lists as conditional: the server judges them row by row. */
+  onSomeRows: string[];
+}
+
+/**
+ * The search fields for which the server is sure to refuse a computed list's whole
+ * search, from the digest's List state by field name: of the resource's own search
+ * fields, other than a key field, those the digest does not list (notSeen) and those it
+ * lists as conditional (onSomeRows), each in the order of the metadata's searchFields. A
+ * field listed as granted or conditionalOnTime is in neither: the server answers by it,
+ * settling a grant held at certain times from the time of the request. Both lists are
+ * empty on a table or a view, and where the record has no key: nothing is known, or the
+ * digest holds no List on the resource and the page lists nothing.
  */
 export function refusedSearchFields(
   meta: ResourceMeta | undefined,
-  listable: ReadonlySet<string> | undefined,
-): string[] {
-  if (meta?.computed !== true || listable === undefined || listable.size === 0) {
-    return [];
+  listStates: Readonly<Record<string, PermissionDigestState>>,
+): RefusedSearchFields {
+  const refused: RefusedSearchFields = { notSeen: [], onSomeRows: [] };
+  if (meta?.computed !== true || Object.keys(listStates).length === 0) {
+    return refused;
   }
-  return (meta.searchFields ?? []).filter(
-    (field) => !field.includes('.') && !keyField(meta, field) && !listable.has(field),
-  );
+  for (const field of meta.searchFields ?? []) {
+    if (field.includes('.') || keyField(meta, field)) {
+      continue;
+    }
+    const state = listStates[field];
+    if (state === undefined) {
+      refused.notSeen.push(field);
+    } else if (state === 'conditional') {
+      refused.onSomeRows.push(field);
+    }
+  }
+  return refused;
 }
 
 /**
@@ -201,14 +232,27 @@ export function searchDeniedHint(labels: readonly string[]): string {
   return labels.length === 0 ? '' : `Not searched for your role: ${labels.join(', ')}`;
 }
 
+/** Labels in words: "A", "A or B", "A, B or C" with `or`; the same with `and`. */
+function joinLabels(labels: readonly string[], word: 'or' | 'and'): string {
+  return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} ${word} ${labels[labels.length - 1]}`;
+}
+
 /**
  * What the page says where it offers no box because the server would refuse the search:
- * the fields the caller's role does not see, by label; nothing when none.
+ * the fields the caller's role does not see and the fields it sees on some rows only,
+ * each list by label (refusedSearchFields with each name given its label); nothing when
+ * both are empty.
  */
-export function searchRefusedNotice(labels: readonly string[]): string {
-  if (labels.length === 0) {
+export function searchRefusedNotice(refused: RefusedSearchFields): string {
+  const { notSeen, onSomeRows } = refused;
+  if (notSeen.length === 0 && onSomeRows.length === 0) {
     return '';
   }
-  const fields = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
-  return `You cannot search this list: your role does not see ${fields}.`;
+  if (onSomeRows.length === 0) {
+    return `You cannot search this list: your role does not see ${joinLabels(notSeen, 'or')}.`;
+  }
+  if (notSeen.length === 0) {
+    return `You cannot search this list: your role sees ${joinLabels(onSomeRows, 'and')} on some rows only.`;
+  }
+  return `You cannot search this list: your role does not see ${joinLabels(notSeen, 'or')}, and it sees ${joinLabels(onSomeRows, 'and')} on some rows only.`;
 }

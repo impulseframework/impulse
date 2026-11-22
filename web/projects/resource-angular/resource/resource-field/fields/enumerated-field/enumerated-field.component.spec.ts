@@ -1306,3 +1306,161 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
     expect(transport.requests).toEqual([]);
   });
 });
+
+// A searchable picker over a paged computed source narrows only by fields the server
+// answers for this caller: the server searches and matches a computed resource over its
+// real values and refuses both by a field the digest lists as conditional (seen on some
+// rows only), so the picker asks neither by such a field, and the request carries the
+// configured filter alone. A field listed as conditionalOnTime narrows as one granted:
+// the server settles that grant from the time of the request.
+describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
+  const missions = 'Missions' as Resource;
+  const manifests = 'Manifests' as Resource;
+  const boards = 'Boards' as Resource;
+  const paged = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys: ['id'],
+    operations: ['list', 'read'],
+    page: { default: 25, max: 200 },
+    order: [{ field: 'id', direction: 'asc' }],
+  });
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: { [manifests]: paged(manifests, 'manifests'), [boards]: paged(boards, 'boards') },
+  };
+  const id: FieldMeta = { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true };
+  const metas: Record<string, ResourceMeta> = {
+    [missions]: { route: 'missions', fields: [] },
+    // Searched by its title, which is also what the picker shows.
+    [manifests]: {
+      route: 'manifests',
+      computed: true,
+      fields: [id, { fieldName: 'title', displayType: 'string', required: true, isIndex: false, search: ['contains'] }],
+      searchFields: ['title'],
+    },
+    // No search fields: the picker narrows by a prefix on the ship's name.
+    [boards]: {
+      route: 'boards',
+      computed: true,
+      fields: [
+        id,
+        { fieldName: 'shipName', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
+      ],
+    },
+  };
+  const configured = 'sorties:gte:1';
+
+  let fixture: ComponentFixture<EnumeratedFieldComponent>;
+  let transport: ScriptedTransport;
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  /** Draws the picker over the source as the digest lists its display field, then types a word. */
+  const typeOver = async (
+    source: Resource,
+    display: string,
+    state: 'conditional' | 'conditionalOnTime',
+  ): Promise<EnumeratedFieldComponent> => {
+    const digest: PermissionDigest = {
+      [source]: { List: 'granted', Read: 'granted' },
+      [`${source}.${display}`]: { List: state, Read: state },
+    };
+    transport = scriptedTransport((request: TransportRequest): TransportResponse =>
+      request.url.startsWith('/api/permission-digest')
+        ? { status: 200, body: digest }
+        : { status: 200, body: [], headers: { 'total-count': '0' } },
+    );
+    await TestBed.configureTestingModule({
+      imports: [EnumeratedFieldComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        ResourceStore,
+      ],
+    }).compileComponents();
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    fixture = TestBed.createComponent(EnumeratedFieldComponent);
+    fixture.componentRef.setInput('meta', metas[missions]);
+    fixture.componentRef.setInput('fieldMeta', {
+      fieldName: 'sourceId',
+      displayType: 'enumerated',
+      required: false,
+      isIndex: true,
+      enumeratedResource: source,
+    } satisfies FieldMeta);
+    fixture.componentRef.setInput(
+      'fieldConfig',
+      field({
+        name: 'sourceId' as FieldName,
+        label: 'Source',
+        enumeratedConfig: enumeratedConfig({
+          listDisplay: [display as FieldName],
+          viewDisplay: [display as FieldName],
+          searchable: true,
+          filter: () => configured,
+        }),
+      }),
+    );
+    fixture.componentRef.setInput('editMode', 'edit');
+    fixture.componentRef.setInput('showField', true);
+    fixture.componentRef.setInput('form', new FormGroup({ sourceId: new FormControl<string | null>(null) }));
+    fixture.detectChanges();
+    await settle();
+    fixture.componentInstance.search('lan');
+    await settle();
+    return fixture.componentInstance;
+  };
+
+  /** The filter of each request for the source's rows, as the server reads it. */
+  const filters = (source: string): (string | null)[] =>
+    transport.requests
+      .filter((request) => request.url.split('?')[0] === `/api/${source}`)
+      .map((request) => new URL(request.url, 'http://picker.test').searchParams.get('filter'));
+
+  it('a search field listed as conditional: no box, and the request carries the configured filter alone', async () => {
+    const component = await typeOver(manifests, 'title', 'conditional');
+
+    expect(component.sourceSearchFields()).toEqual([]);
+    expect(component.narrowing()).toBeUndefined();
+    expect(filters('manifests').length).toBeGreaterThan(0);
+    expect(new Set(filters('manifests'))).toEqual(new Set([configured]));
+  });
+
+  it('a search field listed as conditionalOnTime: the request carries the box beside the configured filter', async () => {
+    const component = await typeOver(manifests, 'title', 'conditionalOnTime');
+
+    expect(component.narrowing()).toBe('box');
+    expect(filters('manifests').at(-1)).toBe(`(${configured}),*:search:"lan"`);
+  });
+
+  it('a display field that answers startswith listed as conditional: no startswith clause', async () => {
+    const component = await typeOver(boards, 'shipName', 'conditional');
+
+    expect(component.narrowing()).toBeUndefined();
+    expect(filters('boards').length).toBeGreaterThan(0);
+    expect(filters('boards').some((filter) => filter?.includes('startswith'))).toBe(false);
+  });
+
+  it('the same display field listed as conditionalOnTime: the prefix match', async () => {
+    const component = await typeOver(boards, 'shipName', 'conditionalOnTime');
+
+    expect(component.narrowing()).toBe('prefix');
+    expect(filters('boards').at(-1)).toBe(`(${configured}),shipName:startswith:lan`);
+  });
+});

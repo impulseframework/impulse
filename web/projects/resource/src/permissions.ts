@@ -112,10 +112,11 @@ export function permissionState(
 /**
  * The digest's field-level entries for one resource and permission: every JSON field
  * name whose dotted `Resource.field` target carries the permission in the scope's
- * digest, mapped to its state. Granted and conditional both appear — conditional means
- * render the input and let the server judge the write. A denied field is absent, so
- * consumers fail closed per field. An empty record means the digest carries no
- * field-level entries at all for this resource and permission: the permission is
+ * digest, mapped to its state. Granted, conditional and conditional on time all appear:
+ * conditional means render the input and let the server judge the write, conditional
+ * on time that the server judges by the time of the request alone. A denied field is
+ * absent, so consumers fail closed per field. An empty record means the digest carries
+ * no field-level entries at all for this resource and permission: the permission is
  * denied outright (the base entry is absent too) or the resource has no grant-bearing
  * fields (a keys-only resource) — ask the base entry to tell them apart.
  */

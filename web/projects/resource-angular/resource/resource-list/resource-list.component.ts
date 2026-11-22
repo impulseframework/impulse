@@ -35,7 +35,7 @@ import {
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
-import { Domain, ListPermission, RemoveOptions, TenantProperty } from '@impulseframework/resource';
+import { Domain, ListPermission, PermissionDigestState, RemoveOptions, TenantProperty } from '@impulseframework/resource';
 import {
   AlertType,
   ChildResourceConfig,
@@ -88,6 +88,7 @@ import {
   deniedSearchFields,
   searchDeniedHint,
   listableFieldsOf,
+  RefusedSearchFields,
   refusedSearchFields,
   searchedFields,
   searchFieldLabel,
@@ -614,18 +615,26 @@ export class ResourceListComponent implements OnInit {
   );
 
   /**
-   * The listed resource's metadata as this caller may sort and filter by it
-   * (queryableMeta): on a computed resource, a column the digest lists under a condition
-   * offers no sort and no filter. Across tenants no one digest speaks for the rows, so
-   * nothing narrows.
+   * The digest's List state of each field of the page's resource, by field name: what
+   * the server answers a computed list's sort, filter and search by (queryMeta,
+   * searchRefused). The empty record across tenants, where no one digest speaks for the
+   * rows, and with no resource.
    */
-  queryMeta = computed(() => {
+  private readonly listStates = computed((): Readonly<Record<string, PermissionDigestState>> => {
     const resource = this.config().primaryResource;
     if (this.across() || !resource) {
-      return this.meta();
+      return {};
     }
-    return queryableMeta(this.meta(), this.auth.fieldPermissionStates({ resource, permission: ListPermission }));
+    return this.auth.fieldPermissionStates({ resource, permission: ListPermission });
   });
+
+  /**
+   * The listed resource's metadata as this caller may sort and filter by it
+   * (queryableMeta): on a computed resource, a column the digest lists as `conditional`
+   * offers no sort and no filter. A field listed as conditionalOnTime is left as it is:
+   * the server settles it from the time of the request. Across tenants nothing narrows.
+   */
+  queryMeta = computed(() => queryableMeta(this.meta(), this.listStates()));
 
   /**
    * Which columns the server filters, from the listed resource's metadata: the grid draws
@@ -672,16 +681,11 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * The search fields for which the server is sure to refuse this caller's whole search
-   * of a computed list (refusedSearchFields): the fields the digest does not list. Across
-   * tenants no one digest speaks for the rows, so nothing is refused here.
+   * of a computed list (refusedSearchFields): the fields the digest does not list and the
+   * fields it lists as conditional. Across tenants no one digest speaks for the rows, so
+   * nothing is refused here.
    */
-  searchRefused = computed<string[]>(() => {
-    const resource = this.config().primaryResource;
-    if (this.across() || !resource) {
-      return [];
-    }
-    return refusedSearchFields(this.meta(), this.listableFields());
-  });
+  searchRefused = computed((): RefusedSearchFields => refusedSearchFields(this.meta(), this.listStates()));
 
   /**
    * The fields the search box searches for this caller: the listed resource's search
@@ -689,13 +693,14 @@ export class ResourceListComponent implements OnInit {
    * grant on the child resource, a key field searched by whoever lists its resource. The
    * resource decides the set, never the page; a page that should search fewer fields
    * lists a view projecting fewer. None while the server would refuse the search
-   * (searchRefused), so the box is not offered.
+   * (searchRefused holds a field in either list), so the box is not offered.
    */
-  searchFields = computed(() =>
-    this.searchRefused().length > 0
+  searchFields = computed(() => {
+    const refused = this.searchRefused();
+    return refused.notSeen.length > 0 || refused.onSomeRows.length > 0
       ? []
-      : searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta),
-  );
+      : searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta);
+  });
 
   /** Whether the box reaches a PII field, its own or a branch's: the request then travels in the body. */
   searchPII = computed(() => searchReachesPII(this.meta(), this.searchFields()));
@@ -729,14 +734,17 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * What the page says where it offers no box because the server would refuse the
-   * search: the fields the caller's role does not see, by the labels the box gives
-   * them. Nothing when the config hides the box.
+   * search: the fields the caller's role does not see and the fields it sees on some
+   * rows only, by the labels the box gives them. Nothing when the config hides the box.
    */
-  searchNotice = computed(() =>
-    this.config().showSearchBox === false
-      ? ''
-      : searchRefusedNotice(this.searchRefused().map((field) => searchFieldLabel(field, this.columnHeaders()))),
-  );
+  searchNotice = computed(() => {
+    if (this.config().showSearchBox === false) {
+      return '';
+    }
+    const label = (field: string): string => searchFieldLabel(field, this.columnHeaders());
+    const refused = this.searchRefused();
+    return searchRefusedNotice({ notSeen: refused.notSeen.map(label), onSomeRows: refused.onSomeRows.map(label) });
+  });
 
   /** Whether the box is in the request: it counts as the indexed touch a companion-only column waits for. */
   boxActive = computed(() => this.store.searchText().trim() !== '');

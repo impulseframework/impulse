@@ -33,14 +33,15 @@ import {
   Resource,
   RootConfig,
 } from '@impulseframework/resource-angular/types';
-import { pickerSort, readMode } from '@impulseframework/resource';
+import { PermissionDigestState, pickerSort, readMode } from '@impulseframework/resource';
 import { concatFunctions, hyphenConcat } from '../../../concat-fns';
 import { PagedListRequest } from '../../../paged-list';
-import { pageLabel } from '../../../resource-list/list-request';
+import { pageLabel, queryableMeta } from '../../../resource-list/list-request';
 import { SearchBoxComponent } from '../../../search-box/search-box.component';
 import {
   filterReachesPII,
   listableFieldsOf,
+  refusedSearchFields,
   searchedFields,
   searchFieldLabel,
   searchPlaceholder,
@@ -206,9 +207,39 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return resource ? this.listableOf(resource) : undefined;
   });
 
-  /** The fields the box over the source searches for this caller: the source's, less the denied, a branch judged on its child. */
+  /**
+   * The digest's List state of each field of the source, by field name: what the server
+   * answers a paged computed source's search and prefix match by (refusedSearchFields,
+   * queryableMeta). The empty record for a fixed enumeration.
+   */
+  private sourceListStates = computed((): Readonly<Record<string, PermissionDigestState>> => {
+    const resource = this.resource();
+    return resource ? this.auth.fieldPermissionStates({ resource, permission: ListPermission }) : {};
+  });
+
+  /**
+   * Whether the server would refuse the box's search of a paged computed source: a
+   * search field the caller's role does not see or sees on some rows only
+   * (refusedSearchFields). A whole source is read without a search and matched here, so
+   * nothing is refused over it.
+   */
+  private sourceSearchRefused = computed(() => {
+    if (!this.paged()) {
+      return false;
+    }
+    const refused = refusedSearchFields(this.sourceMeta(), this.sourceListStates());
+    return refused.notSeen.length > 0 || refused.onSomeRows.length > 0;
+  });
+
+  /**
+   * The fields the box over the source searches for this caller: the source's, less the
+   * denied, a branch judged on its child; none while the server would refuse the search
+   * (sourceSearchRefused).
+   */
   sourceSearchFields = computed(() =>
-    searchedFields(this.sourceMeta(), this.sourceListable(), this.listableOf, this.resourceMeta),
+    this.sourceSearchRefused()
+      ? []
+      : searchedFields(this.sourceMeta(), this.sourceListable(), this.listableOf, this.resourceMeta),
   );
 
   /**
@@ -234,12 +265,21 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /** The source's own search fields (not a child's), the columns a whole source's matcher reads. */
   private ownSearchFields = computed(() => this.sourceSearchFields().filter((field) => !field.includes('.')));
 
-  /** How a searchable paged source narrows as the user types: the box, a prefix on the display field, or nothing. */
+  /**
+   * How a searchable paged source narrows as the user types: the box, a prefix on the
+   * display field, or nothing. The prefix is judged on the source's metadata as the
+   * caller may filter by it (queryableMeta): over a computed source the server refuses a
+   * `startswith` on a display field the digest lists as `conditional`.
+   */
   narrowing = computed(() => {
     if (!this.paged() || !this.picker().searchable) {
       return undefined;
     }
-    return pickerNarrowing(this.sourceMeta(), this.displayColumn(), this.sourceSearchFields());
+    return pickerNarrowing(
+      queryableMeta(this.sourceMeta(), this.sourceListStates()),
+      this.displayColumn(),
+      this.sourceSearchFields(),
+    );
   });
 
   /** What the panel's box says: the fields it searches, or the display field a prefix narrows. */

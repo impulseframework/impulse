@@ -1,8 +1,9 @@
-import { Resource, ResourceMeta } from '@impulseframework/resource';
+import { PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
 
 import {
   deniedSearchFields,
   filterReachesPII,
+  RefusedSearchFields,
   refusedSearchFields,
   searchDeniedHint,
   searchedFields,
@@ -162,42 +163,102 @@ describe('searchedFields', () => {
 });
 
 describe('refusedSearchFields', () => {
-  // The board's ship name as the digest lists it, beside a column the role reads outright.
-  const cases: { name: string; listable: string[] | undefined; want: string[] }[] = [
+  // The board's ship name as the digest lists it for List, beside a column the role reads
+  // outright; the record is the digest's List state by field name. A second board adds the
+  // captain, a third search field, for one field of each kind.
+  const crewed: ResourceMeta = {
+    ...board,
+    fields: [
+      ...board.fields,
+      { fieldName: 'captain', displayType: 'string', required: false, isIndex: false, search: ['contains'] },
+    ],
+    searchFields: ['subsystem', 'shipName', 'captain'],
+  };
+  const none: RefusedSearchFields = { notSeen: [], onSomeRows: [] };
+  const cases: {
+    name: string;
+    meta: ResourceMeta;
+    states: Record<string, PermissionDigestState>;
+    want: RefusedSearchFields;
+  }[] = [
     {
-      name: 'the ship name listed, outright or under a condition',
-      listable: ['shipName', 'worstReading'],
-      want: [],
+      name: 'the ship name granted',
+      meta: board,
+      states: { shipName: 'granted', worstReading: 'granted' },
+      want: none,
+    },
+    {
+      name: 'the ship name held at certain times',
+      meta: board,
+      states: { shipName: 'conditionalOnTime', worstReading: 'granted' },
+      want: none,
+    },
+    {
+      name: 'the ship name seen on some rows',
+      meta: board,
+      states: { shipName: 'conditional', worstReading: 'granted' },
+      want: { notSeen: [], onSomeRows: ['shipName'] },
     },
     {
       name: 'the ship name not listed, the digest naming another field',
-      listable: ['worstReading'],
-      want: ['shipName'],
+      meta: board,
+      states: { worstReading: 'granted' },
+      want: { notSeen: ['shipName'], onSomeRows: [] },
     },
-    { name: 'nothing known of the fields', listable: undefined, want: [] },
-    { name: 'no List on the board at all', listable: [], want: [] },
+    {
+      name: 'the captain not listed and the ship name seen on some rows',
+      meta: crewed,
+      states: { shipName: 'conditional', worstReading: 'conditionalOnTime' },
+      want: { notSeen: ['captain'], onSomeRows: ['shipName'] },
+    },
+    { name: 'the empty record: nothing known, or no List on the board', meta: board, states: {}, want: none },
+    {
+      name: 'the key seen on some rows, the ship name granted',
+      meta: board,
+      states: { subsystem: 'conditional', shipName: 'granted' },
+      want: none,
+    },
   ];
 
   for (const tt of cases) {
-    const listable = tt.listable ? new Set(tt.listable) : undefined;
     it(`over a computed board, ${tt.name}: ${JSON.stringify(tt.want)}; the key is never named`, () => {
-      expect(refusedSearchFields({ ...board, computed: true }, listable)).toEqual(tt.want);
+      expect(refusedSearchFields({ ...tt.meta, computed: true }, tt.states)).toEqual(tt.want);
     });
     it(`over a board that is not computed, ${tt.name}: nothing`, () => {
-      expect(refusedSearchFields(board, listable)).toEqual([]);
+      expect(refusedSearchFields(tt.meta, tt.states)).toEqual(none);
     });
   }
 });
 
 describe('searchRefusedNotice', () => {
-  it('says nothing for no field, and names one, two or three as a person would', () => {
-    expect(searchRefusedNotice([])).toBe('');
-    expect(searchRefusedNotice(['Ship Name'])).toBe('You cannot search this list: your role does not see Ship Name.');
-    expect(searchRefusedNotice(['Ship Name', 'Subsystem'])).toBe(
+  it('says nothing for no field, and names one, two or three the role does not see as a person would', () => {
+    expect(searchRefusedNotice({ notSeen: [], onSomeRows: [] })).toBe('');
+    expect(searchRefusedNotice({ notSeen: ['Ship Name'], onSomeRows: [] })).toBe(
+      'You cannot search this list: your role does not see Ship Name.',
+    );
+    expect(searchRefusedNotice({ notSeen: ['Ship Name', 'Subsystem'], onSomeRows: [] })).toBe(
       'You cannot search this list: your role does not see Ship Name or Subsystem.',
     );
-    expect(searchRefusedNotice(['Ship Name', 'Subsystem', 'Worst Reading'])).toBe(
+    expect(searchRefusedNotice({ notSeen: ['Ship Name', 'Subsystem', 'Worst Reading'], onSomeRows: [] })).toBe(
       'You cannot search this list: your role does not see Ship Name, Subsystem or Worst Reading.',
+    );
+  });
+
+  it('names one, two or three fields the role sees on some rows only, joined with and', () => {
+    expect(searchRefusedNotice({ notSeen: [], onSomeRows: ['Mission'] })).toBe(
+      'You cannot search this list: your role sees Mission on some rows only.',
+    );
+    expect(searchRefusedNotice({ notSeen: [], onSomeRows: ['Mission', 'Squadron'] })).toBe(
+      'You cannot search this list: your role sees Mission and Squadron on some rows only.',
+    );
+    expect(searchRefusedNotice({ notSeen: [], onSomeRows: ['Mission', 'Squadron', 'Pilot'] })).toBe(
+      'You cannot search this list: your role sees Mission, Squadron and Pilot on some rows only.',
+    );
+  });
+
+  it('says both in one sentence where the role does not see one field and sees another on some rows only', () => {
+    expect(searchRefusedNotice({ notSeen: ['Name'], onSomeRows: ['Mission'] })).toBe(
+      'You cannot search this list: your role does not see Name, and it sees Mission on some rows only.',
     );
   });
 });

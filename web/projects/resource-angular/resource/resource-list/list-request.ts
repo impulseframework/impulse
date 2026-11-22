@@ -115,11 +115,12 @@ export function unorderedFields(meta: ResourceMeta | undefined): ReadonlySet<str
 
 /**
  * The listed resource's metadata as this caller may sort and filter by it. The server
- * refuses a sort or a filter by a field of a computed resource that the caller lists
- * only under a condition, so such a field comes back marked `sortable: false` and
- * without its `filterable` and its `search`: the table draws its heading as words and
- * no filter control on it. A table, a view, and a computed resource the caller lists
- * with no condition come back as they are, the same object.
+ * refuses a sort or a filter by a field of a computed resource that the digest lists as
+ * `conditional`, so such a field comes back marked `sortable: false` and without its
+ * `filterable` and its `search`: the table draws its heading as words and no filter
+ * control on it. A field listed as conditionalOnTime is left as it is: the server
+ * settles it from the time of the request. A table, a view, and a computed resource
+ * with no field listed as `conditional` come back as they are, the same object.
  */
 export function queryableMeta(
   meta: ResourceMeta | undefined,
