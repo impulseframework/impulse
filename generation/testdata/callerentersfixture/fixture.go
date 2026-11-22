@@ -13,7 +13,7 @@ type Keeper struct {
 }
 
 func (Keeper) TenantsToEnter() resource.TenantsToEnter {
-	return resource.TenantsToEnter{Query: "SELECT KeeperId AS RowKey, Tenant FROM KeeperPosts", Column: "Id"}
+	return resource.TenantsToEnter{Query: "SELECT KeeperId AS RowKey, Tenant FROM KeeperPosts", Match: map[string]string{"RowKey": "Id"}}
 }
 
 // Dock says nothing.
@@ -36,7 +36,7 @@ type Hoist struct {
 }
 
 func (Hoist) TenantsToEnter(column string) resource.TenantsToEnter {
-	return resource.TenantsToEnter{Column: column}
+	return resource.TenantsToEnter{Match: map[string]string{"RowKey": column}}
 }
 
 // Winch says it as a string.

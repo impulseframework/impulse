@@ -20,14 +20,26 @@ func (heldPostgresKeepers) declaration() TenantsToEnter {
 	return TenantsToEnter{
 		Query:  `SELECT "KeeperId" AS "RowKey", "Tenant" AS "Tenant" FROM "KeeperPosts" WHERE "Kind" = @postKind`,
 		Params: map[string]any{"postKind": "keeper"},
-		Column: "Id",
+		Match:  map[string]string{"RowKey": "Id"},
+	}
+}
+
+// heldPostgresPairs is a declaration of PostgreSQL that names a row by two columns, its
+// id and its name.
+type heldPostgresPairs struct{}
+
+func (heldPostgresPairs) declaration() TenantsToEnter {
+	return TenantsToEnter{
+		Query: `SELECT "KeeperId" AS "RowKey", "KeeperName" AS "RowName", "Tenant" AS "Tenant" FROM "KeeperNamedPosts"`,
+		Match: map[string]string{"RowKey": "Id", "RowName": "Name"},
 	}
 }
 
 // heldPostgres makes a PostgreSQL database with the rows of heldResources and the posts
 // that name each one's tenants: k1 holds a post in bastion and one in anvil, k2 one in
 // anvil, k3 none, k4 a post in bastion of a kind the query does not read, and k5, sealed,
-// none.
+// none. The posts named by a keeper's id and name name bastion for k1 by both, for k2 by
+// its id and another name, and for k3 by another id and its name.
 func heldPostgres(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
@@ -62,6 +74,11 @@ func heldPostgres(t *testing.T) *pgxpool.Pool {
 			('k1', 'anvil', 'keeper'),
 			('k2', 'anvil', 'keeper'),
 			('k4', 'bastion', 'visitor')`,
+		`CREATE TABLE "KeeperNamedPosts" ("KeeperId" text NOT NULL, "KeeperName" text NOT NULL, "Tenant" text NOT NULL)`,
+		`INSERT INTO "KeeperNamedPosts" ("KeeperId", "KeeperName", "Tenant") VALUES
+			('k1', 'First', 'bastion'),
+			('k2', 'Other', 'bastion'),
+			('k9', 'Third', 'bastion')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatalf("%s: %v", statement, err)
@@ -74,7 +91,8 @@ func heldPostgres(t *testing.T) *pgxpool.Pool {
 // TestQuerySet_callerEnters_onPostgres runs the Execute affordance of held methods as it
 // is rendered for PostgreSQL on a real PostgreSQL: a row offers RetireKeeper (a plain
 // method) and SealKeeper (a transition from open) only where none of the row's tenants
-// is one the session does not enter, and SealKeeper only on an open row.
+// is one the session does not enter, and SealKeeper only on an open row. A row named by
+// two columns is held back only by a row of the query that agrees with it on both.
 func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 	t.Parallel()
 
@@ -83,21 +101,39 @@ func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 	}
 	db := heldPostgres(t)
 
+	keepers := func(t *testing.T, perms UserPermissions) (*Statement, error) {
+		t.Helper()
+
+		return heldStmt[heldResource[heldPostgresKeepers]](t, PostgresDBType, heldCollection(t, heldResourceName, true), perms)
+	}
 	both := []string{"RetireKeeper", "SealKeeper"}
 	tests := []struct {
 		name      string
+		stmt      func(t *testing.T, perms UserPermissions) (*Statement, error)
 		unentered []accesstypes.Domain
 		want      map[string][]string
 	}{
 		{
 			name:      "a session that does not enter bastion is offered neither on the row whose tenants include bastion",
+			stmt:      keepers,
 			unentered: []accesstypes.Domain{"bastion"},
 			want:      map[string][]string{"k1": {}, "k2": both, "k3": both, "k4": both, "k5": {"RetireKeeper"}},
 		},
 		{
 			name:      "one that enters neither anvil nor bastion is offered neither on either row that names one",
+			stmt:      keepers,
 			unentered: []accesstypes.Domain{"anvil", "bastion"},
 			want:      map[string][]string{"k1": {}, "k2": {}, "k3": both, "k4": both, "k5": {"RetireKeeper"}},
+		},
+		{
+			name: "a row named by two columns is held back by a post that agrees on both, and not by one that agrees on one",
+			stmt: func(t *testing.T, perms UserPermissions) (*Statement, error) {
+				t.Helper()
+
+				return heldStmt[heldResource[heldPostgresPairs]](t, PostgresDBType, heldCollection(t, heldResourceName, true), perms)
+			},
+			unentered: []accesstypes.Domain{"bastion"},
+			want:      map[string][]string{"k1": {}, "k2": both, "k3": both, "k4": both, "k5": {"RetireKeeper"}},
 		},
 	}
 	for _, tt := range tests {
@@ -112,7 +148,7 @@ func TestQuerySet_callerEnters_onPostgres(t *testing.T) {
 				unentered: tt.unentered,
 				asked:     &atomic.Int32{},
 			}
-			stmt, err := heldStmt[heldResource[heldPostgresKeepers]](t, PostgresDBType, heldCollection(t, heldResourceName, true), perms)
+			stmt, err := tt.stmt(t, perms)
 			if err != nil {
 				t.Fatalf("QuerySet.stmt() error = %v", err)
 			}

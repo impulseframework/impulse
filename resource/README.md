@@ -716,11 +716,13 @@ request's tenant's; a row of another tenant reads as no row.
 
 A method can also be held to where its caller's session may go. `@callerEnters` on the method
 says a row offers it only to a caller whose session enters every tenant the row names, and the
-row's struct names them in a `TenantsToEnter` method: a query of two columns, `RowKey` and
-`Tenant`, and the column of the row that `RowKey` is matched to. A row read with
-`capabilities=Execute` then leaves the method out for a caller whose session does not enter one
-of those tenants (`UserPermissions.Reaches`). The declaration shapes what a page offers and
-refuses nothing: the method's own code refuses the call.
+row's struct names them in a `TenantsToEnter` method: a query that selects a column named
+`Tenant` beside its key columns, and `Match`, which pairs each key column with the column of the
+row it is matched to (one pair for a row named by one column, a pair for each column of a row
+named by several). A row read with `capabilities=Execute` then leaves the method out for a
+caller whose session does not enter one of those tenants (`UserPermissions.Reaches`). The
+declaration shapes what a page offers and refuses nothing: the method's own code refuses the
+call.
 
 ## 6. Impersonated sessions
 

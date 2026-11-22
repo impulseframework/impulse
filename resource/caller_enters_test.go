@@ -34,13 +34,26 @@ type heldDeclaration interface {
 type heldKeepers struct{}
 
 func (heldKeepers) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
+}
+
+// heldPairsQuery is the TenantsToEnter query of a row named by two columns: it selects a
+// column it does not match beside its two key columns and Tenant.
+const heldPairsQuery = "SELECT KeeperId AS RowKey, KeeperName, Station, Tenant FROM KeeperPosts WHERE Kind = @postKind"
+
+// heldPairs is a declaration that matches its query on two columns of the row, given in
+// the reverse of their names' order.
+type heldPairs struct{}
+
+func (heldPairs) declaration() TenantsToEnter {
+	return TenantsToEnter{Query: heldPairsQuery, Params: map[string]any{"postKind": "keeper"}, Match: map[string]string{"RowKey": "Id", "KeeperName": "Name"}}
 }
 
 // The declarations the statement refuses.
 type (
 	heldEmptyQuery  struct{}
 	heldEmptyColumn struct{}
+	heldEmptyName   struct{}
 	heldWith        struct{}
 	heldUnderscore  struct{}
 	heldCollision   struct{}
@@ -48,29 +61,35 @@ type (
 )
 
 func (heldEmptyQuery) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: "  ", Column: "Id"}
+	return TenantsToEnter{Query: "  ", Match: map[string]string{"RowKey": "Id"}}
 }
 
 func (heldEmptyColumn) declaration() TenantsToEnter {
 	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}}
 }
 
+// heldEmptyName pairs the query's RowKey with a column of the row and a column of the
+// row with no key column of the query.
+func (heldEmptyName) declaration() TenantsToEnter {
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"postKind": "keeper"}, Match: map[string]string{"RowKey": "Id", " ": "Name"}}
+}
+
 func (heldWith) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: "WITH posts AS (SELECT KeeperId, Tenant FROM KeeperPosts) SELECT KeeperId AS RowKey, Tenant FROM posts", Column: "Id"}
+	return TenantsToEnter{Query: "WITH posts AS (SELECT KeeperId, Tenant FROM KeeperPosts) SELECT KeeperId AS RowKey, Tenant FROM posts", Match: map[string]string{"RowKey": "Id"}}
 }
 
 func (heldUnderscore) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"_postKind": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"_postKind": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
 }
 
 // heldCollision binds the name the statement's tenancy predicate binds.
 func (heldCollision) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"domain": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"domain": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
 }
 
 // heldViewParam binds the name the view's own query binds.
 func (heldViewParam) declaration() TenantsToEnter {
-	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"viewKind": "keeper"}, Column: "Id"}
+	return TenantsToEnter{Query: heldQuery, Params: map[string]any{"viewKind": "keeper"}, Match: map[string]string{"RowKey": "Id"}}
 }
 
 // heldResource is a table whose struct names the tenants by D.
@@ -445,6 +464,36 @@ func TestQuerySet_stmt_callerEntersView(t *testing.T) {
 	}
 }
 
+// TestQuerySet_stmt_callerEntersPairs pins the term of a row named by two columns, on
+// both databases: an equality for each pair of Match, in the order of the query columns'
+// names, then the tenant test, all joined with AND.
+func TestQuerySet_stmt_callerEntersPairs(t *testing.T) {
+	t.Parallel()
+
+	want := map[DBType]string{
+		SpannerDBType:  "NOT EXISTS (SELECT 1 FROM (" + heldPairsQuery + " ) AS `ca1` WHERE `ca1`.`KeeperName` = `heldResources`.`Name` AND `ca1`.`RowKey` = `heldResources`.`Id` AND `ca1`.`Tenant` IN UNNEST(@_c1))",
+		PostgresDBType: `NOT EXISTS (SELECT 1 FROM (` + heldPairsQuery + ` ) AS "ca1" WHERE "ca1"."KeeperName" = "heldResources"."Name" AND "ca1"."RowKey" = "heldResources"."Id" AND "ca1"."Tenant" = ANY(@_c1))`,
+	}
+	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+		t.Run(string(dbType), func(t *testing.T) {
+			t.Parallel()
+
+			perms := heldPermissions{
+				capStubPermissions: capStubPermissions{byPerm: map[accesstypes.Permission]accesstypes.Decisions{accesstypes.Execute: {"RetireKeeper": accesstypes.Granted()}}},
+				unentered:          []accesstypes.Domain{"bastion"},
+				asked:              &atomic.Int32{},
+			}
+			stmt, err := heldStmt[heldResource[heldPairs]](t, dbType, heldCollection(t, heldResourceName, true), perms)
+			if err != nil {
+				t.Fatalf("QuerySet.stmt() error = %v", err)
+			}
+			if got, want := normalizeSQL(stmt.SQL), heldSelect(dbType, "("+want[dbType]+")"); got != want {
+				t.Errorf("QuerySet.stmt() SQL =\n%s\nwant\n%s", got, want)
+			}
+		})
+	}
+}
+
 // TestQuerySet_stmt_callerEntersRefusals pins the refusals of a declaration the
 // statement cannot render, each naming the resource, and of a marked method on a row
 // whose struct declares no TenantsToEnter.
@@ -473,13 +522,22 @@ func TestQuerySet_stmt_callerEntersRefusals(t *testing.T) {
 			wantErr: "the TenantsToEnter query of heldResources is empty",
 		},
 		{
-			name: "no column",
+			name: "an empty Match",
 			stmt: func(t *testing.T) error {
 				_, err := heldStmt[heldResource[heldEmptyColumn]](t, SpannerDBType, heldCollection(t, heldResourceName, true), held())
 
 				return err
 			},
-			wantErr: "the TenantsToEnter of heldResources names no column of its row for RowKey to match",
+			wantErr: "the TenantsToEnter of heldResources matches no column of its row: Match pairs each key column of the query with the row's column it is matched to",
+		},
+		{
+			name: "a pair in Match with an empty name",
+			stmt: func(t *testing.T) error {
+				_, err := heldStmt[heldResource[heldEmptyName]](t, SpannerDBType, heldCollection(t, heldResourceName, true), held())
+
+				return err
+			},
+			wantErr: "the TenantsToEnter of heldResources has a pair in Match with an empty name: each pair names a key column of the query and a column of the row",
 		},
 		{
 			name: "a query that starts with WITH",

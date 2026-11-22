@@ -144,7 +144,7 @@ func {{ GoCamel .User }}TenantsToEnter(column string) resource.TenantsToEnter {
 	return resource.TenantsToEnter{
 		Query:  {{ GoCamel .User }}AdministeredTenantsQuery,
 		Params: map[string]any{ {{- printf "%q" .EnteringAdministratorsParam }}: administrators},
-		Column: column,
+		Match:  map[string]string{"RowKey": column},
 	}
 }
 
