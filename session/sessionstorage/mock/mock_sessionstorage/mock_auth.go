@@ -664,6 +664,21 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) MailLink(ctx, tokenHash any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MailLink", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).MailLink), ctx, tokenHash)
 }
 
+// OwnSessions mocks base method.
+func (m *MockAuthStoreMethods[Tx]) OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*sessionstorage.OwnSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OwnSessions", ctx, userID, activeSince)
+	ret0, _ := ret[0].([]*sessionstorage.OwnSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OwnSessions indicates an expected call of OwnSessions.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) OwnSessions(ctx, userID, activeSince any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OwnSessions", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).OwnSessions), ctx, userID, activeSince)
+}
+
 // PendingSignIn mocks base method.
 func (m *MockAuthStoreMethods[Tx]) PendingSignIn(ctx context.Context, tokenHash []byte) (*sessionstorage.PendingSignIn, error) {
 	m.ctrl.T.Helper()
@@ -1248,6 +1263,21 @@ func (m *MockAuthStoreMethods[Tx]) TrustedDevice(ctx context.Context, tokenHash 
 func (mr *MockAuthStoreMethodsMockRecorder[Tx]) TrustedDevice(ctx, tokenHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDevice", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).TrustedDevice), ctx, tokenHash)
+}
+
+// TrustedDeviceCount mocks base method.
+func (m *MockAuthStoreMethods[Tx]) TrustedDeviceCount(ctx context.Context, userID impulse.UUID) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TrustedDeviceCount", ctx, userID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TrustedDeviceCount indicates an expected call of TrustedDeviceCount.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) TrustedDeviceCount(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceCount", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).TrustedDeviceCount), ctx, userID)
 }
 
 // UnlinkIdentity mocks base method.

@@ -299,6 +299,11 @@ type db interface {
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
+	// TrustedDeviceCount returns how many of userID's devices are live at now.
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error)
+	// OwnSessions returns userID's own live sessions used at activeSince or later, newest use first: no session that
+	// carries an impersonation record. Without the auth schema it is an error.
+	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)
 	// SetUsernameIsEmail declares the users table in the shape where the address is the username.
 	SetUsernameIsEmail(same bool)
 	// UsernameIsEmail reports whether the address is the username.

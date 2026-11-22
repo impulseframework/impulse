@@ -434,6 +434,15 @@ type AuthStore[Tx any] interface {
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet: an
 	// administrator's reset of the person's factors.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
+	// TrustedDeviceCount returns how many of userID's devices are live (not revoked,
+	// not expired): the browsers the second factor remembers for the person.
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID) (int, error)
+	// OwnSessions returns the person's own live sessions, as their account page lists
+	// them: userID's sessions that are not expired and were used at activeSince or
+	// later, newest use first, each with the name of the browser it was signed in
+	// from. A session someone else established acting as the person carries an
+	// impersonation record and is not listed. A person with none has an empty list.
+	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*OwnSession, error)
 	// AcceptInvitation accepts inv for user userID, a person signed in, in one
 	// transaction: the invitation is consumed and accept, the application's hook (nil
 	// for none), gives what the invitation names, handed the transaction; what the
@@ -495,6 +504,10 @@ type FactorCode = dbtype.FactorCode
 // TrustedDevice is a row of the trusted devices table: a browser the person asked to
 // be remembered after a second factor. See "The second factor" in the README.
 type TrustedDevice = dbtype.TrustedDevice
+
+// OwnSession is one of a person's own live sessions, as their account page lists it.
+// See dbtype.OwnSession.
+type OwnSession = dbtype.OwnSession
 
 // Token is a row of the tokens table: one bearer credential of a machine outlet. See
 // dbtype.Token.
@@ -1059,6 +1072,32 @@ func (a *Auth[Tx]) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID
 	}
 
 	return nil
+}
+
+// TrustedDeviceCount implements AuthStore.
+func (a *Auth[Tx]) TrustedDeviceCount(ctx context.Context, userID impulse.UUID) (int, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	count, err := a.db.TrustedDeviceCount(ctx, userID, time.Now())
+	if err != nil {
+		return 0, errors.Wrap(err, "db.TrustedDeviceCount()")
+	}
+
+	return count, nil
+}
+
+// OwnSessions implements AuthStore.
+func (a *Auth[Tx]) OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*OwnSession, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	sessions, err := a.db.OwnSessions(ctx, userID, activeSince)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.OwnSessions()")
+	}
+
+	return sessions, nil
 }
 
 // Users implements AuthStore.

@@ -859,6 +859,21 @@ func (mr *MockdbMockRecorder) MailLinkByToken(ctx, tokenHash, now any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MailLinkByToken", reflect.TypeOf((*Mockdb)(nil).MailLinkByToken), ctx, tokenHash, now)
 }
 
+// OwnSessions mocks base method.
+func (m *Mockdb) OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OwnSessions", ctx, userID, activeSince)
+	ret0, _ := ret[0].([]*dbtype.OwnSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OwnSessions indicates an expected call of OwnSessions.
+func (mr *MockdbMockRecorder) OwnSessions(ctx, userID, activeSince any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OwnSessions", reflect.TypeOf((*Mockdb)(nil).OwnSessions), ctx, userID, activeSince)
+}
+
 // PendingSignInByToken mocks base method.
 func (m *Mockdb) PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error) {
 	m.ctrl.T.Helper()
@@ -1413,6 +1428,21 @@ func (m *Mockdb) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now
 func (mr *MockdbMockRecorder) TrustedDeviceByToken(ctx, tokenHash, now any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceByToken", reflect.TypeOf((*Mockdb)(nil).TrustedDeviceByToken), ctx, tokenHash, now)
+}
+
+// TrustedDeviceCount mocks base method.
+func (m *Mockdb) TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TrustedDeviceCount", ctx, userID, now)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TrustedDeviceCount indicates an expected call of TrustedDeviceCount.
+func (mr *MockdbMockRecorder) TrustedDeviceCount(ctx, userID, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceCount", reflect.TypeOf((*Mockdb)(nil).TrustedDeviceCount), ctx, userID, now)
 }
 
 // UnlinkIdentity mocks base method.
