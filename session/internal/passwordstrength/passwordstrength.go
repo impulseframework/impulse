@@ -19,7 +19,7 @@
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone, one character for each character typed: an accented letter is read as its
 // letter, and any other character outside ASCII as one stand-in, the same for the same
-// character, in either case, throughout one judgment.
+// letter, with or without its marks and in either case, throughout one judgment.
 package passwordstrength
 
 import (
@@ -273,11 +273,12 @@ func (r *reading) of(typed string) string {
 	return text.String()
 }
 
-// standInOf is c's stand-in, the same in either case: the one c was given in this reading,
-// typed in either case, or else the next of standIns. A stand-in is kept under the
-// character's lower case.
+// standInOf is c's stand-in, the same in either case and with or without c's marks: the one
+// c's letter was given in this reading, or else the next of standIns. A stand-in is kept
+// under the letter without its marks (ό under ο, ё under е), in the lower case of its upper
+// case, so a capital and a final sigma have the letter's.
 func (r *reading) standInOf(c rune) byte {
-	lower := unicode.ToLower(c)
+	lower := unicode.ToLower(unicode.ToUpper(unmarked(c)))
 	if standIn, ok := r.standIn[lower]; ok {
 		return standIn
 	}
@@ -285,6 +286,22 @@ func (r *reading) standInOf(c rune) byte {
 	r.standIn[lower] = standIn
 
 	return standIn
+}
+
+// unmarked is c without its marks: the letter c is written on when c is that letter with
+// only marks added (ό is ο, ё is е), and c itself when it is not.
+func unmarked(c rune) rune {
+	decomposed := []rune(norm.NFKD.String(string(c)))
+	if len(decomposed) == 0 {
+		return c
+	}
+	for _, mark := range decomposed[1:] {
+		if !unicode.IsMark(mark) {
+			return c
+		}
+	}
+
+	return decomposed[0]
 }
 
 // baseOf is the ASCII letter or digit c is written on, when c is that letter or digit with
