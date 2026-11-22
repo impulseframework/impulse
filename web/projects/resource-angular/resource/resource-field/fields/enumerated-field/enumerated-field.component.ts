@@ -71,8 +71,9 @@ import {
  * carries a fixed value set the picker renders with no request. The configuration
  * narrows and presents those rows — `filter`, `sorts`, the display columns — and never
  * chooses another resource. Where the configuration names no display column an option
- * shows its key, and a role's key in words ("Sector marshal" for `SectorMarshal`) on a
- * method's request field that names a role.
+ * shows its key. A field of the source that holds a role's name (`roles` in its metadata)
+ * is shown in words ("Night shift lead" for `NightShiftLead`), the key and a display field
+ * alike.
  *
  * How the resource is read is the generated descriptor's statement alone: its declared
  * maximum page size (readMode). A source with no maximum is read whole in one request,
