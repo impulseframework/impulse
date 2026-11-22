@@ -1212,6 +1212,9 @@ type computedField struct {
 	// enumerateArg is the field-scope @enumerate argument as written, resolved once
 	// every kind is extracted (resolveFieldEnumerations); nil when none is declared.
 	enumerateArg *genlang.Arg
+	// roleOfDeclaration is the field's @roleOf, resolved once every kind is extracted
+	// (resolveRoleFields).
+	roleOfDeclaration
 	// A picker's source, from that declaration: enumeratedResource is the name as
 	// written — the resource whose rows the picker lists, or an enumeration table
 	// whose values ride inline (Enumeration names the type, EnumerationValues its rows).
@@ -1905,6 +1908,9 @@ type resourceField struct {
 	// enumerateArg is the field-scope @enumerate argument as written, resolved once
 	// every kind is extracted (resolveFieldEnumerations); nil when none is declared.
 	enumerateArg *genlang.Arg
+	// roleOfDeclaration is the field's @roleOf, resolved once every kind is extracted
+	// (resolveRoleFields).
+	roleOfDeclaration
 	// declaredResource is the name that declaration wrote, once resolved; empty for
 	// an inferred enumeration, whose resource is the foreign key's target.
 	declaredResource string
@@ -2610,6 +2616,7 @@ const (
 	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
 	rowWordKeyword              string = "rowWord"              // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
 	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
+	roleOfKeyword               string = "roleOf"               // Marks a string field, or a list of strings, that holds the name of a role of the auth named: a list writes it in words and filters it by picking a role: @roleOf(Staff)
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2665,6 +2672,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		rowWordKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		classKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
+		roleOfKeyword:               {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 	}
 }
 
