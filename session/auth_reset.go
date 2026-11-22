@@ -346,14 +346,14 @@ func (a *Auth[S, U, Tx]) passwordResetComplete() http.HandlerFunc {
 
 // completeReset writes the password a person chose at a reset link. The link is read,
 // and the password is held to the judgment every password is, against the link's
-// account, before anything is spent. The link is then
-// consumed by a conditional update, so of two requests with one token one goes on, and
-// the store writes the password, clears the password change mark and ends every session
-// of the person in one transaction, only while the account still holds the password it
-// held when the link was followed: one changed or removed in that moment stands as it
-// is. The name's failed sign-ins and the address's mail count are reset, and the other
-// reset links that stand for the account are withdrawn: the person has their new
-// password, so no older link is left to choose another with.
+// account, before anything is spent. The link is then consumed by a conditional update,
+// so of two requests with one token one goes on, and the store writes the password,
+// clears the password change mark and ends every session of the person in one
+// transaction, only while the account still holds the password it held when the link
+// was followed: one changed or removed in that moment stands as it is. The name's
+// failed sign-ins, the address's mail count and the account's count of wrong sign-in
+// codes are reset, and the other reset links that stand for the account are withdrawn:
+// the person has their new password, so no older link is left to choose another with.
 func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password string) (*sessionstorage.SessionUser, error) {
 	link, user, err := a.resetLink(ctx, token)
 	if err != nil {
@@ -378,8 +378,10 @@ func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password stri
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ChangeUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
-	// The link reached the person: the address's mail count is reset.
+	// The link reached the person: the address's mail count is reset, and so is the
+	// account's count of wrong sign-in codes.
 	a.clearResetLimit(ctx, link.Email)
+	a.clearCodeGuesses(ctx, user.ID)
 	a.endResetLinks(ctx, user.ID)
 	logger.FromCtx(ctx).Infof("user %s chose a new password from a reset link", user.ID)
 

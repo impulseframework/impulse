@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -224,9 +225,11 @@ func forwardedInvitation(links *mailLinks, email string) []byte {
 // TestAuth_signInCodesCountedApart holds the codes a person signs in with apart from
 // the mail anybody can have sent to their address. A stranger who knows the address
 // starts sign-ups for it until the address's mail is at its limit; so does a person
-// who gives it at the sign-in code's step of an account of their own; and so does
+// who gives it at the sign-in code's step of an account of their own; so does
 // whoever holds the link of an invitation mailed to the address, which can be
 // forwarded, by asking for the code that accepts it until the invitation's codes are at
+// their limit; and so does a person at the code step of another account, whose address
+// only reads like this one's, by asking for that account's codes until they are at
 // their limit. None of them holds up the codes of the account that holds the address:
 // they are still mailed, five of them, and the sixth alone is refused, by the codes'
 // own limit. Nor do the codes use up the address's other mail, in an address the
@@ -238,11 +241,11 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 		name string
 		// flood runs the address's mail up to its limit as a stranger can, and reports
 		// what the request past the limit answered.
-		flood func(ctx context.Context, f *authFixture, links *mailLinks, email string) error
+		flood func(ctx context.Context, t *testing.T, f *authFixture, links *mailLinks, email string) error
 	}{
 		{
 			name: "sign-ups a stranger starts for the address",
-			flood: func(ctx context.Context, f *authFixture, _ *mailLinks, email string) error {
+			flood: func(ctx context.Context, _ *testing.T, f *authFixture, _ *mailLinks, email string) error {
 				var err error
 				for range mailLimit.Failures + 1 {
 					err = f.auth.startSignUp(ctx, email)
@@ -253,7 +256,7 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 		},
 		{
 			name: "the address given at the sign-in code's step of another account",
-			flood: func(ctx context.Context, f *authFixture, _ *mailLinks, email string) error {
+			flood: func(ctx context.Context, _ *testing.T, f *authFixture, _ *mailLinks, email string) error {
 				strangerID := impulse.Must(impulse.NewUUID())
 				f.store.EXPECT().User(gomock.Any(), strangerID).Return(&sessionstorage.SessionUser{ID: strangerID, Username: "sam"}, nil).AnyTimes()
 				// The stranger proved their own account's password: the step takes an
@@ -269,7 +272,7 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 		},
 		{
 			name: "the codes of an invitation to the address, asked for by whoever holds its link",
-			flood: func(ctx context.Context, f *authFixture, links *mailLinks, email string) error {
+			flood: func(ctx context.Context, _ *testing.T, f *authFixture, links *mailLinks, email string) error {
 				carried := context.WithValue(ctx, invitationCtxKey{}, forwardedInvitation(links, email))
 				// The wait of a sign-in from the link that names nobody: a sign-up
 				// through the invitation, or a directory that does not vouch for it.
@@ -277,6 +280,31 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 				var err error
 				for range mailLimit.Failures + 1 {
 					_, err = f.auth.sendCodeToUser(carried, pending)
+				}
+
+				return err
+			},
+		},
+		{
+			name: "the sign-in codes of another account whose address only reads like the address",
+			flood: func(ctx context.Context, t *testing.T, f *authFixture, _ *mailLinks, email string) error {
+				// The address with the Kelvin sign in place of its k: the mail counts' fold
+				// takes it for the address, and the users table for another, which another
+				// account holds.
+				alike := strings.Replace(email, "k", "\u212A", 1)
+				if attempts.Normalize(alike) != attempts.Normalize(email) {
+					t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", alike, email)
+				}
+				if sameAddress(alike, email) {
+					t.Fatalf("sameAddress(%q, %q) = true, want two addresses", alike, email)
+				}
+				alikeID := impulse.Must(impulse.NewUUID())
+				f.store.EXPECT().User(gomock.Any(), alikeID).Return(&sessionstorage.SessionUser{ID: alikeID, Username: "lee", Email: strPtr(alike)}, nil).AnyTimes()
+				// lee is past the first step of lee's own account, and asks for its code.
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(alikeID)}
+				var err error
+				for range mailLimit.Failures + 1 {
+					_, err = f.auth.sendCodeToUser(ctx, pending)
 				}
 
 				return err
@@ -296,7 +324,7 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 			f.store.EXPECT().User(gomock.Any(), userID).Return(holder, nil).AnyTimes()
 			f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-			if err := tt.flood(ctx, f, links, email); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedTooManyEmails {
+			if err := tt.flood(ctx, t, f, links, email); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedTooManyEmails {
 				t.Fatalf("the request past the address's mail limit was answered %v, want too_many_emails: the address's mail is not at its limit", err)
 			}
 			flooded := len(recorder.Messages())

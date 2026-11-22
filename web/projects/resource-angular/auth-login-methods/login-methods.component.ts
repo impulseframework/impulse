@@ -205,7 +205,8 @@ export interface Landing {
  * list of a server whose password method offers sign-up also carries the "Create an account"
  * step, which asks for an address and mails it the link. A confirmation link (`#verify=`) is
  * posted once a session stands, on arrival when the page finds one, else after the
- * sign-in it waits for. A redirect method's round trip reloads the application, and the
+ * sign-in it waits for; while it waits, the component says that signing in confirms the
+ * address. A redirect method's round trip reloads the application, and the
  * token waits for it in the browser's session storage, never in the address the method
  * returns to; the
  * component then shows what happened and emits `signedIn` on Continue. On every arrival
@@ -483,6 +484,17 @@ export class LoginMethodsComponent implements OnInit {
   readonly unreachableNote = this.ui.loginMessage('unreachable');
   /** The confirmation link's token, posted once a session stands. */
   private verifyToken = '';
+  /** A confirmation link's token waits for a sign-in: true exactly while `verifyToken` is not empty. */
+  verifyWaits = signal(false);
+  /**
+   * The sentence that signing in confirms the address shows: a token waits, and the page
+   * shows neither the held arrival, nor Try again, nor what followed the link. Nor the
+   * password change form: the person is signed in there, and the confirmation follows the
+   * change.
+   */
+  verifyNote = computed(
+    () => this.verifyWaits() && !this.arriving() && !this.unreachable() && !this.changing() && !this.landed(),
+  );
   /**
    * The mailed link the page was opened with, read once: the address no longer carries it
    * after the first arrival, and Try again runs the arrival again.
@@ -1106,6 +1118,7 @@ export class LoginMethodsComponent implements OnInit {
     // that none outlives the page it was kept for.
     const kept = this.takeKeptVerifyToken();
     this.verifyToken = tokenOf('verify') || this.verifyToken || kept;
+    this.verifyWaits.set(this.verifyToken !== '');
     this.returnAddress = this.addressNamed(params.get('returnUrl'));
     const linked = params.has('pending') || link !== undefined || this.verifyToken !== '';
     const refused = (params.get('code') ?? '') !== '';
@@ -1552,6 +1565,7 @@ export class LoginMethodsComponent implements OnInit {
   private async verify(page: Landing): Promise<void> {
     const token = this.verifyToken;
     this.verifyToken = '';
+    this.verifyWaits.set(false);
     this.takeKeptVerifyToken();
     const result = await this.client.auth.verifyEmail(token);
     if (result.outcome === 'refused') {

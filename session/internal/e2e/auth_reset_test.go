@@ -10,6 +10,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -19,6 +20,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -187,6 +190,10 @@ func runResetSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a sixth mail to one address within fifteen minutes is refused whoever asks, and a link that is used resets the count",
 			run:  seamResetLimit[Tx],
+		},
+		{
+			name: "a password chosen at a reset link lets an account whose codes are spent sign in again",
+			run:  seamResetAfterCodesSpent[Tx],
 		},
 		{
 			name: "an administrator's change of address does nothing until the new address confirms: the account keeps its address, the sign-in code still goes there and nothing is mailed to it; once confirmed the old address is told and the code goes to the new one",
@@ -408,6 +415,65 @@ func seamResetLimit[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	if err := a.api.SendPasswordReset(ctx, pat, session.AskedByApplication()); err != nil {
 		t.Errorf("a link after one was used error = %v, want it sent: the used link reset the address's count", err)
 	}
+}
+
+// seamResetAfterCodesSpent: pat holds a password and a confirmed address, and
+// twenty-five wrong codes spend the count of the codes entered for the account: no code
+// is mailed any more. pat asks for a reset link and chooses a password there; the
+// sign-in with it is mailed a code, and the right code signs pat in.
+func seamResetAfterCodesSpent[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	t.Helper()
+
+	const address = "pat@lakeside.edu"
+	a := newResetApp(ctx, t, be)
+	a.seedConfirmed(ctx, t, "pat", address)
+	a.setOwnReset(ctx, t, true)
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.browser(t)
+	b.prime(ctx)
+	if status, mfa := b.loginAs(ctx, "pat"); status != http.StatusOK || !mfa {
+		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 requiring MFA", status, mfa)
+	}
+
+	// Five codes, each ended by five wrong guesses: the last is the twenty-fifth.
+	for sent := 1; sent <= 5; sent++ {
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+		wrong := wrongCode(a.lastCode(t, address))
+		for guess := 1; guess <= 5; guess++ {
+			want := "invalid_code"
+			switch {
+			case sent == 5 && guess == 5:
+				want = "codes_spent"
+			case guess == 5:
+				want = "code_expired"
+			}
+			enterWrongCode(ctx, t, b, wrong, want, fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))
+		}
+	}
+	// Fifteen minutes on, the address may be sent codes again: here its count of codes
+	// sent is cleared, as the time passing would. The codes are spent all the same.
+	if err := a.store.ClearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, util.LowerASCII(address))); err != nil {
+		t.Fatalf("ClearSignInAttempts() of the address's sign-in codes error = %v", err)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"codes_spent"`) {
+		t.Fatalf("a code asked for once the codes are spent = %d %s, want 401 codes_spent", status, body)
+	}
+
+	// pat asks for a reset link and chooses a password there.
+	reset := a.browser(t).primed(ctx)
+	reset.expect(ctx, http.StatusOK, http.MethodPost, "/reset", map[string]string{"email": address})
+	_, token := a.lastLink(t, address, "reset")
+	reset.expect(ctx, http.StatusOK, http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword})
+
+	// The sign-in with the new password is mailed a code, and the right code signs pat
+	// in.
+	again := a.browser(t).primed(ctx)
+	if status, _, body := again.postLogin(ctx, "pat", chosenPassword); status != http.StatusOK {
+		t.Fatalf("login with the new password = %d %s, want 200 held for the code", status, body)
+	}
+	again.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	again.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, address)})
+	signedInAs(ctx, t, again, "pat")
 }
 
 func seamAddressChange[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {

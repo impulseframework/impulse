@@ -250,10 +250,12 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 // the name may sign in again. The name is what was typed into the username field,
 // whether or not a user holds it, and is keyed as the session library keys it; a name
 // with no count is no error. The table also keeps the session library's own counts (the
-// mail an address was sent, its sign-in codes, its reset links, the guesses at a first
-// password's code)
-// under keys no name folds to, and a row of one, named as the list shows it, is cleared
-// the same way (session.SignInAttemptKey).
+// mail an address was sent, its sign-in codes, its reset links, the wrong sign-in codes
+// entered for an account, the guesses at a first password's code) under keys no name
+// folds to, and a row of one, named as the list shows it, is cleared the same way
+// (session.SignInAttemptKey). Clearing the row of the wrong codes entered for an
+// account (CODE-GUESS: and the account's id) is how an administrator lets an account
+// whose sign-in codes are spent take codes again.
 //
 // Each instance of the application trusts what it remembers of a name for a few
 // seconds, a lock included, so the lock is gone from every instance within that time

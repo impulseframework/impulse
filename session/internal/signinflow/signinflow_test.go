@@ -44,12 +44,16 @@ const (
 	// emailConflicts drops the writes and ends the transaction with errEmailConflict, as
 	// the users table refuses an address another account took at the same moment.
 	emailConflicts
+	// lockConflicts drops the writes and ends the transaction with errLockConflict, as
+	// PostgreSQL ends one of two transactions to break their deadlock.
+	lockConflicts
 )
 
 var (
 	errIdentityConflict = errors.New("the identities key is taken")
 	errCommitFailed     = errors.New("the commit failed")
 	errEmailConflict    = errors.New("the address is another user's")
+	errLockConflict     = errors.New("the database ended the transaction to break a deadlock")
 )
 
 // memUser is a user row of the store.
@@ -77,6 +81,9 @@ type memStore struct {
 	sessions int
 	steps    []string
 	next     []commitOutcome
+	// meanwhile is what another transaction commits while the next one that ends in a
+	// lock conflict runs, applied as that one ends; nil for nothing.
+	meanwhile func()
 }
 
 func newMemStore() *memStore {
@@ -173,6 +180,14 @@ func (d *memDriver) Transact(ctx context.Context, fn func(ctx context.Context, t
 			d.store.notef("address conflict")
 
 			return errEmailConflict
+		case lockConflicts:
+			d.store.notef("lock conflict")
+			if d.store.meanwhile != nil {
+				d.store.meanwhile()
+				d.store.meanwhile = nil
+			}
+
+			return errLockConflict
 		case commits:
 		}
 		for _, write := range tx.writes {
@@ -276,6 +291,8 @@ func (d *memDriver) SignInConflict(err error) dbtype.SignInConflict {
 		return dbtype.IdentityConflict
 	case errors.Is(err, errEmailConflict):
 		return dbtype.EmailConflict
+	case errors.Is(err, errLockConflict):
+		return dbtype.LockConflict
 	default:
 		return dbtype.NoSignInConflict
 	}
