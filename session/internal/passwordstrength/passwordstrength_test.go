@@ -353,6 +353,11 @@ func TestJudge_detailsAreReadByTheirFirstCharacters(t *testing.T) {
 	if got := Judge(password, who, 30); !got.StrongEnough {
 		t.Errorf("Judge(%q) with the word past the username's %dth character = %+v, want strong enough", password, maxDetail, got)
 	}
+	// The username is cut to its space before it is trimmed, so nothing of it is left.
+	who = Details{Username: strings.Repeat(" ", maxDetailTyped) + password}
+	if got := Judge(password, who, 30); !got.StrongEnough {
+		t.Errorf("Judge(%q) with the word after %d spaces in the username = %+v, want strong enough", password, maxDetailTyped, got)
+	}
 }
 
 func TestJudge_aLongDetailCostsNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates

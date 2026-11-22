@@ -75,13 +75,13 @@ const (
 	// the square of the length: maxL33tWork passes over MaxJudged characters.
 	maxL33tCost = maxL33tWork * MaxJudged * MaxJudged
 
-	// maxDetail is how many characters of each of the person's details, after the trim, count
-	// against a password.
+	// maxDetail is how many characters of each of the person's details, trimmed and in NFC,
+	// count against a password.
 	maxDetail = 256
 
 	// maxDetailTyped is how many characters of each of the person's details, as typed, are
-	// put in NFC: a character in NFC is made of a few typed ones at most (a letter and its
-	// marks, the parts of a Hangul syllable), so these give maxDetail.
+	// trimmed and put in NFC: a character in NFC is made of a few typed ones at most (a letter
+	// and its marks, the parts of a Hangul syllable), so these give maxDetail.
 	maxDetailTyped = 4 * maxDetail
 
 	// minRun is the shortest run of letters and digits in a person's detail that counts on
@@ -243,9 +243,10 @@ func firstRunes(s string, n int) string {
 	return s
 }
 
-// inputsOf are the words the person's details give the estimate. Each detail is trimmed of
-// surrounding space, cut to its first maxDetailTyped characters, put in NFC and cut to its first
-// maxDetail characters; an empty one gives nothing. The words come in two passes over the
+// inputsOf are the words the person's details give the estimate. Each detail is cut to its
+// first maxDetailTyped characters, trimmed of surrounding space, put in NFC and cut to its
+// first maxDetail characters; an empty one gives nothing, as does one with more than
+// maxDetailTyped characters of space before anything else. The words come in two passes over the
 // details, each in the order Username, Name, Email. First, each detail whole, then each run of
 // letters, digits and marks in it whose reading is at least minRun characters long. Then, for
 // each run that holds a digit, the run without the digits at its two ends (z4br0wski in
@@ -274,8 +275,8 @@ func inputsOf(who Details, read *reading) []string {
 
 	var details []string
 	for _, detail := range []string{who.Username, who.Name, who.Email} {
-		// The detail is cut before it is put in NFC, so a long one is never read whole.
-		detail = firstRunes(norm.NFC.String(firstRunes(strings.TrimSpace(detail), maxDetailTyped)), maxDetail)
+		// The detail is cut before it is trimmed or put in NFC, so a long one is never read whole.
+		detail = firstRunes(norm.NFC.String(strings.TrimSpace(firstRunes(detail, maxDetailTyped))), maxDetail)
 		if detail != "" {
 			details = append(details, detail)
 		}
