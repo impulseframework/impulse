@@ -39,7 +39,7 @@ func stampedWidgets(t *testing.T) PermissionCollection {
 
 // validated is the role file's check of the roles against what the release declares.
 func validated(store PermissionCollection, roles ScopedRoles) ([]Warning, error) {
-	return ValidateRoles(store, &RoleConfig{Roles: roles})
+	return ValidateRoles(store, &RoleConfig{Roles: roles}, "")
 }
 
 // TestAllFieldsUpdate_leavesOutAnImmutableField pins that Update on all of a resource's
@@ -95,7 +95,7 @@ func TestAllFieldsUpdate_leavesOutAnImmutableField(t *testing.T) {
 			ctx := context.Background()
 			var opts []Option
 			if tt.roleFile != nil {
-				opts = append(opts, WithDefaultRoles(tt.roleFile))
+				opts = append(opts, WithDefaultRoles(tt.roleFile, ""))
 			}
 			client := newPolicyClient(t, newFakeStore(), stampedWidgets(t), opts...)
 			manager := client.UserManager()

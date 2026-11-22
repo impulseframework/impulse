@@ -66,6 +66,15 @@ body {
     width: 100%;
   }
 
+  // A field drawn by the library's control sits among the form's own: a block as wide as
+  // the dialog, without the gutter the library's grid gives a column, and with as much room
+  // under it as the form's own fields keep for the line under them.
+  impulse-resource-field {
+    display: block;
+    padding: 0;
+    margin-bottom: 15px;
+  }
+
   input[type='file'] {
     display: block;
     max-width: 100%;

@@ -868,6 +868,12 @@ export function rootConfig(config: RootConfigOptions): RootConfig {
 export interface BaseConfigOptions {
   title?: string;
   createTitle?: string;
+  /**
+   * The label of the button that adds a row, and the heading of the dialog it opens. A
+   * list that sets none says "Add a hangar pass", from the word its resource's rows go
+   * by (the metadata's rowWords: the resource's name in words, or its `@rowWord`). Set
+   * it where adding is called something else ("File a distress call").
+   */
   createButtonLabel?: string;
   primaryResource: Resource;
   parentClass?: string;
@@ -1199,7 +1205,7 @@ export const listViewConfigDefaults = {
   primaryResource: '' as Resource,
   type: 'ListView',
   createTitle: '',
-  createButtonLabel: 'Create',
+  createButtonLabel: '',
   loadCreatedResource: false,
   showViewButton: true,
   collapsible: false,

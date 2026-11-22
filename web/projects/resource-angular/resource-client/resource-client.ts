@@ -65,7 +65,7 @@ export const RESOURCE_CLIENT = new InjectionToken<ClientBase>('RESOURCE_CLIENT',
   factory: (): ClientBase => {
     throw new Error(
       'No RESOURCE_CLIENT is provided: add provideResourceClient((options) => createApi({ baseUrl, ...options })) ' +
-        "to the application's providers, with the createApi the ccc generator emitted for it.",
+        "to the application's providers, with the createApi the impulse generator emitted for it.",
     );
   },
 });
@@ -222,7 +222,7 @@ export function provideResourceClient(
       }
       if (releaseVersion(inject(API_VERSION)) !== undefined && !inject(VERSION_REFUSAL_HANDLER, { optional: true })) {
         throw new Error(
-          "API_VERSION names a release, so the server can refuse this build, and nothing handles the refusal: add " +
+          'API_VERSION names a release, so the server can refuse this build, and nothing handles the refusal: add ' +
             "provideAppUpdate() from @impulseframework/resource-angular/ui-app-update to the application's providers.",
         );
       }

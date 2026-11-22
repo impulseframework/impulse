@@ -13,6 +13,7 @@ import {
   RecordData,
   RESOURCE_META,
   ResourceMeta,
+  RowWords,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
@@ -823,8 +824,11 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
 
   let fixture: ComponentFixture<ResourceViewComponent>;
 
-  /** Draws the row's page under the config's own words and waits until the row is read. */
-  const drawn = async (words: { rowTitle?: (row: RecordData) => string }): Promise<ResourceViewComponent> => {
+  /** Draws the row's page under the config's own words and the resource's word for a row, and waits until the row is read. */
+  const drawn = async (
+    words: { rowTitle?: (row: RecordData) => string },
+    rowWords?: RowWords,
+  ): Promise<ResourceViewComponent> => {
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
@@ -836,7 +840,8 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
         ResourceStore,
         {
           provide: RESOURCE_META,
-          useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined),
+          useValue: (resource: Resource): ResourceMeta | undefined =>
+            resource === beacons ? { ...meta, rowWords } : undefined,
         },
       ],
     }).compileComponents();
@@ -906,6 +911,26 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
     const asked = ask(await drawn({ rowTitle: (row) => String(row['name']) }), true);
 
     expect(asked.question).toBe('Delete Outer reef from Beacons?');
+  });
+
+  it("by the word the resource's rows go by where its metadata carries one", async () => {
+    const asked = ask(await drawn({}, { one: 'beacon', many: 'beacons' }), true);
+
+    expect(asked.question).toBe('Delete this beacon?');
+  });
+
+  it('and says the row is deleted in a sentence that opens with its word', async () => {
+    const component = await drawn({}, { one: 'beacon', many: 'beacons' });
+    const said: string[] = [];
+    component.store.apply = ((_: unknown, message: string) => {
+      said.push(message);
+
+      return Promise.resolve({});
+    }) as unknown as typeof component.store.apply;
+
+    component.deleteResource();
+
+    expect(said).toEqual(['Beacon deleted.']);
   });
 
   it('and deletes nothing when the person cancels or closes the dialog', async () => {

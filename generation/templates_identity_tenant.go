@@ -273,6 +273,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Name asc)
+// @rowWord(role)
 type {{ .DirectoryRoleChoice }} struct {
 	// @primarykey
 	// @attribute(name)
@@ -367,6 +368,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Name asc)
+// @rowWord(role)
 type {{ .TenantRoleChoice }} struct {
 	// @primarykey
 	// @attribute(name)

@@ -462,6 +462,10 @@ type Metadata[Resource Resourcer] struct {
 	// the patch machinery reads their old values on a delete and on a write that sets
 	// one, and records the released objects on the transaction.
 	fileKeys []FileKey
+	// groupColumns are the columns that name a group of people of an auth (the
+	// generated GroupColumns): the patch machinery holds each group a write names to
+	// the row's own tenant.
+	groupColumns []GroupColumn
 	// searchBranches are the resource's @searchAlso declarations (the generated
 	// SearchBranches): the child text its search box also searches.
 	searchBranches []SearchBranch
@@ -497,6 +501,7 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 		dbFields:       c.dbFields,
 		trackChanges:   c.cfg.TrackChanges,
 		fileKeys:       c.fileKeys,
+		groupColumns:   c.groupColumns,
 		searchBranches: c.searchBranches,
 		secrets:        c.secrets,
 		secretContext:  c.secretContext,
@@ -530,6 +535,7 @@ type resourceMetadataCacheEntry struct {
 	dbFields       map[DBType][]accesstypes.Field
 	cfg            Config
 	fileKeys       []FileKey
+	groupColumns   []GroupColumn
 	searchBranches []SearchBranch
 	secrets        map[accesstypes.Field]struct{}
 	secretContext  []accesstypes.Field
@@ -580,6 +586,11 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		fileKeys = f.FileKeys()
 	}
 
+	var groupColumns []GroupColumn
+	if g, ok := res.(groupColumner); ok {
+		groupColumns = g.GroupColumns()
+	}
+
 	var searchBranches []SearchBranch
 	if b, ok := res.(searchBrancher); ok {
 		searchBranches = b.SearchBranches()
@@ -608,6 +619,7 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		dbFields:       dbFields,
 		cfg:            cfg,
 		fileKeys:       fileKeys,
+		groupColumns:   groupColumns,
 		searchBranches: searchBranches,
 		secrets:        secretFields(t),
 		secretContext:  secretContext,

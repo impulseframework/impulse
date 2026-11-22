@@ -271,7 +271,7 @@ func Test_snapshot_groups_places(t *testing.T) {
 func Test_snapshot_groups_superAdministrator(t *testing.T) {
 	t.Parallel()
 
-	defaults, err := compileDefaultRoles(grammarCollection{}, &RoleConfig{}, []accesstypes.Resource{"DoThing"})
+	defaults, err := compileDefaultRoles(grammarCollection{}, &RoleConfig{}, []accesstypes.Resource{"DoThing"}, fixtureAuth)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}

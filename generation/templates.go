@@ -62,6 +62,20 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.GroupColumns }}
+
+// GroupColumns names the columns that name a group of people ({{ range $i, $column := .Resource.GroupColumns }}{{ if $i }}, {{ end }}{{ $column.Field.Name }}{{ end }}): a row is
+// written only with a group its own tenant keeps, so the library refuses a create or an
+// update that names another tenant's group, or a group kept for the whole application,
+// whoever writes it.
+func ({{ .Resource.Name }}) GroupColumns() []resource.GroupColumn {
+	return []resource.GroupColumn{
+	{{- range $column := .Resource.GroupColumns }}
+		{{ $column.Literal }},
+	{{- end }}
+	}
+}
+{{- end }}
 {{- if .Resource.HasDeleteTree }}
 {{ if .Resource.IsTenant }}
 // DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library
@@ -4154,6 +4168,9 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     {{- end }}
     live: {{ $resource.Published }},
+    {{- if $resource.RowWord }}
+    rowWords: {{ $resource.TypescriptRowWords }},
+    {{- end }}
     {{- if $resource.TenantNameField }}
     nameField: '{{ Camel $resource.TenantNameField.Name }}',
     {{- end }}
@@ -4162,7 +4179,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}{{ if $field.YesOrNoDefault }}, schemaDefault: {{ $field.YesOrNoDefault }}{{ end }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}, required: {{ $field.IsRequired }}{{ if $field.YesOrNoDefault }}, schemaDefault: {{ $field.YesOrNoDefault }}{{ end }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -4199,12 +4216,15 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: {{ $resource.Published }},
+    {{- if $resource.RowWord }}
+    rowWords: {{ $resource.TypescriptRowWords }},
+    {{- end }}
     fields: [
       {{- range $field := $resource.Fields }}
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}, required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -4223,6 +4243,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'feature flag', many: 'feature flags' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
@@ -4386,6 +4407,12 @@ export interface {{ $own.Name }} {{ if $own.Fields }}{
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -4496,7 +4523,7 @@ const methodMap: MethodMap = {
     {{- if $rpcMethod.Fields }}
     fields: [
     {{- range $field := $rpcMethod.Fields }}
-      { fieldName: '{{ Camel $field.Name }}', displayType: '{{ DisplayType $field.TypescriptDisplayType }}'
+      { fieldName: '{{ Camel $field.Name }}', displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}
       {{- if $field.Required }}, required: true{{ end }}{{ if $field.Optional }}, optional: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}
@@ -4827,6 +4854,9 @@ const (
 // such as role migration and bootstrap.
 func Collection() *resource.GeneratedCollection {
 	return resource.MustNewGeneratedCollection(resource.CollectionData{
+		{{- with .Data.Auths }}
+		Auths: []string{ {{- range $i, $auth := . }}{{ if $i }}, {{ end }}"{{ $auth }}"{{ end -}} },
+		{{- end }}
 		Resources: []resource.CollectionResource{
 			{{- range .Data.Resources }}
 			{
@@ -4880,7 +4910,7 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .SubjectSets }}
 				SubjectSets: []resource.SubjectBindingData{
 					{{- range . }}
-					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}},
+					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}{{ if .Offered }}, Offered: true{{ end }}{{ with .Auth }}, Auth: "{{ . }}"{{ end }}},
 					{{- end }}
 				},
 				{{- end }}

@@ -15,12 +15,13 @@ type (
 	// partition, and its bare @domain on a view column partitions the projection's
 	// rows. The key is compound: the squadron and its sector.
 	//
-	// Demonstrates: @virtual, virtual.domain.
+	// Demonstrates: @virtual, virtual.domain, @rowWord.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @order(OpenMissions desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(squadron count)
 	OpenMissionsBySquadron struct {
 		SquadronID   impulse.UUID `spanner:"SquadronId"   index:"true"` // @primarykey
 		SquadronName string       `spanner:"SquadronName" index:"true"`

@@ -12,6 +12,8 @@ export interface DeleteConfirmation {
   name?: string;
   /** The title of the list the row is in ("Passes"). */
   from?: string;
+  /** The word a row of the resource goes by ("hangar pass"), where its metadata carries one. */
+  word?: string;
   /** Whether the row is deleted from its list; unset, it is deleted from its own page. */
   inList?: boolean;
   /**
@@ -33,14 +35,20 @@ export interface DeleteConfirmation {
 const asksFirst = 428;
 
 /**
- * The question asked before a row is deleted: it names the row where the page knows the
- * row's name, and the list the row is in where the page has a title for it, so a person
- * reads what is about to go ("Delete Night Watch from Groups?", "Delete this row from
- * Passes?"). A row with no name is "this row" in its list and "this record" on its page.
+ * The question asked before a row is deleted, so a person reads what is about to go. A
+ * row the page knows the name of is asked about by its name, and by the list it is in
+ * where the page has a title for it ("Delete Night Watch from Groups?"). A row with no
+ * name is asked about by the word its resource's rows go by ("Delete this hangar
+ * pass?"). Where the resource's metadata carries no word either, the row is "this row"
+ * in its list and "this record" on its page ("Delete this row from Passes?").
  */
 export function deleteQuestion(asked: DeleteConfirmation = {}): string {
   const name = asked.name?.trim() ?? '';
   const from = asked.from?.trim() ?? '';
+  const word = asked.word?.trim() ?? '';
+  if (name === '' && word !== '') {
+    return `Delete this ${word}?`;
+  }
   const what = name !== '' ? name : asked.inList ? 'this row' : 'this record';
 
   return from !== '' ? `Delete ${what} from ${from}?` : `Delete ${what}?`;

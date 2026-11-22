@@ -76,7 +76,7 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	t.Helper()
 	ctx := context.Background()
 
-	defaults, err := compileDefaultRoles(grammarCollection{}, defaultsRoleConfig(), nil)
+	defaults, err := compileDefaultRoles(grammarCollection{}, defaultsRoleConfig(), nil, fixtureAuth)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}

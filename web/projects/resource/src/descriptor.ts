@@ -128,7 +128,7 @@ export interface DomainRouteDescriptor {
 }
 
 /**
- * Everything the client needs to know about one generated API. The ccc TypeScript
+ * Everything the client needs to know about one generated API. The impulse TypeScript
  * generator emits it; the runtime interprets it. Routes carry no API prefix — the
  * client's `baseUrl` supplies it.
  *

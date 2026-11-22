@@ -204,6 +204,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(person, plural: people)
 	{{ .TenantUser }} struct {
 		// @primarykey
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
@@ -326,6 +327,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	{{ .TenantRole }} struct {
 		// @domain
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
@@ -422,6 +424,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(invitation)
 	{{ .TenantMailLink }} struct {
 		// @primarykey
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
@@ -497,6 +500,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	{{ .TenantIdentity }} struct {
 		// @primarykey
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `

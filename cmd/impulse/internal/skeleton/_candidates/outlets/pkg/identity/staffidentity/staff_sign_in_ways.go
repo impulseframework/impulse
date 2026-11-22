@@ -41,6 +41,7 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Password desc, Through asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type StaffSignInWay struct {
 	// UserID is the person, whom the list is filtered by.
 	// @primarykey

@@ -737,7 +737,7 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	}
 
 	customs, storeGrants, findings := definedRoles(records, defaults)
-	grants, skipped, err := s.intern(defaults.allGrants(), storeGrants, collection)
+	grants, skipped, err := s.intern(defaults.allGrants(), storeGrants, collection, defaults.authName())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -943,12 +943,14 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 //   - For a grant a role holds on a resource in the store, anything else the
 //     write that adds the grant is refused for (grantRule.refusal): a resource
 //     of another scope than the role's, Update on what the release marks
-//     immutable, and a condition that reads what the release does not declare
-//     or that the permission cannot be judged by. So a check never meets a
-//     stored condition it cannot resolve, and a grant no request could use is
-//     no foothold where its role is held.
-func (s *snapshot) intern(released, stored []policy.Grant, collection PermissionCollection) ([]policy.Grant, []*SkippedGrant, error) {
-	rule := newGrantRule(collection)
+//     immutable, a condition that reads what the release does not declare or
+//     that the permission cannot be judged by, and a condition that reads a set
+//     of the people of another auth than auth, the one the engine's role file
+//     was handed over for. So a check never meets a stored condition it cannot
+//     resolve, and a grant no request could use is no foothold where its role
+//     is held.
+func (s *snapshot) intern(released, stored []policy.Grant, collection PermissionCollection, auth string) ([]policy.Grant, []*SkippedGrant, error) {
+	rule := newGrantRule(collection, auth)
 	exprs := make(map[string]condition.Expr)
 	parse := func(text string) (condition.Expr, error) {
 		if expr, ok := exprs[text]; ok {

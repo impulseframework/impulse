@@ -20,17 +20,17 @@ digraph Bindings {
 	rankdir=LR;
 	node [shape=box];
 	"StaffGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
-	"StaffGroupMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupMember</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">subject.groups: GroupId</td></tr><tr><td align="left">subject.groups where: (StartsAt IS NULL OR StartsAt &lt;= now) AND (EndsAt IS NULL OR EndsAt &gt; now)</td></tr></table>>];
+	"StaffGroupMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupMember</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">subject.staffGroups: GroupId</td></tr><tr><td align="left">subject.staffGroups where: (StartsAt IS NULL OR StartsAt &lt;= now) AND (EndsAt IS NULL OR EndsAt &gt; now)</td></tr></table>>];
 	"StaffGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"StaffGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"StaffListedGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffListedGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
 	"StaffListedGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffListedGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"StaffUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"subject" [shape=ellipse];
-	"StaffGroupMember" -> "StaffGroup" [style=dotted, label="groups domain: GroupId ⇒ DomainId"];
-	"subject" -> "StaffGroupMember" [style=dashed, label="groups: UserId"];
+	"StaffGroupMember" -> "StaffGroup" [style=dotted, label="staffGroups domain: GroupId ⇒ DomainId"];
+	"subject" -> "StaffGroupMember" [style=dashed, label="staffGroups: UserId"];
 	"StaffGroupMember" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
-	"StaffGroupMember" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.groups"];
+	"StaffGroupMember" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.staffGroups"];
 	"StaffGroupRole" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
 	subgraph cluster_legend {
 		label="legend";

@@ -637,17 +637,17 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 			name: "a batch that gives another squadron a pass and then their own", by: asMarshal, says: "add a hangar pass record for one of your own squadrons",
 			ops: []string{pass("squadronId", squadronHammerID, "run"), pass("squadronId", squadronTongsID, "run")},
 		},
-		{name: "a pass given to their own group", by: asMarshal, says: "add a hangar pass record for one of your own groups", ops: []string{pass("groupId", deckRunners, "run")}},
+		{name: "a pass given to their own group", by: asMarshal, says: "add a hangar pass record for one of your own crew groups", ops: []string{pass("groupId", deckRunners, "run")}},
 		{
-			name: "their own group's pass changed", by: asMarshal, says: "change a hangar pass record of one of your own groups",
+			name: "their own group's pass changed", by: asMarshal, says: "change a hangar pass record of one of your own crew groups",
 			ops: []string{recordOp("patch", passes+"/"+passOfDeckRunners, `{"levelId":"run"}`)},
 		},
 		{
-			name: "their own group's pass taken", by: asMarshal, says: "remove a hangar pass record of one of your own groups",
+			name: "their own group's pass taken", by: asMarshal, says: "remove a hangar pass record of one of your own crew groups",
 			ops: []string{recordOp("remove", passes+"/"+passOfDeckRunners, "")},
 		},
 		{
-			name: "a batch that gives a group they are not in a pass and then their own", by: asMarshal, says: "add a hangar pass record for one of your own groups",
+			name: "a batch that gives a group they are not in a pass and then their own", by: asMarshal, says: "add a hangar pass record for one of your own crew groups",
 			ops: []string{pass("groupId", bayKeepers, "visit"), pass("groupId", deckRunners, "run")},
 		},
 	}

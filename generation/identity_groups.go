@@ -14,8 +14,9 @@ import (
 //   - the declarations over the groups, their members and the roles each group holds.
 //     The members' declaration carries the subject set of a person's groups, so a grant's
 //     condition and another table's subject set read the groups a caller is in
-//     (subject.groups) with nothing special in the lowering. The set names its own way
-//     to a group's tenant, so in a tenant's request it holds that tenant's groups alone;
+//     (subject.crewGroups for the auth crew) with nothing special in the lowering. The
+//     set names its own way to a group's tenant, so in a tenant's request it holds that
+//     tenant's groups alone;
 //   - the lists a page draws from: the people of a group with their names, and the roles
 //     each person holds through a group, for the whole application and, where the
 //     application has a tenant record, one tenant's own groups, their people and their
@@ -38,10 +39,6 @@ const (
 func identityGroupTables() []identityTable {
 	return []identityTable{identityGroups, identityGroupMembers, identityGroupRoles}
 }
-
-// defaultGroupSet is the name of the subject set of a person's groups, where one auth
-// of the application keeps groups.
-const defaultGroupSet = "groups"
 
 // groupTenantColumn is the column of an auth's groups table that holds the tenant a
 // group is kept in, empty for a group kept for the whole application: the permission
@@ -91,19 +88,13 @@ func (i *identityInstance) keepsGroups() bool {
 }
 
 // nameGroupSets names the subject set of a person's groups for each instance that keeps
-// groups. subject.<name> is one namespace for the whole application, so the one auth
-// that keeps groups declares "groups", and where several do each declares its own, the
-// auth's name before it (crewGroups, staffGroups).
+// groups. The subject set of a person's groups is named after its auth (crewGroups,
+// staffGroups): subject.<name> is one namespace for the whole application, and a name
+// that never depends on how many auths keep groups never collides when two sites meet
+// and never changes when a second auth arrives.
 func nameGroupSets(instances []*identityInstance) {
-	var keeping []*identityInstance
 	for _, inst := range instances {
 		if inst.keepsGroups() {
-			keeping = append(keeping, inst)
-		}
-	}
-	for _, inst := range keeping {
-		inst.groupSet = defaultGroupSet
-		if len(keeping) > 1 {
 			inst.groupSet = strings.ToLower(inst.auth[:1]) + inst.auth[1:] + "Groups"
 		}
 	}

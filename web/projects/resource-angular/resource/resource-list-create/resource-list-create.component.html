@@ -18,7 +18,7 @@
               class="exp-panel-add-element-btn"
               color="accent"
               (click)="createResource($event)"
-              matTooltip="{{ config().createButtonLabel }}"
+              [matTooltip]="createLabel()"
               matTooltipPosition="above">
               <mat-icon color="accent">add_circle</mat-icon>
             </button>

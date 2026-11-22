@@ -72,6 +72,7 @@ import {
   spaceHyphenConcatWithoutResource,
 } from '../concat-fns';
 import { applyFormatting, formatDateString, formatFieldValue } from '../format-fns';
+import { addRowLabel, rowMessage, rowWordsOf } from '../row-words';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
   DeleteConfirmation,
@@ -312,9 +313,15 @@ export class ResourceListComponent implements OnInit {
     return true;
   });
 
-  createButtonLabel = computed(() => {
-    return this.config().createButtonLabel || 'Create';
-  });
+  /**
+   * The words a row of the list goes by: the listed resource's, as its metadata carries
+   * them. The add button, the delete question and the message after a delete name the
+   * row by them.
+   */
+  rowWords = computed(() => rowWordsOf(this.meta()));
+
+  /** The add button's label: the config's own, else "Add a hangar pass" from the row's word. */
+  createButtonLabel = computed(() => addRowLabel(this.config().createButtonLabel, this.rowWords()));
 
   /** The listed resource's metadata: the rows, columns, and keys the table shows. */
   meta = computed(() => this.resourceMeta(this.config().primaryResource));
@@ -933,16 +940,17 @@ export class ResourceListComponent implements OnInit {
   /**
    * Asks before a row leaves the list, then deletes it through the write resource. The
    * question names the row by its own name where the config reads one off the row
-   * (`rowTitle`), and the list by its title. The dialog is handed the delete and runs it
-   * when the person says so, so a delete the server refuses is answered in the dialog, in
-   * the server's words, and a row whose delete takes records with it is asked about a
-   * second time, in the server's question.
+   * (`rowTitle`) and the list by its title, else by the word the resource's rows go by.
+   * The dialog is handed the delete and runs it when the person says so, so a delete the
+   * server refuses is answered in the dialog, in the server's words, and a row whose
+   * delete takes records with it is asked about a second time, in the server's question.
    */
   confirmDeleteRow(row: RecordData): void {
     const config = this.config();
     const data: DeleteConfirmation = {
       name: config.rowTitle?.(row),
       from: config.title,
+      word: this.rowWords()?.one,
       inList: true,
       delete: (options) => this.deleteRow(row, options),
     };
@@ -961,7 +969,7 @@ export class ResourceListComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], `${this.store.resourceName()} deleted successfully`).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
       this.store.reloadPage();
     });
   }

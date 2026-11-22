@@ -161,7 +161,7 @@ func TestGofmtFixLeavesAScratchFileAlone(t *testing.T) {
 // The functions of the scan and the checks that test a name for the ".go" suffix without
 // asking app.GoToolReads, each with why it may: every other one must ask.
 var suffixTestsWithoutTheRule = map[string]string{
-	"app/scan.go: GoToolReads":                          "the rule itself",
+	"internal/apptree/apptree.go: GoToolReads":          "the rule itself, which app.GoToolReads asks",
 	"app/generate.go: directiveTarget":                  "a go run directive's target that names a file: a word of a command, and no file is read by it",
 	"cmd/impulse/internal/check/sites.go: goRunTargets": "a go run command's target that names a file: a word of a command, and no file is read by it",
 }
@@ -248,12 +248,17 @@ func generatedOnly(dir string) ([]string, error) { return filepath.Glob(filepath
 // application scan (the app package) and the checks themselves, and impulse brand's
 // beside them, to the one rule about which Go files are read: none decides it for itself
 // by the ".go" suffix. A reader that did took a scratch file kept beside a package's real
-// ones (_scratch.go) for the application's code, which no build compiles.
+// ones (_scratch.go) for the application's code, which no build compiles. The rule is
+// written in the package a generation run reads the application's tree by as well (the
+// apptree package), and its own reader of an auth package's files is held here too.
 func TestEveryReaderAsksTheGoToolsRule(t *testing.T) {
 	t.Parallel()
 
 	// The packages, by their directory from this one and from the module's root.
-	packages := map[string]string{".": "cmd/impulse/internal/check", "../../../../app": "app", "../brand": "cmd/impulse/internal/brand"}
+	packages := map[string]string{
+		".": "cmd/impulse/internal/check", "../../../../app": "app", "../brand": "cmd/impulse/internal/brand",
+		"../../../../internal/apptree": "internal/apptree",
+	}
 	var findings []string
 	allowed := map[string]bool{}
 	for dir, rel := range packages {

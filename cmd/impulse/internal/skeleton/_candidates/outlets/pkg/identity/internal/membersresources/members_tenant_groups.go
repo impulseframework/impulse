@@ -29,6 +29,7 @@ type (
 	// @outlet(portal)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	MembersTenantGroup struct {
 		// @primarykey
 		// @attribute(group)

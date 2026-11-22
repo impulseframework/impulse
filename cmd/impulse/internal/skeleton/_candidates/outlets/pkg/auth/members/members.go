@@ -59,7 +59,12 @@ import (
 )
 
 const (
-	// Name is the auth's name: the cookie its sessions ride in.
+	// Name is the auth's name. It is the name of this package's directory, the name
+	// generation knows the auth by, the name a @subjectSet says in its auth: part,
+	// the name the role file is handed over under (access.WithDefaultRoles(Roles(),
+	// Name)), and the cookie its sessions ride in. It is not a setting: an engine
+	// handed a name generation does not know refuses to open, so renaming the auth
+	// renames the directory and this constant together.
 	Name = "members"
 	// TablePrefix is the name's PascalCase form, which prefixes every table the auth owns.
 	TablePrefix = "Members"
@@ -350,7 +355,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 	_, tenantAdministrators := AdministratorRoles()
 	accessClient, err := access.New(store, settings.Collection,
-		access.WithDefaultRoles(Roles()),
+		access.WithDefaultRoles(Roles(), Name),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.

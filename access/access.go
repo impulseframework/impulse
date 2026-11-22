@@ -78,14 +78,24 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 	options.collection = collection
 
 	// Every Client defines the Super Administrator role, with or without a role
-	// file: the file's roles are compiled beside it.
-	config := &RoleConfig{}
+	// file: the file's roles are compiled beside it. A Client opened without a
+	// role file hands no configuration (nil), which declares no role and is asked
+	// nothing a role file is asked; it is told no auth's name, so it does not open
+	// where the collection knows several auths (validateEngineAuth).
+	var config *RoleConfig
 	if options.roleFileSet {
 		var err error
 		config, err = options.roleFile.Parse()
 		if err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
+		// The name the file is handed over under is the application's wiring, not the
+		// file's content: one generation did not know is refused as that.
+		if err := validateAuthName(collection, options.auth); err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
+	} else if err := validateEngineAuth(collection); err != nil {
+		return nil, errors.Wrap(err, "access.New()")
 	}
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,
@@ -93,7 +103,7 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 	if _, err := superAdministratorRole(collection, options.superMethods); err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
-	defaults, err := compileDefaultRoles(collection, config, options.superMethods)
+	defaults, err := compileDefaultRoles(collection, config, options.superMethods, options.auth)
 	if err != nil {
 		if !options.roleFileSet {
 			return nil, errors.Wrap(err, "access.New()")
@@ -166,7 +176,7 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 // CheckPolicy reads the policy store once and reports everything a deploy
 // should hear about before the release takes traffic: the shapes the role
 // file carries that are legal and probably not what the author wanted
-// (GrantWarning, ConcealingKeyWarning), and what the store holds that this
+// (GrantWarning, RequiredFieldWarning, ConcealingKeyWarning, UnreadSetWarning), and what the store holds that this
 // release cannot use as written — a grant it would skip (*SkippedGrant), a
 // custom role a default of the same name shadows (*ShadowedRole), memberships
 // naming a role nothing defines (*OrphanedMembership). It writes nothing: the

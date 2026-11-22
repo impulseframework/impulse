@@ -10,7 +10,7 @@ import (
 // The display-type vocabulary is one closed set for every field the generated metadata
 // describes: a table column, a view column, a computed field, and an RPC field. A
 // leaf's display type is its own name lower-cased on every path (a time.Time is date, a
-// civil.Date civildate, a impulse.UUID uuid), a nested struct, an imported type, and
+// civil.Date civildate, an impulse.UUID uuid), a nested struct, an imported type, and
 // spanner.NullJSON are object, a byte slice is bytes, a nullable BOOL column is
 // nullboolean, and a declared or inferred picker is enumerated. A slice of a leaf adds
 // [], for every leaf but nullboolean, the tri-state rule for one nullable BOOL column.

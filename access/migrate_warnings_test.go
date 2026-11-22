@@ -72,6 +72,18 @@ func (probeCollection) SubjectSetComparisonType(string) (accesstypes.AttributeTy
 	return "", false
 }
 
+func (probeCollection) SubjectSets(string) map[string][]string {
+	return nil
+}
+
+func (probeCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
+func (probeCollection) Auths() []string {
+	return nil
+}
+
 func (probeCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }
@@ -214,7 +226,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles})
+			got, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}
@@ -260,7 +272,7 @@ func TestValidateRoles_errors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			warnings, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles})
+			warnings, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles}, fixtureAuth)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("ValidateRoles() error = %v, want one containing %q", err, tt.wantErr)
 			}

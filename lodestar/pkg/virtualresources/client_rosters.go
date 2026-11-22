@@ -27,13 +27,14 @@ type (
 	// projects (search:"Clients.Name"), the SQL projects that column's token column under
 	// its own name, and the roster's box and Name's matches ride ClientsSearch.
 	//
-	// Demonstrates: @enumerate.key-view, @virtual, virtual.domain, virtual.keyed-read, outlet.shared, search.view.
+	// Demonstrates: @enumerate.key-view, @virtual, virtual.domain, virtual.keyed-read, outlet.shared, search.view, @rowWord.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default, portal)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(client)
 	ClientRoster struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`

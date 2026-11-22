@@ -53,7 +53,8 @@ import (
 
 // Warning is one thing a deploy should hear about before the release takes
 // traffic: a shape the role file carries as written but flags (GrantWarning,
-// RequiredFieldWarning, ConcealingKeyWarning), or something the policy store holds that this
+// RequiredFieldWarning, ConcealingKeyWarning), a subject set the application
+// declares that no role reads (UnreadSetWarning), or something the policy store holds that this
 // release cannot use as written (SkippedGrant, ShadowedRole,
 // OrphanedMembership). A consumer that ranges and prints sees one line each,
 // and one that switches on the kind reads its fields.

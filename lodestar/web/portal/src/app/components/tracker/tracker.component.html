@@ -36,7 +36,7 @@
               </div>
               <div class="row">
                 <span>{{ mission.kindId }} · hazard {{ mission.hazard }}</span>
-                <span class="fee">{{ mission.fee | number: '1.0-0' }} cr</span>
+                <span class="fee">{{ credits(mission.fee) }}</span>
               </div>
               <div class="row">
                 <span>deadline {{ mission.deadline | date: 'medium' }}</span>

@@ -63,14 +63,14 @@ func TestBindingsGraphDrawsEveryBindingOnce(t *testing.T) {
 		{name: "hangarsRun follows subject.squadrons", line: `"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsRun: SquadronId IN subject.squadrons"];`},
 		// The same for the set the library's group members table declares: the pass
 		// sets follow a person through the crew's groups.
-		{name: "hangarsOpen follows subject.groups", line: `"CrewGroupMember" -> "HangarPass" [style=dashed, label="hangarsOpen: GroupId IN subject.groups"];`},
-		{name: "hangarsRun follows subject.groups", line: `"CrewGroupMember" -> "HangarPass" [style=dashed, label="hangarsRun: GroupId IN subject.groups"];`},
-		// The groups set says where a row's sector is found (domain: GroupID.DomainID):
+		{name: "hangarsOpen follows subject.crewGroups", line: `"CrewGroupMember" -> "HangarPass" [style=dashed, label="hangarsOpen: GroupId IN subject.crewGroups"];`},
+		{name: "hangarsRun follows subject.crewGroups", line: `"CrewGroupMember" -> "HangarPass" [style=dashed, label="hangarsRun: GroupId IN subject.crewGroups"];`},
+		// The crewGroups set says where a row's sector is found (domain: GroupID.DomainID):
 		// the path is drawn dotted, as an @domain path is, under the set's name.
-		{name: "the groups set's domain lands on the groups table's DomainId", line: `"CrewGroupMember" -> "CrewGroup" [style=dotted, label="groups domain: GroupId ⇒ DomainId"];`},
+		{name: "the crewGroups set's domain lands on the groups table's DomainId", line: `"CrewGroupMember" -> "CrewGroup" [style=dotted, label="crewGroups domain: GroupId ⇒ DomainId"];`},
 		// Each set's parts, listed under the set in the columns' names.
-		{name: "HangarPass lists hangarsOpen with its who: and its where:", line: `<tr><td align="left">subject.hangarsOpen: HangarId</td></tr><tr><td align="left">subject.hangarsOpen who: UserId = subject OR SquadronId IN subject.squadrons OR GroupId IN subject.groups</td></tr><tr><td align="left">subject.hangarsOpen where: LevelId IN (&#39;visit&#39;, &#39;run&#39;) AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr>`},
-		{name: "HangarPass lists hangarsRun with its who: and its where:", line: `<tr><td align="left">subject.hangarsRun: HangarId</td></tr><tr><td align="left">subject.hangarsRun who: UserId = subject OR SquadronId IN subject.squadrons OR GroupId IN subject.groups</td></tr><tr><td align="left">subject.hangarsRun where: LevelId = &#39;run&#39; AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr>`},
+		{name: "HangarPass lists hangarsOpen with its who: and its where:", line: `<tr><td align="left">subject.hangarsOpen: HangarId</td></tr><tr><td align="left">subject.hangarsOpen who: UserId = subject OR SquadronId IN subject.squadrons OR GroupId IN subject.crewGroups</td></tr><tr><td align="left">subject.hangarsOpen where: LevelId IN (&#39;visit&#39;, &#39;run&#39;) AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr>`},
+		{name: "HangarPass lists hangarsRun with its who: and its where:", line: `<tr><td align="left">subject.hangarsRun: HangarId</td></tr><tr><td align="left">subject.hangarsRun who: UserId = subject OR SquadronId IN subject.squadrons OR GroupId IN subject.crewGroups</td></tr><tr><td align="left">subject.hangarsRun where: LevelId = &#39;run&#39; AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr>`},
 		// The dotted subject value, dashed.
 		{name: "wings lands on Squadrons.WingId", line: `"SquadronMembership" -> "Squadron" [style=dashed, label="wings: SquadronId ⇒ WingId"];`},
 		// Bare bindings listed in their resource's box.

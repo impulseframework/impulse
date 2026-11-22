@@ -630,6 +630,80 @@ describe('ResourceStore live pages: whose change, and when', () => {
     expect(dataRequests(script.requests).slice(before)).toHaveLength(1);
     await client.live.stop();
   });
+
+  const rowPage = (store: ResourceStore): void => {
+    store.resourceName.set('Ships' as Resource);
+    store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', fields: [] });
+    store.liveChoice.set(true);
+    store.uuid.set('s1');
+    store.buildStoreViewData();
+  };
+  const deletedByThisTab = changesAnswer('w-mine', [
+    { kind: 'list', resource: 'Ships', domain: 'anvil' },
+    { kind: 'row', resource: 'Ships', key: 's1', deleted: true },
+  ]);
+
+  it('a row deleted from its page is not read again, the row staying on hand as on a page that is not live, and the echo reads nothing', async () => {
+    const script = scripted({
+      [s1]: { rows: { id: 's1', name: 'Kestrel' } },
+      [shipsWrite]: { headers: deletedByThisTab },
+    });
+    const { store, client, feed, clock } = storeOver(script);
+    rowPage(store);
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.viewStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    // What the row page does for its Delete: the write, and it leaves. The tab knows the
+    // row is gone from its own write's answer, so nothing asks for the row.
+    await store.apply([store.handle().ops.remove(['s1'])], 'Ship deleted.');
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests).slice(before)).toEqual([]);
+    expect(store.rowPresent()).toBe(true);
+
+    feed.emit({ kind: 'row', resource: 'Ships', key: 's1', deleted: true, at: '1700000000000100', write: 'w-mine' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests).slice(before)).toEqual([]);
+    await client.live.stop();
+  });
+
+  it('a row this tab deleted is still read when the page asks, as it does after a method ran against the row', async () => {
+    const script = scripted({
+      [s1]: { rows: { id: 's1', name: 'Kestrel' } },
+      [shipsWrite]: { headers: deletedByThisTab },
+    });
+    const { store, client, feed } = storeOver(script);
+    rowPage(store);
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.viewStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    await store.apply([store.handle().ops.remove(['s1'])], 'Ship deleted.');
+    store.rowChanged();
+    await settle(() => store.viewStatus() === 'resolved' && dataRequests(script.requests).length > before);
+    expect(dataRequests(script.requests).slice(before)).toEqual([{ url: s1, version: 'w-mine', subscribed: true }]);
+    await client.live.stop();
+  });
+
+  it("a row somebody else deleted is read again, after the wait for other people's changes: the page learns it is gone", async () => {
+    const script = scripted({ [s1]: { rows: { id: 's1', name: 'Kestrel' } } });
+    const { store, client, feed, clock } = storeOver(script);
+    rowPage(store);
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.viewStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    feed.emit({ kind: 'row', resource: 'Ships', key: 's1', deleted: true, at: '1700000000000100', write: 'w-theirs' });
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests)).toHaveLength(before);
+    clock.elapse();
+    await settle(() => store.viewStatus() === 'resolved' && dataRequests(script.requests).length > before);
+    expect(dataRequests(script.requests).slice(before)).toEqual([
+      { url: s1, version: '1700000000000100', subscribed: true },
+    ]);
+    await client.live.stop();
+  });
 });
 
 describe('ResourceStore live by default', () => {

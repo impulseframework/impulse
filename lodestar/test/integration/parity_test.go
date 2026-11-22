@@ -233,7 +233,7 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
 	built := []access.Option{
-		access.WithDefaultRoles(roles),
+		access.WithDefaultRoles(roles, authName(prefix)),
 		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
 	}
@@ -266,6 +266,16 @@ func superAdministratorMethods(prefix string) []accesstypes.Resource {
 	}
 
 	return crewidentity.SuperAdministratorMethods()
+}
+
+// authName is the name of the auth a store's prefix belongs to: an engine validates its
+// role file as that auth's, against the subject sets that describe its people.
+func authName(prefix string) string {
+	if prefix == members.TablePrefix {
+		return members.Name
+	}
+
+	return crew.Name
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and
@@ -626,8 +636,10 @@ func (d alsoDeclared) List() map[accesstypes.Permission][]accesstypes.Resource {
 // without what its release declares, and the release's own engine refuses to write a
 // role a grant the release does not declare, so a test that needs one in the store
 // writes it through this engine, as the release that declared the name would have left
-// it there. The engine is handed no role file: it writes a custom role's rows and
-// answers nothing. It is closed when the test ends.
+// it there. The engine is handed a role file that declares no role, under the crew's
+// name: an engine over a collection that knows several auths is told whose roles it
+// holds. It writes a custom role's rows and answers nothing. It is closed when the test
+// ends.
 func engineOfAReleaseThatDeclared(t *testing.T, db *initiator.SpannerDB, also map[accesstypes.Permission][]accesstypes.Resource) *access.Client {
 	t.Helper()
 
@@ -645,7 +657,8 @@ func engineOfAReleaseWithAttributes(t *testing.T, db *initiator.SpannerDB, attri
 }
 
 // engineOfARelease opens an engine over the crew's store for the release whose
-// collection is given, handed no role file, and closes it when the test ends.
+// collection is given, handed a role file that declares no role under the crew's name,
+// and closes it when the test ends.
 func engineOfARelease(t *testing.T, db *initiator.SpannerDB, collection access.PermissionCollection) *access.Client {
 	t.Helper()
 
@@ -653,7 +666,7 @@ func engineOfARelease(t *testing.T, db *initiator.SpannerDB, collection access.P
 	if err != nil {
 		t.Fatalf("spannerstore.New() error = %v", err)
 	}
-	client, err := access.New(store, collection)
+	client, err := access.New(store, collection, access.WithDefaultRoles(access.RoleFile(`{"roles": {}}`), crew.Name))
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}
