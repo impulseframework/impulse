@@ -795,6 +795,31 @@ func TestFiles_strangerThroughMethod(t *testing.T) {
 	}
 }
 
+// TestFiles_passwordStrength holds the handler a generated router mounts for the password
+// strength question: the password method's file returns the method's Strength handler, and
+// an auth without the password method has none.
+func TestFiles_passwordStrength(t *testing.T) {
+	t.Parallel()
+	const handler = "func (h *Handlers) PasswordStrength() http.HandlerFunc {\n\treturn h.password.Strength()\n}"
+	for _, spec := range smokeSpecs() {
+		files, err := Files(spec)
+		if err != nil {
+			t.Fatalf("Files(%s) error = %v", spec.Name, err)
+		}
+		password := false
+		for i := range spec.Methods {
+			password = password || spec.Methods[i].Kind == app.MethodPassword
+		}
+		held := false
+		for _, data := range files {
+			held = held || strings.Contains(string(data), handler)
+		}
+		if held != password {
+			t.Errorf("%s: a file holds the PasswordStrength handler = %v, want %v, as it has the password method", spec.Name, held, password)
+		}
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
