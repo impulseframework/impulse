@@ -1371,6 +1371,10 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 	if got := b.authenticatedName(ctx); got != "Pat Invited" {
 		t.Errorf("the new account's name = %q, want the invitation's", got)
 	}
+	// The invitation was used: its token no longer opens it, and the browser that
+	// carried it, signed in to the account it seated, has nothing to accept.
+	b.expect(ctx, http.StatusNotFound, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+	b.expect(ctx, http.StatusNotFound, http.MethodPost, "/invitation/accept", nil, b.xsrfToken())
 
 	// A person signed in accepts by hand only an invitation to their own address: one
 	// for another address is refused, the invitation left standing; their own, in any
