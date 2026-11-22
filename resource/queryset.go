@@ -255,6 +255,9 @@ func (q *QuerySet[Resource]) Permitted(ctx context.Context) (bool, error) {
 	if q.userPermissions == nil {
 		return false, nil
 	}
+	if q.across != nil {
+		return false, errors.Newf("resource.QuerySet.Permitted(): the %s query is a list across tenants, which no one scope gates; QuerySet.TenantsListed answers the tenants it reads", q.Resource())
+	}
 	decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.Resource())
 	if err != nil {
 		return false, errors.Wrap(err, "resource.UserPermissions.Check()")

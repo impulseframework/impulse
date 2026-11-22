@@ -161,9 +161,15 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	if !d.collection.ListsAcrossTenants(qSet.Resource()) {
 		return nil, errors.Newf("resource %s cannot be listed across tenants: it is not declared for it; declare @listAcrossTenants on its struct and regenerate", qSet.Resource())
 	}
+	for i := range d.names {
+		if name := &d.names[i]; name.TenantColumn != "" {
+			return nil, errors.Newf("resource %s cannot be listed across tenants with the name field %s: it is the name of a row of %s, which belongs to a tenant, and a list across tenants looks up no tenant's names; take it out of the resource's NameFields() (the generator writes none for a resource declared @listAcrossTenants)", qSet.Resource(), name.Field, name.Resource)
+		}
+	}
 
-	// The zero scope is no tenant's: until the read checks settle the set, nothing
-	// that asks the scope finds a grant in it.
+	// The zero scope is no tenant's. Until the read checks settle the set nothing
+	// may ask a grant in it: a check asked in it is refused
+	// (accesstypes.ErrNoScope).
 	qSet.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, accesstypes.Scope{}, perms[0])
 
 	reached, err := userPermissions.Domains(request.Context())
@@ -384,7 +390,8 @@ func (q *QuerySet[Resource]) decideAcrossTenants(ctx context.Context, dbType DBT
 
 	// A name's own grant is asked once for the list, not once a tenant: it is
 	// held where the pointed-to resource's grants are, and each tenant's copy of
-	// the query carries the decisions.
+	// the query carries the decisions. Every name that reaches here is held in
+	// the global scope: a name of a tenant's row is refused at decode.
 	if err := q.checkNameGrants(ctx); err != nil {
 		return false, err
 	}

@@ -123,7 +123,9 @@ func (n *NameField) grantResource() accesstypes.Resource {
 
 // nameGrantScope is the scope a name's grant is asked in, where the pointed-to
 // resource's grants are held: the request's scope where that resource belongs
-// to a tenant, the global scope where it does not.
+// to a tenant, the global scope where it does not. A list across tenants holds
+// no name of a tenant's row (DecodeAcrossTenants), so the request's scope here
+// is always one tenant's.
 func (q *QuerySet[Resource]) nameGrantScope(name *NameField) accesstypes.Scope {
 	if name.TenantColumn == "" {
 		return accesstypes.GlobalScope()

@@ -418,6 +418,9 @@ func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bo
 func (a *admittedPermissions) Check(
 	ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.admittedPermissions.Check()")
+	}
 	if domain, ok := scope.Domain(); ok {
 		reaches, err := a.Reaches(ctx, domain)
 		if err != nil {
@@ -441,6 +444,9 @@ func (a *admittedPermissions) Check(
 // PermissionDigest is empty in a tenant the session does not reach, so the
 // frontend's digest agrees with what Check will enforce; otherwise it delegates.
 func (a *admittedPermissions) PermissionDigest(ctx context.Context, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.admittedPermissions.PermissionDigest()")
+	}
 	if domain, ok := scope.Domain(); ok {
 		reaches, err := a.Reaches(ctx, domain)
 		if err != nil {
