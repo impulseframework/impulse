@@ -4411,8 +4411,11 @@ Administrator role, and for a group kept in one tenant that tenant's roles alone
 no role for the whole application, in every tenant or in another tenant. Asked with no
 group, `GiveCrewGroupRole` is answered no role, and so is an id that is no group's,
 as a group that may hold no role there is: the list never says whether an id is a
-group's. A group named beside another method, or any other way than by one id, is
-refused (400). The role file grants the list to the roles that give one, `group`
+group's. The rule for a tenant that is directory only is the method's here too: its
+administrator's role is listed for a group kept in that tenant only to a caller the
+tenant admits, and for a group kept for the whole application to any caller the grant
+lets give it, since such a group makes nobody the tenant's administrator. A group named
+beside another method, or any other way than by one id, is refused (400). The role file grants the list to the roles that give one, `group`
 among its fields where the role gives a group a role:
 
 ```json

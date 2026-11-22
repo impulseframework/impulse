@@ -61,7 +61,10 @@ func (m *Manager) GivableRoles(ctx context.Context, db resource.Executor, method
 // not exist is listed no role, as a group that may hold none there is: the list never
 // says whether an id is a group's, and the method refuses the id when it is asked. The
 // rule is the group's and not the caller's: a call outside any request is held to it
-// too.
+// too. A tenant's administrator's role of a tenant that is directory only is held to that
+// rule as the method holds it: for a group kept in that tenant it is offered only to a
+// caller the tenant admits, and a group kept for the whole application makes nobody the
+// tenant's administrator, so its list offers the role to any caller the grant lets give it.
 func (m *Manager) GivableGroupRoles(ctx context.Context, db resource.Executor, method accesstypes.Resource, groupID impulse.UUID, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -86,7 +89,7 @@ func (m *Manager) givable(ctx context.Context, db resource.Executor, method acce
 	}
 	var offered []access.RoleInfo
 	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		mayHold, err := m.groupMayHold(ctx, txn, groupID, scope)
+		mayHold, kept, err := m.groupMayHold(ctx, txn, groupID, scope)
 		if err != nil {
 			return err
 		}
@@ -99,7 +102,7 @@ func (m *Manager) givable(ctx context.Context, db resource.Executor, method acce
 				return true, nil
 			}
 
-			return m.couldGiveIn(ctx, txn, method, scope, role)
+			return m.couldGiveIn(ctx, txn, method, scope, role, kept)
 		})
 
 		return err
@@ -112,37 +115,44 @@ func (m *Manager) givable(ctx context.Context, db resource.Executor, method acce
 
 // groupMayHold answers the rule a list of the roles to give holds each role to for the
 // group named: whether the group, kept where its row says, may hold the role in scope
-// (access.GroupMayHold). With no group named every role passes, since a person is
-// given the role; a group that does not exist passes none, so the list holds no role
-// and no grant is asked about it.
-func (m *Manager) groupMayHold(ctx context.Context, txn resource.ReadWriteTransaction, groupID *impulse.UUID, scope accesstypes.PolicyScope) (func(accesstypes.Role) bool, error) {
+// (access.GroupMayHold), and where the group is kept (kept), which the tenant rule asks
+// as the method asks it (couldGiveIn). With no group named every role passes and kept
+// is nil, since a person is given the role; a group that does not exist passes none, so
+// the list holds no role and no grant is asked about it.
+func (m *Manager) groupMayHold(
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID *impulse.UUID, scope accesstypes.PolicyScope,
+) (mayHold func(accesstypes.Role) bool, kept *accesstypes.PolicyScope, err error) {
 	if groupID == nil {
 		return func(accesstypes.Role) bool {
 			return true
-		}, nil
+		}, nil, nil
 	}
 	group, found, err := m.store.Group(ctx, txn, *groupID)
 	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.Group()")
+		return nil, nil, errors.Wrap(err, "identity.Store.Group()")
 	}
 	if !found {
 		return func(accesstypes.Role) bool {
 			return false
-		}, nil
+		}, nil, nil
 	}
-	kept, err := group.kept()
+	place, err := group.kept()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return func(role accesstypes.Role) bool {
-		return access.GroupMayHold(kept, scope, role)
-	}, nil
+		return access.GroupMayHold(place, scope, role)
+	}, &place, nil
 }
 
 // couldGiveIn reports whether the request's caller could give the role in the scope by
 // hand from the whole application's management with the method named (GivableRoles).
-func (m *Manager) couldGiveIn(ctx context.Context, txn resource.ReadWriteTransaction, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+// kept is where the group is kept for a group's list (GivableGroupRoles) and nil for a
+// person's, so the tenant rule is asked as the method asks it (entersToChange).
+func (m *Manager) couldGiveIn(
+	ctx context.Context, txn resource.ReadWriteTransaction, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role, kept *accesstypes.PolicyScope,
+) (bool, error) {
 	if role == accesstypes.SuperAdministrator {
 		if !scope.IsGlobal() {
 			return false, nil
@@ -155,7 +165,7 @@ func (m *Manager) couldGiveIn(ctx context.Context, txn resource.ReadWriteTransac
 			return false, err
 		}
 	}
-	if enters, err := m.entersToChange(ctx, scope, role, nil); err != nil || !enters {
+	if enters, err := m.entersToChange(ctx, scope, role, kept); err != nil || !enters {
 		return false, err
 	}
 	could, err := m.grants.CouldGive(ctx, method, scope, role)
