@@ -668,7 +668,7 @@ func (u *fakeUserManager) Membership(ctx context.Context, scope accesstypes.Poli
 			return access.MembershipKey{}, err
 		}
 		if !custom {
-			return access.MembershipKey{}, httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return access.MembershipKey{}, httpio.NewNotFoundMessageWithError(errors.Newf("role %q does not exist", role), "The role "+roleInWords(role)+" does not exist.")
 		}
 	}
 	if user == "" {

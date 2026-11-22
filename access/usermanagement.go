@@ -64,7 +64,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 		return err
 	}
 	if !roleFound {
-		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
+		return roleNotFound(role)
 	}
 
 	for _, user := range users {
@@ -113,7 +113,7 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 			return err
 		}
 		if !roleFound {
-			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return roleNotFound(role)
 		}
 	}
 
@@ -143,7 +143,7 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 		return err
 	}
 	if !roleFound {
-		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
+		return roleNotFound(role)
 	}
 
 	for _, user := range users {
@@ -163,7 +163,7 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope access
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -404,7 +404,7 @@ func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.P
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 	if err := u.requireDeclaredPermission(permission); err != nil {
@@ -425,7 +425,7 @@ func (u *userManager) DeleteRolePermission(ctx context.Context, scope accesstype
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -443,7 +443,7 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, scope acce
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -462,7 +462,7 @@ func (u *userManager) AddRoleGrants(ctx context.Context, scope accesstypes.Polic
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -493,7 +493,7 @@ func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Po
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be changed on a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 	if err := requireResources(removals); err != nil {
@@ -636,7 +636,7 @@ func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Policy
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 	if resource == "" {
@@ -662,7 +662,7 @@ func (u *userManager) DeleteRolePermissionResources(
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -683,7 +683,7 @@ func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Pol
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -774,7 +774,7 @@ func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Sco
 		return nil, err
 	}
 	if !roleFound {
-		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
+		return nil, roleNotFound(role)
 	}
 
 	permissions, err := u.evaluator.rolePermissions(ctx, role, scope)
@@ -802,7 +802,7 @@ func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicySc
 		return nil, err
 	}
 	if held == nil {
-		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
+		return nil, roleNotFound(role)
 	}
 
 	rows, err := u.store.roleResourceGrants(ctx, *held, role)
@@ -966,7 +966,7 @@ func customRoleScopeBy(ctx context.Context, scope accesstypes.PolicyScope, role 
 // requireCustomRole errors unless role is a custom role held in scope itself:
 // a default role's grants are the release's, and a custom role held in every
 // domain is changed where it is held, not through one domain.
-func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, notFoundMsg string) error {
+func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if u.defaults.exists(scope, role) {
 		return httpio.NewBadRequestMessagef("role %q is one of the release's default roles; its grants are the release's. Copy them into a custom role to change them", string(role))
 	}
@@ -976,7 +976,7 @@ func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.P
 		return err
 	}
 	if !exists {
-		return httpio.NewNotFoundMessage(notFoundMsg)
+		return roleNotFound(role)
 	}
 
 	return nil

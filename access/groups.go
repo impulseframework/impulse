@@ -193,7 +193,7 @@ func (u *userManager) GroupRole(ctx context.Context, group accesstypes.Group, ke
 		return GroupRoleKey{}, err
 	}
 	if !found {
-		return GroupRoleKey{}, httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+		return GroupRoleKey{}, roleNotFound(role)
 	}
 
 	return NewGroupRoleKey(group, scope, role), nil
@@ -240,7 +240,7 @@ func (u *userManager) DescribeGroup(ctx context.Context, group accesstypes.Group
 		return err
 	}
 	if !found {
-		return httpio.NewNotFoundMessage("the group does not exist")
+		return groupNotFound(group)
 	}
 
 	return nil
@@ -278,7 +278,7 @@ func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) 
 		return err
 	}
 	if !deleted {
-		return httpio.NewNotFoundMessage("the group does not exist")
+		return groupNotFound(group)
 	}
 
 	return nil
@@ -410,7 +410,7 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 			return err
 		}
 		if !found {
-			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return roleNotFound(role)
 		}
 	}
 	for _, role := range roles {
@@ -463,7 +463,7 @@ func (u *userManager) requireGroup(ctx context.Context, group accesstypes.Group)
 		return nil, err
 	}
 	if !found {
-		return nil, httpio.NewNotFoundMessage("the group does not exist")
+		return nil, groupNotFound(group)
 	}
 
 	return row, nil

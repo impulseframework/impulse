@@ -267,7 +267,7 @@ func (u *fakeUserManager) GroupRole(ctx context.Context, group accesstypes.Group
 			return access.GroupRoleKey{}, err
 		}
 		if !custom {
-			return access.GroupRoleKey{}, httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return access.GroupRoleKey{}, httpio.NewNotFoundMessageWithError(errors.Newf("role %q does not exist", role), "The role "+roleInWords(role)+" does not exist.")
 		}
 	}
 
