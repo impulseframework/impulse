@@ -719,15 +719,16 @@ func ({{ .SubjectGroupUser }}) Subquery() (query string, params map[string]any) 
 {{- if and .OffersToEntering (not .ForTenant) }}
 
 // {{ GoCamel .Group }}AdministeredTenantsQuery answers the {{ .TenantWord }} each group of the
-// {{ .Auth }} auth makes its people administrators of, a row for each, RowKey the group's id
-// and Tenant the {{ .TenantWord }}: a group kept in a {{ .TenantWord }} that holds there one of
-// the roles the auth's permission engine names as a {{ .TenantWord }}'s administrator's
-// (@{{ .EnteringAdministratorsParam }}), in an assignment that has not ended, one that has
-// not begun included. The methods that put a person in a group and take one out refuse a
-// caller by the same count (the identity package's requireEnteringToChange), and each row
-// of the whole application's groups and of their people reads it (TenantsToEnter).
+// {{ .Auth }} auth makes its people administrators of, a row for each, RowKey the group's id,
+// Tenant the {{ .TenantWord }}, and the kind, the {{ .TenantWord }} and the name of the role: a
+// group kept in a {{ .TenantWord }} that holds there one of the roles the auth's permission
+// engine names as a {{ .TenantWord }}'s administrator's (@{{ .EnteringAdministratorsParam }}), in
+// an assignment that has not ended, one that has not begun included. The methods that put a
+// person in a group and take one out refuse a caller by the same count (the identity
+// package's requireEnteringToChange), and each row of the whole application's groups, of
+// their people and of the roles they hold reads it (TenantsToEnter).
 const {{ GoCamel .Group }}AdministeredTenantsQuery = ` + "`" + `
-SELECT tr.GroupId AS RowKey, tg.DomainId AS Tenant
+SELECT tr.GroupId AS RowKey, tr.Kind AS Kind, tr.DomainId AS DomainId, tr.Role AS Role, tg.DomainId AS Tenant
 FROM {{ .Policy.GroupRoles }} tr
 JOIN {{ .Policy.Groups }} tg ON tg.Id = tr.GroupId
 WHERE tg.Kind = {{ .KindDomain }} AND tg.Axis = {{ .ScopeAxis }}
@@ -1820,19 +1821,22 @@ type Take{{ .Subject }}GroupRole struct {
 // one held in the global scope, in one domain (Domain), or in every domain
 // (EveryDomain). Every person in the group is served without it at their next request,
 // unless they hold it some other way. A role the group does not hold there is no error.
-// It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the groups
+// It names no row: a page runs it from a row of {{ .ListedGroupRole }}, the roles the groups
 // hold, filling the request from the row. A person in the group does not take from it
-// the role that makes them the last administrator of a tenant.` + identityJudgedNote + `
+// the role that makes them the last administrator of a tenant.` + identityJudgedNote + identityGroupRoleRemovalEntersNote + `
 {{- else -}}
 // Take{{ .Subject }}GroupRole takes away a role a group of the {{ .Auth }} auth holds. The
 // application has no tenants, so the role is the one held for the whole application and
 // the request names no place. Every person in the group is served without it at their
 // next request, unless they hold it some other way. A role the group does not hold is no
-// error. It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the
+// error. It names no row: a page runs it from a row of {{ .ListedGroupRole }}, the roles the
 // groups hold, filling the request from the row.` + identityJudgedNote + `
 {{- end }}
 //
 // @rpc
+{{- if .OffersToEntering }}
+// @callerEnters({{ .ListedGroupRole }})
+{{- end }}
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityAccessClass + `
 type Take{{ .Subject }}GroupRole struct {

@@ -148,7 +148,7 @@ func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 				// The group's own role, held in the tenant the group is kept in, that has
 				// not ended; one that has not begun counts, as the refusal counts it.
 				"const crewGroupAdministeredTenantsQuery = `\n" +
-					"SELECT tr.GroupId AS RowKey, tg.DomainId AS Tenant\n" +
+					"SELECT tr.GroupId AS RowKey, tr.Kind AS Kind, tr.DomainId AS DomainId, tr.Role AS Role, tg.DomainId AS Tenant\n" +
 					"FROM CrewGroupRoles tr\n" +
 					"JOIN CrewGroups tg ON tg.Id = tr.GroupId\n" +
 					"WHERE tg.Kind = 'domain' AND tg.Axis = ''\n" +
@@ -210,6 +210,150 @@ func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 	}
 }
 
+// Test_identityRoleTemplates_administeredTenants pins what the whole application's lists
+// of the roles people hold, of the roles held for a set time and of the roles the groups
+// hold say of the tenant a row's role administers, where the tenant record declares the
+// directory-only switch: the query of the roles people hold of their own, a row for each
+// that is one of the engine's administrator roles held in the tenant itself, named by the
+// account, the kind, the tenant and the role; the helper over the roles the client sets;
+// the two lists of a person's roles answering TenantsToEnter with it, by four columns and
+// neither the group nor the axis; and the list of the groups' roles answering it with the
+// group's query, by the group and the same three. With no switch declared, none of it; nor
+// in the roles people hold where a directory writes the auth's roles, since the method that
+// takes a role away is not written there.
+func Test_identityRoleTemplates_administeredTenants(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	data := func(directory *identityTenantDirectory) *identitySourceData {
+		inst := &identityInstance{
+			auth: "Crew", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}, groupSet: "crewGroups",
+			tables: map[identityTable]bool{identityUsers: true, identityMemberships: true, identityGroups: true, identityGroupMembers: true, identityGroupRoles: true},
+		}
+
+		return &identitySourceData{
+			Source: "Auth", Package: "crewresources", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default",
+			Tables: session.Tables{Users: "CrewSessionUsers"},
+			Policy: access.Tables{UserRoles: "CrewUserRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles"},
+		}
+	}
+	// A directory that writes the auth's roles: no method takes a role away from a person.
+	synced := data(directory)
+	synced.rolesSynced = true
+	imported := "\"github.com/impulseframework/impulse/resource\""
+	none := []string{"AdministeredTenants", "enteringAdministratorRoles", "TenantsToEnter", "impulse/resource\""}
+	personDoc := "// TenantsToEnter names the sector the row's role makes its holder an administrator of,\n" +
+		"// where a person holds the role of their own in that sector itself: a caller whose\n" +
+		"// session does not enter it is not offered the method that takes the role away.\n"
+	tests := []struct {
+		name            string
+		template        string
+		source          string
+		data            *identitySourceData
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:     "the roles people hold, with the switch declared",
+			template: "identityHeldRolesTemplate", source: identityHeldRolesTemplate,
+			data: data(directory),
+			wantContains: []string{
+				// A role of the person's own, held in the tenant itself, that has not
+				// ended; one that has not begun counts, as the refusal counts it.
+				"const crewHeldRoleAdministeredTenantsQuery = `\n" +
+					"SELECT ta.UserId AS UserId, ta.Kind AS Kind, ta.DomainId AS DomainId, ta.Role AS Role, ta.DomainId AS Tenant\n" +
+					"FROM CrewUserRoles ta\n" +
+					"WHERE ta.Kind = 'domain' AND ta.Axis = ''\n" +
+					"  AND ta.Role IN UNNEST(@enteringAdministratorRoles)\n" +
+					"  AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())\n`",
+				// The roles, and the parameter they are bound under, are the people's;
+				// four columns name the membership.
+				"func crewHeldRoleTenantsToEnter() resource.TenantsToEnter {\n" +
+					"\t// The roles are the people's: the same names, bound under the same parameter.\n" +
+					"\tenter := crewSessionUserTenantsToEnter(\"UserId\")\n" +
+					"\tenter.Query = crewHeldRoleAdministeredTenantsQuery\n" +
+					"\tenter.Match = map[string]string{\"UserId\": \"UserId\", \"Kind\": \"Kind\", \"DomainId\": \"DomainId\", \"Role\": \"Role\"}\n" +
+					"\n\treturn enter\n}",
+				personDoc + "func (CrewHeldRole) TenantsToEnter() resource.TenantsToEnter {\n\treturn crewHeldRoleTenantsToEnter()\n}",
+				imported,
+			},
+			// Neither the group a role comes through nor the axis names the membership.
+			wantNotContains: []string{"\"GroupId\":", "\"Axis\":", "StartsAt IS"},
+		},
+		{
+			name:     "the roles people hold, with no switch declared",
+			template: "identityHeldRolesTemplate", source: identityHeldRolesTemplate,
+			data:            data(nil),
+			wantContains:    []string{"CrewHeldRole struct {"},
+			wantNotContains: none,
+		},
+		{
+			name:     "the roles people hold, of an auth whose directory writes its roles, with the switch declared",
+			template: "identityHeldRolesTemplate", source: identityHeldRolesTemplate,
+			data:            synced,
+			wantContains:    []string{"CrewHeldRole struct {"},
+			wantNotContains: none,
+		},
+		{
+			name:     "the roles held for a set time, with the switch declared",
+			template: "identityTakenRolesTemplate", source: identityTakenRolesTemplate,
+			data: data(directory),
+			wantContains: []string{
+				personDoc + "func (CrewTakenRole) TenantsToEnter() resource.TenantsToEnter {\n\treturn crewHeldRoleTenantsToEnter()\n}",
+				imported,
+			},
+			// The query and the helper are the held roles' file's.
+			wantNotContains: []string{"AdministeredTenantsQuery", "func crewHeldRoleTenantsToEnter"},
+		},
+		{
+			name:     "the roles held for a set time, with no switch declared",
+			template: "identityTakenRolesTemplate", source: identityTakenRolesTemplate,
+			data:            data(nil),
+			wantContains:    []string{"CrewTakenRole struct {"},
+			wantNotContains: none,
+		},
+		{
+			name:     "the roles the groups hold, with the switch declared",
+			template: "identityListedGroupRolesTemplate", source: identityListedGroupRolesTemplate,
+			data: data(directory),
+			wantContains: []string{
+				"// TenantsToEnter names the sector the group is kept in, where the row's role is one\n" +
+					"// of that sector's administrator roles held there: a caller whose session does not\n" +
+					"// enter it is not offered the method that takes the role away from the group.\n" +
+					"func (CrewListedGroupRole) TenantsToEnter() resource.TenantsToEnter {\n" +
+					"\tenter := crewGroupTenantsToEnter(\"GroupId\")\n" +
+					"\tenter.Match[\"Kind\"] = \"Kind\"\n" +
+					"\tenter.Match[\"DomainId\"] = \"DomainId\"\n" +
+					"\tenter.Match[\"Role\"] = \"Role\"\n" +
+					"\n\treturn enter\n}",
+				imported,
+			},
+			wantNotContains: []string{"enter.Match[\"Axis\"]", "AdministeredTenantsQuery"},
+		},
+		{
+			name:     "the roles the groups hold, with no switch declared",
+			template: "identityListedGroupRolesTemplate", source: identityListedGroupRolesTemplate,
+			data:            data(nil),
+			wantContains:    []string{"CrewListedGroupRole struct {"},
+			wantNotContains: none,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := (&client{}).generateTemplateOutput(tt.template, tt.source, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(out); err != nil {
+				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
+			}
+			assertContains(t, tt.template, string(out), tt.wantContains, tt.wantNotContains)
+		})
+	}
+}
+
 // Test_prepareIdentity_callerEnters pins the eight methods that change how a person
 // signs in, or whether their account stands, on a tree written for a tenant record that
 // declares the directory-only switch: on both sides each carries @callerEnters after its
@@ -219,7 +363,10 @@ func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 // for the auth that keeps groups, with a sentence of their own, and each names a row
 // whose struct answers it over the column that holds the group's id; no tenant's group
 // method and no other method carries it, and the client hands the rows the engine's
-// roles. Written for a record that declares no switch, the tree says nothing of it.
+// roles. The whole application's two methods that take a role away name no row: each
+// lists the rows a page runs it from, with a sentence of its own, and each listed
+// struct answers TenantsToEnter; the tenant's two carry nothing of it. Written for a
+// record that declares no switch, the tree says nothing of it.
 func Test_prepareIdentity_callerEnters(t *testing.T) {
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
@@ -355,6 +502,59 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 			}
 		}
 	}
+	// The whole application's two methods that take a role away name no row: each lists
+	// the rows a page runs it from, the roles held for a set time only where the auth's
+	// people take one, and the group's only for the auth that keeps groups.
+	roleNote := "// It names no row: a page runs it from a row of the roles people hold, filling the\n" +
+		"// request from the row. Where the role is one of a citadel's administrator roles held\n" +
+		"// in that citadel itself, such a row offers it only to a caller whose session enters\n" +
+		"// the citadel (@callerEnters); the method refuses anyone else.\n//\n// @rpc"
+	groupRoleNote := "// Where the group is kept in a citadel and the role is one of that citadel's\n" +
+		"// administrator roles held there, a row of the roles the groups hold offers it only to a\n" +
+		"// caller whose session enters the citadel (@callerEnters); the method refuses anyone\n" +
+		"// else.\n//\n// @rpc"
+	offered := map[string][]string{
+		"crewidentity/remove_crew_role.go":           {"// @rpc\n// @callerEnters(CrewHeldRole, CrewTakenRole)\n// @outlet(", roleNote},
+		"membersidentity/remove_members_role.go":     {"// @rpc\n// @callerEnters(MembersHeldRole, MembersTakenRole)\n// @outlet(", roleNote},
+		"membersidentity/take_members_group_role.go": {"// @rpc\n// @callerEnters(MembersListedGroupRole)\n// @outlet(", groupRoleNote},
+	}
+	var listing []string
+	for _, file := range files {
+		if strings.Contains(read(file), "// @callerEnters(") {
+			listing = append(listing, file)
+		}
+	}
+	wantListing := make([]string, 0, len(offered))
+	for file := range offered {
+		wantListing = append(wantListing, file)
+	}
+	slices.Sort(wantListing)
+	if diff := cmp.Diff(wantListing, listing); diff != "" {
+		t.Errorf("the methods that list the rows that offer them (-want +got):\n%s", diff)
+	}
+	listed := regexp.MustCompile(`// @callerEnters\(([\w, ]+)\)`)
+	for file, lines := range offered {
+		source := read(file)
+		for _, line := range lines {
+			if !strings.Contains(source, line) {
+				t.Errorf("%s lacks %q:\n%s", file, line, source)
+			}
+		}
+		named := listed.FindStringSubmatch(source)
+		if named == nil {
+			continue
+		}
+		for name := range strings.SplitSeq(named[1], ", ") {
+			declaration := "func (" + name + ") TenantsToEnter() resource.TenantsToEnter {"
+			declaring := slices.DeleteFunc(slices.Clone(files), func(other string) bool {
+				return !strings.Contains(read(other), declaration)
+			})
+			if len(declaring) != 1 {
+				t.Errorf("%s lists %s, declared with TenantsToEnter in %v, want in one file", file, name, declaring)
+			}
+		}
+	}
+
 	// An auth that keeps no groups reads no group.
 	if source := identitySource(t, "internal/crewresources/crew_session_users.go"); strings.Contains(source, "UNION") {
 		t.Errorf("the crew keeps no groups, and its query reads them:\n%s", source)

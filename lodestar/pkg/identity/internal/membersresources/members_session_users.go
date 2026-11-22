@@ -85,7 +85,7 @@ func membersSessionUserTenantsToEnter(column string) resource.TenantsToEnter {
 	return resource.TenantsToEnter{
 		Query:  membersSessionUserAdministeredTenantsQuery,
 		Params: map[string]any{"enteringAdministratorRoles": administrators},
-		Column: column,
+		Match:  map[string]string{"RowKey": column},
 	}
 }
 

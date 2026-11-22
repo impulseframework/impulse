@@ -2364,6 +2364,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				OfferedOn:   []accesstypes.Resource{"CrewHeldRoles", "CrewTakenRoles"},
 			},
 			{
 				Name:         "RenameCrewUser",
@@ -2516,6 +2517,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				OfferedOn:   []accesstypes.Resource{"CrewListedGroupRoles"},
 			},
 			{
 				Name:        "TakeCrewRole",

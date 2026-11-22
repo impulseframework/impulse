@@ -53,8 +53,12 @@ func rateCollection(t *testing.T) *GeneratedCollection {
 		{Name: "eachLevel", Column: "Levels", Type: AttributeTypeNumber},
 		{Name: "gone", Column: "NoSuchField", Type: AttributeTypeString},
 	}})
+	g, err := b.GeneratedCollection()
+	if err != nil {
+		t.Fatalf("GeneratedCollection() error = %v", err)
+	}
 
-	return b.GeneratedCollection()
+	return g
 }
 
 // TestSettleRequestFields pins how a grant's condition is settled against a decoded

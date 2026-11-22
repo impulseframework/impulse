@@ -492,8 +492,9 @@ func Test_typescriptMethodsTemplate_arrays(t *testing.T) {
 // Test_typescriptMethodsTemplate_target pins the row a method runs against in its
 // metadata: the target's resource and the request field that carries the row's key, for
 // a plain @target and for a transition alike, with the resource names imported for
-// either; a method with no target row names none, and a file of such methods imports no
-// resource name.
+// either; a method that names no row and is offered on the rows of resources names them,
+// in the order written, and imports the resource names too; a method with no target row
+// and no rows names none, and a file of such methods imports no resource name.
 func Test_typescriptMethodsTemplate_target(t *testing.T) {
 	t.Parallel()
 
@@ -568,10 +569,23 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 			},
 		},
 		{
+			name: "a method that names no row names the resources whose rows offer it, in the order written",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, OfferedOn: []rpcOfferingRow{
+				{RootStruct: "Widget", RootResource: "Widgets"},
+				{RootStruct: "Gadget", RootResource: "Gadgets"},
+			}},
+			want: []string{
+				"offeredOn: [Resources.Widgets, Resources.Gadgets],",
+				"import { Methods, Resources } from './zz_gen_constants';",
+				"  offeredOn?: Resource[];",
+			},
+			wantNot: []string{"target: { resource:"},
+		},
+		{
 			name:    "no target row",
 			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}},
 			want:    []string{"import { Methods } from './zz_gen_constants';"},
-			wantNot: []string{"target: { resource:", "Resources."},
+			wantNot: []string{"target: { resource:", "Resources.", "offeredOn: ["},
 		},
 		{
 			name: "a request field a grant's condition may read is named as the condition reads it",

@@ -95,8 +95,10 @@ func (t *typescriptGenerator) excludeFromOutlet(m *outletMembership, resourceNam
 }
 
 // validateOutletMemberReferences rejects a member that references a resource excluded
-// from the target outlet — a method's declared transition root, or the resource a
-// declared @enumerate names on a method's, resource's, or computed resource's field.
+// from the target outlet — a method's declared transition root, the resource of the row a
+// method names (@target), a resource whose rows offer a method (@callerEnters(Row, ...)),
+// or the resource a declared @enumerate names on a method's, resource's, or computed
+// resource's field.
 // The emitted metadata names such a resource through the Resources constant, which
 // the filtered constants file no longer declares; silently narrowing the metadata in
 // this client alone would misrepresent the member, so the mismatch fails generation
@@ -113,6 +115,14 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 	for _, method := range t.rpcMethods {
 		if tr := method.Transition; tr != nil && excluded(tr.RootResource) {
 			return errors.Newf("outlet %q: RPC method %s declares a transition on %s, which is not on the outlet; a client cannot carry a transition whose resource it does not emit — attach %s to the outlet via @%s, or move the method off it", t.targetOutlet(), method.Name(), tr.RootResource, tr.RootResource, outletKeyword)
+		}
+		if target := method.Target; target != nil && excluded(target.RootResource) {
+			return errors.Newf("outlet %q: RPC method %s names a row of %s (@%s), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach %s to the outlet via @%s, or move the method off it", t.targetOutlet(), method.Name(), target.RootResource, targetKeyword, target.RootResource, outletKeyword)
+		}
+		for _, row := range method.OfferedOn {
+			if excluded(row.RootResource) {
+				return errors.Newf("outlet %q: RPC method %s is offered on the rows of %s (@%s), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach %s to the outlet via @%s, or move the method off it", t.targetOutlet(), method.Name(), row.RootResource, callerEntersKeyword, row.RootResource, outletKeyword)
+			}
 		}
 		for _, field := range method.Fields {
 			if field.IsEnumerated() && excluded(field.EnumeratedResource()) {
