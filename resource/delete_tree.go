@@ -24,9 +24,9 @@ const (
 )
 
 // changeRecordMutations is what the change record of one removed row costs: an insert
-// counts once for each column it writes, and the change record's table has no index
-// besides its key.
-var changeRecordMutations = reflect.TypeFor[DataChangeEvent]().NumField()
+// counts once for each column it writes, and once for the record's entry in the table's
+// index by tenant.
+var changeRecordMutations = reflect.TypeFor[DataChangeEvent]().NumField() + 1
 
 // DeleteLink is one step from a row up toward the record it is under: the row's Columns
 // hold the key of a row of Table, in that table's References columns. A foreign key

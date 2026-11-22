@@ -120,6 +120,67 @@ func TestManualResourceShipsLog(t *testing.T) {
 	}
 }
 
+// TestManualResourceShipsLogKeepsADeletedRow pins that the log reads one sector's change
+// records by the tenant each carries: a mission created and then deleted in Anvil keeps
+// both records in Anvil's log and shows neither in Bastion's, and an update of Anvil's
+// own record, tracked too, is not the log's.
+func TestManualResourceShipsLogKeepsADeletedRow(t *testing.T) {
+	t.Parallel()
+
+	db, err := prepareDatabase(t.Context(), t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := mountLog(app.New(&testConfigurer{db: db, access: &staticAccess{g: grants{
+		accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
+		accesstypes.Update: withFields(accesstypes.Resource("Sectors"), "region"),
+		accesstypes.Delete: {missionsResource},
+		accesstypes.List:   {resources.ShipsLogEntries},
+	}}}))
+	write := func(ops string) {
+		t.Helper()
+
+		status, body := doRequestAs(t, h, "log-actor", http.MethodPatch, resourcesRoute, ops)
+		assertStatus(t, status, http.StatusOK, body)
+	}
+	logOf := func(sector string) []map[string]any {
+		t.Helper()
+
+		status, body := doRequest(t, h, http.MethodGet, sectorPath(sector, "ships-log-entries"), "")
+		assertStatus(t, status, http.StatusOK, body)
+
+		return decodeRows(t, body)
+	}
+
+	write(fmt.Sprintf(`[{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"rescue","title":"Logged and gone","hazard":1,"fee":100,"deadline":%q}}]`, opPath(anvil, "missions"), clientHalvardID, deadline(365)))
+	created := logOf(anvil)
+	if len(created) != 1 || created[0]["tableName"] != "Missions" {
+		t.Fatalf("Anvil's log after one create = %v, want the mission's one record", created)
+	}
+	mission, _ := created[0]["rowId"].(string)
+	write(fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "missions/"+mission)))
+	write(`[{"op":"patch","path":"/sectors/` + anvil + `","value":{"region":"Far frontier"}}]`)
+
+	var missionRecords int
+	for _, row := range logOf(anvil) {
+		switch {
+		case row["tableName"] == "Sectors":
+			t.Errorf("Anvil's log carries the sector's own record: %v", row)
+		case row["tableName"] == "Missions" && row["rowId"] == mission:
+			missionRecords++
+		}
+	}
+	if missionRecords != 2 {
+		t.Errorf("Anvil's log carries %d record(s) of the deleted mission, want its create and its delete", missionRecords)
+	}
+	for _, row := range logOf(bastion) {
+		if row["rowId"] == mission {
+			t.Errorf("Bastion's log carries a record of Anvil's mission: %v", row)
+		}
+	}
+}
+
 // TestManualResourceBootstrapParity runs the log surface against the REAL engine
 // provisioned with the shipped demo config: the archivist and the marshal reach the
 // log at Anvil, the cadet holds no log grant and is refused, and the marshal's Anvil

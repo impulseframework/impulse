@@ -23,6 +23,12 @@ func (DistressRelay) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (DistressRelay) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SectorID"}
+}
+
 // DeleteTree describes what a delete of a DistressRelay takes with it and what refuses
 // it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
 // first, each with its ways up to the DistressRelay and what the delete of one of its

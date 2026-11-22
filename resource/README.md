@@ -6069,8 +6069,9 @@ A resource that tracks its changes (`TrackChanges`) writes one record to the
 transaction: `TableName` and `RowId` say which row, `Sequence` numbers the records one
 transaction writes for the row, `EventTime` is the commit timestamp, `EventSource` says
 who made the change (section 6, `UserEvent`), and `ChangeSet` holds each changed field
-with its old and its new value. A secret field is named as changed with neither value
-(section 23).
+with its old and its new value. `TenantId` holds the key of the tenant the row belongs
+to, empty for a row of a table that belongs to no tenant. A secret field is named as
+changed with neither value (section 23).
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. An application copies them into its first migration, as `impulse new` writes
@@ -6078,6 +6079,29 @@ them and as Lodestar does in
 [000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql), pinned
 to the function by a test. The function has statements for Spanner alone: the package
 does not write to PostgreSQL yet, and the table gets its PostgreSQL statements with that.
+
+**Each record's tenant.** The generator declares each tenant resource's way to its
+tenant (`TenantBinding`, from its `@domain`; the tenant record's is its own key), and the
+patch set writes the tenant on every record, whoever writes the row. A write armed in a
+tenant's request takes the request's tenant. Any other write (a method's body, a job, a
+bootstrap, a delete that takes rows with it) resolves it from the row: the value the
+patch or the stored row holds, then one point read for each step of the way, which sees
+the rows the same transaction has buffered. An update that moves a row to another tenant
+records the new tenant. A record keeps the tenant its row had when it was written: a
+parent moved later in the same transaction does not change it. The index
+`DataChangeEventsByTenant` on `(TenantId, EventTime DESC, TableName, RowId, Sequence
+DESC)` reads one tenant's records newest first:
+
+```sql
+SELECT TableName, RowId, EventTime, EventSource, ChangeSet
+  FROM DataChangeEvents@{FORCE_INDEX=DataChangeEventsByTenant}
+ WHERE TenantId = @tenant
+ ORDER BY EventTime DESC, TableName, RowId, Sequence DESC
+ LIMIT 200
+```
+
+`impulse check` (`change-history`) says when an application's table lacks a column or
+the index.
 
 **How long records are kept.** The application's schema says it. `period` is
 `resource.KeepChangeHistoryDays(n)` or `resource.KeepChangeHistoryForever()`, and a

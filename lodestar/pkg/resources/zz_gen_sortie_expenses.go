@@ -23,6 +23,12 @@ func (SortieExpense) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (SortieExpense) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SortieID", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // sortieExpenseRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sortieExpenseReadSets holds one Set per read operation.

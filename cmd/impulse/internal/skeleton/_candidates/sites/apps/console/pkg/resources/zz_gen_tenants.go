@@ -22,6 +22,12 @@ func (Tenant) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Tenant) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "ID"}
+}
+
 // DeleteTree describes what a delete of a Tenant takes with it, as the library
 // declares for the tenant record: every kind of the application's rows under the tenant
 // goes with it, and nothing refuses it. The kinds are in the order their rows are

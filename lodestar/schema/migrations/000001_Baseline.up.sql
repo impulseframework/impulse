@@ -11,10 +11,14 @@ CREATE TABLE DataChangeEvents (
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
+  TenantId STRING(MAX) NOT NULL,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
 
+-- One sector's change records, newest first: the ship's log reads them by this index.
+CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
+
 -- How long change records are kept: Spanner removes a record once it is older than this
--- many days. The table's two statements are the library's own
+-- many days. The table's three statements are the library's own
 -- (resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))),
 -- which a test pins.
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));

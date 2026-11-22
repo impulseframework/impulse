@@ -151,7 +151,7 @@ var Demonstrations = []Demonstration{
 	{"consolidation.batch", "The consolidated endpoint: a cross-resource batch in one transaction with a closed operation vocabulary."},
 	{"commit.referential-refusal", "A commit Spanner refuses for a referential reason (a delete of a row other rows still reference, a write naming a referenced row that does not exist, a required column left empty) answers 409 with a message naming only the resources the transaction buffered, decided on the gRPC code alone; a child-and-parent delete in one transaction still succeeds in either order."},
 	{"commit.constraint-refusal", "A commit Spanner refuses for a duplicate key or unique-index value (409), a violated CHECK constraint (400), or an update of a row that does not exist (404) answers in the resource's name, decided on the gRPC code alone over the same record of buffered patches; the create validator's 400 for the same rule shows the two enforcement points side by side."},
-	{"change-tracking", "TrackChanges: mutations write DataChangeEvents rows in the same transaction."},
+	{"change-tracking", "TrackChanges: mutations write DataChangeEvents rows in the same transaction, each with the tenant of the row it is about."},
 	{"event-source", "The change event's source names the session, and the actor and role of an impersonated one."},
 	{"@enumerate", "The field-scope @enumerate(Resource): the field holds another resource's identifier, and the generator alone says which resource its picker lists."},
 	{"@enumerate.plain-column", "A field-scope @enumerate on a plain column with no foreign key: an identifier held from outside the schema names the resource its picker lists."},
