@@ -4509,6 +4509,13 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method for a caller the server would let run it there. Absent on a method no row answers
+   * for, which is offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
@@ -4544,6 +4551,9 @@ const methodMap: MethodMap = {
     {{- end }}
     {{- with $t := $rpcMethod.Target }}
     target: { resource: Resources.{{ $t.RootResource }}, key: { {{ range $i, $k := $t.Keys }}{{ if $i }}, {{ end }}{{ Camel $k.TargetField }}: '{{ Camel $k.RootPKField }}'{{ end }} }{{ with $t.MayBeEmptyFields }}, mayBeEmpty: [{{ . }}]{{ end }} },
+    {{- end }}
+    {{- with $rpcMethod.OfferedOn }}
+    offeredOn: [{{ range $i, $r := . }}{{ if $i }}, {{ end }}Resources.{{ $r.RootResource }}{{ end }}],
     {{- end }}
     {{- if $rpcMethod.Answers }}
     answers: true,
@@ -4969,6 +4979,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- end }}
 				{{- if .CallerEnters }}
 				CallerEnters: true,
+				{{- end }}
+				{{- with .OfferedOn }}
+				OfferedOn: []accesstypes.Resource{ {{- range $i, $r := . }}{{ if $i }}, {{ end }}"{{ $r }}"{{ end -}} },
 				{{- end }}
 				{{- with .Parent }}
 				Parent: "{{ . }}",

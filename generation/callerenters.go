@@ -2,6 +2,7 @@ package generation
 
 import (
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -20,31 +21,36 @@ import (
 // and a row read with capabilities=Execute leaves it out for a caller whose session does
 // not enter one of the row's tenants. The declaration shapes what a page offers and
 // refuses nothing: the method's own code refuses the call.
+//
+// A method that names no row declares the rows a page runs it from, @callerEnters(Row, ...):
+// each is a resource struct that declares TenantsToEnter, the generated collection lists them
+// (CollectionBuilder.SetMethodOfferedOn), and a row of one of them answers for the method as a
+// row answers for a method that names it.
 
 // tenantsToEnterMethodName is the method the row's struct declares.
 const tenantsToEnterMethodName = "TenantsToEnter"
 
 // resolveCallerEnters reads the struct's @callerEnters against the row the method names,
-// which resolveTransition has resolved, and the row's TenantsToEnter.
+// which resolveTransition has resolved, and the row's TenantsToEnter: with no argument the
+// method names its row, and a method that names none lists the rows that offer it.
 func (c *client) resolveCallerEnters(rpcMethod *rpcMethodInfo, pStruct *parser.Struct, annotations genlang.StructAnnotations) error {
 	if !annotations.Struct.Has(callerEntersKeyword) {
 		return nil
 	}
-	if annotations.Struct.Get(callerEntersKeyword).Count() != 0 {
-		return errors.Newf("struct %s: @%s takes no argument; the row's struct says which tenants the caller must enter", pStruct.Name(), callerEntersKeyword)
+	arg := annotations.Struct.Get(callerEntersKeyword)
+	if arg.Count() != 0 {
+		written := strings.Join(slices.Collect(arg.Seq()), ", ")
+		if rpcMethod.Target != nil {
+			return errors.Newf("struct %s: @%s(%s) names the rows that offer a method that names no row, and this method names its row, %s; write @%s with no argument", pStruct.Name(), callerEntersKeyword, written, rpcMethod.Target.RootStruct, callerEntersKeyword)
+		}
+
+		return c.resolveOfferedOn(rpcMethod, pStruct, arg, written)
 	}
 	if rpcMethod.Target == nil {
-		return errors.Newf("struct %s: @%s says a row offers the method only to a caller who enters the row's tenants, and the method names no row; declare @%s on the field that carries the row's key, or remove @%s", pStruct.Name(), callerEntersKeyword, targetKeyword, callerEntersKeyword)
+		return errors.Newf("struct %s: @%s says a row offers the method only to a caller who enters the row's tenants, and the method names no row; declare @%s on the field that carries the row's key, or name the resource structs whose rows a page runs the method from, as @%s(Row)", pStruct.Name(), callerEntersKeyword, targetKeyword, callerEntersKeyword)
 	}
 	rootName := rpcMethod.Target.RootStruct
-	var root *resourceInfo
-	for _, res := range c.resources {
-		if res.Name() == rootName {
-			root = res
-
-			break
-		}
-	}
+	root := c.resourceNamed(rootName)
 	if root == nil {
 		// Unreachable through the normal pipeline: resolveTarget found the root among the
 		// same resources.
@@ -54,6 +60,50 @@ func (c *client) resolveCallerEnters(rpcMethod *rpcMethodInfo, pStruct *parser.S
 		return err
 	}
 	rpcMethod.CallerEnters = true
+
+	return nil
+}
+
+// resolveOfferedOn reads @callerEnters(Row, ...) on a method that names no row: each name,
+// split on commas as resolveOutlets reads its names, is a resource struct of the method's
+// permission scope that declares TenantsToEnter, and the method is offered on their rows in
+// the order written.
+func (c *client) resolveOfferedOn(rpcMethod *rpcMethodInfo, pStruct *parser.Struct, arg genlang.Arg, written string) error {
+	var offeredOn []rpcOfferingRow
+	for part := range arg.Seq() {
+		for name := range strings.SplitSeq(part, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return errors.Newf("struct %s: @%s(%s) holds an empty name; name each resource struct whose rows a page runs the method from", pStruct.Name(), callerEntersKeyword, written)
+			}
+			if slices.ContainsFunc(offeredOn, func(row rpcOfferingRow) bool { return row.RootStruct == name }) {
+				return errors.Newf("struct %s: @%s names %s twice", pStruct.Name(), callerEntersKeyword, name)
+			}
+			root := c.resourceNamed(name)
+			if root == nil {
+				return errors.Newf("struct %s: @%s(%s): %s is not a resource struct; name the resource structs whose rows a page runs the method from", pStruct.Name(), callerEntersKeyword, written, name)
+			}
+			if scopeOrGlobal(rpcMethod.PermissionScope) != scopeOrGlobal(root.PermissionScope) {
+				return errors.Newf("struct %s: @%s(%s): the method and %s are of different permission scopes; a row offers a method of its own scope", pStruct.Name(), callerEntersKeyword, written, name)
+			}
+			if err := checkTenantsToEnter(pStruct, root); err != nil {
+				return err
+			}
+			offeredOn = append(offeredOn, rpcOfferingRow{RootStruct: name, RootResource: c.pluralize(name)})
+		}
+	}
+	rpcMethod.OfferedOn = offeredOn
+
+	return nil
+}
+
+// resourceNamed is the resource whose struct has the name, nil for none.
+func (c *client) resourceNamed(name string) *resourceInfo {
+	for _, res := range c.resources {
+		if res.Name() == name {
+			return res
+		}
+	}
 
 	return nil
 }
