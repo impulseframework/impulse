@@ -11,15 +11,16 @@
 // One judgment costs a bounded amount of work whatever the password is made of, since anyone
 // may ask one before signing in: the estimate reads a password's first MaxJudged characters
 // and each detail's first maxDetail, a detail cut before it is normalized so a long one is
-// never read whole, and it reads look-alike characters as letters (4 for a,
-// $ for s) while the passes that reading takes, each costing the square of the length, cost
-// no more than maxL33tWork passes over MaxJudged characters. A password past that holds many
-// different look-alike characters for its length, and is estimated as typed. The library
-// does not read look-alike characters against the person's words, so a password that spells
-// one of them in look-alikes (Z@br0w$k! for Zabrowski) is estimated a second time with the
-// word written in its letters, and the lower estimate counts; finding the words compares each
-// one with the password at each of its first MaxJudged characters, no further than MaxJudged
-// characters each time. One judgment asks the library at most three times: about the password,
+// never read whole, and it reads look-alike characters as letters (4 for a, $ for s) while
+// the passes that reading takes, each costing the square of the length, cost no more than
+// maxL33tWork passes over MaxJudged characters. A password past that holds many different
+// look-alike characters for its length, and is estimated as typed. The library does not read
+// look-alike characters against the person's words, so a password that spells a word of
+// theirs of minLookAlike characters or more in look-alikes beside at least one of its letters
+// typed as itself (Z@br0w$k! for Zabrowski) is estimated a second time with the word written
+// in its letters, and the lower estimate counts; finding the words compares each one with the
+// password at each of its first MaxJudged characters, no further than MaxJudged characters
+// each time. One judgment asks the library at most three times: about the password,
 // about it with the person's words written in their letters, and, when it falls short, about
 // the password without the person's details, to name the reason. The list is asked about the
 // whole password.
@@ -81,6 +82,10 @@ const (
 	// minRun is the shortest run of letters and digits in a person's detail that counts on
 	// its own against a password.
 	minRun = 3
+
+	// minLookAlike is the shortest word of the person's read in look-alike characters: a
+	// shorter one is spelled by chance in digits (471 for Ali) too often to count.
+	minLookAlike = 4
 
 	// standIns are the characters a character outside ASCII that is not an accented letter or
 	// digit is read as, given in this order to each new such character of a judgment and
@@ -258,8 +263,8 @@ func inputsOf(who Details, read *reading) []string {
 
 // plainReading is judged with each of the person's words it spells in look-alike characters
 // written in that word's letters, so the estimate finds the word: Z@br0w$k!2077 with the word
-// Zabrowski is Zabrowski2077. The words are the inputs at least minRun characters long, in
-// lower case. From the left, at each character where words read (spellsAt), the longest is
+// Zabrowski is Zabrowski2077. The words are the inputs at least minLookAlike characters long,
+// in lower case. From the left, at each character where words read (spellsAt), the longest is
 // taken, the first in inputs of equal lengths: a character matched as itself stays as typed,
 // one matched by look-alike becomes the word's letter in lower case, and the reading goes on
 // after the word. Where no word reads, the character stays. The plain reading is as long as
@@ -268,7 +273,7 @@ func inputsOf(who Details, read *reading) []string {
 func plainReading(judged string, inputs []string) string {
 	var words []string
 	for _, input := range inputs {
-		if len(input) >= minRun {
+		if len(input) >= minLookAlike {
 			words = append(words, strings.ToLower(input))
 		}
 	}
@@ -301,17 +306,19 @@ func plainReading(judged string, inputs []string) string {
 }
 
 // spellsAt says whether text begins with word with at least one of word's letters in a
-// look-alike character: each of word's characters is matched in order, by a character that is
-// the same in lower case or, for a letter, by one of the characters l33tTable lists for it.
-// word is in lower case.
+// look-alike character and at least one typed as itself: each of word's characters is matched
+// in order, by a character that is the same in lower case or, for a letter, by one of the
+// characters l33tTable lists for it. A digit or a symbol of word typed as itself is no letter
+// typed as itself, so digits alone never spell a word. word is in lower case.
 func spellsAt(text, word string) bool {
 	if len(word) > len(text) {
 		return false
 	}
-	lookAlike := false
+	lookAlike, asItself := false, false
 	for k := range len(word) {
 		switch {
 		case sameInLowerCase(text[k], word[k]):
+			asItself = asItself || unicode.IsLetter(rune(word[k]))
 		case standsFor(text[k], word[k]):
 			lookAlike = true
 		default:
@@ -319,7 +326,7 @@ func spellsAt(text, word string) bool {
 		}
 	}
 
-	return lookAlike
+	return lookAlike && asItself
 }
 
 // sameInLowerCase says whether the ASCII characters a and b are the same in lower case.

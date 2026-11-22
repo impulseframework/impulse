@@ -137,19 +137,41 @@ func TestPlainReading(t *testing.T) {
 	}{
 		{judged: "Z@br0w$k!2077", words: []string{"Zabrowski"}, want: "Zabrowski2077"},
 		{judged: "zabrowski2077", words: []string{"Zabrowski"}, want: "zabrowski2077"},
-		{judged: "P@T77", words: []string{"pat"}, want: "PaT77"},
-		{judged: "1!1!xx", words: []string{"lili"}, want: "lilixx"},
+		{judged: "P@TTY77", words: []string{"patty"}, want: "PaTTY77"},
+		{judged: "P@T77", words: []string{"pat"}, want: "P@T77"},
+		{judged: "l15a", words: []string{"lisa"}, want: "lisa"},
+		{judged: "1!1!xx", words: []string{"lili"}, want: "1!1!xx"},
+		{judged: "2077", words: []string{"zott"}, want: "2077"},
 		{judged: "0'ne1l", words: []string{"O'Neil"}, want: "o'neil"},
 		{judged: "@nn@belle", words: []string{"ann", "anna"}, want: "annabelle"},
 		{judged: "@nn@nn", words: []string{"anna"}, want: "annann"},
 		{judged: "xx@1", words: []string{"al"}, want: "xx@1"},
-		{judged: "2077", words: []string{"zott"}, want: "zott"},
 		{judged: "n1ck", words: []string{"nick"}, want: "nick"},
 		{judged: "nick", words: []string{"n1ck"}, want: "nick"},
+		{judged: "Quartz9471&", words: []string{"ali"}, want: "Quartz9471&"},
+		{judged: "kettle33$", words: []string{"lee"}, want: "kettle33$"},
+		{judged: "A$dLxc0m", words: []string{"com"}, want: "A$dLxc0m"},
 	}
 	for _, tt := range tests {
 		if got := plainReading(tt.judged, tt.words); got != tt.want {
 			t.Errorf("plainReading(%q, %q) = %q, want %q", tt.judged, tt.words, got, tt.want)
+		}
+	}
+}
+
+func TestJudge_digitsThatSpellAShortWordAreNotTheWord(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		password string
+		who      Details
+	}{
+		{password: "Quartz9471&", who: Details{Name: "Ali Khan"}},
+		{password: "kettle33$", who: Details{Name: "Grace Lee"}},
+		{password: "A$dLxc0m", who: Details{Name: "Lisa Wong", Email: "lisa.wong@example.com"}},
+	} {
+		if got := Judge(tt.password, tt.who, 30); !got.StrongEnough {
+			t.Errorf("Judge(%q, %+v) = %+v, want strong enough: it is not built on the person's details", tt.password, tt.who, got)
 		}
 	}
 }
