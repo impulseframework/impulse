@@ -330,8 +330,14 @@ func NewCollectionBuilder() *CollectionBuilder {
 	return &CollectionBuilder{g: newGeneratedCollection()}
 }
 
-// AddResourceSet registers a request struct's SetData under scope.
+// AddResourceSet registers a request struct's SetData under scope. A former field name
+// with a dot is refused before anything is registered.
 func (b *CollectionBuilder) AddResourceSet(scope accesstypes.PermissionScope, res accesstypes.Resource, set SetData) error {
+	for _, tag := range slices.Sorted(maps.Keys(set.FormerTags)) {
+		if err := refuseDottedFieldName(res, tag, set.FormerTags[tag]); err != nil {
+			return err
+		}
+	}
 	if err := b.g.addResourceSet(scope, res, set.Permissions, set.TagPermissions, set.ImmutableFields); err != nil {
 		return err
 	}
@@ -554,7 +560,7 @@ func newGeneratedCollection() *GeneratedCollection {
 // generated data fails at startup rather than surfacing as wrong permission decisions.
 // It refuses a name listed in both scopes: the collection finds a resource's scope by
 // its name alone (Scope), so such a name was answered with either scope from one call
-// to the next.
+// to the next. It refuses a field's name and a former name that holds a dot.
 func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	g := newGeneratedCollection()
 
@@ -691,6 +697,9 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		if res.Formerly == res.Name {
 			return errors.Newf("resource %q names itself as its former name", res.Name)
 		}
+		if err := refuseDottedFormerName(res.Name, res.Formerly); err != nil {
+			return err
+		}
 		g.setFormerName(res.Scope, res.Name, res.Formerly)
 	}
 
@@ -807,6 +816,9 @@ func (g *GeneratedCollection) addResourceTags(res *CollectionResource) error {
 	g.tagStore[res.Scope][res.Name] = make(map[accesstypes.Tag][]accesstypes.Permission, len(res.Tags))
 
 	for _, tag := range res.Tags {
+		if err := refuseDottedFieldName(res.Name, tag.Name, ""); err != nil {
+			return err
+		}
 		if _, ok := g.tagStore[res.Scope][res.Name][tag.Name]; ok {
 			return errors.Newf("duplicate tag %q under resource %q", tag.Name, res.Name)
 		}
@@ -837,6 +849,9 @@ func (g *GeneratedCollection) addResourceTags(res *CollectionResource) error {
 	for _, tag := range res.Tags {
 		if tag.Formerly == "" {
 			continue
+		}
+		if err := refuseDottedFieldName(res.Name, tag.Name, tag.Formerly); err != nil {
+			return err
 		}
 		if _, current := g.tagStore[res.Scope][res.Name][tag.Formerly]; current {
 			return errors.Newf("tag %q under resource %q names %q as its former name, which is another tag's name", tag.Name, res.Name, tag.Formerly)
@@ -1563,6 +1578,49 @@ func refuseDottedResourceName(res accesstypes.Resource) error {
 	)
 }
 
+// refuseDottedFieldName refuses a field's name that holds a dot, or, where formerly is
+// not empty, the field's former name that holds one: a dot separates a resource from
+// one of its fields, so the collection could not name the field. Collection data and
+// the builder's AddResourceSet are held to it.
+func refuseDottedFieldName(res accesstypes.Resource, tag, formerly accesstypes.Tag) error {
+	if formerly != "" {
+		if !strings.ContainsRune(string(formerly), '.') {
+			return nil
+		}
+
+		return errors.Newf(
+			"tag %q under resource %q names %q as its former name: a former name holds no dot. "+
+				"Give the former name as the field was called, without a dot",
+			tag, res, formerly,
+		)
+	}
+	if !strings.ContainsRune(string(tag), '.') {
+		return nil
+	}
+
+	return errors.Newf(
+		"tag %q under resource %q: a field's name holds no dot. "+
+			"A dot separates a resource from one of its fields, so the collection could not name this one. "+
+			"Give the field a name without a dot",
+		tag, res,
+	)
+}
+
+// refuseDottedFormerName refuses a resource's former name that holds a dot: the former
+// name would be read as a field of another resource.
+func refuseDottedFormerName(res, former accesstypes.Resource) error {
+	if !strings.ContainsRune(string(former), '.') {
+		return nil
+	}
+
+	return errors.Newf(
+		"resource %q names %q as its former name: a former name holds no dot. "+
+			"A dot separates a resource from one of its fields, so the former name would be read as a field of another resource. "+
+			"Give the former name as the method was called, without a dot",
+		res, former,
+	)
+}
+
 func (g *GeneratedCollection) addResource(allowDuplicateRegistration bool, scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) error {
 	if err := refuseDottedResourceName(res); err != nil {
 		return err
@@ -1590,6 +1648,11 @@ func (g *GeneratedCollection) addResource(allowDuplicateRegistration bool, scope
 func (g *GeneratedCollection) addResourceSet(scope accesstypes.PermissionScope, res accesstypes.Resource, perms []accesstypes.Permission, tags accesstypes.TagPermissions, immutableFields map[accesstypes.Tag]struct{}) error {
 	if err := refuseDottedResourceName(res); err != nil {
 		return err
+	}
+	for _, tag := range slices.Sorted(maps.Keys(tags)) {
+		if err := refuseDottedFieldName(res, tag, ""); err != nil {
+			return err
+		}
 	}
 	for _, perm := range perms {
 		if err := g.addResource(false, scope, perm, res); err != nil {

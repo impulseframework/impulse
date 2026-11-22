@@ -1300,6 +1300,87 @@ func TestGeneratedCollection_noDotInAResourceName(t *testing.T) {
 	}
 }
 
+// TestGeneratedCollection_noDotInAFieldName pins that a field's name and a former name
+// hold no dot, however they are handed over: a dot separates a resource from one of its
+// fields, so the collection could not name such a field, and a former name with a dot
+// would be read as a field of another resource. Collection data and the builder's
+// AddResourceSet refuse each before anything is stored, so a tag a.b no longer reaches
+// List, which could not name it.
+func TestGeneratedCollection_noDotInAFieldName(t *testing.T) {
+	t.Parallel()
+
+	fieldName := func(tag, res string) string {
+		return fmt.Sprintf("tag %q under resource %q: a field's name holds no dot. "+
+			"A dot separates a resource from one of its fields, so the collection could not name this one. "+
+			"Give the field a name without a dot", tag, res)
+	}
+	formerTag := func(tag, res, former string) string {
+		return fmt.Sprintf("tag %q under resource %q names %q as its former name: a former name holds no dot. "+
+			"Give the former name as the field was called, without a dot", tag, res, former)
+	}
+	read := []accesstypes.Permission{accesstypes.Read}
+	widgets := func(tags ...TagData) CollectionData {
+		return CollectionData{Resources: []CollectionResource{{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Permissions: read, Tags: tags}}}
+	}
+	tests := []struct {
+		name     string
+		register func() error
+		want     string
+	}{
+		{name: "collection data, a tag's name", want: fieldName("name.first", "Widgets"), register: func() error {
+			_, err := NewGeneratedCollection(widgets(TagData{Name: "name.first", Permissions: read}))
+
+			return err
+		}},
+		{name: "collection data, a tag's former name", want: formerTag("title", "Widgets", "old.title"), register: func() error {
+			_, err := NewGeneratedCollection(widgets(TagData{Name: "title", Permissions: read, Formerly: "old.title"}))
+
+			return err
+		}},
+		{
+			name: "collection data, a resource's former name",
+			want: `resource "Reissue" names "Old.Reissue" as its former name: a former name holds no dot. ` +
+				"A dot separates a resource from one of its fields, so the former name would be read as a field of another resource. " +
+				"Give the former name as the method was called, without a dot",
+			register: func() error {
+				_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
+					Name: "Reissue", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Formerly: "Old.Reissue",
+				}}})
+
+				return err
+			},
+		},
+		{name: "the builder's AddResourceSet, a tag's name", want: fieldName("name.first", "Widgets"), register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "Widgets", SetData{
+				Permissions: read, TagPermissions: accesstypes.TagPermissions{"name.first": read},
+			})
+		}},
+		{name: "the builder's AddResourceSet, a former tag name", want: formerTag("title", "Widgets", "old.title"), register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "Widgets", SetData{
+				Permissions: read, TagPermissions: accesstypes.TagPermissions{"title": read}, FormerTags: map[accesstypes.Tag]accesstypes.Tag{"title": "old.title"},
+			})
+		}},
+		{name: "collection data with a tag a.b is refused before List could read it", want: fieldName("a.b", "Widgets"), register: func() error {
+			g, err := NewGeneratedCollection(widgets(TagData{Name: "a.b", Permissions: read}))
+			if err == nil {
+				g.List()
+			}
+
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := tt.register(); err == nil || !strings.HasSuffix(err.Error(), tt.want) {
+				t.Errorf("error = %v, want one ending in %q", err, tt.want)
+			}
+		})
+	}
+}
+
 // TestNewGeneratedCollection_actionClassValidation pins what the collection refuses of
 // an action's classes at start-up.
 func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
