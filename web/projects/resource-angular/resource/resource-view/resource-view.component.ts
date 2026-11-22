@@ -650,7 +650,7 @@ export class ResourceViewComponent implements OnInit {
     if (!operation) {
       return;
     }
-    void this.store.apply([operation], rowMessage(this.rowWords(), 'saved', this.store.resourceName())).then(() => {
+    void this.store.apply([operation], rowMessage(this.rowWords(), 'saved')).then(() => {
       // Saved: nothing in the form is unsaved any more.
       this.form().markAsPristine();
       this.setEditMode('view');
@@ -719,7 +719,7 @@ export class ResourceViewComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
       this.leaveGoneRow();
       if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);
