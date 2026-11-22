@@ -412,12 +412,16 @@ With `--shape directory-roles` the deployment's tests (`pkg/deploy`,
 deployment reports about an invitation goes with what it tested, and the migrate
 command's test proves that a release invites nobody and that the command takes no
 `-reinvite-administrator`; with `--shape tenant-owned-users-by-directory` the two harnesses
-(`test/integration`, `test/authz`) build the tenant roster and the generated maker, and
-the first administrator's invitation is proven accepted through Google. The new
-application passes `go vet` with and without the tag as it is made. The spec of the
-browser application's login page is written for the same sign-in: it answers the methods
-route with the methods the auth registers, and expects a button for each and no password
-form. In a start with tenants the two served suites run as the application was made,
+(`test/integration`, `test/authz`) build the tenant roster and the generated maker, the
+first administrator's invitation is proven accepted through Google, a tenant is founded
+through Google and through Microsoft, each taking its founder's organization as its
+directory, and the methods route is read where a persona provider is configured and where
+none is. The new application passes `go vet` with and without the tag as it is made. The
+spec of the browser application's login page is written for the same sign-in: it answers
+the methods route with the methods the auth registers, and expects a button for each and
+no password form; with `--shape tenant-owned-users-by-directory` it also draws the page of
+an environment that names no persona provider, the two directory buttons alone. In a start
+with tenants the two served suites run as the application was made,
 since the command writes the role a tenant's administrator holds, without which the
 application's router is not built (`impulse add tenancy`, below, says which grants it
 carries). A start with tenants that keeps the password sign-in (`--tenancy`, or one of
