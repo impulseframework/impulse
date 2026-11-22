@@ -359,7 +359,7 @@ export class ResourceCreateComponent implements OnInit {
     this.refusal.set('');
     this.saving.set(true);
     void this.store
-      .apply([operation], rowMessage(this.rowWords(), 'added', this.store.resourceName()))
+      .apply([operation], rowMessage(this.rowWords(), 'added'))
       .then((response) => {
         // Created: nothing in the form is unsaved any more.
         this.form().markAsPristine();

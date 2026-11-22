@@ -3,13 +3,6 @@ import { ResourceMeta, RowWords } from '@impulseframework/resource-angular/types
 /** What was done to a row, as the message after it says. */
 export type RowChange = 'added' | 'saved' | 'deleted';
 
-/** The message for a resource whose metadata carries no word for a row: the resource's name and what was done. */
-const withoutWord: Record<RowChange, string> = {
-  added: 'created successfully',
-  saved: 'updated successfully',
-  deleted: 'deleted successfully',
-};
-
 /** The opening letters of a word that is written with a vowel and said with a consonant ("a user", "a one-time code"). */
 const saidWithConsonant = /^(uni([^nm]|$)|us[aeu]|uti|ute|eu|one|once)/;
 /** The opening letters of a word that is written with an h nobody says ("an hour"). */
@@ -64,13 +57,13 @@ export function addRowLabel(configured: string | undefined, words: RowWords | un
 /**
  * The message after a row is added, saved or deleted: "Hangar pass deleted." from the
  * word the resource's rows go by, the word capitalized since it opens the sentence. A
- * resource whose metadata carries no word is named as it was before, by `resourceName`
- * ("HangarPasses deleted successfully").
+ * resource whose metadata carries no word gets the message without one ("Added.",
+ * "Saved.", "Deleted."), never its code name.
  */
-export function rowMessage(words: RowWords | undefined, change: RowChange, resourceName: string): string {
+export function rowMessage(words: RowWords | undefined, change: RowChange): string {
   const word = words?.one.trim() ?? '';
   if (word === '') {
-    return `${resourceName} ${withoutWord[change]}`;
+    return `${change.charAt(0).toUpperCase()}${change.slice(1)}.`;
   }
 
   return `${word.charAt(0).toUpperCase()}${word.slice(1)} ${change}.`;

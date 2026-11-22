@@ -969,7 +969,7 @@ export class ResourceListComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
       this.store.reloadPage();
     });
   }
