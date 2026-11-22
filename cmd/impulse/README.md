@@ -652,8 +652,18 @@ the application imports by its path (`internal/_cfg`, a fixture package a test i
 from `testdata`) is read, with what it imports in turn, since the build compiles it: a
 read of the environment does not pass `env-reads` by living there. A file a build
 constraint leaves out (a `//go:build` line, a `_windows.go` name) is read, since some
-build compiles it, and a directory named `vendor` or `dist` is left alone as dependencies
-and build output. The uses of a feature flag's constant are found in the same Go files,
+build compiles it. A test is a file whose name ends in `_test.go`, and nothing else is: a
+file a tag of its own keeps out of the ordinary build (`//go:build integration`) is read as
+the application's code whatever the tag is called, since nothing in the file says the tag
+is a test's, so a helper that only tests use, and that a check would refuse in the
+application, goes in a `_test.go` file. The checks find a call where the source writes it
+with its package's name (`access.New(...)`), so every command that reads the application
+refuses the two forms that would hide one, with the file and the line: a dot import of a
+package of the framework or of the application's own module, and one of the functions the
+checks read calls of (`access.New`, `access.WithDefaultRoles`, `access.WithChangeSignal`,
+`access.ValidateRoles`, `resource.RetireSecretVersion`, `generation.NewResourceGenerator`,
+`session.NewAuth`) named without being called. A directory named `vendor` or `dist` is left
+alone as dependencies and build output. The uses of a feature flag's constant are found in the same Go files,
 and in every source file of a browser application whatever its directory is called, since
 the Go tool's rule about names is no rule of the browser's build.
 

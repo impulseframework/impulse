@@ -95,6 +95,13 @@ var (
 // A file a build constraint leaves out (a //go:build line, a _windows.go name) is read:
 // some build compiles it. A directory named vendor or dist is left alone as dependencies
 // and build output, as it was before the Go tool's rule was followed.
+//
+// The checks find a call where the source writes it with its package's name, so a Go file
+// the scan reads is refused when it dot-imports a package of the framework or of the
+// application's own module, whose calls it would then write without that name. It is
+// refused as well when it names one of the functions whose calls the checks read
+// (calledByName) without calling it, since a call made later through that value is
+// written where no check looks.
 func (a *App) scan() error {
 	a.walked = map[string]bool{".": true}
 	err := filepath.WalkDir(a.Root, func(abs string, d fs.DirEntry, err error) error {
@@ -159,6 +166,9 @@ func (a *App) scanFile(abs, name string) error {
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			return errors.Wrap(err, "os.ReadFile()")
+		}
+		if err := a.refuseHiddenCalls(rel, data); err != nil {
+			return err
 		}
 		a.EmulatorHarnesses = append(a.EmulatorHarnesses, findRefs(rel, data, emulatorHarnessRE)...)
 		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
@@ -289,6 +299,9 @@ func (a *App) scanGoFile(abs, rel string) error {
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return errors.Wrap(err, "os.ReadFile()")
+	}
+	if err := a.refuseHiddenCalls(rel, data); err != nil {
+		return err
 	}
 
 	if bytes.Contains(data, []byte("NewResourceGenerator")) {
