@@ -216,11 +216,14 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 //
 // The Environment is the per-request decision context (sampled once per
 // request). The engine folds condition facts against it at check time; a
-// condition referencing an attribute the Environment does not carry is a
-// check error, never a silent allow or deny. The answer here is always
-// Granted or Denied: a scope-wide grant carries only conditions about the time
-// of the request, which fold to a definite answer. A stored one whose
-// condition no scope-wide check could settle (it reads a row or a subject
+// condition that reads an attribute the Environment does not carry is a check
+// error, never a silent allow or deny, when the check comes to read it. A
+// holder's conditions are joined as any-of and read in turn, so one that folds
+// true settles the answer first: the check then answers Granted with no error,
+// and the condition that needed the missing attribute is never read. The answer
+// here is always Granted or Denied: a scope-wide grant carries only conditions
+// about the time of the request, which fold to a definite answer. A stored one
+// whose condition no scope-wide check could settle (it reads a row or a subject
 // value, or its time is not one the check can read) is left out at snapshot
 // load and reported as a SkippedGrant, so it gives nobody the permission and
 // fails no other grant.
@@ -258,8 +261,9 @@ func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, use
 // user's identity, so a set folding TRUE answers Granted, one folding FALSE
 // answers Denied, and a Conditional decision carries only what the database
 // must still evaluate — the engine folds facts, and never renders SQL. A
-// condition referencing an attribute the Environment does not carry is a
-// check error, never a silent allow or deny.
+// condition that reads an attribute the Environment does not carry is a check
+// error when the check comes to read it, never a silent allow or deny; see
+// CheckUser for when another condition settles the answer first.
 //
 // Grouping is the engine's job — only the engine owns grant-set identity: a
 // Conditional decision carries one ConditionGroup whose Resources lists
