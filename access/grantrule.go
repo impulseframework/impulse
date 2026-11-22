@@ -158,7 +158,9 @@ func parseStoredCondition(text string) (condition.Expr, error) {
 //
 // What a role holds on a resource in the store is asked the whole rule (refusal). The
 // rest is held to its names, to a condition that parses and, for a grant for the whole
-// of a scope, to a condition that reads no row:
+// of a scope, to a condition a scope-wide check can settle: it reads no row and no
+// subject value, and its instants, zones, times of day and day names are ones the
+// check can read:
 //
 //   - A grant of a role the release declares was held to the whole rule when the role
 //     file was read (expandRoleGrants), and is not asked again.
@@ -185,9 +187,30 @@ func (r *grantRule) unusable(g *policy.Grant, stored bool, parse func(text strin
 	if err != nil {
 		return err
 	}
-	if g.Resource == "" && !condition.RowFree(expr) {
-		return errors.New("a row-referencing condition on a scope-wide grant: a grant attached to no resource has no row for it to see")
+	if g.Resource == "" {
+		if !condition.RowFree(expr) {
+			return errors.New("a row-referencing condition on a scope-wide grant: a grant attached to no resource has no row for it to see")
+		}
+		if err := r.unsettledScopeWide(expr); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+// unsettledScopeWide says why no scope-wide check could settle a scope-wide grant's
+// condition that reads no row, or nil when one can. A scope-wide check folds the
+// condition against the request's facts and asks the database nothing, so a subject
+// value, which only the database compares, is never compared there: the first one the
+// condition reads is said. The rest is held as the role file's validation holds a
+// condition on a resource (validateConditionTypes): an instant that is RFC 3339, a zone
+// the timezone database knows, a time of day and a day name that are ones, each of
+// which a fold would otherwise fail on at every check.
+func (r *grantRule) unsettledScopeWide(expr condition.Expr) error {
+	if values := condition.SubjectValues(expr); len(values) > 0 {
+		return errors.Newf("the condition reads subject.%s on a scope-wide grant: only the database compares a subject value, and a grant attached to no resource is checked without it, so no check could settle the condition; a scope-wide grant's condition reads the time of the request alone", values[0])
+	}
+
+	return validateConditionTypes(&conditionVocabulary{store: r.collection}, expr)
 }

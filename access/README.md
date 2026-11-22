@@ -234,8 +234,8 @@ defer client.Close()
 ```
 
 A grant the running release cannot use — a condition that does not parse, a
-row-referencing condition on a scope-wide grant, a permission, resource or
-field the release's collection does not declare, or, on a role's grant on a
+condition on a scope-wide grant that no scope-wide check could settle, a
+permission, resource or field the release's collection does not declare, or, on a role's grant on a
 resource, anything else a write of the grant is refused for (below) — does not
 stop the load: it is left out of
 the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
@@ -421,13 +421,18 @@ one can carry is about the time of the request (`now < '2027-03-01T00:00:00Z'`).
 No write gives a scope-wide grant a condition: `AddRolePermission` takes none,
 and a role file's grant always names a resource. One that has a condition is a
 row put straight in the store. At snapshot load, a scope-wide grant whose
-condition reads a row is left out and reported as a `*access.SkippedGrant`,
-like any other grant the release cannot use; one whose condition reads only the
+condition no scope-wide check could settle is left out and reported as a
+`*access.SkippedGrant`, like any other grant the release cannot use: one that
+reads a row, one that compares the time to a subject value, which only the
+database can read, and one whose time the check cannot read (an instant that is
+not RFC 3339, a zone the timezone database does not know, a time of day or a
+day name that is none). Such a row gives nobody the permission, and its
+holder's other grants decide as they did. One whose condition reads only the
 time is kept and settled at check time against the `Environment`. So
 `CheckUser` and `CheckRole` answer `Granted` or `Denied`, never `Conditional`.
-A scope-wide check that cannot settle a condition is a check error, never a
-guess: the condition reads `now` and the `Environment` carries no instant, or
-it compares the time to a subject value, which only the database can read.
+A scope-wide check whose `Environment` lacks what a condition reads is a check
+error, never a guess: the condition reads `now` and the `Environment` carries
+no instant, or it reads the local zone and the `Environment` carries none.
 
 A role file's grant on a resource carries a condition (`Condition`), so
 `CheckUserResources` and `CheckRoleResources` do answer `Conditional`. A
@@ -444,8 +449,8 @@ partner portal under a role chosen for the session — the session library's
 impersonated sessions) as well as policy introspection. A role has no
 identity of its own: a `subject` term in a row condition is bound by the
 resource layer to the session's effective identity at render time, and a
-scope-wide condition that needs a subject is a check error, as it is for a
-user. `RoleHasGrants` and `RolePermissionDigest` are the role twins of the
+scope-wide grant whose condition needs a subject is left out when the policy
+loads, as it is for a user. `RoleHasGrants` and `RolePermissionDigest` are the role twins of the
 user foothold and digest questions.
 
 ```go

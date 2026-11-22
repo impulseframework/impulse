@@ -214,12 +214,12 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 // request). The engine folds condition facts against it at check time; a
 // condition referencing an attribute the Environment does not carry is a
 // check error, never a silent allow or deny. The answer here is always
-// Granted or Denied: a scope-wide grant carries only row-free conditions
-// (a row-referencing one is left out at snapshot load and reported as a
-// SkippedGrant — no row exists for it to see), and row-free conditions fold
-// to a definite answer. A condition folding leaves unsettled — a
-// subject-attribute reference, which is data only the database can compare —
-// is a check error too: there is no place to evaluate it on this path.
+// Granted or Denied: a scope-wide grant carries only conditions about the time
+// of the request, which fold to a definite answer. A stored one whose
+// condition no scope-wide check could settle (it reads a row or a subject
+// value, or its time is not one the check can read) is left out at snapshot
+// load and reported as a SkippedGrant, so it gives nobody the permission and
+// fails no other grant.
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"
@@ -310,10 +310,13 @@ func environmentFacts(env accesstypes.Environment) condition.Facts {
 }
 
 // settleScopeWide translates a scope-wide engine decision into the public
-// Decision: granted and denied pass through, and conditional coverage —
-// always row-free, enforced at snapshot load — folds against the facts to a
-// definite answer. A condition folding leaves unsettled needs data no
-// scope-wide check can reach, and is an error rather than a guess.
+// Decision: granted and denied pass through, and conditional coverage folds
+// against the facts to a definite answer. The snapshot load keeps only
+// conditions a scope-wide check can settle (grantRule.unusable), so what can
+// still fail here is the request's: a fact the condition reads and the
+// environment does not carry, which is an error rather than a guess. A
+// condition left unsettled is an error the same way; no loaded grant brings
+// one.
 func settleScopeWide(decision resourceDecision, facts condition.Facts) (accesstypes.Decision, error) {
 	switch {
 	case decision.granted:
@@ -345,8 +348,8 @@ func settleScopeWide(decision resourceDecision, facts condition.Facts) (accessty
 //
 // The Environment and scope semantics are CheckUser's. A role has no identity
 // of its own, so the folding facts carry the request's instant and nothing
-// else; a scope-wide condition that needs a subject is a check error here
-// exactly as it is for a user.
+// else; a stored scope-wide grant whose condition needs a subject is left out
+// at snapshot load, for a role exactly as for a user.
 func (c *Client) CheckRole(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
