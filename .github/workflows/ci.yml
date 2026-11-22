@@ -1036,13 +1036,12 @@ jobs:
           install-only: true
           skip-cache: true
       - name: Make the application as its author does, and hold what the commands left to the brief
-        # The fifteen minutes: the application that takes longest to make, an auth added to
-        # a second browser application, took six minutes on this runner (365 seconds) in a
-        # job that had made another first, and so had already compiled the framework at
-        # this commit and linted an application over it. A job that starts with neither
-        # does both itself, a minute or two more: about eight in all. Fifteen is nearly
-        # twice that, and the same application has taken a quarter longer from one run to
-        # the next. The last job has the same fifteen for an application added to the test
+        # The fifteen minutes: the application that takes longest to make, tenants that can
+        # have directories, took eight minutes on this runner as a job of its own (487
+        # seconds for the whole job, the steps before the test among them). Fifteen is
+        # nearly twice that, and an application has taken a quarter longer from one run to
+        # the next (an auth added to a second browser application: 365 seconds of test,
+        # then 452). The last job has the same fifteen for an application added to the test
         # later; three made there together took thirteen of them.
         if: ${{ env.RUN == 'true' }}
         working-directory: impulse

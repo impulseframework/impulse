@@ -1516,12 +1516,12 @@ describe('ResourceListComponent', () => {
       expect(deleted({ id: 'c-1', summary: 'Mayday' })).toEqual(['Distress call deleted.']);
     });
 
-    it('and says "Create" and names the resource where its metadata carries no word', async () => {
+    it('and says "Create" and "Deleted." where its metadata carries no word', async () => {
       await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
       fixture.detectChanges();
 
       expect(fixture.componentInstance.createButtonLabel()).toBe('Create');
-      expect(deleted({ id: 's-1', name: 'Kestrel' })).toEqual(['Ships deleted successfully']);
+      expect(deleted({ id: 's-1', name: 'Kestrel' })).toEqual(['Deleted.']);
     });
   });
 
