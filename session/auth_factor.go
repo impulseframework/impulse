@@ -55,9 +55,9 @@ import (
 // codes sent for it are counted under the invitation and no address
 // (invitationCodeLimitKey). An administrator's reset (AuthAPI.ResetFactors) forgets the person's trusted
 // devices and tells the person; the email code has nothing for it to reset (the count
-// of the wrong codes entered for an account's address is cleared by its row, as a
-// name's lock is), and a lost mailbox is answered by an administrator asking for the
-// address to be changed, which the new address confirms (AuthAPI.RequestAddressChange).
+// of the wrong codes entered for an account is cleared by its row, as a name's lock
+// is), and a lost mailbox is answered by an administrator asking for the address to be
+// changed, which the new address confirms (AuthAPI.RequestAddressChange).
 // See "The second factor" in the README.
 
 // factorSettings are the settings of the library's second factor.

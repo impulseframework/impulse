@@ -124,7 +124,7 @@ func Normalize(name string) string {
 // people sign in under: the mail an address is sent, the sign-in codes an address is
 // sent, the codes sent to accept one invitation, the codes entered to accept one
 // invitation, the codes entered for an address a person typed at the sign-in code's
-// step, the codes entered for the address an account holds, the password reset links
+// step, the codes entered for an account's own sign-in code, the password reset links
 // an address is sent, and the guesses at the code of an account's first password. Each
 // is kept under its kind, a colon, and what it counts (OwnKey).
 //
