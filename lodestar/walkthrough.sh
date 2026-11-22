@@ -67,6 +67,18 @@ invitation_mailed() { # invitation_mailed <address> <log>: the last invitation t
   grep -a -A 12 "mail (not sent) to $address, subject \"You are invited to" "$log" | tail -13
 }
 
+token_only_in_mail() { # token_only_in_mail <label> <token> <log>: PASS when every line of the log that holds the token is the mail's link to it (#invitation=<token>), FAIL counting the others
+  # The token is the invitation: a request line that held it (a query, a path) would put
+  # it in every log the request passes through. The token and the lines are never printed.
+  local label=$1 token=$2 log=$3 outside
+  outside=$(grep -aF -- "$token" "$log" | grep -acvF -- "#invitation=$token")
+  if [ "$outside" -eq 0 ]; then
+    echo "PASS  $label"
+  else
+    echo "FAIL  $label: $outside line(s) of the server's log hold the token outside the mail"; fails=$((fails + 1))
+  fi
+}
+
 second_factor() { # second_factor <persona> <api> <address> <log>: the sign-in code a sign-in waits for
   # A sign-in the auth's rule holds for a second factor answers no session until the code
   # mailed to the person is entered. A persona holds no address until they give one at the
@@ -1401,6 +1413,12 @@ if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then
   done
   check "overseer reassigns the claimed mission once overdue (deadline < now flipped)" 200 "$r"
 fi
+
+# Every request of the run is behind this: no line of the server's log holds an
+# invitation's token but the mail that carried it.
+token_only_in_mail "the token of the invitation mailed to founder@dawn.example is in the server's log only where the mail is: no request line holds it" "$DAWN_TOKEN" "$LOG"
+token_only_in_mail "the token of the invitation mailed to founder@flint.example is in the server's log only where the mail is: no request line holds it" "$FLINT_TOKEN" "$LOG"
+token_only_in_mail "the token of the invitation mailed to gus@example.com is in the server's log only where the mail is: no request line holds it" "$GUS_TOKEN" "$LOG"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "$fails CHECK(S) FAILED"; fi
