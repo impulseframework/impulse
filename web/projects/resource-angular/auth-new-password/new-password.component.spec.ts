@@ -205,7 +205,7 @@ describe('NewPasswordComponent', () => {
     expect(say(page)).toBe(shortReason);
   });
 
-  it('draws the tone from the answer: 20 of 50 is short, 30 of 50 near, 50 of 50 strong enough enough', async () => {
+  it('draws the tone from the answer: 20 of 50 is short, 30 of 50 near, 50 of 50 strong enough', async () => {
     const server = new Server();
     server.answers.set('twenty', judged(20, false, 'Too guessable.'));
     server.answers.set('thirty', judged(30, false, 'Nearly there.'));
