@@ -443,6 +443,7 @@ func TestReading_of(t *testing.T) {
 		{typed: "\u0628\u064e", want: standIns[:1]},
 		{typed: "\u091c\u093c", want: standIns[:1]},
 		{typed: "\u0915\u0901\u0915\u0902", want: standIns[:2] + standIns[:2]},
+		{typed: "\u1014\u1031\u1037", want: standIns[:3]},
 	}
 	for _, tt := range tests {
 		if got := newReading().of(tt.typed); got != tt.want {

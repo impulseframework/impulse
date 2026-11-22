@@ -94,6 +94,10 @@ const (
 	// for a borrowed sound.
 	nuktaClass = 7
 
+	// myanmarDotBelow is Myanmar's dot below, the mark of the creaky tone. Unicode gives it the
+	// nukta's class, and it is a tone mark a person types as a character.
+	myanmarDotBelow = '\u1037'
+
 	// chandrabindu and anusvara are Devanagari's signs of a nasal vowel; Hindi writes the
 	// anusvara in the chandrabindu's place, so the reading gives the two one stand-in.
 	chandrabindu, anusvara = '\u0901', '\u0902'
@@ -444,8 +448,12 @@ func (r *reading) of(typed string) string {
 // leftOff says whether the mark c is one a person may leave off, so it is no character: a
 // mark Unicode gives no script of its own (an accent typed apart from a letter it does not
 // combine with), a point of Hebrew, Arabic or Syriac, scripts usually written without them,
-// and a nukta.
+// and a nukta. Myanmar's dot below has the nukta's class but is a tone mark, so it counts.
 func leftOff(c rune) bool {
+	if c == myanmarDotBelow {
+		return false
+	}
+
 	return unicode.In(c, unicode.Inherited, unicode.Hebrew, unicode.Arabic, unicode.Syriac) ||
 		norm.NFC.PropertiesString(string(c)).CCC() == nuktaClass
 }
