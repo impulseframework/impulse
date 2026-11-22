@@ -739,14 +739,15 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 // entered, was found right: the wait is consumed, so it completes once, and the sign-in
 // carries the invitation the code was mailed for, if any. A wait that names its user
 // holds the code to the address the account holds now (codeHolder), whether it is the
-// account's own or was mailed for an invitation. The account's own code writes nothing here: the sign-in carries the
-// address it confirms (codeAddressOf), which the store writes on the account in the
-// transaction that inserts the session, and only then. A code mailed for an invitation
-// carries no address, whether the wait names an account or none: the sign-in that
-// carries it is that invitation's acceptance, which makes or finds the account and
-// writes the invited address in its own transaction, and the code counts for that
-// acceptance alone. An invitation that turns out used or withdrawn so leaves nothing
-// written. The account of a sign-up through an invitation is made here
+// account's own or was mailed for an invitation. The account's own code writes nothing
+// here: the sign-in carries the address it confirms (codeAddressOf), which the store
+// writes on the account in the transaction that inserts the session, or with the
+// acceptance of an invitation that rests on that code, and only then. A code mailed for
+// an invitation carries no address, whether the wait names an account or none: the
+// sign-in that carries it is that invitation's acceptance, which makes or finds the
+// account and writes the invited address in its own transaction, and the code counts
+// for that acceptance alone. An invitation that turns out used or withdrawn so leaves
+// nothing written. The account of a sign-up through an invitation is made here
 // (invitedSignUpAttempt). before is the account of a wait that names its user as it was
 // read before the code was consumed (codeHolder).
 func (a *Auth[S, U, Tx]) attemptWithCode(

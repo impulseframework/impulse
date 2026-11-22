@@ -56,7 +56,8 @@ type PasswordProof = dbtype.PasswordProof
 // CodeAddress is the address a mailed sign-in code confirms (SignInRules.CodeAddress):
 // Held is the address the account held when the code was checked, nil for none, and
 // Email the address written, confirmed, by the sign-in that starts the session, only
-// while the account still holds Held and no other account holds Email.
+// while the account still holds Held and no other account holds Email. Written is set
+// by SignIn once the transaction that wrote the address has committed.
 type CodeAddress = dbtype.CodeAddress
 
 // ProofOfPassword is the proof of a password that was compared against hash, the hash
@@ -644,7 +645,12 @@ type SignInRules[Tx any] struct {
 	// by the sign-in that completes a wait with that code and by no other (nil). SignIn
 	// writes it on the account, confirmed, in the transaction that inserts the session
 	// and only then, while the account still holds CodeAddress.Held and has confirmed no
-	// address: a sign-in refused or held again writes no address.
+	// address: a sign-in refused or held again writes no address. An account that has
+	// confirmed an address is written nothing, and signs in only while it still holds
+	// CodeAddress.Email. An invitation's acceptance is apart: a password sign-in that
+	// accepts one on this code writes the address with the acceptance, before the
+	// sign-in policy decides. SignIn sets CodeAddress.Written once the transaction that
+	// wrote the address has committed.
 	CodeAddress *CodeAddress
 }
 

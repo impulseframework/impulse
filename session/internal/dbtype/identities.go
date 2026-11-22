@@ -148,8 +148,9 @@ type User struct {
 
 // CodeAddress is the address a mailed sign-in code confirms, carried by the sign-in that
 // completes a wait with the account's own code: it is written on the account, confirmed,
-// in the transaction that inserts the session, and only while the account still holds
-// what it held when the code was checked (signinflow.decideAndInsert).
+// in the transaction that inserts the session, or with the acceptance of an invitation
+// that rests on that code, and only while the account still holds what it held when the
+// code was checked (signinflow.decideAndInsert, signinflow.acceptInvitation).
 type CodeAddress struct {
 	// Held is the address the account held when the code was checked, byte for byte,
 	// nil for none.
