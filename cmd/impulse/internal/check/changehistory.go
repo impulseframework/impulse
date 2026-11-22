@@ -183,7 +183,7 @@ func libraryChangeHistory(ctx context.Context, env *Env) (ddl changeHistoryDDL, 
 	ddl = changeHistoryDDL{source: path.Join(path.Base(dir), name), indexes: map[string]string{}}
 	table := false
 	for _, stmt := range raw {
-		if m := createTableRE.FindStringSubmatch(stmt); m != nil && m[1] == changeHistoryTable {
+		if m := createTableRE.FindStringSubmatch(stmt); len(m) > 1 && m[1] == changeHistoryTable {
 			table = true
 			ddl.columns = tableColumns(stmt)
 

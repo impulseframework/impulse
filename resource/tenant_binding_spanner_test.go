@@ -64,7 +64,7 @@ func changeTenants(t *testing.T, db *spanner.Client, table, row string) []string
 	if err := db.Single().Query(context.Background(), stmt).Do(func(r *spanner.Row) error {
 		var tenant string
 		if err := r.Column(0, &tenant); err != nil {
-			return err
+			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		tenants = append(tenants, tenant)
 
@@ -100,7 +100,7 @@ func applyTogether(t *testing.T, client Client, writes ...changeWrite) {
 	if err := client.ExecuteFunc(context.Background(), func(ctx context.Context, txn ReadWriteTransaction) error {
 		for _, w := range writes {
 			if err := w.Buffer(ctx, txn, "test"); err != nil {
-				return err
+				return errors.Wrap(err, "changeWrite.Buffer()")
 			}
 		}
 

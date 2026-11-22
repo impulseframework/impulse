@@ -193,7 +193,7 @@ func transactionPointReader(txn ReadWriteTransaction, notImplemented string) poi
 
 // spannerPointText runs a statement that yields one text value, and says whether it
 // yielded a row at all.
-func spannerPointText(ctx context.Context, querier spxapi.Querier, stmt *Statement) (string, bool, error) {
+func spannerPointText(ctx context.Context, querier spxapi.Querier, stmt *Statement) (text string, found bool, err error) {
 	it := querier.Query(ctx, stmt.SpannerStatement())
 	defer it.Stop()
 
