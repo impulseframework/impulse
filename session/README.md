@@ -130,7 +130,7 @@ Each auth group owns eleven tables: sessions and users (the base migrations,
 `schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts,
 mail links, factor codes, trusted devices and sign-in methods (the auth migrations,
 `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
-`ProviderSessionId` and `ProviderSessionIssuer` to the sessions table and the email
+`ProviderSessionId`, `ProviderSessionIssuer` and `Browser` to the sessions table and the email
 address columns and the person's name to the users table), and impersonations
 (`schema/*/impersonation/migrations`) if you use it. A new group applies the base set,
 then the auth set.
