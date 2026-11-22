@@ -156,6 +156,23 @@ type served struct {
 func newServed(ctx context.Context, t *testing.T) *served {
 	t.Helper()
 
+	return serve(ctx, t, true)
+}
+
+// newDeployed is the stack as a deployed environment that names no persona provider has
+// it: what newServed builds, with no persona registration and no cast seeded, so the
+// staff auth's people sign in through a directory alone.
+func newDeployed(ctx context.Context, t *testing.T) *served {
+	t.Helper()
+
+	return serve(ctx, t, false)
+}
+
+// serve builds the stack newServed and newDeployed describe: with the persona
+// registration and the cast seeded where persona is set, and with neither otherwise.
+func serve(ctx context.Context, t *testing.T, persona bool) *served {
+	t.Helper()
+
 	db, err := prepareDatabase(ctx, t, migrationsSource, devSeedSource)
 	if err != nil {
 		t.Fatal(err)
@@ -176,15 +193,21 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
 	callbacks := "http://" + server.Listener.Addr().String() + "/api/user/"
+	// The persona registration is there only where the persona provider is named, so the
+	// stack of a development run names one; nothing reads it. A deployed environment
+	// names none.
+	personaSettings := staff.PersonaSettings{}
+	if persona {
+		personaSettings = staff.PersonaSettings{Issuer: "https://persona.example.com", ClientID: "solo-test", RedirectURL: callbacks + staff.PersonaRegistration + "/callback"}
+	}
 	auth, err := staff.New(ctx, db.Client, &staff.Settings{
 		Collection: router.Collection(), Signals: svc, CookieKey: testCookieKey, SessionTimeout: time.Minute, Mail: sent, MailLoginURL: "http://solo.test/login", LoginURL: "/login",
 		// Each registration's callback is the served one: under the session library's
 		// skipAuth build tag the login route sends the browser straight there
-		// (browser.directoryRoundTrip). The persona registration is there only where the
-		// persona provider is named, so the suites name one; nothing reads it.
+		// (browser.directoryRoundTrip).
 		Google:  staff.GoogleSettings{RedirectURL: callbacks + staff.GoogleRegistration + "/callback"},
 		Azure:   staff.AzureSettings{RedirectURL: callbacks + staff.AzureRegistration + "/callback"},
-		Persona: staff.PersonaSettings{Issuer: "https://persona.example.com", ClientID: "solo-test", RedirectURL: callbacks + staff.PersonaRegistration + "/callback"},
+		Persona: personaSettings,
 		// The sign-in rule reads what each tenant declares in the sign-in's transaction,
 		// through the generated readers, as production does.
 		TenantDeclarations: app.New[[.Record]]DeclarationReader(),
@@ -201,10 +224,12 @@ func newServed(ctx context.Context, t *testing.T) *served {
 			t.Errorf("staff.Auth.Close() error = %v", err)
 		}
 	})
-	// The cast, as the bootstrap seeds it: the persona's account, holding its roles under
-	// the account's id.
-	if _, err := auth.SeedCast(ctx, io.Discard); err != nil {
-		t.Fatalf("staff.Auth.SeedCast() error = %v", err)
+	// The cast, as the bootstrap seeds it where the persona provider is named: the
+	// persona's account, holding its roles under the account's id.
+	if persona {
+		if _, err := auth.SeedCast(ctx, io.Discard); err != nil {
+			t.Fatalf("staff.Auth.SeedCast() error = %v", err)
+		}
 	}
 
 	a := app.New(&servedConfigurer{db: db, auth: auth, live: svc, tenants: roster})

@@ -45,6 +45,16 @@ const METHODS: LoginMethods = {
   },
 };
 
+/**
+ * What the outlet's methods route answers in a deployed environment that names no persona
+ * provider: the development run's answer without the persona method, which is listed only where
+ * its provider is configured.
+ */
+const DEPLOYED_METHODS: LoginMethods = {
+  ...METHODS,
+  methods: METHODS.methods.filter((method) => method.name !== 'persona'),
+};
+
 // The page composes the library's login component: the component reads the methods route
 // through the application's client and renders a button for each method from it; the page
 // ends no session and, on the component's signedIn, starts the idle watch and navigates. The
@@ -109,6 +119,38 @@ describe('LoginComponent', () => {
     expect(started).toHaveBeenCalledTimes(1);
     expect(navigated).toHaveBeenCalledWith('/dashboard');
     idle.stop();
+  });
+});
+
+describe('LoginComponent, where no persona provider is configured', () => {
+  let fixture: ComponentFixture<LoginComponent>;
+
+  beforeEach(async () => {
+    const transport = scriptedTransport((request: TransportRequest) =>
+      request.url.endsWith('/user/methods')
+        ? { status: 200, body: DEPLOYED_METHODS }
+        : { status: 200, body: undefined },
+    );
+    await TestBed.configureTestingModule({
+      imports: [LoginComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(LoginComponent);
+    fixture.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    fixture.detectChanges();
+  });
+
+  it('renders the buttons of the two directory methods alone, and no password form', () => {
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('impulse-login-methods form')).toBeNull();
+    const redirects = Array.from(element.querySelectorAll('button.impulse-login-redirect')).map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft']);
   });
 });
 

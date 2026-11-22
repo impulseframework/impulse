@@ -115,6 +115,9 @@ const (
 	noDirectory   = "The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it "
 	noDirectories = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
 	eachChooses   = " Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page.\n"
+	// takesItsDirectory is what the reading says in place of eachChooses where a
+	// person belongs to one tenant.
+	takesItsDirectory = " A tenant takes its directory when it is made: the organization its founder signs in from. Whether that directory's people get an account without an invitation is each tenant's choice, made while the application runs on the tenant's Sign-in page."
 )
 
 // TestWriteSignIn_skeletonsAndLodestar reads the sign-in section of the four skeleton
@@ -260,7 +263,7 @@ func TestWriteSignIn_tenantShapes(t *testing.T) {
 				"    google (pkg/auth/staff/google.go:N): admits the accounts of any Google Workspace; the application gives the roles;",
 				"    persona (pkg/auth/staff/persona.go:N): admits the personas of the test environments' persona provider; the application gives the roles; left invite only, since its accounts are the cast the deployment seeds\n",
 				"    a person belongs to one tenant (identity.WithOneTenantPerPerson, pkg/auth/staff/staff.go:N)\n",
-				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the azure and google methods)." + strings.TrimSuffix(eachChooses, "\n") + " The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape.\n",
+				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the azure and google methods)." + takesItsDirectory + " The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape.\n",
 			},
 		},
 		{
@@ -277,7 +280,7 @@ func TestWriteSignIn_tenantShapes(t *testing.T) {
 			name: "one tenant per person, no password, and a method as wide as any Google account", candidate: "tenanted",
 			edits: map[string]func(text string) string{"pkg/auth/staff/staff.go": oneTenant, "pkg/auth/staff/password.go": nil},
 			want: []string{
-				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the google method)." + strings.TrimSuffix(eachChooses, "\n") +
+				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the google method)." + takesItsDirectory +
 					" The google method admits any Google account, which works and is not the typical width of this shape (the accounts of any Google Workspace or of any Microsoft Entra tenant, with no personal accounts).\n",
 			},
 		},

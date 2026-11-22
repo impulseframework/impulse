@@ -1,0 +1,126 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
+)
+
+// TestFoundedTenant_takesItsFoundersDirectory proves a tenant takes its directory when it
+// is made: the organization its founder signs in from, at Google or at Microsoft, since
+// the founder has no other way in. Only whether that directory's people get an account
+// without an invitation is the tenant's choice afterwards. Under the session library's
+// skipAuth build tag every person of a method open to any organization signs in from one
+// simulated organization, and a directory is one tenant's, so the stack founds one tenant
+// through each provider, one after the other.
+func TestFoundedTenant_takesItsFoundersDirectory(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := newBrowser(t, s)
+	admin.signIn(ctx, staff.PersonaRegistration, adminUser)
+
+	founders := []struct {
+		registration string
+		address      string
+		tenant       string
+		want         foundedDirectory
+	}{
+		{registration: staff.GoogleRegistration, address: "greta@lakeside.example", tenant: "Lakeside", want: foundedDirectory{Method: "google", Connection: "skipauth.invalid"}},
+		{registration: staff.AzureRegistration, address: "miles@harbor.example", tenant: "Harbor", want: foundedDirectory{Method: "azure", Connection: "034cdd64-5dd9-4a3b-90fb-c76d3a499433"}},
+	}
+	for _, f := range founders {
+		if row := tenantNamed(ctx, t, admin, f.tenant); row != nil {
+			t.Fatalf("a tenant named %s is there before its invitation: %v", f.tenant, row)
+		}
+
+		// The administrator sends the invitation that makes the tenant.
+		invitation, err := json.Marshal(map[string]any{"email": f.address, "[[.Camel]]Name": f.tenant})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status, body := admin.do(ctx, http.MethodPost, "/api/invite-staff-[[.Kebab]]", invitation); status != http.StatusOK {
+			t.Fatalf("the invitation that makes %s: status %d: %s", f.tenant, status, body)
+		}
+
+		// The founder follows the mailed link, signs in through the registration and
+		// enters the code mailed to the invited address.
+		founder := newBrowser(t, s)
+		if status, page := showInvitation(ctx, t, founder, mailedInvitation(t, s, f.address)); status != http.StatusOK {
+			t.Fatalf("opening the invitation that makes %s: status %d: %v", f.tenant, status, page)
+		}
+		if status, location := founder.directoryRoundTrip(ctx, f.registration, f.address); status != http.StatusFound || location != heldForFactor {
+			t.Fatalf("the founder's sign-in through the %s registration: status %d to %q, want %d to the login page's code step", f.registration, status, location, http.StatusFound)
+		}
+		founder.secondFactor(ctx, f.address)
+		if sess := founder.session(ctx); !sess.Authenticated || sess.Username != f.address {
+			t.Fatalf("the session after the acceptance = %+v, want authenticated as %s", sess, f.address)
+		}
+
+		// The tenant is made, with the organization its founder signed in from as its
+		// one directory. The founder reads it: the acceptance seats the founder as the
+		// tenant's administrator, and the application's administrator holds no role in a
+		// tenant they did not join, so to them its routes answer that it does not exist.
+		made := tenantNamed(ctx, t, admin, f.tenant)
+		if made == nil {
+			t.Fatalf("no tenant named %s after its invitation was accepted through the %s registration", f.tenant, f.registration)
+		}
+		id, ok := made["id"].(string)
+		if !ok {
+			t.Fatalf("the tenant %s as listed = %v, want its id", f.tenant, made)
+		}
+		if got := tenantDirectories(ctx, t, founder, id); len(got) != 1 || got[0] != f.want {
+			t.Errorf("%s's directories = %+v, want the one its founder signed in from through the %s registration, %+v", f.tenant, got, f.registration, f.want)
+		}
+	}
+}
+
+// foundedDirectory is a tenant's directory as the directories record lists it: the
+// sign-in method and the connection its identities carry.
+type foundedDirectory struct {
+	Method     string `json:"method"`
+	Connection string `json:"connection"`
+}
+
+// tenantNamed answers the row of the tenant with the name as the browser's person lists
+// the tenants, nil when no tenant has it.
+func tenantNamed(ctx context.Context, t *testing.T, b *browser, name string) map[string]any {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/[[.Segment]]?limit=200", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET /api/[[.Segment]]: status %d: %s", status, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("the tenants are not a list: %v: %s", err, body)
+	}
+	for _, row := range rows {
+		if row["name"] == name {
+			return row
+		}
+	}
+
+	return nil
+}
+
+// tenantDirectories lists the tenant's rows of the directories record as the browser's
+// person reads them.
+func tenantDirectories(ctx context.Context, t *testing.T, b *browser, id string) []foundedDirectory {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/[[.Segment]]/"+id+"/[[.Kebab]]-directories", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET the directories of the tenant %s: status %d: %s", id, status, body)
+	}
+	var rows []foundedDirectory
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("the directories are not a list: %v: %s", err, body)
+	}
+
+	return rows
+}

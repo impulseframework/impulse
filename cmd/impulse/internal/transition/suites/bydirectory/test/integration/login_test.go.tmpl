@@ -1,8 +1,10 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -70,6 +72,56 @@ func TestLogin(t *testing.T) {
 				if err := json.Unmarshal(body, &digest); err != nil {
 					t.Fatalf("digest is not a PermissionDigest: %v: %s", err, body)
 				}
+			}
+		})
+	}
+}
+
+// TestLoginMethods proves what the login page is offered to draw: the methods route
+// answers the two directory methods the auth registers, Google then Microsoft, and no
+// password method. A development run, whose stack names the persona provider, lists the
+// persona method after them; a deployed environment that names none does not, so its
+// login page shows two buttons. Nobody signs in, so the test runs under either build.
+func TestLoginMethods(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		stack func(ctx context.Context, t *testing.T) *served
+		want  []string
+	}{
+		{name: "a deployed environment that names no persona provider", stack: newDeployed, want: []string{"google", "azure"}},
+		{name: "a development run", stack: newServed, want: []string{"google", "azure", "persona"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			b := newBrowser(t, tt.stack(ctx, t))
+			status, body := b.do(ctx, http.MethodGet, "/api/user/methods", nil)
+			if status != http.StatusOK {
+				t.Fatalf("GET /api/user/methods: status %d: %s", status, body)
+			}
+			var answer struct {
+				Methods []struct {
+					Name   string `json:"name"`
+					Method string `json:"method"`
+					Kind   string `json:"kind"`
+				} `json:"methods"`
+			}
+			if err := json.Unmarshal(body, &answer); err != nil {
+				t.Fatalf("the methods answer is not an object: %v: %s", err, body)
+			}
+			names := make([]string, 0, len(answer.Methods))
+			for _, m := range answer.Methods {
+				names = append(names, m.Name)
+				if m.Method == "password" || m.Kind == "password" {
+					t.Errorf("the methods answer offers a password method: %+v", m)
+				}
+			}
+			if !slices.Equal(names, tt.want) {
+				t.Errorf("the methods answer names %q, want %q", names, tt.want)
 			}
 		})
 	}
