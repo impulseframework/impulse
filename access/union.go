@@ -33,9 +33,10 @@ import (
 // refused here.
 //
 // The subject namespace is one for the whole application: collections that say one set
-// describes two auths' people are refused (refuseSetOfTwoAuths), and so, where the
-// collections together know several auths, is a set a collection lists without saying
-// whose people it describes (refuseUnsaidSet).
+// describes two auths' people are refused (refuseSetOfTwoAuths), collections that
+// declare one set in two different ways are refused (refuseSetDefinedTwoWays), and so,
+// where the collections together know several auths, is a set a collection lists
+// without saying whose people it describes (refuseUnsaidSet).
 //
 // A collection handed over as nil (the nil interface, or a nil pointer of a collection's
 // type, which a variable nothing was assigned to hands over) is refused with a sentence
@@ -102,6 +103,9 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 	if err := refuseSetOfTwoAuths(collections); err != nil {
 		return nil, err
 	}
+	if err := refuseSetDefinedTwoWays(collections); err != nil {
+		return nil, err
+	}
 	if err := refuseUnsaidSet(collections, u.Auths()); err != nil {
 		return nil, err
 	}
@@ -166,6 +170,56 @@ func refuseSetOfTwoAuths(collections []PermissionCollection) error {
 	}
 
 	return nil
+}
+
+// refuseSetDefinedTwoWays refuses collections that declare one subject set in two
+// different ways (SubjectSetDefinition). subject.<name> is one name to a role file, so
+// a name holds the same people in every site. For each set some collection lists
+// (SubjectSets), in name order, each collection that lists it is compared with the
+// first that does, in argument order; the first two that differ are named, with the
+// part at the first place their definitions differ. A set a collection names an auth
+// for without listing it is not compared.
+func refuseSetDefinedTwoWays(collections []PermissionCollection) error {
+	listers := make(map[string][]int)
+	for i, c := range collections {
+		for name := range c.SubjectSets("") {
+			listers[name] = append(listers[name], i)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(listers)) {
+		first := listers[name][0]
+		definition := collections[first].SubjectSetDefinition(name)
+		for _, i := range listers[name][1:] {
+			other := collections[i].SubjectSetDefinition(name)
+			if slices.Equal(definition, other) {
+				continue
+			}
+			at := 0
+			for at < len(definition) && at < len(other) && definition[at] == other[at] {
+				at++
+			}
+
+			return errors.Newf("UnionCollection: collections %d and %d (in argument order) both declare subject set %q and define it differently: %s vs %s. "+
+				"A role file reads the set by its name alone, so it must hold the same people in every site: declare the set the same way in both, or give one of the two sets another name",
+				first+1, i+1, name, definitionPart(definition, at), definitionPart(other, at))
+		}
+	}
+
+	return nil
+}
+
+// definitionPart says the part of a subject set's definition at a place, the way a
+// refusal of two definitions names it: the part itself, or, where the definition has
+// none there, no definition when it is empty and nothing more when it stops short.
+func definitionPart(definition []string, at int) string {
+	switch {
+	case at < len(definition):
+		return definition[at]
+	case len(definition) == 0:
+		return "no definition"
+	default:
+		return "nothing more"
+	}
 }
 
 // registration is what one collection says about a resource it registers: the
@@ -309,8 +363,9 @@ func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.Att
 }
 
 // SubjectSets merges the subject sets the collections declare for one auth's people:
-// the subject namespace is application-wide, and a set two collections declare builds
-// on what either says.
+// the subject namespace is application-wide, and a set two collections declare is
+// declared the same way in both (refuseSetDefinedTwoWays), so it builds on what either
+// says.
 func (u *unionCollection) SubjectSets(auth string) map[string][]string {
 	sets := make(map[string][]string)
 	for _, c := range u.collections {
@@ -358,6 +413,21 @@ func (u *unionCollection) SubjectSetAuth(name string) string {
 	}
 
 	return ""
+}
+
+// SubjectSetDefinition says how a subject set is declared, from the first collection
+// (in argument order) that answers for it: the subject namespace is application-wide,
+// and collections that list one set and declare it in two different ways are refused
+// where the union is built (UnionCollection), so the first answer is every listing
+// collection's.
+func (u *unionCollection) SubjectSetDefinition(name string) []string {
+	for _, c := range u.collections {
+		if definition := c.SubjectSetDefinition(name); definition != nil {
+			return definition
+		}
+	}
+
+	return nil
 }
 
 // SubjectValueComparisonType resolves a subject value's comparison type from

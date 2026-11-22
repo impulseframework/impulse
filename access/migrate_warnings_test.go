@@ -80,6 +80,10 @@ func (probeCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (probeCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
 func (probeCollection) Auths() []string {
 	return nil
 }

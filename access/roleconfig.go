@@ -53,6 +53,16 @@ type PermissionCollection interface {
 	// file is loaded (see validateGrantSetAuth).
 	SubjectSetAuth(name string) string
 
+	// SubjectSetDefinition says how the collection declares the subject set
+	// of a name: the collection's own words for each part of the set's
+	// declaration, in a fixed order, the parts two collections are compared
+	// by. It is nil for a name the collection declares no set under. A union
+	// of collections refuses two members that list one set and answer
+	// different parts (see UnionCollection), since a role file reads a set by
+	// its name alone. The auth a set describes is not among the parts:
+	// SubjectSetAuth says it.
+	SubjectSetDefinition(name string) []string
+
 	// Auths lists the names of the auths the application's generation knew, as
 	// their packages name them, in name order: the names a set's auth: part
 	// may say, and so the names a role file may be handed over under. A file

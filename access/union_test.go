@@ -37,6 +37,8 @@ type stubCollection struct {
 	// set's name: what the generated collection does for the set of a person's groups
 	// that the generator declares.
 	unlistedSets map[string]string
+	// definitions are the parts the stub says a set is declared with, by the set's name.
+	definitions map[string][]string
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -123,6 +125,12 @@ func (s *stubCollection) SubjectSetAuth(name string) string {
 	}
 
 	return s.unlistedSets[name]
+}
+
+// SubjectSetDefinition answers the parts the stub is told a set is declared with, and
+// nil for a set it is told none of.
+func (s *stubCollection) SubjectSetDefinition(name string) []string {
+	return s.definitions[name]
 }
 
 func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
@@ -608,6 +616,106 @@ func TestUnionCollection_oneSetNameForTwoAuths(t *testing.T) {
 			}
 			if got := union.SubjectSetAuth("teams"); got != tt.wantAuth {
 				t.Errorf("SubjectSetAuth(\"teams\") = %q, want %q", got, tt.wantAuth)
+			}
+		})
+	}
+}
+
+// TestUnionCollection_oneSetDefinedTwoWays pins that the union refuses collections that
+// declare one subject set in two different ways, naming both by position, the set, and
+// the first part their definitions differ in: a role file reads a set by its name
+// alone, so a name holds the same people in every site. Each collection that lists the
+// set is compared with the first that lists it; a definition with no part where the
+// other has one is said as no definition when it is empty and as nothing more when it
+// is not. Collections that say one set is two auths' are told that first, and the union
+// answers a set's definition from the first collection that declares it.
+func TestUnionCollection_oneSetDefinedTwoWays(t *testing.T) {
+	t.Parallel()
+
+	crews := []string{"declared on CrewMembers (global)", "person: UserId", "value: CrewId", "type: string", "who: (none)", "where: (none)", "tenant: (none)"}
+	ships := []string{"declared on CrewMembers (global)", "person: UserId", "value: ShipId", "type: string", "who: (none)", "where: (none)", "tenant: (none)"}
+	listing := func(definition []string) *stubCollection {
+		return &stubCollection{declaredSets: map[string][]string{"crews": nil}, definitions: map[string][]string{"crews": definition}}
+	}
+	refusal := func(first, second int, one, other string) string {
+		return fmt.Sprintf("UnionCollection: collections %d and %d (in argument order) both declare subject set %q and define it differently: %s vs %s. "+
+			"A role file reads the set by its name alone, so it must hold the same people in every site: declare the set the same way in both, or give one of the two sets another name",
+			first, second, "crews", one, other)
+	}
+
+	tests := []struct {
+		name        string
+		collections []PermissionCollection
+		wantErr     string
+		want        []string
+	}{
+		{
+			name:        "two collections declare one set in two ways",
+			collections: []PermissionCollection{listing(crews), listing(ships)},
+			wantErr:     refusal(1, 2, "value: CrewId", "value: ShipId"),
+		},
+		{
+			name:        "two collections declare one set the same way",
+			collections: []PermissionCollection{listing(crews), listing(slices.Clone(crews))},
+			want:        crews,
+		},
+		{
+			name:        "each collection is compared with the first that lists the set",
+			collections: []PermissionCollection{listing(crews), &stubCollection{}, listing(crews), listing(ships)},
+			wantErr:     refusal(1, 4, "value: CrewId", "value: ShipId"),
+		},
+		{
+			name:        "a definition that stops where the other goes on",
+			collections: []PermissionCollection{listing(crews), listing(crews[:5])},
+			wantErr:     refusal(1, 2, "where: (none)", "nothing more"),
+		},
+		{
+			name:        "a collection that lists the set and says nothing of how it is declared",
+			collections: []PermissionCollection{listing(nil), listing(crews)},
+			wantErr:     refusal(1, 2, "no definition", "declared on CrewMembers (global)"),
+		},
+		{
+			name: "two collections that say the set is two auths' are told that first",
+			collections: []PermissionCollection{
+				&stubCollection{authSets: map[string]map[string][]string{"staff": {"crews": nil}}, definitions: map[string][]string{"crews": crews}},
+				&stubCollection{authSets: map[string]map[string][]string{"members": {"crews": nil}}, definitions: map[string][]string{"crews": ships}},
+			},
+			wantErr: `UnionCollection: collections 1 and 2 (in argument order) both declare subject set "crews" and disagree on whose people it describes: auth "staff" vs auth "members"`,
+		},
+		{
+			name: "a set one collection names an auth for without listing it is not compared",
+			collections: []PermissionCollection{
+				listing(crews),
+				&stubCollection{unlistedSets: map[string]string{"crews": "staff"}, definitions: map[string][]string{"crews": ships}},
+			},
+			want: crews,
+		},
+		{
+			name:        "the union answers from the first collection that declares the set",
+			collections: []PermissionCollection{&stubCollection{}, listing(crews), &stubCollection{definitions: map[string][]string{"ships": ships}}},
+			want:        crews,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			union, err := UnionCollection(tt.collections...)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("UnionCollection() error = %v, want the error %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			if got := union.SubjectSetDefinition("crews"); !slices.Equal(got, tt.want) {
+				t.Errorf("SubjectSetDefinition(\"crews\") = %q, want %q", got, tt.want)
+			}
+			if got := union.SubjectSetDefinition("ghosts"); got != nil {
+				t.Errorf("SubjectSetDefinition(\"ghosts\") = %q, want nil", got)
 			}
 		})
 	}
