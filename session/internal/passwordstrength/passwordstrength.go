@@ -37,15 +37,17 @@
 // also write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), a letter
 // people write two ways in plain letters in both (ü as u and ue, ø as o and oe, å as a and aa,
 // đ as d and dj), and any other character outside ASCII as one stand-in, the same for the same
-// letter, with or without its marks and in either case, throughout one judgment. A letter read
-// as two (ß, æ, œ, þ) is written as its two letters to match a person's word, and counts as
-// one character toward the password's strength: the password as typed has it as its stand-in.
-// The person's words are given both ways, as typed first, so a name with such a letter matches
-// the password as typed where it did before the letter was read as two. A vowel sign or tone
-// mark that a script types as a character of its own, as Thai and Hindi do, is a character: it
-// counts toward the password's strength, and a name written with it counts against a password
-// built on it. A point a person may leave off (a Hebrew, Arabic or Syriac point, an Indic
-// nukta) is no character, so a password or a name counts the same with or without its points.
+// letter, with or without its marks and in either case, throughout one judgment. A word of the
+// person's with two such letters also counts with one in each spelling (Haegerstrom and
+// Hagerstroem for Hägerström). A letter read as two (ß, æ, œ, þ) is written as its two letters
+// to match a person's word, and counts as one character toward the password's strength: the
+// password as typed has it as its stand-in. The person's words are given both ways, as typed
+// first, so a name with such a letter matches the password as typed where it did before the
+// letter was read as two. A vowel sign or tone mark that a script types as a character of its
+// own, as Thai and Hindi do, is a character: it counts toward the password's strength, and a
+// name written with it counts against a password built on it. A point a person may leave off
+// (a Hebrew, Arabic or Syriac point, an Indic nukta) is no character, so a password or a name
+// counts the same with or without its points.
 package passwordstrength
 
 import (
@@ -104,6 +106,11 @@ const (
 	// minLookAlike is the shortest word of the person's read in look-alike characters: a
 	// shorter one is spelled by chance in digits (471 for Ali) too often to count.
 	minLookAlike = 4
+
+	// maxTwoWay is the most letters with a second plain spelling a word of the person's may hold
+	// and still be given in each mix of the two spellings: the ways double with each letter, and
+	// every word is compared with the password at each of its characters.
+	maxTwoWay = 2
 
 	// nuktaClass is the canonical combining class of a nukta, the dot some Indic letters take
 	// for a borrowed sound.
@@ -426,7 +433,7 @@ func firstRunes(s string, n int) string {
 // inputsOf are the words the person's details give the estimate. Each detail is cut to its
 // first maxDetailTyped characters, trimmed of surrounding space, put in NFC and cut to its
 // first maxDetail characters; an empty one gives nothing, as does one with more than
-// maxDetailTyped characters of space before anything else. The words come in two passes over
+// maxDetailTyped characters of space before anything else. The words come in three passes over
 // the details, each in the order Username, Name, Email. The first gives the words read as the
 // password is typed (spelledOnce): each detail whole, then each run of letters and digits in it
 // that holds no mark and whose reading is at least minRun characters long. The password as
@@ -439,7 +446,9 @@ func firstRunes(s string, n int) string {
 // characters long. The library prices a word by its place in the list, so every word of the
 // second pass (a plain or second spelling, a run with a mark, a part between digits) comes after
 // every word of the first, and a word of the first keeps the place it has without the second.
-// Each word is given once whatever its case. It is nil when the details give none.
+// The third gives each of the second's texts that counts in its mixed spellings (mixed), after
+// every word of the first two. Each word is given once whatever its case. It is nil when the
+// details give none.
 func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
@@ -494,6 +503,17 @@ func inputsOf(who Details, read *reading) []string {
 		add(read.as(text, spelledOnce))
 		add(read.of(text))
 		add(read.as(text, spelledSecond))
+	}
+
+	// The third pass: the mixed spellings (mixed) are the newest words, so they come last and no
+	// word of the first two passes moves.
+	for _, text := range texts {
+		if !counts(text) {
+			continue
+		}
+		for _, way := range read.mixed(text) {
+			add(way)
+		}
 	}
 
 	return inputs
@@ -636,10 +656,20 @@ func (r *reading) of(typed string) string {
 // character of its own (Thai, Hindi) among them. A spelling from either table is written in
 // the case of the word it stands in (inCase).
 func (r *reading) as(typed string, how spelling) string {
+	return r.spell(typed, how, func(int) bool {
+		return how == spelledSecond
+	})
+}
+
+// spell is typed as as reads it under how, but for the letters that have a second plain
+// spelling (alsoSpelledInASCII): counted from 0 in the order they are met, the letter numbered
+// n is written in its second spelling when second(n), and as how says otherwise.
+func (r *reading) spell(typed string, how spelling, second func(n int) bool) string {
 	var text strings.Builder
 	// typed is a password cut to MaxJudged characters or a detail cut to maxDetail, so the
 	// slice is small.
 	chars := []rune(norm.NFC.String(typed))
+	twoWay := 0
 	for i, c := range chars {
 		if c < utf8.RuneSelf {
 			text.WriteRune(c)
@@ -647,10 +677,13 @@ func (r *reading) as(typed string, how spelling) string {
 			continue
 		}
 		// Before baseOf, since ä, ö, ü and å have a letter they are written on.
-		if second, ok := alsoSpelledInASCII[c]; ok && how == spelledSecond {
-			text.WriteString(inCase(second, chars, i))
+		if also, ok := alsoSpelledInASCII[c]; ok {
+			twoWay++
+			if second(twoWay - 1) {
+				text.WriteString(inCase(also, chars, i))
 
-			continue
+				continue
+			}
 		}
 		if base := baseOf(c); base != 0 {
 			text.WriteRune(base)
@@ -683,6 +716,33 @@ func (r *reading) as(typed string, how spelling) string {
 	}
 
 	return text.String()
+}
+
+// mixed are the mixed ways of text, a word of the person's with two letters or more that have a
+// second plain spelling, each in its plain spelling (spell, spelledPlain) but for some of those
+// letters, which are in their second: way w, from 1 to two to the number of letters less 2,
+// writes letter n in its second spelling when bit n of w is set. With two such letters these
+// are the first in its second spelling and the second in its first, then the other way round
+// (Haegerstrom and Hagerstroem for Hägerström). It is nil for a word with fewer than two such
+// letters, whose spellings the second pass gives, or with more than maxTwoWay.
+func (r *reading) mixed(text string) []string {
+	letters := 0
+	for _, c := range norm.NFC.String(text) {
+		if _, ok := alsoSpelledInASCII[c]; ok {
+			letters++
+		}
+	}
+	if letters < 2 || letters > maxTwoWay {
+		return nil
+	}
+	var ways []string
+	for w := 1; w <= 1<<letters-2; w++ {
+		ways = append(ways, r.spell(text, spelledPlain, func(n int) bool {
+			return w>>n&1 == 1
+		}))
+	}
+
+	return ways
 }
 
 // inCase is spelling, the plain letters the letter chars[i] is written as, in the case of the

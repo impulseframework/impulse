@@ -143,6 +143,12 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a name spelled with Aa, typed with a capital Å", password: "ÅkerlundP?*u", who: Details{Name: "Per Aakerlund"}},
 		{name: "a name spelled with Th, typed with a capital Þ", password: "ÞórsdóttirjEc%", who: Details{Name: "Anna Thorsdottir"}},
 		{name: "a name spelled with Ae, typed with a capital Æ", password: "ÆrenlundBIFYo", who: Details{Name: "Per Aerenlund"}},
+		{name: "a name with ä and ö, typed with ae and o", password: "Haegerstrom2077", who: Details{Name: "Ingrid Hägerström"}},
+		{name: "a name with ä and ö, typed with a and oe", password: "Hagerstroem2077", who: Details{Name: "Ingrid Hägerström"}},
+		{name: "a name with ä and ö, typed in capitals with AE and O", password: "HAEGERSTROM2077", who: Details{Name: "Ingrid Hägerström"}},
+		{name: "a name with two đ, typed with d and dj", password: "Dordje2077horse", who: Details{Name: "Đorđe Đorđević"}},
+		{name: "a name with two đ, typed with dj and d", password: "Djorde2077horse", who: Details{Name: "Đorđe Đorđević"}},
+		{name: "a name with two ü, typed with ue and u", password: "Buechsenschutz2077", who: Details{Name: "Günther Büchsenschütz"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -196,6 +202,15 @@ func TestInputsOf(t *testing.T) {
 			who:  Details{Name: "राहुल शर्मा", Email: "rahul.sharma@example.com"},
 			want: []string{whole, "rahul.sharma@example.com", "rahul", "sharma", "example", "com", halves[0], halves[1]},
 		},
+		{
+			who:  Details{Name: "Ingrid Hägerström"},
+			want: []string{"Ingrid Hagerstrom", "Ingrid", "Hagerstrom", "Haegerstroem", "Haegerstrom", "Hagerstroem"},
+		},
+		{
+			who:  Details{Name: "Đorđe Đorđević"},
+			want: []string{"Dorde Dordevic", "Dorde", "Dordevic", "Djordje", "Djordjevic", "Djorde", "Dordje", "Djordevic", "Dordjevic"},
+		},
+		{who: Details{Name: "Jääskeläinen"}, want: []string{"Jaaskelainen", "Jaeaeskelaeinen"}},
 		{who: Details{}, want: nil},
 	}
 	for _, tt := range tests {
@@ -584,6 +599,28 @@ func TestReading_as(t *testing.T) {
 	for _, tt := range tests {
 		if got := newReading().as(tt.typed, tt.how); got != tt.want {
 			t.Errorf("as(%q, %d) = %q, want %q", tt.typed, tt.how, got, tt.want)
+		}
+	}
+}
+
+func TestReading_mixed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		text string
+		ways []string
+	}{
+		{text: "Hägerström", ways: []string{"Haegerstrom", "Hagerstroem"}},
+		{text: "Đorđe", ways: []string{"Djorde", "Dordje"}},
+		{text: "Büchsenschütz", ways: []string{"Buechsenschutz", "Buchsenschuetz"}},
+		{text: "ÅNGSTRÖM", ways: []string{"AANGSTROM", "ANGSTROEM"}},
+		{text: "Müller", ways: nil},
+		{text: "Jääskeläinen", ways: nil},
+		{text: "Zabrowski", ways: nil},
+	}
+	for _, tt := range tests {
+		if got := newReading().mixed(tt.text); !slices.Equal(got, tt.ways) || (got == nil) != (tt.ways == nil) {
+			t.Errorf("mixed(%q) = %q, want %q", tt.text, got, tt.ways)
 		}
 	}
 }
