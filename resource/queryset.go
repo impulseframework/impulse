@@ -28,10 +28,12 @@ type QuerySet[Resource Resourcer] struct {
 	// returns: the ones the request's columns named, or the name beside every
 	// id a request that named no columns returns. nameGrants are the decisions
 	// on the grant each name in play takes beside its id's (checkNameGrants),
-	// by name field; nil until they are asked.
-	names      []requestName
-	shownNames []accesstypes.Field
-	nameGrants map[accesstypes.Field]accesstypes.Decision
+	// by name field; nil until they are asked. closedNames are the names of the
+	// declared order whose id the person may not read (closeOrderedNames).
+	names       []requestName
+	shownNames  []accesstypes.Field
+	nameGrants  map[accesstypes.Field]accesstypes.Decision
+	closedNames map[accesstypes.Field]struct{}
 
 	keys                   *fieldSet
 	fields                 []accesstypes.Field
@@ -348,6 +350,9 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 		q.carryConditionalDecisions(decisions)
 
 		if err := q.checkNameGrants(ctx); err != nil {
+			return err
+		}
+		if err := q.closeOrderedNames(ctx); err != nil {
 			return err
 		}
 		if err := q.checkQueryFieldsReadable(ctx, q.resourceSet, q.userPermissions); err != nil {

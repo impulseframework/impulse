@@ -85,7 +85,8 @@ func lookupSpannerClient(t *testing.T, name string) *SpannerClient {
 
 // lookupCollection binds the hangar passes and the squadrons to their sector by
 // its column, and declares a squadron's rank, which a condition on the grant of
-// its name reads.
+// its name reads, and a pass's level, which a condition on the grant of its
+// squadron's id reads.
 func lookupCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
@@ -94,6 +95,7 @@ func lookupCollection(t *testing.T) *GeneratedCollection {
 			Name:        "HangarPasses",
 			Scope:       accesstypes.DomainPermissionScope,
 			Permissions: []accesstypes.Permission{accesstypes.List},
+			Attributes:  []AttributeData{{Name: "level", Column: "LevelId", Type: AttributeTypeString}},
 			Domain:      &DomainBindingData{Column: "SectorId"},
 		},
 		{

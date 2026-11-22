@@ -502,3 +502,101 @@ func TestNameGrant_acrossTenants(t *testing.T) {
 		}
 	})
 }
+
+// TestNameGrant_declaredOrderID pins the grant on the id a name of the declared
+// order stands beside, where the request states no sort: an id the person may
+// not read closes its name, so the list orders as if no row had one; an id held
+// under a condition holds the name to it, whether or not the request asks for
+// the id. Nothing is refused, and a request that states its own sort asks
+// nothing of the declared order's ids.
+func TestNameGrant_declaredOrderID(t *testing.T) {
+	t.Parallel()
+
+	bySquadron := Paging{Order: []SortField{{Field: "SquadronName", Direction: SortAscending}}}
+	byLevel := Paging{Order: []SortField{{Field: "LevelName", Direction: SortAscending}}}
+
+	tests := []struct {
+		name      string
+		paging    Paging
+		perms     *nameGrantPermissions
+		unread    string
+		wantOrder map[DBType]string
+	}{
+		{
+			name:      "the squadron's id denied: ordered as if no row had a squadron's name",
+			paging:    bySquadron,
+			perms:     deniedInSector1("HangarPasses.squadronId"),
+			unread:    "Squadrons",
+			wantOrder: bothDatabases("ORDER BY CAST(NULL AS STRING) ASC, `Id` ASC", `ORDER BY CAST(NULL AS TEXT) ASC, "Id" ASC`),
+		},
+		{
+			name:      "the level's id denied: an enumeration's name closed too",
+			paging:    byLevel,
+			perms:     deniedInSector1("HangarPasses.levelId"),
+			unread:    "PassLevels",
+			wantOrder: bothDatabases("ORDER BY CAST(NULL AS STRING) ASC, `Id` ASC", `ORDER BY CAST(NULL AS TEXT) ASC, "Id" ASC`),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for dbType, want := range tt.wantOrder {
+				_, sql := passesStatement(t, tt.paging, "/?columns=id&limit=2", tt.perms, dbType)
+				if !strings.Contains(sql, want) {
+					t.Errorf("%s statement =\n%s\nwant it to order:\n%s", dbType, sql, want)
+				}
+				if strings.Contains(sql, tt.unread) {
+					t.Errorf("%s statement =\n%s\nwant it never to read %s", dbType, sql, tt.unread)
+				}
+			}
+		})
+	}
+
+	t.Run("the squadron's id held under a condition on the pass: the name ordered by and carried inside it", func(t *testing.T) {
+		t.Parallel()
+
+		perms := &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+			{scope: inSector1, perm: accesstypes.List, res: "HangarPasses.squadronId"}: conditionalOn("HangarPasses.squadronId", "level = 'visit'"),
+		}}
+		held := bothDatabases(
+			"CASE WHEN `HangarPasses`.`LevelId` = @_c1 THEN "+squadronLookup+" END",
+			`CASE WHEN "HangarPasses"."LevelId" = @_c1 THEN `+postgresSquadronLookup+` END`,
+		)
+		for dbType, lookup := range held {
+			qSet, err := decodePasses(t, accesstypes.List, bySquadron, "/?columns=id&limit=2", perms, dbType)
+			if err != nil {
+				t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+			}
+			stmt, err := qSet.stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) error = %v", dbType, err)
+			}
+			sql := oneLine(stmt.SQL)
+			alias := " AS zzNameSquadronName"
+			if dbType == PostgresDBType {
+				alias = ` AS "zzNameSquadronName"`
+			}
+			for _, want := range []string{"ORDER BY " + lookup + " ASC", lookup + alias} {
+				if !strings.Contains(sql, want) {
+					t.Errorf("%s statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
+				}
+			}
+			if stmt.Params["_c1"] != "visit" {
+				t.Errorf("%s params = %v, want the level visit bound as _c1", dbType, stmt.Params)
+			}
+		}
+	})
+
+	t.Run("a sort stated, the squadron's id denied: no refusal, the declared order's id not asked", func(t *testing.T) {
+		t.Parallel()
+
+		for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+			perms := deniedInSector1("HangarPasses.squadronId")
+			passesStatement(t, bySquadron, "/?columns=id&sort=id&limit=2", perms, dbType)
+			if calls := perms.askedFor("HangarPasses.squadronId"); len(calls) != 0 {
+				t.Errorf("%s calls naming HangarPasses.squadronId = %+v, want none", dbType, calls)
+			}
+		}
+	})
+}

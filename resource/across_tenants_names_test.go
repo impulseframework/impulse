@@ -44,7 +44,14 @@ func gradedRoles(grade accesstypes.Decision) *acrossPermissions {
 func renderGraded(t *testing.T, dbType DBType, target string, perms UserPermissions) (qSet *QuerySet[gradedCrate], sql string) {
 	t.Helper()
 
-	decoder := acrossDecoder[gradedCrate, gradedCrateRequest](t, Paging{Order: []SortField{{Field: "Label", Direction: SortAscending}}, DefaultLimit: 3})
+	return renderGradedIn(t, dbType, Paging{Order: []SortField{{Field: "Label", Direction: SortAscending}}, DefaultLimit: 3}, target, perms)
+}
+
+// renderGradedIn is renderGraded under the declared paging.
+func renderGradedIn(t *testing.T, dbType DBType, paging Paging, target string, perms UserPermissions) (qSet *QuerySet[gradedCrate], sql string) {
+	t.Helper()
+
+	decoder := acrossDecoder[gradedCrate, gradedCrateRequest](t, paging)
 	qSet, err := decoder.DecodeAcrossTenants(acrossRequest(t, target), perms)
 	if err != nil {
 		t.Fatalf("QueryDecoder.DecodeAcrossTenants() error = %v", err)
@@ -133,4 +140,48 @@ func TestAcrossTenants_names(t *testing.T) {
 			"You may not list the grade id of crates anywhere.",
 			"user (erin) does not have (List) on Crates.gradeId in any tenant the list reads", "erin", "(List)", "Crates")
 	})
+}
+
+// TestAcrossTenants_namesDeclaredOrder pins a declared order by the grade's name
+// on a list over north and south that does not ask for the grade id: a row
+// sorts by the name only where its tenant shows the person the id, and where no
+// tenant of the set shows it nothing is refused and no row sorts by a name.
+func TestAcrossTenants_namesDeclaredOrder(t *testing.T) {
+	t.Parallel()
+
+	byGrade := Paging{Order: []SortField{{Field: "GradeName", Direction: SortAscending}}, DefaultLimit: 3}
+	denied := accesstypes.Denied()
+	nowhere := gradedRoles(denied)
+	nowhere.grants["north"] = accesstypes.Decisions{acrossCrates + ".gradeId": denied}
+	tests := []struct {
+		name         string
+		perms        *acrossPermissions
+		wantSpanner  string
+		wantPostgres string
+	}{
+		{
+			name:         "the grade id hidden in south: ordered by the name where the row is north's",
+			perms:        gradedRoles(denied),
+			wantSpanner:  "ORDER BY CASE WHEN " + spannerInNorth + " THEN " + spannerGradeLookup + " END ASC",
+			wantPostgres: "ORDER BY CASE WHEN " + postgresInNorth + " THEN " + postgresGradeLookup + " END ASC",
+		},
+		{
+			name:         "the grade id hidden in north and south: no refusal, no row ordered by a name",
+			perms:        nowhere,
+			wantSpanner:  "ORDER BY CASE WHEN FALSE THEN " + spannerGradeLookup + " END ASC",
+			wantPostgres: "ORDER BY CASE WHEN FALSE THEN " + postgresGradeLookup + " END ASC",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for dbType, want := range map[DBType]string{SpannerDBType: tt.wantSpanner, PostgresDBType: tt.wantPostgres} {
+				_, sql := renderGradedIn(t, dbType, byGrade, "/crates?columns=id", tt.perms)
+				if !strings.Contains(sql, want) {
+					t.Errorf("%s statement =\n%s\nwant it to order:\n%s", dbType, sql, want)
+				}
+			}
+		})
+	}
 }

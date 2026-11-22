@@ -204,12 +204,67 @@ func (q *QuerySet[Resource]) checkNameGrants(ctx context.Context) error {
 	return nil
 }
 
+// closeOrderedNames decides, where the declared order is in force, the grants
+// on the ids of the names it orders by, as the request's own sort fields are
+// decided (queryFieldDecisions): a name whose id the person may not read is
+// closed (nameGrant), so the statement reads no name for it; an id held under a
+// condition is carried, so its name's lookup sits inside the condition whether
+// or not the request asks for the id. Nothing is refused.
+func (q *QuerySet[Resource]) closeOrderedNames(ctx context.Context) error {
+	q.closedNames = nil
+	keys := q.declaredOrderNameKeys()
+	if len(keys) == 0 {
+		return nil
+	}
+	decisions, fields, err := q.queryFieldDecisions(ctx, q.resourceSet, q.userPermissions, keys)
+	if err != nil {
+		return err
+	}
+	for _, qf := range fields {
+		if !decisions[qf.res].IsDenied() {
+			continue
+		}
+		for _, field := range q.orderedNames() {
+			if name, ok := q.requestName(field); ok && name.Key == qf.field {
+				if q.closedNames == nil {
+					q.closedNames = make(map[accesstypes.Field]struct{})
+				}
+				q.closedNames[field] = struct{}{}
+			}
+		}
+	}
+	q.carryConditionalDecisions(decisions)
+
+	return nil
+}
+
+// declaredOrderNameKeys returns the id fields of the names the declared order
+// orders by, each once, where that order is in force: the request states no
+// sort of its own. It is nil otherwise.
+func (q *QuerySet[Resource]) declaredOrderNameKeys() []accesstypes.Field {
+	if len(q.sortFields) != 0 {
+		return nil
+	}
+	var keys []accesstypes.Field
+	for _, field := range q.orderedNames() {
+		if name, ok := q.requestName(field); ok && !slices.Contains(keys, name.Key) {
+			keys = append(keys, name.Key)
+		}
+	}
+
+	return keys
+}
+
 // nameGrant is the decision on a name's grant: Granted on a set that does not
-// enforce grants and for a name that takes none, otherwise the decision Check
+// enforce grants, Denied for a name closed by its id (closeOrderedNames), Granted
+// for a name that takes no grant of its own, otherwise the decision Check
 // returned. A name that takes a grant and was never asked about is Denied.
 func (q *QuerySet[Resource]) nameGrant(field accesstypes.Field) accesstypes.Decision {
 	if q.resourceSet == nil {
 		return accesstypes.Granted()
+	}
+	if _, closed := q.closedNames[field]; closed {
+		return accesstypes.Denied()
 	}
 	name, ok := q.requestName(field)
 	if !ok {
@@ -391,9 +446,9 @@ func (q *QuerySet[Resource]) readNames() []accesstypes.Field {
 // a condition, the lookup sits inside it, so a masked id gives no name either.
 // Where the name's own grant (nameGrant) is held under a condition, the
 // condition on the pointed-to row joins the lookup's WHERE last. Where it is
-// denied, which only a name the declared order names reaches, there is no
-// lookup: the name is NULL on every row (noName), so the list comes in the order
-// of the order's other terms.
+// denied, or the name is closed by its id (closeOrderedNames), which only a name
+// the declared order names reaches, there is no lookup: the name is NULL on
+// every row (noName), so the list comes in the order of the order's other terms.
 func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedReadConditions, registry *paramRegistry) (*renderedReadConditions, error) {
 	fields := slices.Clone(q.shownNames)
 	for _, field := range q.orderedNames() {

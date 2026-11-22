@@ -446,7 +446,17 @@ func (q *QuerySet[Resource]) decideTenant(ctx context.Context, dbType DBType, do
 
 	hidden := make(map[accesstypes.Field]struct{})
 
-	queried, queryFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, alone.queryFields())
+	// The ids of the names a declared order in force orders by are decided with
+	// the sort's fields: where an id is hidden in the tenant its rows sort as rows
+	// with no name, and nothing is refused (settleAcrossTenants walks the sort's
+	// fields alone).
+	candidates := alone.queryFields()
+	for _, key := range alone.declaredOrderNameKeys() {
+		if !slices.Contains(candidates, key) {
+			candidates = append(candidates, key)
+		}
+	}
+	queried, queryFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, candidates)
 	if err != nil {
 		return nil, err
 	}
