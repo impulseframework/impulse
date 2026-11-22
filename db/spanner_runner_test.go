@@ -1252,6 +1252,7 @@ func TestSpannerMigrator_RowChangedUnderARun(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
 	}{
 		{name: "a down migration that loses the row says to run it again", run: testDownLosesTheRow},
+		{name: "a run that loses the row after its claim sends nothing", run: testClaimLost},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1318,6 +1319,30 @@ func testDownLosesTheRow(ctx context.Context, t *testing.T, container *SpannerCo
 	if !exists(ctx, t, db.Client, "table", "T") {
 		t.Error("table T was dropped after the down run lost the row")
 	}
+}
+
+// testClaimLost: the version is forced to 5 right after a run claims its file; the run stops
+// with ErrAnotherRun at its next write, before it sends the file's DDL batch.
+func testClaimLost(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	force := &forceAfterFirstCommit{ctx: ctx, t: t, version: 5}
+	db, migrator := testMigrator(ctx, t, container, intercepting(force.intercept))
+	force.other = openMigrator(ctx, t, container, migrator.databaseName)
+	source := writeSource(t, map[string]string{"000001_t.up.sql": sqlCreateT})
+
+	force.armed.Store(true)
+	err := migrator.MigrateUpSchema(ctx, source)
+	if !force.forced.Load() {
+		t.Fatal("the interceptor saw no commit of the run")
+	}
+	if !errors.Is(err, ErrAnotherRun) {
+		t.Errorf("MigrateUpSchema() error = %v, want ErrAnotherRun", err)
+	}
+	if exists(ctx, t, db.Client, "table", "T") {
+		t.Error("table T exists: the run sent its batch after it lost the row")
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 5)
 }
 
 // TestSpannerMigrator_VersionAndForce reads and forces both tables.
