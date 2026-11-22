@@ -46,7 +46,7 @@ import {
   writeResource,
 } from '@impulseframework/resource-angular/types';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
-import { ApiError } from '@impulseframework/resource';
+import { ApiError, RemoveOptions } from '@impulseframework/resource';
 import { tap } from 'rxjs';
 import {
   ActionAccessControlWrapperComponent,
@@ -68,7 +68,8 @@ import { patchFromForm } from '@impulseframework/resource-angular/resource-clien
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
 
 /** What a row view says in place of its form where the record is not there: the server found no row for the key. */
-export const RECORD_NOT_HERE = 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+export const RECORD_NOT_HERE =
+  'This record is not here. It may have been removed, or it may no longer be yours to see.';
 
 /** What a row view says in place of its form where the person may not see the record: the server refused the read as not permitted. */
 export const RECORD_NOT_PERMITTED = 'You do not have permission to see this record.';
@@ -488,7 +489,6 @@ export class ResourceViewComponent implements OnInit {
       .sort((a, b) => a.primaryKey!.ordinalPosition - b.primaryKey!.ordinalPosition);
   });
 
-
   ngOnInit(): void {
     // The view reads and writes the resource whose row it shows: the listed resource,
     // or its table when the list is a view declaring one (rowsOf).
@@ -659,7 +659,9 @@ export class ResourceViewComponent implements OnInit {
    * by its own name where the config reads one off the row (`rowTitle`), and the list
    * the row is in by the config's title. The dialog is handed the delete and runs it
    * when the person says so, so a delete the server refuses is answered in the dialog, in
-   * the server's words. While the question is open, asking again opens no second one.
+   * the server's words, and a row whose delete takes records with it is asked about a
+   * second time, in the server's question. While the question is open, asking again
+   * opens no second one.
    */
   confirmDeleteResource(): void {
     const asking = this.dialog.openDialogs.some(
@@ -673,10 +675,10 @@ export class ResourceViewComponent implements OnInit {
     const data: DeleteConfirmation = {
       name: config.rowTitle?.(this.store.viewData()),
       from: config.title,
-      delete: () => {
+      delete: (options) => {
         console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
 
-        return this.deleteResource();
+        return this.deleteResource(options);
       },
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
@@ -689,11 +691,13 @@ export class ResourceViewComponent implements OnInit {
    * reads the row again after the write, and that read may find the row gone before the
    * write is answered here or after: the page leaves once either way. A row page told not
    * to leave (`navAfterDelete` false) offers its create form in the row's place. A delete
-   * the server refuses rejects with the client's `ApiError`, for whoever asked to show.
+   * the server refuses rejects with the client's `ApiError`, for whoever asked to show,
+   * and so does the delete of a row with records under it that its delete takes, until
+   * the options say it takes them (`everythingUnder`).
    */
-  deleteResource(): Promise<void> {
+  deleteResource(options?: RemoveOptions): Promise<void> {
     const handle = this.store.handle();
-    const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
+    const operation = handle.ops.remove(handle.keyOf(this.store.viewData()), options);
 
     return this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
       this.leaveGoneRow();

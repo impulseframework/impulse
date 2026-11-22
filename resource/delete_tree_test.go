@@ -104,7 +104,7 @@ func TestDeleteWords_Count(t *testing.T) {
 // rows are found from the row above by the first step of each of its ways up and by its
 // links to a row of its own kind, each step once; and a row is read with its key and
 // any other column the rows under it are found by, which is a column outside its key
-// where a foreign key references one.
+// where a foreign key references one, a refusing kind's among them.
 func TestDeleteTree_walk(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +113,7 @@ func TestDeleteTree_walk(t *testing.T) {
 	byTask := DeleteLink{Columns: []string{"TaskId"}, Table: "Tasks", References: []string{"Id"}}
 	byTaskCode := DeleteLink{Columns: []string{"TaskCode"}, Table: "Tasks", References: []string{"Code"}}
 	byProjectCode := DeleteLink{Columns: []string{"ProjectCode"}, Table: "Projects", References: []string{"Code"}}
+	byTaskNumber := DeleteLink{Columns: []string{"TaskNumber"}, Table: "Tasks", References: []string{"Number"}}
 	tree := &DeleteTree{
 		Record: "Projects",
 		Key:    []string{"Id"},
@@ -122,6 +123,11 @@ func TestDeleteTree_walk(t *testing.T) {
 			{Resource: "Labels", Key: []string{"Id"}, Paths: []DeletePath{{byProjectCode}}},
 			// A task's link to its parent is written with its ways up too: one step.
 			{Resource: "Tasks", Key: []string{"Id"}, Paths: []DeletePath{{byProject}}, Within: []DeleteLink{byParent, byProject}},
+		},
+		// An invoice refuses the delete, and is looked for under a task by the task's
+		// number.
+		RefusedBy: []DeleteKind{
+			{Resource: "Invoices", Key: []string{"Id"}, Paths: []DeletePath{{byTaskNumber, byProject}}},
 		},
 	}
 
@@ -133,7 +139,7 @@ func TestDeleteTree_walk(t *testing.T) {
 	}
 	for table, want := range map[accesstypes.Resource][]string{
 		"Projects": {"Id", "Code"},
-		"Tasks":    {"Id", "Code"},
+		"Tasks":    {"Id", "Code", "Number"},
 		"Comments": {"Id"},
 	} {
 		if diff := cmp.Diff(want, tree.reads(table, []string{"Id"})); diff != "" {

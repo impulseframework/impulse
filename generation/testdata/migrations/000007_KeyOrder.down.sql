@@ -1,0 +1,5 @@
+DROP TABLE Painters;
+DROP TABLE Springs;
+DROP TABLE Lines;
+DROP TABLE Moorings;
+DROP TABLE Berths;

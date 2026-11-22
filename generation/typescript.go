@@ -789,6 +789,11 @@ func (t *typescriptGenerator) resolveKeyEnumeration(field *resourceField) {
 			return
 		}
 	}
+	// A picker writes the key of the row picked. A foreign key to another column of the
+	// table (a code, a case number) holds that column's value, so it is typed in.
+	if t.referencesOutsideKey(field) {
+		return
+	}
 	if slices.Contains(t.routerResources, accesstypes.Resource(field.ReferencedResource)) {
 		field.IsEnumerated = true
 	}

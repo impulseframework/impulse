@@ -70,6 +70,7 @@ const (
 	CrewUserGroupRoleDomainID         httpio.ParamType = "crewUserGroupRoleDomainID"
 	CrewUserGroupRoleRole             httpio.ParamType = "crewUserGroupRoleRole"
 	DistressCallID                    httpio.ParamType = "distressCallID"
+	DistressRelayID                   httpio.ParamType = "distressRelayID"
 	FeeByKindKindID                   httpio.ParamType = "feeByKindKindID"
 	HangarID                          httpio.ParamType = "hangarID"
 	HangarPassID                      httpio.ParamType = "hangarPassID"
@@ -314,6 +315,9 @@ type GeneratedHandlers interface {
 
 	DistressCalls() http.HandlerFunc
 	DistressCall() http.HandlerFunc
+
+	DistressRelays() http.HandlerFunc
+	DistressRelay() http.HandlerFunc
 
 	EnableCrewSectorUser() http.HandlerFunc
 
@@ -975,6 +979,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	distressCallHandler := domainGuard(h.DistressCall())
 	bounded.Get("/console/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
+
+	distressRelaysHandler := domainGuard(h.DistressRelays())
+	bounded.Get("/console/api/sectors/{sectorID}/distress-relays", distressRelaysHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/distress-relays", distressRelaysHandler)
+
+	distressRelayHandler := domainGuard(h.DistressRelay())
+	bounded.Get("/console/api/sectors/{sectorID}/distress-relays/{distressRelayID}", distressRelayHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/distress-relays/{distressRelayID}", distressRelayHandler)
 
 	asked.Post("/console/api/sectors/{sectorID}/enable-crew-sector-user", domainGuard(h.EnableCrewSectorUser()))
 

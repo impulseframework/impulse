@@ -3,7 +3,7 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, NullB
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewGroups, CrewGroupMembers, CrewGroupRoles, CrewGroupUsers, CrewHeldRoles, CrewListedGroups, CrewListedGroupRoles, CrewRoles, CrewRoleGrants, CrewSectorGroups, CrewSectorGroupRoles, CrewSectorGroupUsers, CrewSectorHeldRoles, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserGroupRoles, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewTakenRoles, CrewUserGroupRoles, CrewUserRoles, DistressCalls, FeeByKinds, Hangars, HangarPasses, MembersHeldRoles, MembersRoles, MembersRoleGrants, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewGivableRoles, CrewInvitedSectors, CrewSectorDirectoryRoles, CrewSectorRoles, CrewSectorSignInWays, CrewSignInMethods, CrewSignInWays, CrewTakeLengths, CrewTakeableRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
+import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewGroups, CrewGroupMembers, CrewGroupRoles, CrewGroupUsers, CrewHeldRoles, CrewListedGroups, CrewListedGroupRoles, CrewRoles, CrewRoleGrants, CrewSectorGroups, CrewSectorGroupRoles, CrewSectorGroupUsers, CrewSectorHeldRoles, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserGroupRoles, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewTakenRoles, CrewUserGroupRoles, CrewUserRoles, DistressCalls, DistressRelays, FeeByKinds, Hangars, HangarPasses, MembersHeldRoles, MembersRoles, MembersRoleGrants, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewGivableRoles, CrewInvitedSectors, CrewSectorDirectoryRoles, CrewSectorRoles, CrewSectorSignInWays, CrewSignInMethods, CrewSignInWays, CrewTakeLengths, CrewTakeableRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
 import { AddCrewGroupMember, AddCrewSectorGroupMember, AssignCrewRole, AssignCrewSectorRole, AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, CreateCrewGroup, CreateCrewGroupResult, CreateCrewSectorGroup, CreateCrewSectorGroupResult, DeleteCrewGroup, DeleteCrewSectorGroup, DeleteCrewSectorUser, DeleteCrewUser, DeleteMembersSectorUser, DeleteMembersUser, DescribeCrewGroup, DescribeCrewSectorGroup, DisableCrewSectorUser, DisableCrewUser, DisableMembersSectorUser, DisableMembersUser, EnableCrewSectorUser, EnableCrewUser, EnableMembersSectorUser, EnableMembersUser, EndCrewSectorUserSessions, EndCrewSession, EndCrewSessionImpersonation, EndCrewUserSessions, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, FailFlightTest, FailMission, GiveCrewGroupRole, GiveCrewSectorGroupRole, HailShip, HoldMission, InspectShip, InspectShipResult, InviteCrewSector, InviteCrewSectorResult, InviteCrewSectorUser, InviteCrewSectorUserResult, InviteCrewUser, InviteCrewUserResult, IssueBulletin, LaunchMission, MakeCrewInviteOnly, OpenCrewSignUp, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, RemoveCrewGroupMember, RemoveCrewPassword, RemoveCrewRole, RemoveCrewSectorGroupMember, RemoveCrewSectorPassword, RemoveCrewSectorRole, RenameCrewSectorUser, RenameCrewUser, RenameMembersSectorUser, RenameMembersUser, ReplaceMissionDocument, RequireCrewPasswordChange, RequireCrewSectorPasswordChange, ResumeMission, RevokeCrewSectorUserTrustedDevices, RevokeCrewSessionToken, RevokeCrewUserTrustedDevices, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, ScrapShip, SendCrewSectorUserPasswordResetLink, SendCrewSectorUserPasswordResetLinkResult, SendCrewUserPasswordResetLink, SendCrewUserPasswordResetLinkResult, SetCrewSectorUserEmail, SetCrewSectorUserEmailResult, SetCrewSectorUserName, SetCrewSelfServiceReset, SetCrewUserEmail, SetCrewUserEmailResult, SetCrewUserName, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, SetSectorPilotClearance, StandDownMission, StartFlightTest, TakeCrewGroupRole, TakeCrewRole, TakeCrewSectorGroupRole, UnlinkCrewSectorSessionIdentity, UnlinkCrewSessionIdentity, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockCrewSignIn, UnlockMembersSignIn, WithdrawCrewInvitation, WithdrawCrewInvitedSector, WithdrawCrewSectorInvitation, SetFeature, SetFeatureResult, MakeSectorDirectoryOnly, EndSectorDirectoryOnly, OpenSectorToDirectory, MakeSectorInviteOnly } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
@@ -205,6 +205,22 @@ export interface DistressCallsPatch {
 }
 /** The primary key of DistressCalls, in route order. */
 export type DistressCallsKey = [id: string];
+
+/**
+ * The fields a client may set when creating DistressRelays. Server-owned fields are
+ * absent; a server-generated key is absent, a client-assigned key is required.
+ */
+export interface DistressRelaysCreate {
+  caseNumber: string;
+  answersRelayId?: string | null;
+  message: string;
+}
+/** The fields a client may change on DistressRelays. Keys, server-owned, and immutable fields are absent. */
+export interface DistressRelaysPatch {
+  message?: string;
+}
+/** The primary key of DistressRelays, in route order. */
+export type DistressRelaysKey = [id: string];
 
 /** The primary key of FeeByKinds, in route order. */
 export type FeeByKindsKey = [kindId: string];
@@ -1051,6 +1067,18 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 10, max: 100 },
       order: [{ field: 'severity', direction: 'desc' }],
       patchable: ['summary', 'severity', 'callerContact', 'transcript', 'position'],
+    },
+    [Resources.DistressRelays]: {
+      resource: Resources.DistressRelays,
+      property: 'distressRelays',
+      route: 'distress-relays',
+      scope: 'domain',
+      consolidated: true,
+      keys: ['id'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'relayedAt', direction: 'asc' }],
+      patchable: ['message'],
     },
     [Resources.FeeByKinds]: {
       resource: Resources.FeeByKinds,
@@ -1973,6 +2001,7 @@ export interface DomainApi {
   crewSectorUserGroupRoles: ResourceHandle<CrewSectorUserGroupRoles, CrewSectorUserGroupRolesKey, 'list' | 'read'>;
   crewSectorUserRoles: ResourceHandle<CrewSectorUserRoles, CrewSectorUserRolesKey, 'list' | 'read'>;
   distressCalls: ResourceHandle<DistressCalls, DistressCallsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressCallsCreate, DistressCallsPatch>;
+  distressRelays: ResourceHandle<DistressRelays, DistressRelaysKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressRelaysCreate, DistressRelaysPatch>;
   hangars: ResourceHandle<Hangars, HangarsKey, 'list' | 'read' | 'create' | 'patch' | 'remove', HangarsCreate, HangarsPatch>;
   hangarPasses: ResourceHandle<HangarPasses, HangarPassesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', HangarPassesCreate, HangarPassesPatch>;
   membersSectorHeldRoles: ResourceHandle<MembersSectorHeldRoles, MembersSectorHeldRolesKey, 'list'>;

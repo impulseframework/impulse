@@ -521,7 +521,6 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 			ResourcePackage: r.resource.Package(),
 			ReceiverName:    r.receiverName,
 			Clears:          r.tenantClears(res),
-			DirectoryClear:  r.tenantDirectoryClear(res),
 		}
 		switch {
 		case res.IsDomainScoped():
@@ -577,7 +576,6 @@ func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInf
 		ApplicationName:         home.applicationName,
 		ReceiverName:            home.receiverName,
 		Clears:                  r.tenantClears(res),
-		DirectoryClear:          r.tenantDirectoryClear(res),
 		Home:                    home,
 	})
 	if err != nil {

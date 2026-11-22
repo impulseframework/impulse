@@ -177,6 +177,33 @@ describe('client.batch', () => {
     expect(operationRoute(client.domain('anvil').missions.ops.remove(['m1']))).toBeUndefined();
   });
 
+  it('says a remove takes everything under the row in the value of the operation, and nothing otherwise', async () => {
+    const transport = recording();
+    const client = api(transport);
+    const sector = client.domain('anvil');
+    await client.batch([
+      sector.missions.ops.remove(['m1']),
+      sector.missions.ops.remove(['m2'], { everythingUnder: true }),
+      sector.missions.ops.remove(['m3'], { everythingUnder: false }),
+    ]);
+    expect(transport.requests[0].body).toEqual([
+      { op: 'remove', path: '/sectors/anvil/missions/m1' },
+      { op: 'remove', path: '/sectors/anvil/missions/m2', value: { everythingUnder: true } },
+      { op: 'remove', path: '/sectors/anvil/missions/m3' },
+    ]);
+  });
+
+  it("carries what the handle's own remove says to the route of the resource", async () => {
+    const transport = recording();
+    const client = api(transport);
+    await client.clients.remove(['c1'], { everythingUnder: true });
+    await client.clients.remove(['c2']);
+    expect(transport.requests.map((request) => [request.url, request.body])).toEqual([
+      ['/api/clients', [{ op: 'remove', path: '/c1', value: { everythingUnder: true } }]],
+      ['/api/clients', [{ op: 'remove', path: '/c2' }]],
+    ]);
+  });
+
   it("routes the handle's own patch the same way", async () => {
     const transport = recording();
     const client = api(transport);
@@ -250,14 +277,21 @@ describe('patch-or-add and add-or-skip', () => {
       sector.certifications.ops.patchOrAdd({ userId: 'u1', certificationId: 'c9', level: 3 }),
     ]);
     expect(transport.requests).toHaveLength(1);
-    expect((transport.requests[0].body as Operation[]).map((operation) => operation.op)).toEqual(['patch', 'patch-or-add']);
+    expect((transport.requests[0].body as Operation[]).map((operation) => operation.op)).toEqual([
+      'patch',
+      'patch-or-add',
+    ]);
   });
 
   it('refuses a value that leaves a key field out: the operation would name no row', () => {
     const client = api(recording());
     const certifications = client.domain('anvil').certifications;
     const partial = { userId: 'u1', level: 3 } as unknown as Certification;
-    expect(() => certifications.ops.patchOrAdd(partial)).toThrow('must supply every key field (userId, certificationId)');
-    expect(() => certifications.ops.addOrSkip(partial)).toThrow('must supply every key field (userId, certificationId)');
+    expect(() => certifications.ops.patchOrAdd(partial)).toThrow(
+      'must supply every key field (userId, certificationId)',
+    );
+    expect(() => certifications.ops.addOrSkip(partial)).toThrow(
+      'must supply every key field (userId, certificationId)',
+    );
   });
 });

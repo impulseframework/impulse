@@ -30,8 +30,8 @@ type (
 	// is refused while the tenant is directory only; the roles it gave stand, and the
 	// directory is free for another tenant. The change events are the audit.
 	// A tenant that is deleted takes its directory with it, directory only or not: the
-	// record's generated delete removes the row in the same transaction
-	// (ClearTenantDirectory).
+	// directory is a row under the tenant, and the tenant's delete takes every row under
+	// it in the same transaction, each through its kind's own delete (Tenant.DeleteTree).
 	//
 	// DefaultSeat is the role a person is given in the tenant at their first sign-in
 	// through the directory, whether their account is created then or stood before; or

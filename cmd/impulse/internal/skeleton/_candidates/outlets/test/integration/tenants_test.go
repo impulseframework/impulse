@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,7 +133,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 
 	// East holds a directory and rows of its own by now, written here as rows: an announcement, a reading and the directory of an organization.
-	// The one delete takes them with the tenant.
+	// The one delete takes them with the tenant, once it says so.
 	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
 		spanner.Insert("TenantDirectories", []string{"Id", "TenantId", "Method", "Connection"}, []any{"e0000000-0000-4000-8000-000000000001", east, "azure", "6f2c1b7e-0000-4000-8000-000000000001"}),
 		spanner.Insert("Announcements", []string{"Id", "TenantId", "Title", "Body"}, []any{"e0000000-0000-4000-8000-000000000002", east, "Easterly", "The last notice."}),
@@ -141,7 +142,21 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatalf("writing East's directory and its rows: %v", err)
 	}
 
-	if status, body := admin.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`)); status != http.StatusOK {
+	// A tenant that has rows under it is not deleted by a request that does not say so:
+	// the plain remove is answered with the question a person is asked first, and
+	// nothing is gone. The question counts each kind the person may list in the tenant
+	// being deleted. The administrator holds the tenant's administrator role in every
+	// tenant, which lists the directory and the announcement but not the reading.
+	status, body = admin.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`))
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement, and records you can't see. This can't be undone.") {
+		t.Fatalf("deleting the tenant without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
+	}
+	for _, table := range []string{"TenantDirectories", "Announcements", "Readings"} {
+		if n := rowsOf(ctx, t, s, table, east); n != 1 {
+			t.Fatalf("%s holds %d row(s) of East after the question, want the one written: a delete that is asked the question deletes nothing", table, n)
+		}
+	}
+	if status, body := admin.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`","value":{"everythingUnder":true}}]`)); status != http.StatusOK {
 		t.Fatalf("deleting the tenant: status %d: %s", status, body)
 	}
 	for _, table := range []string{"TenantDirectories", "Announcements", "Readings"} {

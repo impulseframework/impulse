@@ -343,8 +343,20 @@ export interface Patchable<Patch, Key extends unknown[]> {
   patch(key: Key, value: Patch): Promise<void>;
 }
 
+/** What a delete says of itself beyond the row it names. */
+export interface RemoveOptions {
+  /**
+   * Says the delete takes the records under the row with it. A row whose kind declares
+   * what goes with it is deleted with nothing said only while nothing is under it: with
+   * records under it the server deletes nothing and answers 428 (an `ApiError`) with the
+   * question to ask a person first, which names what will be deleted. The same delete
+   * with this set deletes those records and the row.
+   */
+  everythingUnder?: boolean;
+}
+
 export interface Removable<Key extends unknown[]> {
-  remove(key: Key): Promise<void>;
+  remove(key: Key, options?: RemoveOptions): Promise<void>;
 }
 
 /** Operation builders for the consolidated endpoint; pass their results to `client.batch`. */
@@ -352,7 +364,7 @@ export interface Batchable<Create, Patch, Key extends unknown[]> {
   readonly ops: {
     add(value: Create): Operation;
     patch(key: Key, value: Patch): Operation;
-    remove(key: Key): Operation;
+    remove(key: Key, options?: RemoveOptions): Operation;
   };
 }
 
@@ -1100,7 +1112,12 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
       return bound({ op: 'add', path: path(key), value: body });
     },
     patch: (key: Key, value: Record<string, unknown>): Operation => bound({ op: 'patch', path: path(key), value }),
-    remove: (key: Key): Operation => bound({ op: 'remove', path: path(key) }),
+    remove: (key: Key, options?: RemoveOptions): Operation =>
+      bound(
+        options?.everythingUnder
+          ? { op: 'remove', path: path(key), value: { everythingUnder: true } }
+          : { op: 'remove', path: path(key) },
+      ),
     patchOrAdd: (value: Record<string, unknown>): Operation => keyed('patch-or-add', value),
     addOrSkip: (value: Record<string, unknown>): Operation => keyed('add-or-skip', value),
   };
@@ -1216,8 +1233,8 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     patch: async (key, value) => {
       await mutate(ops.patch(key, value));
     },
-    remove: async (key) => {
-      await mutate(ops.remove(key));
+    remove: async (key, options) => {
+      await mutate(ops.remove(key, options));
     },
     ops,
   };

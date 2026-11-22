@@ -1405,6 +1405,17 @@
               ]
             },
             {
+              "resource": "DistressRelays",
+              "fields": [
+                "sectorId",
+                "caseNumber",
+                "answersRelayId",
+                "message",
+                "relayedByName",
+                "relayedAt"
+              ]
+            },
+            {
               "resource": "SectorHazardBoards",
               "fields": [
                 "shipName",
@@ -1796,6 +1807,17 @@
               ]
             },
             {
+              "resource": "DistressRelays",
+              "fields": [
+                "sectorId",
+                "caseNumber",
+                "answersRelayId",
+                "message",
+                "relayedByName",
+                "relayedAt"
+              ]
+            },
+            {
               "resource": "SectorHazardBoards",
               "fields": [
                 "shipName",
@@ -2019,6 +2041,14 @@
               ]
             },
             {
+              "resource": "DistressRelays",
+              "fields": [
+                "caseNumber",
+                "answersRelayId",
+                "message"
+              ]
+            },
+            {
               "resource": "SectorDirectories"
             }
           ],
@@ -2126,6 +2156,12 @@
                 "transcript",
                 "position"
               ]
+            },
+            {
+              "resource": "DistressRelays",
+              "fields": [
+                "message"
+              ]
             }
           ],
           "Delete": [
@@ -2167,6 +2203,9 @@
             },
             {
               "resource": "DistressCalls"
+            },
+            {
+              "resource": "DistressRelays"
             },
             {
               "resource": "SectorDirectories"
@@ -2908,6 +2947,17 @@
               ]
             },
             {
+              "resource": "DistressRelays",
+              "fields": [
+                "sectorId",
+                "caseNumber",
+                "answersRelayId",
+                "message",
+                "relayedByName",
+                "relayedAt"
+              ]
+            },
+            {
               "resource": "ClientRosters",
               "fields": [
                 "name",
@@ -3020,6 +3070,17 @@
                 "filedByUserId",
                 "filedByName",
                 "position"
+              ]
+            },
+            {
+              "resource": "DistressRelays",
+              "fields": [
+                "sectorId",
+                "caseNumber",
+                "answersRelayId",
+                "message",
+                "relayedByName",
+                "relayedAt"
               ]
             },
             {

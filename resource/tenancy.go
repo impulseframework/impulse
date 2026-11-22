@@ -266,3 +266,22 @@ func tenantKeyValue(t reflect.Type, domain accesstypes.Domain) (any, error) {
 
 	return nil, errors.Newf("type %s is neither string-kinded nor an encoding.TextUnmarshaler", t)
 }
+
+// tenantDomainOf is the domain a tenant column's value names, the inverse of
+// tenantKeyValue: a string-kinded value is its string, and anything else must implement
+// encoding.TextMarshaler (e.g. impulse.UUID), whose text it is.
+func tenantDomainOf(value any) (accesstypes.Domain, error) {
+	if v := reflect.ValueOf(value); v.Kind() == reflect.String {
+		return accesstypes.Domain(v.String()), nil
+	}
+	if m, ok := value.(encoding.TextMarshaler); ok {
+		text, err := m.MarshalText()
+		if err != nil {
+			return "", errors.Wrapf(err, "marshaling a tenant's key of type %T", value)
+		}
+
+		return accesstypes.Domain(text), nil
+	}
+
+	return "", errors.Newf("type %T is neither string-kinded nor an encoding.TextMarshaler", value)
+}
