@@ -2091,7 +2091,13 @@ one it sends.
   waits for the code the same way (`pending=mfa`, the one factor `email-code`), the
   wait naming the account: an account with no address is mailed the invitation's code
   at the invited address, with no address asked for, and one that holds the invited
-  address unconfirmed is mailed its own sign-in code there. Until the code is entered
+  address unconfirmed is mailed its own sign-in code there. An account that names itself
+  and holds another address, confirmed or not, accepts nothing: a password sign-in is
+  refused before anything is read, as said above, and every such acceptance reads the
+  account again in its own transaction and refuses it there (`invitation_address`), with
+  nothing written. So a session the application starts for such an account is held for
+  no code, and an address put on an account after its sign-in began is never written
+  over by the invited one. Until the code is entered
   the invitation stands, nothing is granted and the account takes no address; entering
   it accepts the invitation and writes the address on the account, confirmed. The
   invitation's code is held to its invitation here as well: it puts the invited address

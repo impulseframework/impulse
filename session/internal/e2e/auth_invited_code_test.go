@@ -70,6 +70,10 @@ func runInvitationByMailedCodeSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamInvitedAcceptanceHeldToTheSignIn("sam", false, passwordChangedMeanwhile[Tx], ""),
 		},
 		{
+			name: "an account with a password and no address whose sign-in from the link waits for the invitation's code, and is given another address by an administrator before a code is asked for, accepts nothing: the code, mailed to that address, is refused with invitation_address, the address stays as the administrator entered it, unconfirmed, and the invitation stands",
+			run:  seamInvitedAccountGivenAnotherAddress[Tx],
+		},
+		{
 			name: "a person signed in whose account has not confirmed the invited address is refused the acceptance by hand in words that say what to do, and accepts by signing in again from the link and entering the code",
 			run:  seamInvitedByHandNeedsTheCode[Tx],
 		},
@@ -418,6 +422,48 @@ func disabledMeanwhile[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx]
 
 	if err := a.api.DeactivateSessionUser(ctx, userID); err != nil {
 		t.Fatalf("DeactivateSessionUser() error = %v", err)
+	}
+}
+
+// seamInvitedAccountGivenAnotherAddress is the scenario "an account with a password and
+// no address whose sign-in from the link waits for the invitation's code, and is given
+// another address by an administrator before a code is asked for, accepts nothing".
+func seamInvitedAccountGivenAnotherAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantInvitationApp(ctx, t, be)
+	const invited = "dana@lakeside.edu"
+	dana := a.seed(ctx, t, "dana")
+	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	a.openInvitation(ctx, t, b)
+	if status, mfa := b.loginAs(ctx, "dana"); status != http.StatusOK || !mfa {
+		t.Fatalf("the password sign-in from the invitation = %d (mfaIsRequired %v), want 200 held for the code", status, mfa)
+	}
+
+	// While the sign-in waits, before a code is asked for, an administrator puts another
+	// address on the account: the code goes to the address the account holds now, and
+	// proves that mailbox, not the invited one.
+	harbor := "dana@harbor.example"
+	if err := a.setEmail(ctx, dana, &harbor); err != nil {
+		t.Fatalf("SetUserEmail(%s) error = %v", harbor, err)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, harbor)
+
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized ||
+		!strings.Contains(string(body), `"code":"`+string(sessioninfo.RefusedInvitationAddress)+`"`) {
+		t.Errorf("verify of the code mailed to %s = %d %s, want 401 %s", harbor, status, body, sessioninfo.RefusedInvitationAddress)
+	}
+	if status, body := b.do(ctx, http.MethodGet, "/whoami", nil); status != http.StatusUnauthorized {
+		t.Errorf("the browser's session = %d %s, want none", status, body)
+	}
+	a.holds(ctx, t, dana, &harbor)
+	a.assertStanding(ctx, t, "after the code was refused", inv)
+	if handed := a.handed(); len(handed) != 0 {
+		t.Errorf("the hook was handed %d invitations, want none", len(handed))
 	}
 }
 

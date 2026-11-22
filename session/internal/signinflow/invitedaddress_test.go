@@ -101,11 +101,16 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 	linked := []struct {
 		name string
 		// confirmed says the account the identity is linked to holds a confirmed address,
-		// which is not the invited one.
+		// which is not the invited one, and held is the address it holds unconfirmed, ""
+		// for none; proven says the sign-in carries the code mailed to the invited address.
 		confirmed bool
+		held      string
+		proven    bool
 	}{
 		{name: "an account the identity is linked to, which holds another confirmed address, is refused though its directory claims the invited one", confirmed: true},
 		{name: "an account the identity is linked to, which has confirmed no address, waits for the code"},
+		{name: "an account the identity is linked to, which holds another address unconfirmed, waits for the code", held: elsewhere},
+		{name: "an account the identity is linked to, which holds another address unconfirmed, accepts with the code and holds the invited address confirmed", held: elsewhere, proven: true},
 	}
 	for _, tt := range linked {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,13 +120,31 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 			hooks := &roleHooks{store: store}
 			identity := claims(invited)
 			userID := impulse.Must(impulse.NewUUID())
-			store.users[userID] = &memUser{username: "mallory", confirmed: tt.confirmed}
+			store.users[userID] = &memUser{username: "mallory", email: tt.held, confirmed: tt.confirmed}
 			store.links[linkKey(identity.Method, identity.Connection, identity.Subject)] = userID
 			inv := store.invite(invited, "lakeside", "Teacher")
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: identity, Invitation: inv}
+			if tt.proven {
+				inv.AddressProven = true
+				req.Reason = sessioninfo.ReasonStepUp
+				req.AuthEvents = []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-rogue"}, {Method: sessioninfo.MethodEmailCode}}
+			}
 
 			err := signInWith(t, &memDriver{store: store}, req, rulesOf(hooks))
 
+			if tt.proven {
+				if err != nil {
+					t.Fatalf("SignIn() error = %v, want the invitation accepted", err)
+				}
+				if !inv.Accepted || store.invitations[inv.ID] || store.sessions != 1 {
+					t.Errorf("Invitation.Accepted = %v, still live = %v, sessions = %d, want it accepted and consumed, and a session", inv.Accepted, store.invitations[inv.ID], store.sessions)
+				}
+				if user := store.users[userID]; user.email != invited || !user.confirmed {
+					t.Errorf("the account holds %q (confirmed %v), want the invited address confirmed", user.email, user.confirmed)
+				}
+
+				return
+			}
 			if tt.confirmed {
 				if got := sessioninfo.LoginRefusalCodeOf(err); got != sessioninfo.RefusedInvitationAddress || !errors.Is(err, signin.ErrInvitationAddress) {
 					t.Fatalf("SignIn() error = %v (code %q), want the refusal of an acceptance with another address", err, got)
@@ -131,6 +154,9 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 			}
 			if !store.invitations[inv.ID] || inv.Accepted || len(store.granted) != 0 || store.sessions != 0 {
 				t.Errorf("the invitation is live = %v and accepted = %v, with grants %v and %d session(s), want it standing and nothing given", store.invitations[inv.ID], inv.Accepted, store.granted, store.sessions)
+			}
+			if got := store.users[userID].email; got != tt.held {
+				t.Errorf("the account holds %q, want %q as it was", got, tt.held)
 			}
 		})
 	}

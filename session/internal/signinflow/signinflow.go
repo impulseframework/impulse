@@ -567,19 +567,24 @@ func InvitedCodeMessage(inv *sessioninfo.Invitation) string {
 // another one holds the invited address, confirmed or not (an address an administrator
 // entered is kept for its account): both are refused as an acceptance with another
 // address is. So is an account under another name in a store whose usernames are the
-// addresses, which could not take the invited one. An account that has confirmed no
-// address accepts once the sign-in has entered the code mailed to the invited address
-// (Invitation.AddressProven), and until then is answered wait: the wait for the code
-// where a sign-in can be held for it, the refusal that says to sign in again where it
-// cannot. An account that holds the invited address unconfirmed is mailed its own code
-// at that address, which proves the mailbox as the invitation's code does: it accepts
-// once the sign-in carries that code's address (claim, the rules' CodeAddress), while it
-// still holds the address. The acceptance writes the address on the account, confirmed:
-// the invited one, or, where it rests on the account's own code (byOwnCode), the code's
-// address in the account's own spelling, and only while the account still holds it as
-// it held it when the code was checked (acceptInvitation).
+// addresses, which could not take the invited one. So is an account that named itself
+// (named: a password sign-in's, a session's the application starts, an acceptance by
+// hand) and holds another address, confirmed or not: such a sign-in answers for the
+// account's own address (addressRefusal), and the row is read again here, so an address
+// put on the account since is not written over and the account is held for no code. An
+// account that has confirmed no address accepts once the sign-in has entered the code
+// mailed to the invited address (Invitation.AddressProven), and until then is answered
+// wait: the wait for the code where a sign-in can be held for it, the refusal that says
+// to sign in again where it cannot. An account that holds the invited address
+// unconfirmed is mailed its own code at that address, which proves the mailbox as the
+// invitation's code does: it accepts once the sign-in carries that code's address
+// (claim, the rules' CodeAddress), while it still holds the address. The acceptance
+// writes the address on the account, confirmed: the invited one, or, where it rests on
+// the account's own code (byOwnCode), the code's address in the account's own spelling,
+// and only while the account still holds it as it held it when the code was checked
+// (acceptInvitation).
 func acceptedByCode[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, wait error, claim *dbtype.CodeAddress,
+	ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, named bool, wait error, claim *dbtype.CodeAddress,
 ) (stop error, byOwnCode bool, err error) {
 	holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
 	if err != nil {
@@ -590,7 +595,7 @@ func acceptedByCode[Tx any](
 	switch {
 	case holds && user.EmailConfirmed:
 		return nil, false, nil
-	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username):
+	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username), named && user.EmailHeld && !holds:
 		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), false, nil
 	case !inv.AddressProven && !ownCode:
 		return wait, false, nil
@@ -898,8 +903,10 @@ type signInHold struct {
 // account that has not shown the invited address to be its own (acceptedByCode), decided
 // in the transaction on the user row it reads, with nothing written and no error: a
 // refusal, or what unproven answers for an account that may still enter the code mailed
-// to the invited address. An error is the driver's or the acceptor's, and nothing is
-// written either. inv.Accepted is set to the outcome.
+// to the invited address. An account that holds another address by then, confirmed or
+// not, is refused there as it is before the transaction (addressRefusal). An error is
+// the driver's or the acceptor's, and nothing is written either. inv.Accepted is set to
+// the outcome.
 //
 // signIn is what the acceptance a sign-in makes is held to, nil for one by hand. It
 // goes on only while the user, read in its transaction, still holds the password the
@@ -952,7 +959,7 @@ func acceptInvitation[Tx any](
 			}
 		}
 		var byOwnCode bool
-		if stop, byOwnCode, err = acceptedByCode(ctx, d, tx, inv, user, unproven(user, inv), claim); err != nil {
+		if stop, byOwnCode, err = acceptedByCode(ctx, d, tx, inv, user, true, unproven(user, inv), claim); err != nil {
 			return err
 		}
 		if stop == nil && byOwnCode {
@@ -1294,7 +1301,7 @@ func resolveLinked[Tx any](
 	}
 	req.UserID, req.Username = link.UserID, user.Username
 	if acceptsByCode(req, confirm) && !user.Disabled {
-		if stop, _, err := acceptedByCode(ctx, d, tx, req.Invitation, user, invitedCodeWait(), nil); err != nil || stop != nil {
+		if stop, _, err := acceptedByCode(ctx, d, tx, req.Invitation, user, false, invitedCodeWait(), nil); err != nil || stop != nil {
 			return "", false, stop, err
 		}
 	}

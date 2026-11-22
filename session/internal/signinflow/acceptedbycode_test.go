@@ -25,10 +25,16 @@ import (
 // account under another name could never take the invited address, so it is refused as
 // an acceptance with another address is and no code is mailed for it, whatever it has
 // entered; the account under the invited address is held to the code like any other.
+// An account that holds another address, which its sign-in or the acceptance by hand
+// did not carry, is refused the same way where the acceptance reads the account, so it
+// is held for no code and its address is not written over, whatever it has entered.
 func TestAcceptance_theLinkAloneAcceptsNothing(t *testing.T) {
 	t.Parallel()
 
-	const invited = "sam@lakeside.edu"
+	const (
+		invited = "sam@lakeside.edu"
+		harbor  = "sam@harbor.example"
+	)
 	type account struct {
 		name string
 		// username is the name the account signs in under, "sam" where a case names
@@ -37,9 +43,11 @@ func TestAcceptance_theLinkAloneAcceptsNothing(t *testing.T) {
 		username  string
 		addresses bool
 		// held is the address the account holds, "" for none, and confirmed whether its
-		// person has confirmed it.
-		held      string
-		confirmed bool
+		// person has confirmed it; carriesNone says the sign-in's identity, and the
+		// acceptance by hand, carry no address all the same.
+		held        string
+		confirmed   bool
+		carriesNone bool
 		// elsewhere says another account holds the invited address.
 		elsewhere bool
 		// proven says the sign-in entered the code mailed to the invited address.
@@ -66,11 +74,24 @@ func TestAcceptance_theLinkAloneAcceptsNothing(t *testing.T) {
 			name:     "the account under the invited address whose sign-in entered the code, where the usernames are the addresses",
 			username: invited, addresses: true, proven: true, want: "accepted",
 		},
+		{name: "an account that holds another address unconfirmed, which its sign-in did not carry", held: harbor, carriesNone: true, want: "refused"},
+		{
+			name: "an account that holds another address unconfirmed, which its sign-in did not carry, and whose sign-in entered the code",
+			held: harbor, carriesNone: true, proven: true, want: "refused",
+		},
 	}
 	for i := range accounts {
 		if accounts[i].username == "" {
 			accounts[i].username = "sam"
 		}
+	}
+	// carried is the address the sign-in's identity, and the acceptance by hand, carry.
+	carried := func(tt *account) string {
+		if tt.carriesNone {
+			return ""
+		}
+
+		return tt.held
 	}
 	// seed is a store that holds the account of a case, an invitation to the invited
 	// address and, where the case says so, another account that holds that address.
@@ -138,7 +159,7 @@ func TestAcceptance_theLinkAloneAcceptsNothing(t *testing.T) {
 				hooks := &roleHooks{store: store}
 				req := &sessioninfo.NewSessionRequest{
 					Reason: sessioninfo.ReasonLogin, Username: tt.username, UserID: id,
-					Identity: &sessioninfo.Identity{Method: identity.method, Subject: id.String(), Email: tt.held, EmailVerified: tt.confirmed}, Invitation: inv,
+					Identity: &sessioninfo.Identity{Method: identity.method, Subject: id.String(), Email: carried(&tt), EmailVerified: tt.confirmed}, Invitation: inv,
 				}
 
 				err := signInWith(t, &memDriver{store: store, usernamesAreAddresses: tt.addresses}, req, Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept})
@@ -183,7 +204,7 @@ func TestAcceptance_theLinkAloneAcceptsNothing(t *testing.T) {
 			store, id, inv := seed(&tt, false)
 			hooks := &roleHooks{store: store}
 
-			err := AcceptInvitation(t.Context(), &memDriver{store: store, usernamesAreAddresses: tt.addresses}, id, tt.username, tt.held, inv, hooks.accept)
+			err := AcceptInvitation(t.Context(), &memDriver{store: store, usernamesAreAddresses: tt.addresses}, id, tt.username, carried(&tt), inv, hooks.accept)
 
 			switch tt.want {
 			case "accepted":
@@ -269,13 +290,16 @@ func TestInvitedCodeMessage(t *testing.T) {
 // no longer stands (code_expired) and the invitation stands. The acceptance is made
 // before the policy decides, so the policy sees what it gave: a sign-in the policy then
 // denies or holds leaves the invitation accepted and the address written, and the claim
-// says so (Written) wherever the acceptance wrote it.
+// says so (Written) wherever the acceptance wrote it. An account given another address
+// after the code was checked, whichever code it entered, is refused as an acceptance
+// with another address is, and that address is not written over.
 func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
 	t.Parallel()
 
 	const (
 		invited = "nell@north.example"
 		spelled = "Nell@North.example"
+		harbor  = "nell@harbor.example"
 	)
 	proof := dbtype.ProofOfStored("the password hash the password was compared against")
 	deny := func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
@@ -290,7 +314,7 @@ func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
 		// address the account holds as spelled, unconfirmed; it completes the invitation's
 		// code, to an account that holds no address, otherwise. now is the address the
 		// account holds by the time the sign-in runs, where it is not the one it held when
-		// the code was checked.
+		// the code was checked; the sign-in carries the one it held.
 		ownCode bool
 		now     string
 		// changed says the password changed while the sign-in waited, and disabled that
@@ -342,6 +366,14 @@ func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
 			ownCode: true, now: "NELL@NORTH.EXAMPLE", wantErr: wantRefusal(sessioninfo.RefusedCodeExpired), wantAddress: "NELL@NORTH.EXAMPLE",
 		},
 		{
+			name: "the invitation's code, another address put on the account after the code was checked: refused invitation_address, nothing accepted, the address as it is now",
+			now:  harbor, wantErr: wantRefusal(sessioninfo.RefusedInvitationAddress), wantAddress: harbor,
+		},
+		{
+			name:    "the account's own code, the address changed to another after the code was checked: refused invitation_address, nothing accepted, the address as it is now",
+			ownCode: true, now: harbor, wantErr: wantRefusal(sessioninfo.RefusedInvitationAddress), wantAddress: harbor,
+		},
+		{
 			name:    "the account's own code, the policy denies: accepted and the address confirmed, with no session",
 			ownCode: true, policy: deny, wantErr: wantDenied, wantAccepted: true, wantAddress: spelled, wantConfirmed: true,
 		},
@@ -372,13 +404,16 @@ func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
 			} else {
 				inv.AddressProven = true
 			}
+			// The sign-in carries the address the account held when it began, as a
+			// completion does.
+			began := user.email
 			if tt.now != "" {
 				user.email = tt.now
 			}
 			store.users[id] = user
 			req := &sessioninfo.NewSessionRequest{
 				Reason: sessioninfo.ReasonStepUp, Username: "nell", UserID: id, Invitation: inv,
-				Identity:   &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: user.email},
+				Identity:   &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: began},
 				AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: sessioninfo.MethodEmailCode}},
 			}
 
