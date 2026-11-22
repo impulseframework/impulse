@@ -233,10 +233,11 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 // load and reported as a SkippedGrant, so it gives nobody the permission and
 // fails no other grant.
 //
-// There is no scope validation: an unknown tenant simply holds no grants, so
-// the check fails closed. Callers wanting to distinguish "invalid tenant"
-// from "no permission" validate the tenant in their own guard, against the
-// source that owns tenants.
+// A tenant's name is not validated: an unknown tenant simply holds no grants,
+// so the check fails closed. A scope that names nothing, the zero Scope, is
+// refused with accesstypes.ErrNoScope. Callers wanting to distinguish "invalid
+// tenant" from "no permission" validate the tenant in their own guard, against
+// the source that owns tenants.
 func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
