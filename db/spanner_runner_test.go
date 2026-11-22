@@ -760,7 +760,7 @@ func testNotCarried(dirty bool) func(ctx context.Context, t *testing.T, containe
 // TestSpannerMigrator_InterruptedRun resolves a DDL operation a dead run left named on the
 // version row: the test sends the batch itself, or leaves it unsent as a run that died
 // between recording the name and sending would, and writes the row with the operation's
-// name.
+// name. A file changed in its applied part refuses before anything is sent or settled.
 func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 	t.Parallel()
 
@@ -781,6 +781,7 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 		unknown     bool
 		ownID       bool
 		unsent      bool
+		changed     bool
 		wantErr     string
 		wantDirty   bool
 		wantApplied int64
@@ -825,6 +826,20 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			wantErr:   "nothing applied",
 			wantDirty: true,
 		},
+		{
+			name:    "a file changed in its applied part refuses before the recorded batch is sent",
+			batch:   []string{strings.TrimSuffix(sqlCreateB, ";")},
+			ownID:   true,
+			unsent:  true,
+			changed: true,
+			wantErr: "changed in the part already applied (1 statement)",
+		},
+		{
+			name:    "a file changed in its applied part refuses before the recorded operation is settled",
+			batch:   []string{strings.TrimSuffix(sqlCreateB, ";")},
+			changed: true,
+			wantErr: "changed in the part already applied (1 statement)",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -836,7 +851,16 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 				t.Fatalf("MigrateUpSchema(file 1) error = %v", err)
 			}
 			insertT(ctx, t, db.Client, tt.seed...)
-			writeMigration(t, source, "000002_refit.up.sql", strings.Join(tt.batch, ";\n")+";")
+			file := strings.Join(tt.batch, ";\n") + ";"
+			applied, checkpoint := int64(0), runner.Checkpoint(nil)
+			if tt.changed {
+				// The file's first statement applied as it was then, and changed since.
+				first := strings.TrimSuffix(sqlCreateA, ";")
+				ddl(ctx, t, db, first)
+				file = sqlCreateAChanged + "\n" + file
+				applied, checkpoint = 1, runner.Checkpoint([]string{first})
+			}
+			writeMigration(t, source, "000002_refit.up.sql", file)
 
 			// The batch, as a run that died while waiting would have sent it: under a name
 			// Spanner made, or under one of the runner's own.
@@ -860,8 +884,8 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &versionRow{
 				version:    2,
 				dirty:      true,
-				applied:    spanner.NullInt64{Int64: 0, Valid: true},
-				checkpoint: spanner.NullString{StringVal: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", Valid: true},
+				applied:    spanner.NullInt64{Int64: applied, Valid: true},
+				checkpoint: spanner.NullString{StringVal: checkpoint, Valid: true},
 				operation:  spanner.NullString{StringVal: name, Valid: true},
 			})
 
@@ -874,9 +898,12 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 				if !ok {
 					t.Fatal("SchemaMigrations has no row")
 				}
-				if tt.unknown {
+				if tt.unknown || tt.changed {
 					if !row.operation.Valid || row.operation.StringVal != name {
-						t.Errorf("SchemaMigrations = %+v, want the unknown operation kept on the row", row)
+						t.Errorf("SchemaMigrations = %+v, want the operation kept on the row", row)
+					}
+					if tt.unsent && exists(ctx, t, db.Client, "table", "B") {
+						t.Error("table B exists: the recorded batch was sent for a file changed in its applied part")
 					}
 
 					return

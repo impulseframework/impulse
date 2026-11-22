@@ -110,8 +110,9 @@ func (s *Spanner) Up(ctx context.Context, src *Source) error {
 	return nil
 }
 
-// resume continues the dirty version's file: an in-flight DDL operation is resolved into
-// applied statements first, then the file's applied part is checked against the checkpoint.
+// resume continues the dirty version's file: a DDL operation named on the row is settled into
+// applied statements first, then the file goes on from the first statement still to run. The
+// file's applied part is checked against the recorded checkpoint before anything is sent.
 func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error {
 	file, ok := src.Up(held.Number)
 	if !ok {
@@ -140,13 +141,17 @@ func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error 
 }
 
 // resolveOperation settles the DDL operation a stopped run left named on the version row.
-// When the name is one the runner makes, it first sends the group's batch under that name:
-// Spanner accepts it if the stopped run never sent it, and answers that the operation
-// exists if it did, so the batch is sent once either way. It then waits for the operation
-// and counts its committed statements into Applied: all of them when it succeeded, its
-// commit timestamps when it failed. The operation's statements must be the file's from
-// Applied on; otherwise the file changed in its applied part.
+// The file's applied part is checked against the recorded checkpoint first, so nothing is
+// sent for a file that changed there. When the name is one the runner makes, it then sends
+// the group's batch under that name: Spanner accepts it if the stopped run never sent it,
+// and answers that the operation exists if it did, so the batch is sent once either way. It
+// then waits for the operation and counts its committed statements into Applied: all of
+// them when it succeeded, its commit timestamps when it failed. The operation's statements
+// must be the file's from Applied on; otherwise the file changed in its applied part.
 func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Migration, stmts []string) error {
+	if err := checkApplied(*held, file, stmts); err != nil {
+		return err
+	}
 	if err := s.sendRecorded(ctx, held, file, stmts); err != nil {
 		return err
 	}

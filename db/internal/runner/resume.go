@@ -22,9 +22,19 @@ func Resume(v Version, file *Migration, stmts []string) (int, error) {
 	if file == nil {
 		return 0, errors.Newf("the database is at version %d, which this build does not carry", v.Number)
 	}
-	if v.Applied > len(stmts) || Checkpoint(stmts[:v.Applied]) != v.Checkpoint {
-		return 0, errors.Newf("%s changed in the part already applied (%s); restore the file or force a version", file.File, plural(v.Applied, "statement"))
+	if err := checkApplied(v, file, stmts); err != nil {
+		return 0, err
 	}
 
 	return v.Applied, nil
+}
+
+// checkApplied refuses a file that changed in the part a stopped run applied: its first
+// Applied statements must hash to the checkpoint recorded on the version row.
+func checkApplied(v Version, file *Migration, stmts []string) error {
+	if v.Applied > len(stmts) || Checkpoint(stmts[:v.Applied]) != v.Checkpoint {
+		return errors.Newf("%s changed in the part already applied (%s); restore the file or force a version", file.File, plural(v.Applied, "statement"))
+	}
+
+	return nil
 }
