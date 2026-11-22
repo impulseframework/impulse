@@ -76,6 +76,14 @@ func ({{ .Resource.Name }}) GroupColumns() []resource.GroupColumn {
 	}
 }
 {{- end }}
+{{- if .Resource.TenantBindingLiteral }}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func ({{ .Resource.Name }}) TenantBinding() resource.TenantBinding {
+	return {{ .Resource.TenantBindingLiteral }}
+}
+{{- end }}
 {{- if .Resource.HasDeleteTree }}
 {{ if .Resource.IsTenant }}
 // DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library

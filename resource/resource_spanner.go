@@ -469,6 +469,10 @@ type SpannerReadWriteTransaction struct {
 	// transaction's patches deleted, which those counts leave out, with the rows they
 	// changed, which refuse a delete that would take them (delete_refusal.go).
 	deleted *transactionDeletes
+	// rows notes the columns the transaction's patches buffered and the point reads it
+	// made, by which a change record finds its row's tenant and a group a row names is
+	// held to it (tenant_binding.go).
+	rows *transactionRows
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -500,6 +504,7 @@ func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered 
 		secrets:          nil,
 		directories:      newDirectoryWrites(),
 		deleted:          newTransactionDeletes(),
+		rows:             newTransactionRows(),
 	}
 }
 
@@ -618,6 +623,7 @@ func (c *SpannerReadWriteTransaction) BufferMap(r PatchSetMetadata, patch map[st
 	}
 	c.buffered.record(r)
 	c.touchedRows.record(r)
+	c.rows.note(r.Resource(), r.PatchType(), rowMatchKey(r.PrimaryKey()), patchKeyByColumn(r), patch)
 
 	return nil
 }

@@ -31,6 +31,12 @@ func (RefitTask) FileKeys() []resource.FileKey {
 	}
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (RefitTask) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "RefitID", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // refitTaskRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; refitTaskReadSets holds one Set per read operation.

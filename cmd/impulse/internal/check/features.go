@@ -207,13 +207,47 @@ func (featureFlags) flagFindings(a *app.App) (details, lines []string, err error
 // found or carries no such function is a problem the check reports as a finding; a file
 // that cannot be read is an error.
 func libraryFeatureDDL(ctx context.Context, env *Env) (statements map[string]string, source, problem string, err error) {
-	dir, problem := resourceModuleDir(ctx, env)
-	if problem != "" {
+	dir, name, data, problem, err := libraryFunctionFile(ctx, env, featureDDLFunc)
+	switch {
+	case err != nil:
+		return nil, "", "", err
+	case problem != "":
 		return nil, "", problem, nil
+	case data == nil:
+		return nil, "", fmt.Sprintf("the resource package at %s declares no %s: its version predates feature flags, so the schema cannot be compared with it", dir, featureDDLFunc), nil
+	}
+	raw, err := spannerDDL(name, data, featureDDLFunc)
+	if err != nil {
+		return nil, "", "", err
+	}
+	statements = make(map[string]string, len(raw))
+	for _, stmt := range raw {
+		m := createTableRE.FindStringSubmatch(stmt)
+		if m == nil {
+			continue
+		}
+		statements[m[1]] = normalizeSQL(stmt)
+	}
+	if len(statements) == 0 {
+		return nil, "", fmt.Sprintf("%s in %s declares no CREATE TABLE statement for %s, so the schema cannot be compared with it", featureDDLFunc, filepath.Join(dir, name), spannerDBTypeIdent), nil
+	}
+
+	return statements, path.Join(path.Base(dir), name), "", nil
+}
+
+// libraryFunctionFile finds the file of the resource package of the framework module the
+// application pins that declares the function, and reads it. dir is the package's
+// directory, name the file's; data is nil when no file of the package declares the
+// function. A module go list cannot place is the problem returned; a file that cannot be
+// read is an error.
+func libraryFunctionFile(ctx context.Context, env *Env, function string) (dir, name string, data []byte, problem string, err error) {
+	dir, problem = resourceModuleDir(ctx, env)
+	if problem != "" {
+		return "", "", nil, problem, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, "", "", errors.Wrapf(err, "os.ReadDir(): the resource package at %s", dir)
+		return "", "", nil, "", errors.Wrapf(err, "os.ReadDir(): the resource package at %s", dir)
 	}
 	for _, e := range entries {
 		name := e.Name()
@@ -222,31 +256,14 @@ func libraryFeatureDDL(ctx context.Context, env *Env) (statements map[string]str
 		}
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
-			return nil, "", "", errors.Wrap(err, "os.ReadFile()")
+			return "", "", nil, "", errors.Wrap(err, "os.ReadFile()")
 		}
-		if !bytes.Contains(data, []byte("func "+featureDDLFunc+"(")) {
-			continue
+		if bytes.Contains(data, []byte("func "+function+"(")) {
+			return dir, name, data, "", nil
 		}
-		raw, err := spannerDDL(name, data)
-		if err != nil {
-			return nil, "", "", err
-		}
-		statements = make(map[string]string, len(raw))
-		for _, stmt := range raw {
-			m := createTableRE.FindStringSubmatch(stmt)
-			if m == nil {
-				continue
-			}
-			statements[m[1]] = normalizeSQL(stmt)
-		}
-		if len(statements) == 0 {
-			return nil, "", fmt.Sprintf("%s in %s declares no CREATE TABLE statement for %s, so the schema cannot be compared with it", featureDDLFunc, filepath.Join(dir, name), spannerDBTypeIdent), nil
-		}
-
-		return statements, path.Join(path.Base(dir), name), "", nil
 	}
 
-	return nil, "", fmt.Sprintf("the resource package at %s declares no %s: its version predates feature flags, so the schema cannot be compared with it", dir, featureDDLFunc), nil
+	return dir, "", nil, "", nil
 }
 
 // resourceModuleDir asks go list where the framework module's source is, its directory in
@@ -273,8 +290,9 @@ func resourceModuleDir(ctx context.Context, env *Env) (dir, problem string) {
 	return filepath.Join(dir, resourcePackageDir), ""
 }
 
-// spannerDDL extracts the string literals the Spanner case of FeatureFlagsDDL returns.
-func spannerDDL(name string, src []byte) ([]string, error) {
+// spannerDDL extracts the string literals of the Spanner case of the library function
+// (FeatureFlagsDDL, DataChangeEventsDDL) in a file's source.
+func spannerDDL(name string, src []byte, function string) ([]string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -283,7 +301,7 @@ func spannerDDL(name string, src []byte) ([]string, error) {
 	var statements []string
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != featureDDLFunc || fn.Body == nil {
+		if !ok || fn.Name.Name != function || fn.Body == nil {
 			continue
 		}
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -338,8 +356,7 @@ func migrationStatement(a *app.App, rel, table string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "os.ReadFile()")
 	}
-	for stmt := range strings.SplitSeq(string(data), ";") {
-		stmt = stripSQLComments(stmt)
+	for stmt := range strings.SplitSeq(stripSQLComments(string(data)), ";") {
 		m := createTableRE.FindStringSubmatch(stmt)
 		if len(m) > 1 && m[1] == table {
 			return normalizeSQL(stmt), nil
@@ -349,15 +366,34 @@ func migrationStatement(a *app.App, rel, table string) (string, error) {
 	return "", errors.Newf("%s: no CREATE TABLE %s statement could be read, though the file names the table", rel, table)
 }
 
-// stripSQLComments drops the -- comments from a statement's text.
+// stripSQLComments drops the comments from a statement's text: a /* */ comment, on one
+// line or over several, and a -- comment to the end of its line. Each is dropped from
+// where it opens, so a -- inside a /* */ comment, and a /* inside a -- comment, open
+// nothing. A /* */ comment leaves a space and the line breaks it held; one never closed
+// runs to the end of the text.
 func stripSQLComments(stmt string) string {
 	var b strings.Builder
-	for line := range strings.SplitSeq(stmt, "\n") {
-		if i := strings.Index(line, "--"); i >= 0 {
-			line = line[:i]
+	for rest := stmt; rest != ""; {
+		block, line := strings.Index(rest, "/*"), strings.Index(rest, "--")
+		switch {
+		case block < 0 && line < 0:
+			b.WriteString(rest)
+			rest = ""
+		case block >= 0 && (line < 0 || block < line):
+			b.WriteString(rest[:block])
+			comment, after, _ := strings.Cut(rest[block+len("/*"):], "*/")
+			b.WriteString(" ")
+			b.WriteString(strings.Repeat("\n", strings.Count(comment, "\n")))
+			rest = after
+		default:
+			b.WriteString(rest[:line])
+			rest = rest[line:]
+			if end := strings.Index(rest, "\n"); end >= 0 {
+				rest = rest[end:]
+			} else {
+				rest = ""
+			}
 		}
-		b.WriteString(line)
-		b.WriteString("\n")
 	}
 
 	return b.String()

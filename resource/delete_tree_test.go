@@ -10,8 +10,9 @@ import (
 
 // TestDeleteTree_Mutations pins the one count of what a delete costs in a commit: each
 // row's delete, an entry in each index of its table, the change record of its removal
-// where changes are tracked, counted by its columns, and nothing for a stored file's
-// release, which the commit does not carry.
+// where changes are tracked, counted by its columns and its entry in the change history's
+// index by tenant, and nothing for a stored file's release, which the commit does not
+// carry.
 func TestDeleteTree_Mutations(t *testing.T) {
 	t.Parallel()
 
@@ -25,7 +26,8 @@ func TestDeleteTree_Mutations(t *testing.T) {
 		},
 		RefusedBy: []DeleteKind{{Resource: "Invoices", Cost: DeleteCost{IndexEntries: 5}}},
 	}
-	changeRecord := 6
+	// A change record writes its seven columns and one entry in the index by tenant.
+	changeRecord := 7 + 1
 
 	tests := []struct {
 		name string
@@ -46,7 +48,7 @@ func TestDeleteTree_Mutations(t *testing.T) {
 			want: (1 + 2) + 230*(1+1) + 41*1 + 14*1,
 		},
 		{
-			name:    "a tracked delete adds a change record for every row, counted by its columns",
+			name:    "a tracked delete adds a change record for every row, counted by its columns and its index entry",
 			rows:    map[accesstypes.Resource]int{"Tasks": 230, "Documents": 41, "Projects": 14},
 			tracked: true,
 			want:    (1 + 2 + changeRecord) + 230*(1+1+changeRecord) + 41*(1+changeRecord) + 14*(1+changeRecord),

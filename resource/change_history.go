@@ -30,11 +30,14 @@ func KeepChangeHistoryForever() ChangeHistoryPeriod {
 // that tracks its changes writes one record for each create, update and delete, for the
 // application database's type. An application copies them into its first migration;
 // tests pin Lodestar's and each skeleton's to them. The first statement creates the
-// table. For a period of days a second gives the table a row deletion policy on
-// EventTime, by which Spanner removes each record older than the period in the
-// background; for a period of forever there is no second statement. There are statements
-// for Spanner alone: the table gets its PostgreSQL statements when the package writes to
-// PostgreSQL. A period that declares nothing has none.
+// table, whose TenantId column holds the key of the tenant a changed row belongs to,
+// empty for a row of no tenant. The second creates the index DataChangeEventsByTenant,
+// by which one tenant's records are read newest first. For a period of days a third
+// gives the table a row deletion policy on EventTime, by which Spanner removes each
+// record older than the period in the background; for a period of forever there is no
+// third statement. There are statements for Spanner alone: the table gets its PostgreSQL
+// statements when the package writes to PostgreSQL. A period that declares nothing has
+// none.
 func DataChangeEventsDDL(dbType DBType, period ChangeHistoryPeriod) []string {
 	switch dbType {
 	case SpannerDBType:
@@ -45,13 +48,16 @@ func DataChangeEventsDDL(dbType DBType, period ChangeHistoryPeriod) []string {
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
+  TenantId STRING(MAX) NOT NULL,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime)`
+		createIndex := "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC)"
 		switch {
 		case period.forever:
-			return []string{createTable}
+			return []string{createTable, createIndex}
 		case period.days >= 1:
 			return []string{
 				createTable,
+				createIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL " + strconv.Itoa(period.days) + " DAY))",
 			}
 		default:

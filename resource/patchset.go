@@ -539,7 +539,7 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 	}
 
 	if p.querySet.rMeta.trackChanges {
-		if err := p.bufferInsertWithDataChangeEvent(txn, event); err != nil {
+		if err := p.bufferInsertWithDataChangeEvent(ctx, txn, event); err != nil {
 			return err
 		}
 	}
@@ -751,27 +751,13 @@ func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWr
 	return nil
 }
 
-func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(txn ReadWriteTransaction, eventSource string) error {
+func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
 	changeSet, err := p.insertChangeSet()
 	if err != nil {
 		return err
 	}
 
-	rowID := p.PrimaryKey().RowID()
-	event := &DataChangeEvent{
-		TableName:   p.Resource(),
-		RowID:       rowID,
-		Sequence:    txn.DataChangeEventIndex(p.Resource(), rowID),
-		EventTime:   spanner.CommitTimestamp,
-		EventSource: eventSource,
-		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
-	}
-
-	if err := txn.BufferStruct(event); err != nil {
-		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
-	}
-
-	return nil
+	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
 }
 
 // bufferInsertOrUpdateWithDataChangeEvent buffers the record of what an insert-or-update
@@ -794,21 +780,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 		return nothingToChange(p.Resource(), where)
 	}
 
-	rowID := p.PrimaryKey().RowID()
-	event := &DataChangeEvent{
-		TableName:   p.Resource(),
-		RowID:       rowID,
-		Sequence:    txn.DataChangeEventIndex(p.Resource(), rowID),
-		EventTime:   spanner.CommitTimestamp,
-		EventSource: eventSource,
-		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
-	}
-
-	if err := txn.BufferStruct(event); err != nil {
-		return errors.Wrap(err, "ReadWriteTransaction.BufferStruct()")
-	}
-
-	return nil
+	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
 }
 
 // bufferUpdateWithDataChangeEvent buffers the record of what an update changed. An update
@@ -825,6 +797,31 @@ func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context
 		return nil
 	}
 
+	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
+}
+
+func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
+	changeSet, err := p.jsonDeleteSet(ctx, txn)
+	if err != nil {
+		return err
+	}
+
+	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
+}
+
+// bufferChangeRecord buffers the change record of the patch's row: what changed, and
+// the tenant the row belongs to (changeRecordTenant). A delete's change set holds every
+// value the row had, which is where a deleted row's way to its tenant is read.
+func (p *PatchSet[Resource]) bufferChangeRecord(ctx context.Context, txn ReadWriteTransaction, eventSource string, changeSet map[accesstypes.Field]DiffElem) error {
+	var deleted map[accesstypes.Field]DiffElem
+	if p.patchType == DeletePatchType {
+		deleted = changeSet
+	}
+	tenant, err := p.changeRecordTenant(ctx, txn, deleted)
+	if err != nil {
+		return err
+	}
+
 	rowID := p.PrimaryKey().RowID()
 	event := &DataChangeEvent{
 		TableName:   p.Resource(),
@@ -833,30 +830,7 @@ func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context
 		EventTime:   spanner.CommitTimestamp,
 		EventSource: eventSource,
 		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
-	}
-
-	if err := txn.BufferStruct(event); err != nil {
-		return errors.Wrap(err, "ReadWriteTransaction.BufferStruct()")
-	}
-
-	return nil
-}
-
-func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
-	keySet := p.PrimaryKey()
-	changeSet, err := p.jsonDeleteSet(ctx, txn)
-	if err != nil {
-		return err
-	}
-
-	rowID := keySet.RowID()
-	event := &DataChangeEvent{
-		TableName:   p.Resource(),
-		RowID:       rowID,
-		Sequence:    txn.DataChangeEventIndex(p.Resource(), rowID),
-		EventTime:   spanner.CommitTimestamp,
-		EventSource: eventSource,
-		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
+		TenantID:    tenant,
 	}
 
 	if err := txn.BufferStruct(event); err != nil {

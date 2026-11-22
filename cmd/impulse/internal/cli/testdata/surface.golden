@@ -189,6 +189,7 @@ checks:
   rpc-execute
   constant-annotations
   feature-flags
+  change-history
   sites-generators
   env-template
   env-reads

@@ -37,9 +37,11 @@ const shipsLogLimit = 200
 // what that registration promises: List on ShipsLogEntries in the URL sector's
 // partition, fail-closed. A Conditional decision is refused too: a hand-written
 // surface has no bindings for the engine's conditions to reference, so only an
-// unconditional grant can open it. The sector's rows are the missions booked in it,
-// and the refits and ships whose hangar is in it — DataChangeEvents carries no tenant
-// column, so the sector predicate joins through the tracked tables.
+// unconditional grant can open it. A change record carries its row's sector
+// (TenantId), so the log reads the sector's records off the table's index by tenant,
+// and a deleted mission's, ship's or refit's records stay in it. It shows those three
+// tables' records; the sector's own record and its directory are tracked too and are
+// not the log's.
 //
 // Demonstrates: @manualAddResource, @manualAddResource.scope, change-tracking, event-source.
 func (a *App) ShipsLogEntries() http.HandlerFunc {
@@ -65,12 +67,9 @@ func (a *App) ShipsLogEntries() http.HandlerFunc {
 		entries := make([]shipsLogEntry, 0, shipsLogLimit)
 		stmt := spanner.Statement{
 			SQL: `SELECT e.TableName, e.RowId, e.Sequence, e.EventTime, e.EventSource, e.ChangeSet
-			        FROM DataChangeEvents e
-			       WHERE (e.TableName = 'Missions' AND e.RowId IN (SELECT m.Id FROM Missions m WHERE m.SectorId = @sector))
-			          OR (e.TableName = 'Ships' AND e.RowId IN (
-			                SELECT s.Id FROM Ships s JOIN Hangars h ON h.Id = s.HangarId WHERE h.SectorId = @sector))
-			          OR (e.TableName = 'Refits' AND e.RowId IN (
-			                SELECT r.Id FROM Refits r JOIN Ships s ON s.Id = r.ShipId JOIN Hangars h ON h.Id = s.HangarId WHERE h.SectorId = @sector))
+			        FROM DataChangeEvents@{FORCE_INDEX=DataChangeEventsByTenant} e
+			       WHERE e.TenantId = @sector
+			         AND e.TableName IN ('Missions', 'Ships', 'Refits')
 			       ORDER BY e.EventTime DESC, e.TableName, e.RowId, e.Sequence DESC
 			       LIMIT @limit`,
 			Params: map[string]any{"sector": string(domain), "limit": shipsLogLimit},

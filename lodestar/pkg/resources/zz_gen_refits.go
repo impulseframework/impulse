@@ -24,6 +24,12 @@ func (Refit) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Refit) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "ShipID", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows and sorts by. A name is looked up in
 // the pointed-to table by the id; it is no column of this resource.
