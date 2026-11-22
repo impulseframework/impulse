@@ -914,6 +914,12 @@ r.Group(func(r chi.Router) {
     r.Get("/api/user/sign-in-means", auth.SignInMeans())        // what the person signs in with: a password or none, the directory sign-ins linked; validates the session itself
     r.Post("/api/user/name", auth.ChangeName())                 // {"name"}: the person's own name; validates the session itself
     r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
+    r.Post("/api/user/username", auth.ChangeUsername())         // {"username"}: the person's own username; validates the session itself
+    r.Post("/api/user/username/free", auth.UsernameFree())      // {"username"}: whether the person may take it, asked while they type; validates the session itself
+    r.Get("/api/user/sessions", auth.OwnSessions())             // where the person is signed in, and how many browsers are remembered for them; validates the session itself
+    r.Post("/api/user/sessions/end", auth.EndOwnSession())      // {"sessionId"}: signs the person out of one other browser; validates the session itself
+    r.Post("/api/user/sessions/end-others", auth.EndOtherSessions()) // signs the person out of every browser but this one; validates the session itself
+    r.Post("/api/user/browser/forget-all", auth.ForgetBrowsers())    // forgets every browser remembered for the person; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
     r.Post("/api/user/invitation/sign-up", auth.Invitation().SignUp()) // {"password", "username"}: the invited person's account
     r.Post("/api/user/sign-up", auth.SignUp().Start())                 // {"email"}: mails the sign-up link; 404 while the password method is invite only
@@ -1035,6 +1041,20 @@ the password method is listed.
   a signed-in person's account page forgets this browser and writes the person's own
   name, and where their pages keep the look they chose (see "The second factor", "A
   person's name" and "The look a person chose").
+- `changeUsername` and `usernameFree` are the paths of the `ChangeUsername` and
+  `UsernameFree` handlers, present when the list names them (`MethodList.ChangeUsername`
+  and `MethodList.UsernameFree`, both or neither) and the password method's usernames
+  are not the addresses (where they are, both handlers refuse and neither path is
+  told): where a signed-in person's account page changes their own username and asks,
+  as they type one, whether it is free (see "A person's name").
+- `ownSessions` are the paths of the `OwnSessions`, `EndOwnSession` and
+  `EndOtherSessions` handlers, `{"list", "end", "endOthers"}`, present when the list
+  names them (`MethodList.OwnSessions`, all three or none): where a signed-in person's
+  account page lists where they are signed in, signs them out of one browser and signs
+  them out of every other.
+- `forgetBrowsers` is the path of the `ForgetBrowsers` handler, present when the list
+  names it (`MethodList.ForgetBrowsers`): where a signed-in person's account page
+  forgets every browser the second factor remembered for them.
 - `usernameIsEmail` is present, and true, when the listed password method declares
   the username as the email address (`UsernameIsEmail`): the page then asks for the
   address where it would ask for a username, and a sign-up takes none.
@@ -1967,6 +1987,27 @@ A users table made before the name existed takes the column from the auth set's
 `SessionNames` migration, which also adds the name an invitation carries to the mail
 links and the name a waiting sign-in's identity asserted to the pending sign-ins, and
 stores the name in the two indexes a list reads without a row of the table.
+
+**The person changes their own username**, signed in: `Auth.ChangeUsername()` takes
+`{"username"}` and answers `{"username"}` as it is kept. The one rule is that no other
+account holds the name; `Auth.UsernameFree()` answers `{"free"}` for a name as the
+person types it, and says nothing of who holds one. The person's sessions follow the
+name, so they stay signed in, and they sign in under the new name from then on. Where
+the password method declares `UsernameIsEmail()` both refuse with 409: the username
+changes when the person confirms a new address. Both validate the session themselves
+and refuse an impersonated session.
+
+**The person sees where they are signed in**, signed in: `Auth.OwnSessions()` answers
+their own live sessions, the one of the request first and marked, each with the name of
+the browser it was signed in from ("Chrome on Android", worked out from the User-Agent
+header when the session was made; absent where it was not recognized), when it was
+signed in and when it was last used, and how many browsers are remembered for them.
+`Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of them, never the request's
+own; `Auth.EndOtherSessions()` ends all but the request's own; `Auth.ForgetBrowsers()`
+forgets every browser the second factor remembered for them, this one included, and
+ends no session. A session someone else established acting as the person is not
+theirs: it is not listed and not ended here. All four validate the session themselves
+and refuse an impersonated session.
 
 ### The look a person chose
 
@@ -4385,11 +4426,14 @@ Everything an impersonated session touches names the actor and the principal:
   cannot change their account." (in a session that acts as a role, "cannot do this."):
   the handler's name is the event's and the server's log's, never the sentence's. They are
   `ChangeUserPassword` and `RemoveUserPassword` (the password
-  method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `Email().Add()` and
+  method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `ChangeUsername`,
+  `EndOwnSession`, `EndOtherSessions`, `ForgetBrowsers`, `Email().Add()` and
   `Email().Verify()` (the address the code of their second factor is mailed to),
   `ApplicationTokens().Create()` and `ApplicationTokens().Revoke()`, `Device().Approve()`
   and `Device().Deny()` (a token and an approved device act as the person for as long as
-  they live) and `Invitation().Accept()` (which gives the person roles). The routes that
+  they live) and `Invitation().Accept()` (which gives the person roles). `OwnSessions` and
+  `UsernameFree`, which only read, refuse a view too: where a person is signed in, and
+  which usernames they may take, are theirs alone. The other routes that
   only read (`ApplicationTokens().List()`, `Device().Lookup()`) answer a view, and
   `Logout` and `EndImpersonation` end it. The generated router registers the routes it
   mounts behind `ValidateSession` (the invitation's, the address's, the tokens' and the
@@ -4397,7 +4441,8 @@ Everything an impersonated session touches names the actor and the principal:
   tenant or a role say, gates the application's generated routes and never a person's
   own account; and it mounts the read-only mask (`EnforceReadOnlyMask`) in front of
   them itself, as it does in front of the generated routes behind the hook. The
-  password's, the name's, the look's and the remembered browser's validate the session
+  password's, the name's, the look's, the username's, the sessions' and the remembered
+  browsers' (this one or all) validate the session
   themselves, in front of the session check, and the handler's own refusal is what
   answers a view there. On `Auth` the user operations are `AuthAPI` methods behind the
   application's own handlers, which guard them.

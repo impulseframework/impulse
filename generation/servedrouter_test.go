@@ -645,17 +645,22 @@ func Test_servedRouterData(t *testing.T) {
 					}
 					paths = append(paths, route.Method+" "+route.Path+" "+route.Handler+guard)
 				}
-				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus,GET /api/user/sign-in-means SignInMeans," +
+				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus,GET /api/user/sign-in-means SignInMeans,GET /api/user/sessions OwnSessions," +
 					"GET /api/user/azure/login AzureLogin,GET /api/user/azure/callback AzureCallback,GET /api/user/azure/logout AzureFrontChannelLogout," +
 					"POST /api/user/pending/cancel PendingCancel (xsrf)," +
 					"POST /api/user/pending/code PendingSendCode (xsrf),POST /api/user/pending/code/verify PendingVerifyCode (xsrf),POST /api/user/pending/email PendingEnrollEmail (xsrf),POST /api/user/browser/forget ForgetBrowser (xsrf),POST /api/user/name ChangeName (xsrf),POST /api/user/look ChangeLook (xsrf)," +
+					"POST /api/user/username ChangeUsername (xsrf),POST /api/user/username/free UsernameFree (xsrf),POST /api/user/sessions/end EndOwnSession (xsrf),POST /api/user/sessions/end-others EndOtherSessions (xsrf),POST /api/user/browser/forget-all ForgetBrowsers (xsrf)," +
 					"POST /api/user/invitation InvitationOpen (xsrf),POST /api/user/email/confirm EmailConfirm (xsrf)," +
 					"POST /api/user/invitation/accept InvitationAccept (xsrf),POST /api/user/email EmailAdd (xsrf),POST /api/user/email/verify EmailVerify (xsrf)"
 				if got := strings.Join(paths, ","); got != want {
 					t.Errorf("routes = %s, want %s", got, want)
 				}
-				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 9 || len(o.ValidatedRoutes) != 3 {
-					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 9, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
+				if len(o.OpenRoutes) != 9 || len(o.GuardedRoutes) != 14 || len(o.ValidatedRoutes) != 3 {
+					t.Errorf("open, guarded, validated = %d, %d, %d; want 9, 14, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
+				}
+				if o.ChangeUsername != "/api/user/username" || o.UsernameFree != "/api/user/username/free" || o.OwnSessionsList != "/api/user/sessions" ||
+					o.OwnSessionsEnd != "/api/user/sessions/end" || o.OwnSessionsEndOthers != "/api/user/sessions/end-others" || o.ForgetBrowsers != "/api/user/browser/forget-all" {
+					t.Errorf("the paths of the person's own username, sessions and remembered browsers = %q, %q, %q, %q, %q, %q", o.ChangeUsername, o.UsernameFree, o.OwnSessionsList, o.OwnSessionsEnd, o.OwnSessionsEndOthers, o.ForgetBrowsers)
 				}
 				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"}) || o.SignUp != nil || o.PasswordReset != nil {
 					t.Errorf("invitation, email, sign-up = %+v, %+v, %+v; want the invitation without sign-up, the email routes, no sign-up", o.Invitation, o.Email, o.SignUp)
@@ -696,8 +701,9 @@ func Test_servedRouterData(t *testing.T) {
 				for _, route := range data.Outlets[0].Routes {
 					crewRoutes = append(crewRoutes, route.Method+" "+route.Path)
 				}
-				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/password/strength,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
+				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,GET /api/user/sessions,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/password/strength,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
 					"POST /api/user/pending/code,POST /api/user/pending/code/verify,POST /api/user/pending/email,POST /api/user/browser/forget,POST /api/user/name,POST /api/user/look," +
+					"POST /api/user/username,POST /api/user/username/free,POST /api/user/sessions/end,POST /api/user/sessions/end-others,POST /api/user/browser/forget-all," +
 					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/email/confirm,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
 					"POST /api/user/password-reset,POST /api/user/password-reset/open,POST /api/user/password-reset/complete," +
 					"POST /api/user/invitation/accept,POST /api/user/email,POST /api/user/email/verify,POST /api/user/first-password/code,POST /api/user/first-password," +
@@ -1061,8 +1067,9 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"// Package router serves the application.",
 				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment\n",
 				"//\tdefault (/api), sessions (azure):",
-				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
-				"//\t  + ValidateXSRFToken: POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
+				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
+				"//\t  + ValidateXSRFToken: POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, " +
+					"POST /api/user/username, POST /api/user/username/free, POST /api/user/sessions/end, POST /api/user/sessions/end-others, POST /api/user/browser/forget-all,",
 				"//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Default\n//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Default, EnforceReadOnlyMask: generatedRoutes",
 				"\t// The default outlet's session surface.\n\tDefaultSession\n",
 				"type DefaultSession interface {\n\tStartSession(next http.Handler) http.Handler\n",
@@ -1071,6 +1078,12 @@ func Test_servedRouterTemplates(t *testing.T) {
 					"\t// ChangeName writes the signed-in person's own name, from their account page\n\t// (session.Auth.ChangeName); it validates the session itself.\n\tChangeName() http.HandlerFunc\n" +
 					"\t// SignInMeans answers what the signed-in person signs in with, a password or none\n\t// and the directory sign-ins linked to them, to their account page\n\t// (session.Auth.SignInMeans); it validates the session itself.\n\tSignInMeans() http.HandlerFunc\n" +
 					"\t// ChangeLook keeps the look the signed-in person chose, so it follows them to\n\t// every browser (session.Auth.ChangeLook); it validates the session itself.\n\tChangeLook() http.HandlerFunc\n" +
+					"\t// ChangeUsername writes the signed-in person's own username, from their account\n\t// page (session.Auth.ChangeUsername); it validates the session itself.\n\tChangeUsername() http.HandlerFunc\n" +
+					"\t// UsernameFree answers whether a username the signed-in person types is free, to\n\t// their account page (session.Auth.UsernameFree); it validates the session itself.\n\tUsernameFree() http.HandlerFunc\n" +
+					"\t// OwnSessions answers where the signed-in person is signed in, to their account\n\t// page (session.Auth.OwnSessions); it validates the session itself.\n\tOwnSessions() http.HandlerFunc\n" +
+					"\t// EndOwnSession signs the signed-in person out of one other browser of theirs, from\n\t// their account page (session.Auth.EndOwnSession); it validates the session itself.\n\tEndOwnSession() http.HandlerFunc\n" +
+					"\t// EndOtherSessions signs the signed-in person out of every browser but this one,\n\t// from their account page (session.Auth.EndOtherSessions); it validates the session\n\t// itself.\n\tEndOtherSessions() http.HandlerFunc\n" +
+					"\t// ForgetBrowsers forgets every browser the second factor remembered for the\n\t// signed-in person, from their account page (session.Auth.ForgetBrowsers); it\n\t// validates the session itself.\n\tForgetBrowsers() http.HandlerFunc\n" +
 					"\t// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.\n\tInvitationOpen() http.HandlerFunc\n" +
 					"\t// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).\n\tInvitationAccept() http.HandlerFunc\n" +
 					"\t// A signed-in person's email address, added by mailing it a verification link (session.EmailHandlers.Add).\n\tEmailAdd() http.HandlerFunc\n" +
@@ -1078,11 +1091,15 @@ func Test_servedRouterTemplates(t *testing.T) {
 					"\t// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).\n\tEmailConfirm() http.HandlerFunc\n" +
 					"\t// The azure registration's login, callback and front-channel logout (azure.Method).\n\tAzureLogin() http.HandlerFunc\n\tAzureCallback() http.HandlerFunc\n\tAzureFrontChannelLogout() http.HandlerFunc\n}",
 				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
-					"\t\t\tForgetBrowser: \"/api/user/browser/forget\",\n" +
-					"\t\t\tChangeName:    \"/api/user/name\",\n" +
-					"\t\t\tSignInMeans:   \"/api/user/sign-in-means\",\n" +
-					"\t\t\tChangeLook:    \"/api/user/look\",\n" +
-					"\t\t\tInvitation:    session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:         session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\", Confirm: \"/api/user/email/confirm\"},\n\t\t}))\n",
+					"\t\t\tForgetBrowser:  \"/api/user/browser/forget\",\n" +
+					"\t\t\tChangeName:     \"/api/user/name\",\n" +
+					"\t\t\tSignInMeans:    \"/api/user/sign-in-means\",\n" +
+					"\t\t\tChangeLook:     \"/api/user/look\",\n" +
+					"\t\t\tChangeUsername: \"/api/user/username\",\n" +
+					"\t\t\tUsernameFree:   \"/api/user/username/free\",\n" +
+					"\t\t\tOwnSessions:    session.OwnSessionsRoutes{List: \"/api/user/sessions\", End: \"/api/user/sessions/end\", EndOthers: \"/api/user/sessions/end-others\"},\n" +
+					"\t\t\tForgetBrowsers: \"/api/user/browser/forget-all\",\n" +
+					"\t\t\tInvitation:     session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:          session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\", Confirm: \"/api/user/email/confirm\"},\n\t\t}))\n",
 				"\t\tguarded.Post(\"/api/user/invitation\", h.InvitationOpen())\n",
 				"\t\tguarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())\n\t\tguarded.Post(\"/api/user/pending/code\", h.PendingSendCode())\n",
 				"\tServerVersion() string\n\t// ServerEnvironment is the name of the environment this server runs in, the\n\t// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)\n\t// and the About pop-up of a browser application shows. Production is told no name\n\t// and reports none, so its answers name no environment.\n\tServerEnvironment() string\n",
@@ -1357,7 +1374,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona")}}}},
 			wantRouter: []string{
 				"//\tdefault (/api), sessions (password, persona):",
-				"GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/persona/login, GET /api/user/persona/callback\n",
+				"GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/persona/login, GET /api/user/persona/callback\n",
 				"\t// The persona registration's login and callback (oidc.Method), where the Auth registered it: the persona provider is configured in the first environment and its pull requests, and the handlers are nil elsewhere.\n\tPersonaLogin() http.HandlerFunc\n\tPersonaCallback() http.HandlerFunc\n}",
 				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n" +
 					"\t\t// A method the Auth registers only where its provider is configured (persona): the\n\t\t// surface has its handlers there and nil elsewhere, so its routes are mounted and\n\t\t// the login page is told of it only where it is.\n" +
