@@ -210,6 +210,9 @@ func TestRolesFileAccepted_servedGrants(t *testing.T) {
 		// anchor opens the base's first role, so a grant written after it is the
 		// Administrator's.
 		anchor = `"permissions": {`
+		// listGrant opens the Administrator's List grants, so a grant written in it is
+		// one more of them.
+		listGrant = "\"List\": [\n            {\n              \"resource\": \"StaffSessionUsers\","
 	)
 	tests := []struct {
 		name        string
@@ -250,6 +253,22 @@ func TestRolesFileAccepted_servedGrants(t *testing.T) {
 			edit:       candidateEdit{file: roles, old: "\"fields\": [\n                \"username\",", new: "\"fields\": [\n                \"username\",\n                \"shoeSize\","},
 			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
 			wantDetails: []string{roles + ": the global role Administrator grants List on StaffSessionUsers with the field(s) shoeSize, which the resource does not have for List: take them out of the grant's fields, or run go generate ./... if the resource just gained them"},
+		},
+		{
+			name: "a field granted alone that the resource has", candidate: "solo",
+			edit:       candidateEdit{file: roles, old: listGrant, new: `"List": [{"resource": "StaffSessionUsers.username"},` + listGrant[len(`"List": [`):]},
+			wantStatus: Pass, wantSummary: "1 role file(s) parse the way the permission engine reads them and grant only what the application serves (" + collection + "): " + roles,
+		},
+		{
+			name: "all of a resource's fields granted", candidate: "solo",
+			edit:       candidateEdit{file: roles, old: listGrant, new: `"List": [{"resource": "StaffSessionUsers.*"},` + listGrant[len(`"List": [`):]},
+			wantStatus: Pass, wantSummary: "1 role file(s) parse the way the permission engine reads them and grant only what the application serves (" + collection + "): " + roles,
+		},
+		{
+			name: "a field granted alone that the resource does not have", candidate: "solo",
+			edit:       candidateEdit{file: roles, old: listGrant, new: `"List": [{"resource": "StaffSessionUsers.shoeSize"},` + listGrant[len(`"List": [`):]},
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{roles + ": the global role Administrator grants List on StaffSessionUsers.shoeSize, a field StaffSessionUsers does not have for List: take the grant out of the role, or run go generate ./... if the resource just gained the field"},
 		},
 	}
 	for _, tt := range tests {
