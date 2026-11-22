@@ -843,10 +843,15 @@ const (
 // an unqualified Roles() names. The role file is the call's first argument, and the one
 // after it is the auth's name: each call carries the package whose Name it is too, so a
 // file handed over under another package's name can be told, and the argument as the
-// source writes it, so a finding can quote a name that is no package's Name.
+// source writes it, so a finding can quote a name that is no package's Name. Each call
+// says too whether it is written among the arguments of an access.New call, the engine it
+// goes to. The file is parsed with its objects resolved, so that an unqualified Roles or
+// Name a function declares for itself (a parameter, a result, a variable), which hides
+// the package's, is read as some other way; one the file declares at its top level, or
+// one it does not declare, is the package's own.
 func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, error) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, rel, src, 0)
 	if err != nil {
 		return nil, errors.Wrap(err, "parser.ParseFile()")
 	}
@@ -855,19 +860,35 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 		return nil, nil
 	}
 	imports := fileImports(f)
+	inFunction := declaredInFunction(f)
 
 	var calls []DefaultRoles
+	inEngine := map[*ast.CallExpr]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || !isQualified(call.Fun, pkg, defaultRolesFunc) {
+		if !ok {
 			return true
 		}
-		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line}
+		if isQualified(call.Fun, pkg, engineNewFunc) {
+			for _, arg := range call.Args {
+				if option, ok := ast.Unparen(arg).(*ast.CallExpr); ok {
+					inEngine[option] = true
+				}
+			}
+		}
+		if !isQualified(call.Fun, pkg, defaultRolesFunc) {
+			return true
+		}
+		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line, InEngine: inEngine[call]}
 		if len(call.Args) > 0 {
-			d.RolesPackage = rolesCallPackage(call.Args[0], imports, ownPkg)
+			if roles, ok := call.Args[0].(*ast.CallExpr); !ok || !inFunction(roles.Fun) {
+				d.RolesPackage = rolesCallPackage(call.Args[0], imports, ownPkg)
+			}
 		}
 		if len(call.Args) > 1 {
-			d.NamePackage = authNamePackage(call.Args[1], imports, ownPkg)
+			if !inFunction(call.Args[1]) {
+				d.NamePackage = authNamePackage(call.Args[1], imports, ownPkg)
+			}
 			d.NameText = string(src[fset.Position(call.Args[1].Pos()).Offset:fset.Position(call.Args[1].End()).Offset])
 		}
 		calls = append(calls, d)
@@ -876,6 +897,31 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 	})
 
 	return calls, nil
+}
+
+// declaredInFunction returns the test of whether an identifier of a file parsed with its
+// objects resolved names something a function of the file declares (a parameter, a
+// result, a variable, a constant): one whose declaration is not among the file's
+// top-level ones. An identifier the file declares at its top level, or does not declare
+// at all, does not.
+func declaredInFunction(f *ast.File) func(ast.Expr) bool {
+	topLevel := map[any]bool{}
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			topLevel[d] = true
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				topLevel[spec] = true
+			}
+		}
+	}
+
+	return func(expr ast.Expr) bool {
+		id, ok := expr.(*ast.Ident)
+
+		return ok && id.Obj != nil && !topLevel[id.Obj.Decl]
+	}
 }
 
 // rolesCallPackage reads a Roles() call: the import path of the package it is called on,

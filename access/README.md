@@ -107,7 +107,7 @@ func main() {
     // The collection is what the release declares, here Read on documents and
     // their fields: the application's generated router answers it. An
     // application that ships default roles adds
-    // access.WithDefaultRoles(staff.Roles(), staff.Name); see Default Roles.
+    // access.WithDefaultRoles(Roles(), Name); see Default Roles.
     client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
@@ -211,7 +211,7 @@ client, err := access.New(store,
     // The release's default roles: the role file embedded in the binary,
     // validated against the collection, with the name of the auth whose
     // roles they are (see Default Roles).
-    access.WithDefaultRoles(staff.Roles(), staff.Name),
+    access.WithDefaultRoles(Roles(), Name),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -888,7 +888,7 @@ Hand it to `New`, which validates it against the collection it is given:
 
 ```go
 client, err := access.New(store, router.Collection(),
-    access.WithDefaultRoles(staff.Roles(), staff.Name),
+    access.WithDefaultRoles(Roles(), Name),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -905,6 +905,11 @@ The second argument of `WithDefaultRoles`, `auth`, is the name of the auth whose
 file holds, as the auth's package names it (`Name` in a package `impulse add auth`
 renders). It says whose subject sets the file is held to: see `access.UnreadSetWarning`
 below. `ValidateRoles` takes the same name.
+
+An application hands a role file over in the auth's own package, among the options of the
+`access.New` call that opens the auth's engine, where `Roles()` and `Name` are the package's own
+(`access.WithDefaultRoles(Roles(), Name)`): `impulse check` takes a hand-over written anywhere
+else for a finding, since nothing there ties the file to the engine it opens.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -957,7 +962,7 @@ the same module with nothing declared for it. Each auth hands its own name with
 its role file:
 
 ```go
-access.WithDefaultRoles(staff.Roles(), staff.Name)
+access.WithDefaultRoles(Roles(), Name)
 warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 ```
 
@@ -1197,7 +1202,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, collection, access.WithDefaultRoles(staff.Roles(), staff.Name))
+client, err := access.New(store, collection, access.WithDefaultRoles(Roles(), Name))
 ```
 
 ### JSON Configuration

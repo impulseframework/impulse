@@ -419,16 +419,22 @@ type DefaultRoles struct {
 	Line int
 	// RolesPackage is the import path of the package whose Roles() the call hands over:
 	// the file's own package when the argument is Roles() unqualified, the imported
-	// package when it is <auth>.Roles(), or empty when the argument reads some other way.
+	// package when it is <auth>.Roles(), or empty when the argument reads some other way
+	// (a Roles the function declares for itself among them).
 	RolesPackage string
 	// NamePackage is the import path of the package whose Name the call hands the file
 	// over under, the auth's name: the file's own package when the second argument is
 	// Name unqualified, the imported package when it is <auth>.Name, or empty when the
-	// argument reads some other way (a literal, a variable) or is not there.
+	// argument reads some other way (a literal, a variable, a Name the function declares
+	// for itself) or is not there.
 	NamePackage string
 	// NameText is the call's second argument as the source writes it, for a finding that
 	// has to quote it.
 	NameText string
+	// InEngine reports the call written among the arguments of an access.New call: the
+	// option goes to the engine that call opens, where an option held in a variable,
+	// appended to a slice or returned from a function goes wherever it is passed on.
+	InEngine bool
 }
 
 // PolicyCheck is one call to CheckPolicy outside tests: the deploy step printing what
