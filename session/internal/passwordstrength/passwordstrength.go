@@ -452,7 +452,9 @@ func firstRunes(s string, n int) string {
 // maxDetailTyped characters of space before anything else. The words come in three passes over
 // the details, each in the order Username, Name, Email. The first gives the words read as the
 // password is typed (spelledOnce): each detail whole, then each run of letters and digits in it
-// that holds no mark and whose reading is at least minRun characters long. The password as
+// whose reading is at least minRun characters long, a mark ending a run (Adébáyọ and làdé in
+// Adébáyọ̀ Ọ̀làdé, whose grave accents NFC leaves apart). That is how the words were made before a
+// run with its marks counted as a word, so those words keep their places. The password as
 // typed is asked with these in these places, so a name matches there with a letter read as two
 // (ß, æ, œ, þ) counted once. The second gives each detail whole in its plain spelling, then,
 // for each run of letters, digits and marks, and for a run that holds a digit also the run
@@ -490,11 +492,11 @@ func inputsOf(who Details, read *reading) []string {
 			details = append(details, detail)
 		}
 	}
-	// The first pass: the words as the password is typed.
+	// The first pass: the words as the password is typed. A mark ends a run here.
 	for _, detail := range details {
 		add(read.as(detail, spelledOnce))
-		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
-			if counts(run) && !strings.ContainsFunc(run, unicode.IsMark) {
+		for _, run := range strings.FieldsFunc(detail, notLetterOrDigit) {
+			if counts(run) {
 				add(read.as(run, spelledOnce))
 			}
 		}
@@ -636,6 +638,11 @@ func standsFor(c, letter byte) bool {
 	}
 
 	return false
+}
+
+// notLetterOrDigit says whether r ends a run of letters and digits: a mark ends one.
+func notLetterOrDigit(r rune) bool {
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 }
 
 // notLetterDigitOrMark says whether r ends a run of letters, digits and marks: a mark, a vowel

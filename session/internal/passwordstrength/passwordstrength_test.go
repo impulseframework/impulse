@@ -149,6 +149,21 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a name with two đ, typed with d and dj", password: "Dordje2077horse", who: Details{Name: "Đorđe Đorđević"}},
 		{name: "a name with two đ, typed with dj and d", password: "Djorde2077horse", who: Details{Name: "Đorđe Đorđević"}},
 		{name: "a name with two ü, typed with ue and u", password: "Buechsenschutz2077", who: Details{Name: "Günther Büchsenschütz"}},
+		{
+			name:     "a name with an accent NFC leaves apart, of a person with an address",
+			password: "Adebayo!x9Lq",
+			who:      Details{Name: "Adébáyọ̀ Ọ̀làdé", Email: "ade@example.com"},
+		},
+		{
+			name:     "the part of a name before an accent NFC leaves apart",
+			password: "Chukwuẹs2077",
+			who:      Details{Name: "Chukwuẹ̀mẹ́ka Ọ̀kọ̀nkwọ́"},
+		},
+		{
+			name:     "the part of an Arabic name before its shadda",
+			password: "محمT2077",
+			who:      Details{Name: "محمّد علي"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -211,6 +226,10 @@ func TestInputsOf(t *testing.T) {
 			want: []string{"Dorde Dordevic", "Dorde", "Dordevic", "Djordje", "Djordjevic", "Djorde", "Dordje", "Djordevic", "Dordjevic"},
 		},
 		{who: Details{Name: "Jääskeläinen"}, want: []string{"Jaaskelainen", "Jaeaeskelaeinen"}},
+		{
+			who:  Details{Name: "Adébáyọ̀ Ọ̀làdé", Email: "ade@example.com"},
+			want: []string{"Adebayo Olade", "Adebayo", "lade", "ade@example.com", "ade", "example", "com", "Olade"},
+		},
 		{who: Details{}, want: nil},
 	}
 	for _, tt := range tests {
