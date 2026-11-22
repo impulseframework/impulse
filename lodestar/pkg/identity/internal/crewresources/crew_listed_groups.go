@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -72,4 +73,11 @@ FROM CrewGroups g
 // Subquery is the query the rows are read from.
 func (CrewListedGroup) Subquery() (query string, params map[string]any) {
 	return crewListedGroupQuery, nil
+}
+
+// TenantsToEnter names the sector the group is kept in, where the group holds one
+// of that sector's administrator roles there: a caller whose session does not
+// enter it is not offered the methods that put a person in the group or take one out.
+func (CrewListedGroup) TenantsToEnter() resource.TenantsToEnter {
+	return crewGroupTenantsToEnter("Id")
 }

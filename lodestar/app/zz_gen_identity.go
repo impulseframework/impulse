@@ -76,10 +76,6 @@ func (a *App) CrewRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRoles()
 }
 
-func (a *App) CrewRoleGrants() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CrewRoleGrants()
-}
-
 func (a *App) CrewSectorGroups() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorGroups()
 }
@@ -234,6 +230,10 @@ func (a *App) CrewGivableRoles() http.HandlerFunc {
 
 func (a *App) CrewInvitedSectors() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewInvitedSectors()
+}
+
+func (a *App) CrewListedRoleGrants() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedRoleGrants()
 }
 
 func (a *App) CrewSectorDirectoryRoles() http.HandlerFunc {
@@ -514,10 +514,6 @@ func (a *App) MembersRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoles()
 }
 
-func (a *App) MembersRoleGrants() http.HandlerFunc {
-	return membershandlers.New(a, liveDerivations).MembersRoleGrants()
-}
-
 func (a *App) MembersSectorHeldRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSectorHeldRoles()
 }
@@ -604,6 +600,10 @@ func (a *App) MembersSessionUser() http.HandlerFunc {
 
 func (a *App) MembersUserRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersUserRoles()
+}
+
+func (a *App) MembersListedRoleGrants() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedRoleGrants()
 }
 
 func (a *App) DeleteMembersSectorUser() http.HandlerFunc {

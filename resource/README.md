@@ -3992,7 +3992,7 @@ GET  <prefix>/crew-taken-roles                             List on CrewTakenRole
 GET  <prefix>/crew-takeable-roles                          List on CrewTakeableRoles (the roles the caller may take for a set time)
 GET  <prefix>/crew-take-lengths                            List on CrewTakeLengths (the lengths a role is taken for)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
-GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
+GET  <prefix>/crew-listed-role-grants                      List on CrewListedRoleGrants (the custom roles' grants, each with why the permission engine leaves it out, where it does)
 GET  <prefix>/crew-givable-roles                           List on CrewGivableRoles (the roles one of the whole application's methods gives, by where they are held)
 GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
 GET  <prefix>/crew-group-members                           List on CrewGroupMembers
@@ -4697,6 +4697,14 @@ grants each like any resource.
   keeps it in each, so they do not lose a role held in one. Nobody loses a role whose
   period has not begun, or one the group gives its members nothing by. A tenant's list
   (`CrewSectorGroupRoles`) carries the count itself.
+
+**The custom roles' grants.** `CrewListedRoleGrants` is the custom roles' grants as the
+store holds them, each with `skipped`: empty for a grant its role holds, and for one the
+permission engine leaves out when it loads the policy, why, in the words the deploy
+check prints. It is a computed list: the engine is asked of every row, and no query
+selects it. The grants table itself has no route. The role file grants the list like any
+resource, and `skipped` is a field of that grant: a role whose grant does not name it
+reads the rows without it, and a grant the engine leaves out then reads as any other.
 
 **The period of an assignment.** A role given to a person, a person's place in a group
 and a role given to a group may each carry a period: a start and an end, each optional,
@@ -5475,9 +5483,13 @@ own, outside any request, has no caller and is the application's act):
   address set on an account before its person was given the role all stand. The caller's
   reach is read from the tenant roster and the engine's snapshot each instance holds, as
   every request's is, so a change made on another instance decides once it has arrived.
-  The methods a list offers on a row are drawn from the role file's grants and do not
-  know this judgment: a page may offer one of these acts on such a person's row, and the
-  method then refuses with the sentence.
+  The lists hold what they offer to the same judgment where a method names its row
+  (`@callerEnters`, section 5): a person's row leaves out the acts on their account, a
+  group's row the method that puts a person in the group, and a row of the people of
+  the groups the method that takes the person out, for a caller the method would
+  refuse. The whole application's two methods that take a role away, from a person and
+  from a group, name no row: a page may offer one of them where the method then refuses
+  with the sentence.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.

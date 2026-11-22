@@ -29,7 +29,7 @@ export const Resources = {
   StaffInvitedTenants: 'StaffInvitedTenants' as Resource,
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
-  StaffRoleGrants: 'StaffRoleGrants' as Resource,
+  StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
   StaffSessionAuthEvents: 'StaffSessionAuthEvents' as Resource,
   StaffSessionIdentities: 'StaffSessionIdentities' as Resource,
@@ -369,7 +369,7 @@ export namespace StaffListedGroups {
   };
 }
 
-export namespace StaffRoleGrants {
+export namespace StaffListedRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
     condition: 'condition' as FieldName,
@@ -379,18 +379,20 @@ export namespace StaffRoleGrants {
     permission: 'permission' as FieldName,
     resourceName: 'resourceName' as FieldName,
     role: 'role' as FieldName,
+    skipped: 'skipped' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
   };
   export const resourceName = {
-    axis: 'StaffRoleGrants.axis' as Resource,
-    condition: 'StaffRoleGrants.condition' as Resource,
-    domainId: 'StaffRoleGrants.domainId' as Resource,
-    field: 'StaffRoleGrants.field' as Resource,
-    kind: 'StaffRoleGrants.kind' as Resource,
-    permission: 'StaffRoleGrants.permission' as Resource,
-    resourceName: 'StaffRoleGrants.resourceName' as Resource,
-    role: 'StaffRoleGrants.role' as Resource,
-    updatedAt: 'StaffRoleGrants.updatedAt' as Resource,
+    axis: 'StaffListedRoleGrants.axis' as Resource,
+    condition: 'StaffListedRoleGrants.condition' as Resource,
+    domainId: 'StaffListedRoleGrants.domainId' as Resource,
+    field: 'StaffListedRoleGrants.field' as Resource,
+    kind: 'StaffListedRoleGrants.kind' as Resource,
+    permission: 'StaffListedRoleGrants.permission' as Resource,
+    resourceName: 'StaffListedRoleGrants.resourceName' as Resource,
+    role: 'StaffListedRoleGrants.role' as Resource,
+    skipped: 'StaffListedRoleGrants.skipped' as Resource,
+    updatedAt: 'StaffListedRoleGrants.updatedAt' as Resource,
   };
 }
 

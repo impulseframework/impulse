@@ -56,18 +56,6 @@ export interface MembersRoles {
   updatedAt?: Date;
 }
 
-export interface MembersRoleGrants {
-  kind: string;
-  axis: string;
-  domainId: string;
-  role: string;
-  permission: string;
-  resourceName: string;
-  field: string;
-  condition: string;
-  updatedAt?: Date;
-}
-
 export interface MembersSectorHeldRoles {
   domainId?: string;
   userId: string;
@@ -282,6 +270,19 @@ export interface BriefingTemplates {
   layout?: unknown;
 }
 
+export interface MembersListedRoleGrants {
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  permission: string;
+  resourceName: string;
+  field: string;
+  condition: string;
+  updatedAt?: Date;
+  skipped?: string;
+}
+
 /**
  * A feature flag: one declared flag's row, as the Feature flags page lists it. updatedAt
  * and updatedBy are when the flag was last turned on or off and by whom: null and empty
@@ -388,26 +389,6 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
-    ],
-  },
-  [Resources.MembersRoleGrants]: {
-    route: 'members-role-grants',
-    readDisabled: true,
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
-    live: true,
-    rowWords: { one: 'role grant', many: 'role grants' },
-    fields: [
-      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
@@ -716,6 +697,28 @@ const resourceMap = defineResourceMap({
       { fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
   },
+  [Resources.MembersListedRoleGrants]: {
+    route: 'members-listed-role-grants',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role grant', many: 'role grants' },
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.FeatureFlags]: {
     route: 'feature-flags',
     createDisabled: true,
@@ -757,7 +760,6 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.DistressCalls]: PermissionScopes.domain,
   [Resources.MembersHeldRoles]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,
-  [Resources.MembersRoleGrants]: PermissionScopes.global,
   [Resources.MembersSectorHeldRoles]: PermissionScopes.domain,
   [Resources.MembersSectorIdentities]: PermissionScopes.domain,
   [Resources.MembersSectorInvitations]: PermissionScopes.domain,
@@ -774,6 +776,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Missions]: PermissionScopes.domain,
   [Resources.MissionDocuments]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.MembersListedRoleGrants]: PermissionScopes.global,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };
 

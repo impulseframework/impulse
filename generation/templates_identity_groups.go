@@ -625,6 +625,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if and .OffersToEntering (not .ForTenant) }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -713,6 +716,42 @@ WHERE {{ .Standing "m" }}
 func ({{ .SubjectGroupUser }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .SubjectGroupUser }}Query, nil
 }
+{{- if and .OffersToEntering (not .ForTenant) }}
+
+// {{ GoCamel .Group }}AdministeredTenantsQuery answers the {{ .TenantWord }} each group of the
+// {{ .Auth }} auth makes its people administrators of, a row for each, RowKey the group's id
+// and Tenant the {{ .TenantWord }}: a group kept in a {{ .TenantWord }} that holds there one of
+// the roles the auth's permission engine names as a {{ .TenantWord }}'s administrator's
+// (@{{ .EnteringAdministratorsParam }}), in an assignment that has not ended, one that has
+// not begun included. The methods that put a person in a group and take one out refuse a
+// caller by the same count (the identity package's requireEnteringToChange), and each row
+// of the whole application's groups and of their people reads it (TenantsToEnter).
+const {{ GoCamel .Group }}AdministeredTenantsQuery = ` + "`" + `
+SELECT tr.GroupId AS RowKey, tg.DomainId AS Tenant
+FROM {{ .Policy.GroupRoles }} tr
+JOIN {{ .Policy.Groups }} tg ON tg.Id = tr.GroupId
+WHERE tg.Kind = {{ .KindDomain }} AND tg.Axis = {{ .ScopeAxis }}
+  AND tr.Kind = {{ .KindDomain }} AND tr.Axis = {{ .ScopeAxis }} AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@{{ .EnteringAdministratorsParam }})
+  AND {{ .Standing "tr" }}
+` + "`" + `
+
+// {{ GoCamel .Group }}TenantsToEnter is what each row of a group of the {{ .Auth }} auth, or
+// of one of its people, answers TenantsToEnter with: the query, the roles it reads, and
+// column, the row's column that holds the group's id.
+func {{ GoCamel .Group }}TenantsToEnter(column string) resource.TenantsToEnter {
+	// The roles are the people's: the same names, bound under the same parameter.
+	enter := {{ GoCamel .User }}TenantsToEnter(column)
+	enter.Query = {{ GoCamel .Group }}AdministeredTenantsQuery
+
+	return enter
+}
+
+` + identityGroupTenantsToEnterDoc + `
+func ({{ .SubjectGroupUser }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .Group }}TenantsToEnter("GroupId")
+}
+{{- end }}
 `
 
 	// identityTenantGroupsTemplate declares the groups kept in one tenant.
@@ -1525,9 +1564,9 @@ import (
 // nothing is written when it begins or ends. Putting in a person who is in the group
 // already gives their place the period of this request in place of the one it had, so a
 // request that names neither makes the place stand until they are taken out. Nobody
-// gives their own place a period that lasts longer than the one it has.` + identityJudgedNote + `
+// gives their own place a period that lasts longer than the one it has.` + identityJudgedNote + identityGroupCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityGroupCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityAccessClass + `
 type Add{{ .Subject }}GroupMember struct {
@@ -1593,9 +1632,9 @@ import (
 // role anywhere and no place in a group is deleted with their identity links and
 // sessions, in the same transaction, since an account nothing admits is not kept. A
 // person who takes themselves out keeps a place that makes them the last administrator
-// of a tenant, as they keep the role itself.` + identityJudgedNote + `
+// of a tenant, as they keep the role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityGroupCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityAccessClass + `
 type Remove{{ .Subject }}GroupMember struct {

@@ -1350,11 +1350,12 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
-				Name:        "AddCrewGroupMember",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
-				Target:      "CrewListedGroups",
+				Name:         "AddCrewGroupMember",
+				Scope:        accesstypes.GlobalPermissionScope,
+				Permissions:  []accesstypes.Permission{accesstypes.Execute},
+				Classes:      []accesstypes.ActionClass{ClassAccess},
+				Target:       "CrewListedGroups",
+				CallerEnters: true,
 			},
 			{
 				Name:        "AssignCrewRole",
@@ -1638,8 +1639,9 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"kind", "axis", "domainId", "name"},
 			},
 			{
-				Name:        "CrewRoleGrants",
+				Name:        "CrewListedRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
 					{Name: "axis"},
@@ -1650,9 +1652,9 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "permission"},
 					{Name: "resourceName"},
 					{Name: "role"},
+					{Name: "skipped", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
-				Order: []accesstypes.Tag{"role"},
 			},
 			{
 				Name:        "CrewRoles",
@@ -2114,8 +2116,9 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"username", "groupName"},
 			},
 			{
-				Name:        "MembersRoleGrants",
+				Name:        "MembersListedRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
 					{Name: "axis"},
@@ -2126,9 +2129,9 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "permission"},
 					{Name: "resourceName"},
 					{Name: "role"},
+					{Name: "skipped", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
-				Order: []accesstypes.Tag{"role"},
 			},
 			{
 				Name:        "MembersRoles",
@@ -2341,11 +2344,12 @@ func Collection() *resource.GeneratedCollection {
 				RequiredTags: []accesstypes.Tag{"clearance", "displayName", "feeLimit", "userId"},
 			},
 			{
-				Name:        "RemoveCrewGroupMember",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
-				Target:      "CrewGroupUsers",
+				Name:         "RemoveCrewGroupMember",
+				Scope:        accesstypes.GlobalPermissionScope,
+				Permissions:  []accesstypes.Permission{accesstypes.Execute},
+				Classes:      []accesstypes.ActionClass{ClassAccess},
+				Target:       "CrewGroupUsers",
+				CallerEnters: true,
 			},
 			{
 				Name:         "RemoveCrewPassword",

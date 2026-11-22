@@ -252,9 +252,9 @@ type GeneratedHandlers interface {
 
 	StaffListedGroupRoles() http.HandlerFunc
 
-	StaffRoles() http.HandlerFunc
+	StaffListedRoleGrants() http.HandlerFunc
 
-	StaffRoleGrants() http.HandlerFunc
+	StaffRoles() http.HandlerFunc
 
 	StaffSessions() http.HandlerFunc
 	StaffSession() http.HandlerFunc
@@ -555,13 +555,13 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 	bounded.Post("/console/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 
+	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
+	bounded.Get("/console/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+	bounded.Post("/console/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/console/api/staff-roles", staffRolesHandler)
 	bounded.Post("/console/api/staff-roles", staffRolesHandler)
-
-	staffRoleGrantsHandler := h.StaffRoleGrants()
-	bounded.Get("/console/api/staff-role-grants", staffRoleGrantsHandler)
-	bounded.Post("/console/api/staff-role-grants", staffRoleGrantsHandler)
 
 	staffSessionsHandler := h.StaffSessions()
 	bounded.Get("/console/api/staff-sessions", staffSessionsHandler)
@@ -864,9 +864,9 @@ type GeneratedPortalHandlers interface {
 
 	MembersListedGroupRoles() http.HandlerFunc
 
-	MembersRoles() http.HandlerFunc
+	MembersListedRoleGrants() http.HandlerFunc
 
-	MembersRoleGrants() http.HandlerFunc
+	MembersRoles() http.HandlerFunc
 
 	MembersSessions() http.HandlerFunc
 	MembersSession() http.HandlerFunc
@@ -1113,13 +1113,13 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-listed-group-roles", membersListedGroupRolesHandler)
 	bounded.Post("/portal/api/members-listed-group-roles", membersListedGroupRolesHandler)
 
+	membersListedRoleGrantsHandler := h.MembersListedRoleGrants()
+	bounded.Get("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
+	bounded.Post("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
-
-	membersRoleGrantsHandler := h.MembersRoleGrants()
-	bounded.Get("/portal/api/members-role-grants", membersRoleGrantsHandler)
-	bounded.Post("/portal/api/members-role-grants", membersRoleGrantsHandler)
 
 	membersSessionsHandler := h.MembersSessions()
 	bounded.Get("/portal/api/members-sessions", membersSessionsHandler)

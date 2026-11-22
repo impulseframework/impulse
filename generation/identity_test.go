@@ -356,6 +356,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/assign_crew_role.go",
 		"crewidentity/client.go",
 		"crewidentity/crew_givable_roles.go",
+		"crewidentity/crew_listed_role_grants.go",
 		"crewidentity/crew_sign_in_methods.go",
 		"crewidentity/crew_sign_in_ways.go",
 		"crewidentity/crew_sign_up_roles.go",

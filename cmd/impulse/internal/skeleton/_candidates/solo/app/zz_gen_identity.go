@@ -73,10 +73,6 @@ func (a *App) StaffRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffRoles()
 }
 
-func (a *App) StaffRoleGrants() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).StaffRoleGrants()
-}
-
 func (a *App) StaffSessions() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessions()
 }
@@ -151,6 +147,10 @@ func (a *App) StaffUserRoles() http.HandlerFunc {
 
 func (a *App) StaffGivableRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffGivableRoles()
+}
+
+func (a *App) StaffListedRoleGrants() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedRoleGrants()
 }
 
 func (a *App) StaffSignInMethods() http.HandlerFunc {
