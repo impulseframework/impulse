@@ -38,11 +38,12 @@ func (d *roleOfDeclaration) RoleOf() string {
 }
 
 // TypescriptRoles is the roles the field may hold as the TypeScript metadata lists them:
-// each stored name quoted, joined with a comma and a space; empty where there is none.
+// each stored name quoted as JavaScript reads it, joined with a comma and a space; empty
+// where there is none.
 func (d *roleOfDeclaration) TypescriptRoles() string {
 	quoted := make([]string, 0, len(d.roles))
 	for _, role := range d.roles {
-		quoted = append(quoted, fmt.Sprintf("'%s'", role))
+		quoted = append(quoted, fmt.Sprintf("%q", role))
 	}
 
 	return strings.Join(quoted, ", ")

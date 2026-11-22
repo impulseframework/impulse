@@ -289,7 +289,7 @@ func Test_typescriptResourcesTemplate_roleOf(t *testing.T) {
 		{
 			name:         "a table's field lists its roles",
 			data:         tsResourcesData{Resources: []*resourceInfo{table("Auditor", "Warden")}, GenPrefix: "zz_gen"},
-			wantContains: []string{"{ fieldName: 'name', displayType: 'string', required: true, isIndex: false, roles: ['Auditor', 'Warden'] },"},
+			wantContains: []string{"{ fieldName: 'name', displayType: 'string', required: true, isIndex: false, roles: [\"Auditor\", \"Warden\"] },"},
 		},
 		{
 			name:         "a table's field with no role read lists none",
@@ -305,7 +305,13 @@ func Test_typescriptResourcesTemplate_roleOf(t *testing.T) {
 		{
 			name:         "a computed resource's field lists its roles",
 			data:         tsResourcesData{ComputedResources: []*computedResource{computed("SuperAdministrator", "Warden")}, GenPrefix: "zz_gen"},
-			wantContains: []string{"{ fieldName: 'name', displayType: 'string', required: false, isIndex: false, roles: ['SuperAdministrator', 'Warden'] },"},
+			wantContains: []string{"{ fieldName: 'name', displayType: 'string', required: false, isIndex: false, roles: [\"SuperAdministrator\", \"Warden\"] },"},
+		},
+		{
+			// The generator does not judge a role file's names: one with a quote in it is written as JavaScript reads it.
+			name:         "a role whose name holds a quote is written quoted",
+			data:         tsResourcesData{Resources: []*resourceInfo{table("O'Hare")}, GenPrefix: "zz_gen"},
+			wantContains: []string{`{ fieldName: 'name', displayType: 'string', required: true, isIndex: false, roles: ["O'Hare"] },`},
 		},
 		{
 			name:            "a computed resource's field with no role read lists none, and its key none at all",
