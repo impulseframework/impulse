@@ -101,7 +101,7 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 
 	for path, content := range files {
 		full := filepath.Join(root, path)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 			t.Fatalf("os.MkdirAll() error = %v", err)
 		}
 		if err := os.WriteFile(full, []byte(content), 0o600); err != nil {

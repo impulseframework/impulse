@@ -110,21 +110,21 @@ func hashGeneratedFiles(root string) (map[string][32]byte, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "filepath.WalkDir()")
 	}
 
 	sums := make(map[string][32]byte)
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "os.ReadFile()")
 		}
 		if !named[path] && !bytes.HasPrefix(raw, []byte(generatedHeader)) {
 			continue
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "filepath.Rel()")
 		}
 		sums[rel] = sha256.Sum256(raw)
 	}

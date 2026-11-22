@@ -1317,17 +1317,9 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	// tenancy predicate share it, so aliases and placeholders stay unique.
 	registry := newParamRegistry()
 
-	rendered, tenancy, err := q.readPredicates(dbType, registry)
+	rendered, tenancy, err := q.renderedRead(dbType, registry)
 	if err != nil {
 		return nil, err
-	}
-	rendered, err = q.withNameLookups(dbType, rendered, registry)
-	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.withNameLookups()")
-	}
-	rendered, err = q.withClosedOrder(dbType, rendered)
-	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.withClosedOrder()")
 	}
 
 	capPlan, capChecksItem, err := q.renderCapabilities(dbType, registry)
@@ -1397,6 +1389,26 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	q.stampTenant(stmt)
 
 	return stmt, nil
+}
+
+// renderedRead renders what a statement reads under the person's grants: the read
+// predicates (readPredicates), then the name lookups (withNameLookups), then the
+// declared order's closed terms (withClosedOrder), each over the one before.
+func (q *QuerySet[Resource]) renderedRead(dbType DBType, registry *paramRegistry) (*renderedReadConditions, string, error) {
+	rendered, tenancy, err := q.readPredicates(dbType, registry)
+	if err != nil {
+		return nil, "", err
+	}
+	rendered, err = q.withNameLookups(dbType, rendered, registry)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "QuerySet.withNameLookups()")
+	}
+	rendered, err = q.withClosedOrder(dbType, rendered)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "QuerySet.withClosedOrder()")
+	}
+
+	return rendered, tenancy, nil
 }
 
 // mergeStatementParams folds the subquery's parameters, the registry's and those of the
