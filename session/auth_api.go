@@ -296,6 +296,7 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		Username:   user.Username,
 		UserID:     user.ID,
 		AuthEvents: continuedAuthEvents(ctx, user.ID),
+		Browser:    browserFromCtx(ctx),
 	}
 	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
 		req2.ProviderSessionID = current.ProviderSessionID

@@ -12,7 +12,8 @@ import { identityMenuPages } from '@impulseframework/resource-angular/identity-p
  * each entry only under its grant, so a menu left with nothing is not drawn. The library
  * adds Help last, ending with About and the application's name, and the person's own menu
  * at the right (Your account, Appearance and Sign out; a person who signs in through their
- * company's directory has nothing of their sign-in to change, and the account page says so).
+ * company's directory has nothing of their sign-in to change, and the account page shows
+ * their account with nothing to open).
  * A page added to the routes and forgotten here fails app.menus.spec.ts, naming the page.
  */
 export const appMenus: Menu[] = [

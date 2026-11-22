@@ -36,6 +36,12 @@ export interface RequestOptions {
    * appended under it.
    */
   absolute?: boolean;
+  /**
+   * A question asked while a person types: an answer that is an error is thrown to the
+   * caller and never handed to the application's error hook (`onError`), so a notice
+   * raised there is not raised once for every character.
+   */
+  quiet?: boolean;
 }
 
 /** The permission cache at one instant: digests by scope key, and the user's domains with their names. */

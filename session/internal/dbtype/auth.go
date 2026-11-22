@@ -10,12 +10,14 @@ import (
 // the row's AuthenticatedAt takes the database's time at commit; it is false for a
 // preauth session, which authenticates nothing, and the column stays null.
 // ProviderSessionID and ProviderSessionIssuer are null unless the sign-in carried the
-// provider's session id, which is recorded with the issuer it belongs to.
+// provider's session id, which is recorded with the issuer it belongs to. Browser is
+// the name of the browser the session is established from, null where it is not known.
 type SessionUserColumns struct {
 	UserID                impulse.NullUUID
 	Authenticated         bool
 	ProviderSessionID     *string
 	ProviderSessionIssuer *string
+	Browser               *string
 }
 
 // NewSessionUserColumns returns the user columns of a new session for req.
@@ -27,6 +29,7 @@ func NewSessionUserColumns(req *sessioninfo.NewSessionRequest) SessionUserColumn
 	user.Authenticated = req.Reason != sessioninfo.ReasonPreauth
 	user.ProviderSessionID = OptionalString(req.ProviderSessionID)
 	user.ProviderSessionIssuer = OptionalString(req.ProviderSessionIssuer)
+	user.Browser = OptionalString(req.Browser)
 
 	return user
 }

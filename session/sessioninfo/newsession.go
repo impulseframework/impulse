@@ -64,6 +64,9 @@ type NewSessionRequest struct {
 	// to, set with it or not at all. The session row records both.
 	ProviderSessionID     string
 	ProviderSessionIssuer string
+	// Browser is the name of the browser the session is established from
+	// (browsername.Of), empty where it is not known.
+	Browser string
 	// RoleNames are the role names the sign-in method asserted for the person, which
 	// the method reconciles once the session exists. They are nil when the method
 	// synchronizes no roles, and never nil when it does: "no roles asserted" is an

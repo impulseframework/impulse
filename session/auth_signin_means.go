@@ -27,6 +27,10 @@ type SignInMeans struct {
 	// that sign nobody in any more, and then the password is their only means of
 	// sign-in and its removal is refused.
 	Directories []LinkedDirectory `json:"directories"`
+	// DirectoryAddress reports whether the user signs in through an organization's
+	// directory, so their address is the directory's and is not changed here: the
+	// judgment a change of the address is refused by (directoryPerson).
+	DirectoryAddress bool `json:"directoryAddress"`
 }
 
 // LinkedDirectory is a sign-in method of the login page that an identity linked to a
@@ -190,7 +194,8 @@ func (a *Auth[S, U, Tx]) signInMeans(ctx context.Context, userID impulse.UUID, l
 
 // signInMeansOf is what user signs in with, given the identities linked to them: the
 // registrations a link can sign them in through (signsInThrough), each once, in the
-// page's order and under its label in labels.
+// page's order and under its label in labels, and whether a link came through an
+// organization's directory (organizationLinked).
 func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links []*sessionstorage.SessionIdentity, labels map[string]string) *SignInMeans {
 	reached := map[string]bool{}
 	for _, link := range links {
@@ -198,7 +203,7 @@ func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links [
 			reached[name] = true
 		}
 	}
-	means := &SignInMeans{Password: user.PasswordHash != nil, Directories: []LinkedDirectory{}}
+	means := &SignInMeans{Password: user.PasswordHash != nil, Directories: []LinkedDirectory{}, DirectoryAddress: organizationLinked(links)}
 	for _, name := range a.registered().offeredNames() {
 		if reached[name] {
 			means.Directories = append(means.Directories, LinkedDirectory{Name: name, Label: labels[name]})
@@ -209,11 +214,12 @@ func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links [
 }
 
 // SignInMeans is the handler a signed-in person's account page reads what they sign in
-// with from: {"password", "directories": [{"name", "label"}]} (see SignInMeans the
-// type), for the session's user and nobody else. The page hides the change and the
-// removal of a password from a person who holds none, offers the removal only where a
-// directory sign-in can sign the person in, and names what the removal leaves by its
-// label. The server's own refusals stand whatever the page shows.
+// with from: {"password", "directories": [{"name", "label"}], "directoryAddress"} (see
+// SignInMeans the type), for the session's user and nobody else. The page hides the
+// change and the removal of a password from a person who holds none, offers the removal
+// only where a directory sign-in can sign the person in, names what the removal leaves
+// by its label, and offers no change of an address that is a directory's. The server's
+// own refusals stand whatever the page shows.
 //
 // The handler validates the session itself, as the name change does, so it is routed
 // beside it, outside ValidateSession, and its path is named to the page as the methods

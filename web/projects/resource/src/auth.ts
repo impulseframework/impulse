@@ -153,6 +153,18 @@ export interface FirstPasswordRoutes {
 }
 
 /**
+ * The paths of a signed-in person's own sessions: `list`, where their account page reads
+ * where they are signed in (`ownSessions()`), `end`, where it signs them out of one other
+ * browser (`endOwnSession()`), and `endOthers`, where it signs them out of every browser
+ * but this one (`endOtherSessions()`).
+ */
+export interface OwnSessionsRoutes {
+  readonly list: string;
+  readonly end: string;
+  readonly endOthers: string;
+}
+
+/**
  * What the methods route answers: the methods in the order the server lists them, the
  * pending sign-in's routes, and the routes of the mailed links the server serves.
  */
@@ -213,6 +225,29 @@ export interface LoginMethods {
    * Absent on a server that does not serve it.
    */
   readonly changeLook?: string;
+  /**
+   * The path where a signed-in person changes their own username (`changeUsername()`), the
+   * name they sign in under. Absent on a server that does not serve it, and on one whose
+   * usernames are the addresses, where the username changes with the address.
+   */
+  readonly changeUsername?: string;
+  /**
+   * The path where a signed-in person's account page asks, as the person types a username,
+   * whether they may take it (`usernameFree()`). Absent where `changeUsername` is.
+   */
+  readonly usernameFree?: string;
+  /**
+   * The paths where a signed-in person reads where they are signed in and signs out of one
+   * other browser or of every other. Absent on a server that does not serve them, and where
+   * the list names some of them and not all.
+   */
+  readonly ownSessions?: OwnSessionsRoutes;
+  /**
+   * The path where a signed-in person forgets every browser the second factor remembered
+   * for them (`forgetBrowsers()`), this one included. Absent on a server that does not serve
+   * it.
+   */
+  readonly forgetBrowsers?: string;
   /**
    * The password method's username is the person's email address: the form asks for the
    * address, and an account created from a mailed link takes no username of its own.
@@ -424,6 +459,11 @@ export type FirstPasswordResult = { readonly outcome: 'set' } | SignInRefusal;
 export interface SignInMeans {
   readonly password: boolean;
   readonly directories: readonly LinkedDirectory[];
+  /**
+   * The person signs in through an organization's directory, so their address is the
+   * directory's and a page offers no change of it: the server refuses one.
+   */
+  readonly directoryAddress: boolean;
 }
 
 /** A sign-in method of the login page that a directory sign-in linked to a person goes through: the registration's name, and the words its button carries. */
@@ -439,6 +479,48 @@ export interface LinkedDirectory {
  * the session is an impersonation.
  */
 export type NameChangeResult = { readonly outcome: 'changed'; readonly name?: string } | SignInRefusal;
+
+/**
+ * What a change of the person's own username answers: `changed`, with the username as the
+ * server keeps it (without the space around it); or the server's refusal, resolved rather
+ * than thrown, with its words: someone else holds the name, the usernames are the
+ * addresses, no name was typed, or the session is an impersonation.
+ */
+export type UsernameChangeResult = { readonly outcome: 'changed'; readonly username: string } | SignInRefusal;
+
+/**
+ * What the question whether a username is free answers: `answered`, with whether the
+ * person may take the name (`free`, true for one no one else holds, or the person holds
+ * themselves); or the server's refusal, resolved rather than thrown, with its words: the
+ * name is not one the server keeps, the usernames are the addresses, or the session is an
+ * impersonation.
+ */
+export type UsernameFreeResult = { readonly outcome: 'answered'; readonly free: boolean } | SignInRefusal;
+
+/**
+ * Where a signed-in person is signed in, as the server answers it: their own live
+ * sessions, the one of this browser first, and how many browsers the second factor
+ * remembers for them.
+ */
+export interface OwnSessions {
+  readonly sessions: readonly OwnSession[];
+  readonly rememberedBrowsers: number;
+}
+
+/**
+ * One of a person's own live sessions: its id, the name of the browser it was signed in
+ * from ("Chrome on Android"), absent where the server did not recognize it, whether that
+ * is a phone, when it was signed in and last used (as the server writes the times), and
+ * whether it is the session of this browser.
+ */
+export interface OwnSession {
+  readonly id: string;
+  readonly browser?: string;
+  readonly phone: boolean;
+  readonly signedInAt: string;
+  readonly lastUsedAt: string;
+  readonly current: boolean;
+}
 
 /**
  * The look a person chose for the application's pages: light, dark or as their device is
@@ -648,6 +730,22 @@ interface StrengthAnswer {
   reason?: unknown;
 }
 
+/** One of a person's own sessions as the server answers it, before it is checked. */
+interface OwnSessionAnswer {
+  id?: unknown;
+  browser?: unknown;
+  phone?: unknown;
+  signedInAt?: unknown;
+  lastUsedAt?: unknown;
+  current?: unknown;
+}
+
+/** Where a person is signed in as the server answers it, before it is checked. */
+interface OwnSessionsAnswer {
+  sessions?: (OwnSessionAnswer | null)[] | null;
+  rememberedBrowsers?: unknown;
+}
+
 /** The shape the methods route answers, before it is checked. */
 interface MethodsAnswer {
   methods?: Partial<LoginMethod>[] | null;
@@ -660,6 +758,10 @@ interface MethodsAnswer {
   forgetBrowser?: string | null;
   changeName?: string | null;
   changeLook?: string | null;
+  changeUsername?: string | null;
+  usernameFree?: string | null;
+  ownSessions?: Partial<OwnSessionsRoutes> | null;
+  forgetBrowsers?: string | null;
   usernameIsEmail?: boolean | null;
   invitation?: InvitationAnswer | null;
   email?: Partial<EmailRoutes> | null;
@@ -1064,6 +1166,7 @@ export class AuthClient {
       body,
       absolute: true,
       accept: strengthRefusals,
+      quiet: true,
     });
     if (response.status >= 400) {
       return refusalOf(response);
@@ -1183,6 +1286,7 @@ export class AuthClient {
             typeof directory?.name === 'string' && typeof directory.label === 'string' && directory.label !== '',
         )
         .map(({ name, label }) => ({ name, label })),
+      directoryAddress: answer.directoryAddress === true,
     };
   }
 
@@ -1225,6 +1329,137 @@ export class AuthClient {
     }
     const kept = (response.body as { name?: string | null } | null)?.name;
     return typeof kept === 'string' && kept !== '' ? { outcome: 'changed', name: kept } : { outcome: 'changed' };
+  }
+
+  /**
+   * Changes the signed-in person's own username, the name they sign in under: reads the
+   * methods list again, then posts `{ username }` to the path it names. The result is
+   * `changed` with the username as the server keeps it, so the page checks the session
+   * again to show it, or the server's refusal with its words: someone else holds the name
+   * (409), or the usernames are the addresses (409). A server whose list names no such
+   * path serves none, or its usernames are the addresses, and the call throws saying so.
+   */
+  async changeUsername(username: string): Promise<UsernameChangeResult> {
+    const list = await this.methods();
+    if (!list.changeUsername) {
+      throw new Error('this server names no change-your-username path in its methods list: it does not serve one');
+    }
+    const response = await this.options.request<{ username?: string | null } | RefusalAnswer | null>(
+      'POST',
+      list.changeUsername,
+      { body: { username }, absolute: true, accept: changeRefusals },
+    );
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'changed', username: stringOf((response.body as { username?: unknown } | null)?.username) };
+  }
+
+  /**
+   * Asks the server whether the signed-in person may take a username, for a page to say
+   * while the person types it: `answered`, free for a name no one holds, or the person
+   * holds themselves; or the server's refusal with its words, for a name it does not keep.
+   * Posts to the path of the list the client last read, reading the list only when none
+   * was read, as the password strength question does. The question is quiet: a refusal is
+   * resolved, any other answer that is an error is thrown, and neither is handed to the
+   * application's error hook. A server whose list names no such path serves none, and the
+   * call throws saying so.
+   */
+  async usernameFree(username: string): Promise<UsernameFreeResult> {
+    const list = this.snapshot.get() ?? (await this.methods());
+    if (!list.usernameFree) {
+      throw new Error('this server names no is-this-name-free path in its methods list: it does not serve one');
+    }
+    const response = await this.options.request<{ free?: unknown } | RefusalAnswer | null>('POST', list.usernameFree, {
+      body: { username },
+      absolute: true,
+      quiet: true,
+      accept: changeRefusals,
+    });
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'answered', free: (response.body as { free?: unknown } | null)?.free === true };
+  }
+
+  /**
+   * Reads where the signed-in person is signed in: reads the methods list again, then the
+   * sessions from the path it names. An entry without an id is left out, and the count of
+   * remembered browsers is 0 where the server answers none. A server whose list names no
+   * such paths serves none, and the call throws saying so.
+   */
+  async ownSessions(): Promise<OwnSessions> {
+    const routes = await this.ownSessionsRoutes();
+    const response = await this.options.request<OwnSessionsAnswer | null>('GET', routes.list, { absolute: true });
+    const answer = response.body ?? {};
+    const sessions = Array.isArray(answer.sessions) ? answer.sessions : [];
+    return {
+      sessions: sessions
+        .filter((entry): entry is OwnSessionAnswer & { id: string } => typeof entry?.id === 'string')
+        .map((entry) => ({
+          id: entry.id,
+          ...(typeof entry.browser === 'string' && entry.browser !== '' ? { browser: entry.browser } : {}),
+          phone: entry.phone === true,
+          signedInAt: stringOf(entry.signedInAt),
+          lastUsedAt: stringOf(entry.lastUsedAt),
+          current: entry.current === true,
+        })),
+      rememberedBrowsers: finiteOf(answer.rememberedBrowsers),
+    };
+  }
+
+  /**
+   * Signs the signed-in person out of one other browser of theirs: reads the methods list
+   * again, then posts `{ sessionId }` to the path it names. It resolves `ended`, or `gone`
+   * for a session that is no longer among the person's own live ones (it ended already). A
+   * server whose list names no such paths serves none, and the call throws saying so.
+   */
+  async endOwnSession(sessionId: string): Promise<'ended' | 'gone'> {
+    const routes = await this.ownSessionsRoutes();
+    const response = await this.options.request<null>('POST', routes.end, {
+      body: { sessionId },
+      absolute: true,
+      accept: [404],
+    });
+    return response.status === 404 ? 'gone' : 'ended';
+  }
+
+  /**
+   * Signs the signed-in person out of every browser but this one: reads the methods list
+   * again, then posts to the path it names, and resolves how many sessions ended. A server
+   * whose list names no such paths serves none, and the call throws saying so.
+   */
+  async endOtherSessions(): Promise<number> {
+    const routes = await this.ownSessionsRoutes();
+    const response = await this.options.request<{ ended?: unknown } | null>('POST', routes.endOthers, {
+      absolute: true,
+    });
+    return finiteOf(response.body?.ended);
+  }
+
+  /**
+   * Forgets every browser the second factor remembered for the signed-in person, this one
+   * included: reads the methods list again, then posts to the path it names. Their next
+   * sign-in from each asks for the second factor again; no session ends. A server whose
+   * list names no such path serves none, and the call throws saying so.
+   */
+  async forgetBrowsers(): Promise<void> {
+    const list = await this.methods();
+    if (!list.forgetBrowsers) {
+      throw new Error(
+        'this server names no forget-all-remembered-browsers path in its methods list: it does not serve one',
+      );
+    }
+    await this.options.request<null>('POST', list.forgetBrowsers, { absolute: true });
+  }
+
+  /** The paths of the person's own sessions, from the methods list read again; it throws where the list names none. */
+  private async ownSessionsRoutes(): Promise<OwnSessionsRoutes> {
+    const list = await this.methods();
+    if (!list.ownSessions) {
+      throw new Error('this server names no where-you-are-signed-in paths in its methods list: it does not serve one');
+    }
+    return list.ownSessions;
   }
 
   /**
@@ -1652,6 +1887,29 @@ export class AuthClient {
     const changeLook = answer?.changeLook;
     if (typeof changeLook === 'string' && changeLook !== '') {
       list.changeLook = changeLook;
+    }
+    const changeUsername = answer?.changeUsername;
+    if (typeof changeUsername === 'string' && changeUsername !== '') {
+      list.changeUsername = changeUsername;
+    }
+    const usernameFree = answer?.usernameFree;
+    if (typeof usernameFree === 'string' && usernameFree !== '') {
+      list.usernameFree = usernameFree;
+    }
+    const ownSessions = answer?.ownSessions;
+    if (
+      typeof ownSessions?.list === 'string' &&
+      ownSessions.list !== '' &&
+      typeof ownSessions.end === 'string' &&
+      ownSessions.end !== '' &&
+      typeof ownSessions.endOthers === 'string' &&
+      ownSessions.endOthers !== ''
+    ) {
+      list.ownSessions = { list: ownSessions.list, end: ownSessions.end, endOthers: ownSessions.endOthers };
+    }
+    const forgetBrowsers = answer?.forgetBrowsers;
+    if (typeof forgetBrowsers === 'string' && forgetBrowsers !== '') {
+      list.forgetBrowsers = forgetBrowsers;
     }
     if (answer?.usernameIsEmail === true) {
       list.usernameIsEmail = true;

@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "Browser";
+COMMIT;
