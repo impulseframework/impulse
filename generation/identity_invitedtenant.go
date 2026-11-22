@@ -104,6 +104,12 @@ func (i *identityInstance) withdrawInvitedTenantMethod() string {
 	return "Withdraw" + i.auth + "Invited" + i.tenant.name
 }
 
+// invitedTenantRoleName names one row of the list the invitation's starting role is
+// picked from.
+func (i *identityInstance) invitedTenantRoleName() string {
+	return i.auth + "Invited" + i.tenant.name + "Role"
+}
+
 // makesTenants reports whether the instance's auth is the one a tenant is made through:
 // its people are the ones the tenant record's outlets sign in, the application gives its
 // roles (the person who accepts is seated as the tenant's administrator), and the schema
@@ -118,9 +124,22 @@ func (i *identityInstance) invitesTenants() bool {
 	return i.makesTenants() && i.tenant.invitation != nil
 }
 
+// picksStartingRole reports whether the instance's invitation that makes a tenant
+// carries the role the people of the tenant's directory start with, picked from a list
+// of its own: invitesTenants, and the directories record keeps a default role. It holds
+// on an instance with no tenant and on one whose invitation was not read, as false.
+func (i *identityInstance) picksStartingRole() bool {
+	return i.invitesTenants() && i.tenant.invitation.seats
+}
+
 // InvitesTenants is invitesTenants for the templates.
 func (d *identitySourceData) InvitesTenants() bool {
 	return d.invitesTenants()
+}
+
+// PicksStartingRole is picksStartingRole for the templates.
+func (d *identitySourceData) PicksStartingRole() bool {
+	return d.picksStartingRole()
 }
 
 // InviteTenant, InvitedTenant and WithdrawInvitedTenant name the three pieces for the
@@ -135,6 +154,12 @@ func (d *identitySourceData) InvitedTenant() string {
 
 func (d *identitySourceData) WithdrawInvitedTenant() string {
 	return d.withdrawInvitedTenantMethod()
+}
+
+// InvitedTenantRole names one row of the list the invitation's starting role is picked
+// from, for the templates.
+func (d *identitySourceData) InvitedTenantRole() string {
+	return d.invitedTenantRoleName()
 }
 
 // TenantFields are the tenant record's fields an invitation carries.
@@ -176,18 +201,24 @@ func (d *identitySourceData) TenantDirectories() bool {
 	return len(d.tenant.directoryOutlets) > 0
 }
 
-// invitedTenantSources are the source files of the invitation that makes a tenant.
+// invitedTenantSources are the source files of the invitation that makes a tenant, and
+// the list its starting role is picked from where it carries one.
 func (r *resourceGenerator) invitedTenantSources(inst *identityInstance) []identitySourceFile {
 	if !inst.invitesTenants() {
 		return nil
 	}
 	needs := []identityTable{identityMailLinks, identityMemberships}
 
-	return []identitySourceFile{
+	files := []identitySourceFile{
 		{dir: inst.methods, name: fileStem(inst.inviteTenantMethod()), template: identityInviteTenantTemplate, needs: needs},
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.invitedTenantName())), template: identityInvitedTenantsTemplate, needs: needs},
 		{dir: inst.methods, name: fileStem(inst.withdrawInvitedTenantMethod()), template: identityWithdrawInvitedTenantTemplate, needs: needs},
 	}
+	if inst.picksStartingRole() {
+		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem(r.pluralize(inst.invitedTenantRoleName())), template: identityInvitedTenantRolesTemplate, needs: needs})
+	}
+
+	return files
 }
 
 // refuseInvitationNamesTaken refuses a tenant record whose name gives the invitation's
