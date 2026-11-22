@@ -171,9 +171,9 @@ func unservedGrant(served *app.Served, scope, role, permission string, grant acc
 
 // heldName is the name the permission engine holds a role file's grant to: the
 // resource's own for a grant of all its fields (Resource.*), and the name as written
-// for every other, as the engine's declaredName reads it. The name is cut with
-// strings.Cut, since accesstypes.Resource.ResourceAndTag panics on a name with a
-// second dot and a role file can hold any text.
+// for every other, as the engine's declaredName reads it. The name is cut at its first
+// dot with strings.Cut, since a role file can hold any text; a name with a second dot is
+// refused whichever way it is cut, here and when the engine reads the file.
 func heldName(res accesstypes.Resource) accesstypes.Resource {
 	if base, field, dotted := strings.Cut(string(res), "."); dotted && field == "*" {
 		return accesstypes.Resource(base)
