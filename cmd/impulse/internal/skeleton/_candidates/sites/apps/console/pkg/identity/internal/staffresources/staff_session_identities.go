@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -33,3 +34,10 @@ type (
 		LastUsedAt  time.Time    `spanner:"LastUsedAt"`
 	}
 )
+
+// TenantsToEnter names the tenants the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (StaffSessionIdentity) TenantsToEnter() resource.TenantsToEnter {
+	return staffSessionUserTenantsToEnter("UserId")
+}

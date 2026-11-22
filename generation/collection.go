@@ -785,6 +785,9 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		if t := method.Target; t != nil {
 			b.SetMethodTarget(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), accesstypes.Resource(t.RootResource))
 		}
+		if method.CallerEnters {
+			b.SetMethodCallerEnters(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()))
+		}
 		// The method's request fields a grant's condition may read (new.<name>).
 		if len(method.RequestAttributes) != 0 {
 			b.SetResourceBindings(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), &resource.Bindings{Attributes: method.RequestAttributes})

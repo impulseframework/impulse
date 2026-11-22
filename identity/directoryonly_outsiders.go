@@ -44,6 +44,10 @@ import (
 //     renaming them, changing their address, unlinking a sign-in identity, disabling
 //     or enabling the account, and deleting it (requireEnteringFor).
 //
+// The generated lists hold what they offer to the same judgment: a method this refuses
+// for a person is left out of that person's row for the caller (@callerEnters on the
+// method, TenantsToEnter on the list), so a page offers what the method will do.
+//
 // What makes a person a tenant's administrator is the permission engine's to say, and
 // the judgment asks the engine's own statement of it (access.AdministersTenant, over
 // TenantAdministratorRoles): one of the roles the application names, held in the tenant

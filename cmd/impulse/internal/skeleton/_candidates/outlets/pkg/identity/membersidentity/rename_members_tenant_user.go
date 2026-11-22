@@ -23,8 +23,12 @@ import (
 // also holds a role outside it is the role file's to say, in a condition on the
 // method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
 //
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
 // @permissionScope(domain)
+// @callerEnters
 // @outlet(portal)
 // @answers(204)
 // @class(credential)

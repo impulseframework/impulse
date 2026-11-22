@@ -173,6 +173,9 @@ import (
 	{{- if .AdministratorsEnter }}
 	"github.com/impulseframework/impulse/accesstypes"
 	{{- end }}
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -308,6 +311,13 @@ func ({{ .TenantUser }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .TenantUser }}Query, nil
 	{{- end }}
 }
+{{- if .OffersToEntering }}
+
+` + identityTenantsToEnterDoc + `
+func ({{ .TenantUser }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .User }}TenantsToEnter("Id")
+}
+{{- end }}
 `
 
 	// identityTenantRolesTemplate declares the roles held in a tenant.
@@ -502,6 +512,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -571,5 +584,12 @@ JOIN {{ .Tables.Identities }} i ON i.UserId = u.Id
 func ({{ .TenantIdentity }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .TenantIdentity }}Query, nil
 }
+{{- if .OffersToEntering }}
+
+` + identityTenantsToEnterDoc + `
+func ({{ .TenantIdentity }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .User }}TenantsToEnter("UserId")
+}
+{{- end }}
 `
 )

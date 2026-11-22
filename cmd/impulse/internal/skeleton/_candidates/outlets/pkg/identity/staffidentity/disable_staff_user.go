@@ -15,7 +15,11 @@ import (
 // session they hold, in one transaction: their next request is refused, and so is
 // their next sign-in. Nobody disables themselves: the caller's own account is refused.
 //
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
 type DisableStaffUser struct {
