@@ -1135,6 +1135,47 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(names.map((li) => li.textContent?.trim())).toEqual(['Bosun Bram (bosun)', 'Rigger Rook (rigger)']);
   });
 
+  it("draws the server's further notes under the first sentence, in order, each with its own list, and none where it gives none", async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning .warning-note')).toBeNull();
+
+    warning = () => ({
+      status: 200,
+      body: {
+        consequence: '2 people seated here sign in another way and will lose access.',
+        names: ['Bosun Bram (bosun)', 'Rigger Rook (rigger)'],
+        also: [
+          {
+            says: '2 administrators of this sector have a password and can still enter without the directory.',
+            names: ['Ines Okoro (ines)', 'wren'],
+          },
+          { says: '3 invitations that have not been accepted give a role that administers this sector.' },
+        ],
+        confirm: 'Admit only people who sign in through the directory',
+      },
+    });
+    await o.component.askWarning();
+    await settle(o);
+
+    const root = o.fixture.nativeElement as HTMLElement;
+    const notes = Array.from(root.querySelectorAll('.warning .warning-note'));
+    expect(notes.map((p) => p.textContent?.trim())).toEqual([
+      '2 administrators of this sector have a password and can still enter without the directory.',
+      '3 invitations that have not been accepted give a role that administers this sector.',
+    ]);
+    // The first sentence's list, then the first note's: the second note names nobody.
+    const lists = Array.from(root.querySelectorAll('.warning .warning-names'));
+    expect(lists.length).toBe(2);
+    expect(Array.from(lists[1].querySelectorAll('li')).map((li) => li.textContent?.trim())).toEqual([
+      'Ines Okoro (ines)',
+      'wren',
+    ]);
+    // Each note follows the list before it, in the order the server gave them.
+    const words = Array.from(root.querySelectorAll('.warning .warning-words > *')).map((e) => e.className);
+    expect(words).toEqual(['warning-consequence', 'warning-names', 'warning-note', 'warning-names', 'warning-note']);
+  });
+
   it("puts the server's words on the confirm button and holds it until the word is typed", async () => {
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);

@@ -50,6 +50,13 @@
   overflow-y: auto;
 }
 
+// A further note the warning carries, under the first sentence and its list: a sentence
+// of its own, followed by the names it speaks of in a list of their own.
+.warning-note {
+  margin: 12px 0 0;
+  white-space: pre-line;
+}
+
 .typed-word {
   display: block;
   margin: 12px 0 0;
