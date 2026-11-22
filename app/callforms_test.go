@@ -9,14 +9,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// TestScan_hiddenCalls pins that the scan refuses the two forms of Go that would hide a
+// TestScan_hiddenCalls pins that the scan refuses the three forms of Go that would hide a
 // call it reads by its package's name from every check, in an ordinary file and in a
 // test file alike, with the file and the line: a dot import of a package of the
-// framework or of the application's own module, and one of the functions the checks
-// read calls of named without being called. A dot import of another module's package,
-// a blank or a named import, a call written with its package's name (in parentheses, or
-// with type arguments, too), another function of a listed package named as a value,
-// and a file the scan does not read are taken.
+// framework or of the application's own module, a second import of such a package in
+// one file, and one of the functions the checks read calls of named without being
+// called. A dot import of another module's package, a package of another module
+// imported twice, a blank or a named import, a call written with its package's name (in
+// parentheses, or with type arguments, too), another function of a listed package named
+// as a value, and a file the scan does not read are taken.
 func TestScan_hiddenCalls(t *testing.T) {
 	t.Parallel()
 
@@ -136,6 +137,70 @@ func heartbeat() func(time.Duration) access.Option {
 	return access.WithHeartbeatInterval
 }
 `
+	const twoNames = `package config
+
+import (
+	"github.com/impulseframework/impulse/access"
+	acc "github.com/impulseframework/impulse/access"
+)
+
+func engine(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
+	return acc.New(store, collection)
+}
+`
+	const blankThenNamed = `package config
+
+import (
+	_ "github.com/impulseframework/impulse/access"
+
+	"github.com/impulseframework/impulse/access"
+)
+
+func engine(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
+	return access.New(store, collection)
+}
+`
+	const ownTwiceInTest = `package config
+
+import (
+	"testing"
+
+	"example.com/harbor/pkg/auth/staff"
+	staffauth "example.com/harbor/pkg/auth/staff"
+)
+
+func TestRoles(t *testing.T) {
+	if staff.Roles() == nil || staffauth.Roles() == nil {
+		t.Fatal("no role file")
+	}
+}
+`
+	const otherModuleTwice = `package config
+
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	gocmp "github.com/google/go-cmp/cmp"
+)
+
+func TestSame(t *testing.T) {
+	if cmp.Diff(1, 1) != gocmp.Diff(1, 1) {
+		t.Fatal("not the same")
+	}
+}
+`
+	const namedThenDot = `package config
+
+import (
+	"github.com/impulseframework/impulse/access"
+	. "github.com/impulseframework/impulse/access"
+)
+
+func engine(store access.Store, collection PermissionCollection) (*access.Client, error) {
+	return New(store, collection)
+}
+`
 	const bothForms = `package scratch
 
 import (
@@ -174,6 +239,34 @@ func engine(store Store, collection PermissionCollection) (*Client, error) {
 		{
 			name:  "a blank import and named imports",
 			files: map[string]string{"pkg/config/data.go": blankAndNamed},
+		},
+		{
+			name:  "a package of the framework imported by its name and again under another",
+			files: map[string]string{"pkg/config/data.go": twoNames},
+			wantErr: `pkg/config/data.go:5: "github.com/impulseframework/impulse/access" is imported a second time in this file, ` +
+				"and impulse finds a call by one name of its package, so it would see none of the calls written with the other: import the package once",
+		},
+		{
+			name:  "a package of the framework imported blank and then by its name",
+			files: map[string]string{"pkg/config/data.go": blankThenNamed},
+			wantErr: `pkg/config/data.go:6: "github.com/impulseframework/impulse/access" is imported a second time in this file, ` +
+				"and impulse finds a call by one name of its package, so it would see none of the calls written with the other: import the package once",
+		},
+		{
+			name:  "a package of the application's own module imported under two names in a test file",
+			files: map[string]string{"pkg/config/data_test.go": ownTwiceInTest},
+			wantErr: `pkg/config/data_test.go:7: "example.com/harbor/pkg/auth/staff" is imported a second time in this file, ` +
+				"and impulse finds a call by one name of its package, so it would see none of the calls written with the other: import the package once",
+		},
+		{
+			name:  "a package of another module imported twice",
+			files: map[string]string{"pkg/config/data_test.go": otherModuleTwice},
+		},
+		{
+			name:  "a named import of the framework's package followed by a dot import of it",
+			files: map[string]string{"pkg/config/data.go": namedThenDot},
+			wantErr: `pkg/config/data.go:5: import . "github.com/impulseframework/impulse/access" brings the package's names in without the package's name, ` +
+				"and impulse finds a call by the name of its package, so it would see none of this file's calls into it: import the package by its name and write each call with it",
 		},
 		{
 			name:  "the engine's constructor named without being called",

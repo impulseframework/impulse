@@ -30,12 +30,15 @@ var calledByName = map[string][]string{
 	sessionImportPath:    {authConstructor},
 }
 
-// refuseHiddenCalls refuses the two forms of Go that would hide a call the checks read
+// refuseHiddenCalls refuses the three forms of Go that would hide a call the checks read
 // from them: a dot import of a package of the framework or of the application's own
-// module, whose functions the file then calls without the package's name, and one of the
-// functions in calledByName named without being called. The first of either in the file
-// is said, at its line. A file that does not parse is the compiler's to report, and is
-// refused nothing here.
+// module, whose functions the file then calls without the package's name; a second
+// import of such a package in the file, since the checks find its calls by the first
+// name the file imports it under (localImportName), so a blank import first hides every
+// call and a second name hides the calls written with it; and one of the functions in
+// calledByName named without being called. The first of any in the file is said, at its
+// line. A file that does not parse is the compiler's to report, and is refused nothing
+// here.
 func (a *App) refuseHiddenCalls(rel string, data []byte) error {
 	fset := token.NewFileSet()
 	f := parsedOrNil(fset, rel, data, parser.ImportsOnly)
@@ -43,6 +46,7 @@ func (a *App) refuseHiddenCalls(rel string, data []byte) error {
 		return nil
 	}
 	listed := map[string][]string{}
+	imported := map[string]bool{}
 	for _, imp := range f.Imports {
 		p, err := strconv.Unquote(imp.Path.Value)
 		if err != nil {
@@ -52,12 +56,17 @@ func (a *App) refuseHiddenCalls(rel string, data []byte) error {
 		if imp.Name != nil {
 			local = imp.Name.Name
 		}
-		switch local {
-		case ".":
-			if a.readsCallsInto(p) {
+		if a.readsCallsInto(p) {
+			if local == "." {
 				return errors.Newf("%s:%d: import . %q brings the package's names in without the package's name, and impulse finds a call by the name of its package, so it would see none of this file's calls into it: import the package by its name and write each call with it", rel, fset.Position(imp.Pos()).Line, p)
 			}
-		case "_":
+			if imported[p] {
+				return errors.Newf("%s:%d: %q is imported a second time in this file, and impulse finds a call by one name of its package, so it would see none of the calls written with the other: import the package once", rel, fset.Position(imp.Pos()).Line, p)
+			}
+			imported[p] = true
+		}
+		switch local {
+		case ".", "_":
 		default:
 			if funcs, ok := calledByName[p]; ok {
 				listed[local] = funcs

@@ -97,9 +97,10 @@ var (
 // and build output, as it was before the Go tool's rule was followed.
 //
 // The checks find a call where the source writes it with its package's name, so a Go file
-// the scan reads is refused when it dot-imports a package of the framework or of the
-// application's own module, whose calls it would then write without that name. It is
-// refused as well when it names one of the functions whose calls the checks read
+// the scan reads is refused in three forms: when it dot-imports a package of the framework
+// or of the application's own module, whose calls it would then write without that name;
+// when it imports such a package a second time, since the checks read its calls under one
+// name alone; and when it names one of the functions whose calls the checks read
 // (calledByName) without calling it, since a call made later through that value is
 // written where no check looks.
 func (a *App) scan() error {

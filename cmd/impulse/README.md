@@ -658,9 +658,9 @@ the application's code whatever the tag is called, since nothing in the file say
 is a test's, so a helper that only tests use, and that a check would refuse in the
 application, goes in a `_test.go` file. The checks find a call where the source writes it
 with its package's name (`access.New(...)`), so every command that reads the application
-refuses the two forms that would hide one, with the file and the line: a dot import of a
-package of the framework or of the application's own module, and one of the functions the
-checks read calls of (`access.New`, `access.WithDefaultRoles`, `access.WithChangeSignal`,
+refuses the forms that would hide one, with the file and the line: a dot import of a
+package of the framework or of the application's own module, a second import of such a
+package in one file, and one of the functions the checks read calls of (`access.New`, `access.WithDefaultRoles`, `access.WithChangeSignal`,
 `access.ValidateRoles`, `resource.RetireSecretVersion`, `generation.NewResourceGenerator`,
 `session.NewAuth`) named without being called. A directory named `vendor` or `dist` is left
 alone as dependencies and build output. The uses of a feature flag's constant are found in the same Go files,
