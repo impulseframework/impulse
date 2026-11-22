@@ -465,7 +465,16 @@ func (q *QuerySet[Resource]) decideTenant(ctx context.Context, dbType DBType, do
 			}
 		}
 	} else {
-		projected, projectedFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, alone.fields)
+		// A name the request shows is decided by its id field's grant in the
+		// tenant, whether or not the request named the id: where the id is
+		// hidden the row gives no name. The id is decided, not projected.
+		decided := slices.Clone(alone.fields)
+		for _, key := range alone.shownNameKeys() {
+			if !slices.Contains(decided, key) {
+				decided = append(decided, key)
+			}
+		}
+		projected, projectedFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, decided)
 		if err != nil {
 			return nil, err
 		}
@@ -585,8 +594,13 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 				q.AddField(field)
 			}
 		}
+		// As on a tenant's own list, the name beside every id returned; a row
+		// whose tenant hides the id gives none (nameConditionsAcrossTenants).
+		q.showNamesOf(q.fields)
 	} else {
-		for _, field := range q.fields {
+		// A name asked for is refused where its id would be: no tenant of the
+		// set shows the id it is looked up by.
+		for _, field := range append(slices.Clone(q.fields), q.shownNameKeys()...) {
 			if hiddenEverywhere(field) {
 				denied := q.resourceSet.Resource(field)
 

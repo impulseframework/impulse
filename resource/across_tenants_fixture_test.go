@@ -118,6 +118,41 @@ type acrossShelfRequest struct {
 	Yard string `json:"-"`
 }
 
+// gradedCrate is the crates' record with a name beside an id: each crate is of a
+// grade, a row of an enumeration table, whose name a list looks up.
+type gradedCrate struct {
+	ID      string `spanner:"Id"      postgres:"Id"`
+	Yard    string `spanner:"Yard"    postgres:"Yard"`
+	Label   string `spanner:"Label"   postgres:"Label"`
+	GradeID string `spanner:"GradeId" postgres:"GradeId"`
+}
+
+// Resource names the resource in grants and routes.
+func (gradedCrate) Resource() accesstypes.Resource {
+	return acrossCrates
+}
+
+// DefaultConfig is the resource's configuration.
+func (gradedCrate) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the grade's name as the generator writes it.
+func (gradedCrate) NameFields() []NameField {
+	return []NameField{
+		{Field: "GradeName", Key: "GradeID", Table: "CrateGrades", KeyColumn: "Id", NameColumn: "Description"},
+	}
+}
+
+// gradedCrateRequest is gradedCrate's list request type as the generator writes it.
+type gradedCrateRequest struct {
+	ID        string  `json:"id"        index:"true" perm:"-"`
+	Yard      string  `json:"-"`
+	Label     string  `json:"label"     index:"true"`
+	GradeID   string  `json:"gradeId"   index:"true"`
+	GradeName *string `json:"gradeName" nameof:"GradeID"`
+}
+
 // acrossCollection declares the fixture's vocabulary: the crates' attributes
 // and bare tenant column, the seals' join path to the tenant, the crews a
 // person holds in a yard as a subject set, and the tags' attributes for the
