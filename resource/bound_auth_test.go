@@ -122,19 +122,24 @@ func TestBindAuth(t *testing.T) {
 // TestBindAuth_anotherAuth pins the refusal of a group's bind that names another auth
 // than the one the request is bound to, by a group or by the generated routes: the
 // request fails with a 500, the next handler does not run, and the cause logged names
-// both auths.
+// both auths and the earlier bind to take out, a group's or the one in front of it.
 func TestBindAuth_anotherAuth(t *testing.T) {
 	t.Parallel()
 
-	const want = "this request is bound to the crew auth, and a route under it asks resource.BindAuth to bind it to the members auth. " +
+	const byGroup = "this request is bound to the crew auth, and a route under it asks resource.BindAuth to bind it to the members auth. " +
 		"A request comes through one auth, the one its outlet's group binds: take the second resource.BindAuth out of the route, " +
 		"or serve the route from the members auth's own outlet"
+	const inFront = "this request was bound to the crew auth before its outlet's group asked resource.BindAuth to bind it to the members auth: " +
+		"something in front of the group called resource.WithAuth, or ran live.Subscribing, which calls it. " +
+		"A request comes through one auth, the one its outlet's group binds: take the earlier bind out from in front of the group, " +
+		"or name the members auth in it"
 	tests := []struct {
 		name   string
 		before func(*testing.T, context.Context) context.Context
+		want   string
 	}{
-		{name: "a request a group bound to another auth is refused", before: bindAuthOf("crew")},
-		{name: "a request the generated routes bound to another auth is refused", before: withAuthOf("crew")},
+		{name: "a request a group bound to another auth is refused", before: bindAuthOf("crew"), want: byGroup},
+		{name: "a request the generated routes bound to another auth is refused", before: withAuthOf("crew"), want: inFront},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,8 +163,8 @@ func TestBindAuth_anotherAuth(t *testing.T) {
 			if err == nil {
 				t.Fatal("bindAuth() error = nil, want the refusal")
 			}
-			if !strings.HasSuffix(err.Error(), "error="+want) {
-				t.Errorf("bindAuth() error = %v, want the cause %q", err, want)
+			if !strings.HasSuffix(err.Error(), "error="+tt.want) {
+				t.Errorf("bindAuth() error = %v, want the cause %q", err, tt.want)
 			}
 		})
 	}

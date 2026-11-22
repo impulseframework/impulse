@@ -38,18 +38,30 @@ func BindAuth(name string) func(http.Handler) http.Handler {
 }
 
 // reboundAuthFmt is the refusal of a group's bind that names another auth than the one
-// the request is bound to: the auth the request is bound to, the auth asked, the auth
-// asked.
+// a group bound the request to first: the auth the request is bound to, the auth asked,
+// the auth asked.
 const reboundAuthFmt = "this request is bound to the %s auth, and a route under it asks resource.BindAuth to bind it to the %s auth. " +
 	"A request comes through one auth, the one its outlet's group binds: take the second resource.BindAuth out of the route, " +
 	"or serve the route from the %s auth's own outlet"
 
-// bindAuth returns ctx bound to the auth name by a group (BindAuth), or the refusal
-// (reboundAuthFmt) when ctx is bound to another auth already, by a group or by the
-// generated routes (WithAuth).
+// boundInFrontAuthFmt is the refusal of a group's bind that names another auth than the
+// one something in front of the group bound the request to (WithAuth): the auth the
+// request is bound to, the auth asked, the auth asked.
+const boundInFrontAuthFmt = "this request was bound to the %s auth before its outlet's group asked resource.BindAuth to bind it to the %s auth: " +
+	"something in front of the group called resource.WithAuth, or ran live.Subscribing, which calls it. " +
+	"A request comes through one auth, the one its outlet's group binds: take the earlier bind out from in front of the group, " +
+	"or name the %s auth in it"
+
+// bindAuth returns ctx bound to the auth name by a group (BindAuth), or a refusal when ctx
+// is bound to another auth already: reboundAuthFmt where a group bound it, and
+// boundInFrontAuthFmt where something in front of the group did (WithAuth).
 func bindAuth(ctx context.Context, name string) (context.Context, error) {
-	if held, ok := AuthFrom(ctx); ok && held != name {
-		return ctx, errors.Newf(reboundAuthFmt, held, name, name)
+	if record, ok := ctx.Value(authKey{}).(authRecord); ok && record.name != name {
+		if record.byGroup {
+			return ctx, errors.Newf(reboundAuthFmt, record.name, name, name)
+		}
+
+		return ctx, errors.Newf(boundInFrontAuthFmt, record.name, name, name)
 	}
 
 	return context.WithValue(ctx, authKey{}, authRecord{name: name, byGroup: true}), nil
