@@ -237,12 +237,17 @@ func firstRunes(s string, n int) string {
 	return s
 }
 
-// inputsOf are the words the person's details give the estimate, in the order Username, Name,
-// Email: each detail trimmed of surrounding space, cut to its first maxDetailTyped characters,
-// put in NFC and cut to its first maxDetail characters, whole; then each run of letters,
-// digits and marks in it, and after a run that holds a digit each part of it between digits
-// (zabrowski in zabrowski77), whose reading is at least minRun characters long. Each word is
-// as read reads it and given once whatever its case. It is nil when the details give none.
+// inputsOf are the words the person's details give the estimate. Each detail is trimmed of
+// surrounding space, cut to its first maxDetailTyped characters, put in NFC and cut to its first
+// maxDetail characters; an empty one gives nothing. The words come in two passes over the
+// details, each in the order Username, Name, Email. First, each detail whole, then each run of
+// letters, digits and marks in it whose reading is at least minRun characters long. Then, for
+// each run that holds a digit, the run without the digits at its two ends (z4br0wski in
+// z4br0wski77) and each part of it between digits (zabrowski in zabrowski77), each whose reading
+// is at least minRun characters long. The library prices a word by its place in the list, so
+// the second pass comes after every word of the first, and a word of the first keeps the place
+// it has without the second. Each word is as read reads it and given once whatever its case.
+// It is nil when the details give none.
 func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
@@ -261,18 +266,26 @@ func inputsOf(who Details, read *reading) []string {
 		}
 	}
 
+	var details []string
 	for _, detail := range []string{who.Username, who.Name, who.Email} {
 		// The detail is cut before it is put in NFC, so a long one is never read whole.
 		detail = firstRunes(norm.NFC.String(firstRunes(strings.TrimSpace(detail), maxDetailTyped)), maxDetail)
-		if detail == "" {
-			continue
+		if detail != "" {
+			details = append(details, detail)
 		}
+	}
+	for _, detail := range details {
 		add(read.of(detail))
 		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
 			addRun(run)
+		}
+	}
+	for _, detail := range details {
+		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
 			if !strings.ContainsFunc(run, unicode.IsDigit) {
 				continue
 			}
+			addRun(strings.TrimFunc(run, unicode.IsDigit))
 			for _, part := range strings.FieldsFunc(run, unicode.IsDigit) {
 				addRun(part)
 			}

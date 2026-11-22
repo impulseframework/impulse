@@ -2,6 +2,7 @@ package passwordstrength
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -108,6 +109,9 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a name with ss, typed with a ß", password: "Großkreutz2077", who: Details{Name: "Uwe Grosskreutz"}},
 		{name: "the letters of a username with digits after them", password: "Zabrowski2077!", who: Details{Username: "zabrowski77"}},
 		{name: "the letters of a username with digits after them, in look-alike characters", password: "Z@br0w$k!2077", who: Details{Username: "zabrowski77"}},
+		{name: "the name of a person whose username carries digits", password: "MariaReyeq9", who: Details{Username: "mreyes73", Name: "Maria Reyes"}},
+		{name: "a name cut short, of a person whose username carries digits", password: "OlekKowalcz!", who: Details{Username: "olekk37", Name: "Olek Kowalczyk"}},
+		{name: "a username with digits inside its spelling", password: "Z4br0wski2077!", who: Details{Username: "z4br0wski77"}},
 		{name: "a name with a ł, typed with l", password: "Lukasz2077horse", who: Details{Name: "Łukasz Błaszczykowski"}},
 		{name: "a name with an ø, typed with o", password: "Soren2077horse", who: Details{Name: "Søren Kierkegaard"}},
 		{name: "a Thai name with its vowel signs and tone mark", password: "กิตติศักดิ์2077", who: Details{Name: "กิตติศักดิ์ ศรีสุวรรณ"}},
@@ -130,6 +134,33 @@ func TestJudge_personalDetails(t *testing.T) {
 				t.Errorf("Judge(%q, %+v) = %+v, want strong enough with details it does not hold", tt.password, other, got)
 			}
 		})
+	}
+}
+
+func TestInputsOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		who  Details
+		want []string
+	}{
+		{
+			who:  Details{Username: "mreyes73", Name: "Maria Reyes", Email: "maria.reyes@example.com"},
+			want: []string{"mreyes73", "Maria Reyes", "Maria", "Reyes", "maria.reyes@example.com", "example", "com", "mreyes"},
+		},
+		{who: Details{Username: "z4br0wski77"}, want: []string{"z4br0wski77", "z4br0wski", "wski"}},
+		{who: Details{Username: "zab77rowski"}, want: []string{"zab77rowski", "zab", "rowski"}},
+		{
+			who:  Details{Username: "77zabrowski", Email: "zabrowski77@example.com"},
+			want: []string{"77zabrowski", "zabrowski77@example.com", "zabrowski77", "example", "com", "zabrowski"},
+		},
+		{who: Details{Name: "Al"}, want: []string{"Al"}},
+		{who: Details{}, want: nil},
+	}
+	for _, tt := range tests {
+		if got := inputsOf(tt.who, newReading()); !slices.Equal(got, tt.want) || (got == nil) != (tt.want == nil) {
+			t.Errorf("inputsOf(%+v) = %q, want %q", tt.who, got, tt.want)
+		}
 	}
 }
 
