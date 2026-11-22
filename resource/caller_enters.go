@@ -64,13 +64,19 @@ func (q *QuerySet[Resource]) tenantsToEnter() (TenantsToEnter, bool) {
 // askUnentered keeps for the statement the tenants the session does not enter, asked
 // once, where held, a method that names the resource's rows, is offered only to a caller
 // whose session enters the row's tenants. The resource's struct must say which tenants
-// those are.
+// those are, in a form a statement can render. It is held to that form here, whether or
+// not this session's statement renders the term, so a declaration that cannot work fails
+// the first read that asks for capabilities=Execute, and not the first read of a caller
+// some tenant keeps out.
 func (q *QuerySet[Resource]) askUnentered(ctx context.Context, held accesstypes.Resource) error {
 	if q.unentered != nil {
 		return nil
 	}
 	if _, ok := q.tenantsToEnter(); !ok {
 		return errors.Newf("method %s is offered on a row of %s only to a caller who enters the row's tenants, and %s declares no TenantsToEnter; regenerate", held, q.Resource(), q.Resource())
+	}
+	if _, err := q.enteringDeclaration(); err != nil {
+		return err
 	}
 	unentered, err := unenteredDomains(ctx, q.userPermissions)
 	if err != nil {
@@ -95,7 +101,7 @@ func (q *QuerySet[Resource]) enteringDeclaration() (TenantsToEnter, error) {
 		return TenantsToEnter{}, errors.Newf("the TenantsToEnter of %s names no column of its row for RowKey to match", q.Resource())
 	}
 	if startsWithWith(declared.Query) {
-		return TenantsToEnter{}, errors.Newf("the TenantsToEnter query of %s starts with WITH; write it as one SELECT", q.Resource())
+		return TenantsToEnter{}, errors.Newf("the TenantsToEnter query of %s starts with WITH; write it with no WITH, as a SELECT or a UNION of SELECTs", q.Resource())
 	}
 	for _, name := range slices.Sorted(maps.Keys(declared.Params)) {
 		if strings.HasPrefix(name, "_") {

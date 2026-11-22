@@ -488,7 +488,7 @@ func TestQuerySet_stmt_callerEntersRefusals(t *testing.T) {
 
 				return err
 			},
-			wantErr: "the TenantsToEnter query of heldResources starts with WITH; write it as one SELECT",
+			wantErr: "the TenantsToEnter query of heldResources starts with WITH; write it with no WITH, as a SELECT or a UNION of SELECTs",
 		},
 		{
 			name: "a parameter in the statement's own namespace",
@@ -516,6 +516,17 @@ func TestQuerySet_stmt_callerEntersRefusals(t *testing.T) {
 				return err
 			},
 			wantErr: `named parameter collision: the TenantsToEnter query of heldViews and the statement both contain named parameter "viewKind"`,
+		},
+		{
+			name: "an empty query, for a session that enters every tenant",
+			stmt: func(t *testing.T) error {
+				perms := held()
+				perms.unentered = nil
+				_, err := heldStmt[heldResource[heldEmptyQuery]](t, SpannerDBType, heldCollection(t, heldResourceName, true), perms)
+
+				return err
+			},
+			wantErr: "the TenantsToEnter query of heldResources is empty",
 		},
 		{
 			name: "a marked method on a row whose struct declares no TenantsToEnter",
