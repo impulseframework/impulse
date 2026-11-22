@@ -304,10 +304,12 @@ func inputsOf(who Details, read *reading) []string {
 // Zabrowski is Zabrowski2077. The words are the inputs at least minLookAlike characters long,
 // in lower case. From the left, at each character where words read (spellsAt), the longest is
 // taken, the first in inputs of equal lengths: a character matched as itself stays as typed,
-// one matched by look-alike becomes the word's letter in lower case, and the reading goes on
-// after the word. Where no word reads, the character stays. The plain reading is as long as
-// judged, and is judged itself when no word reads anywhere in it. judged and the inputs are
-// as read reads them, in ASCII, so a byte is a character.
+// one matched by look-alike becomes the word's letter, in capitals when every letter of the
+// word typed as itself there is a capital (Z@BR0W$K! is ZABROWSKI) and in lower case
+// otherwise, and the reading goes on after the word. Where no word reads, the character
+// stays. The plain reading is as long as judged, and is judged itself when no word reads
+// anywhere in it. judged and the inputs are as read reads them, in ASCII, so a byte is a
+// character.
 func plainReading(judged string, inputs []string) string {
 	var words []string
 	for _, input := range inputs {
@@ -332,9 +334,20 @@ func plainReading(judged string, inputs []string) string {
 
 			continue
 		}
+		// The look-alikes are written in capitals when the word's letters typed as themselves are.
+		letter := unicode.ToLower
+		capitals := true
+		for k := range len(longest) {
+			if c := rune(judged[i+k]); sameInLowerCase(judged[i+k], longest[k]) && unicode.IsLetter(c) {
+				capitals = capitals && unicode.IsUpper(c)
+			}
+		}
+		if capitals {
+			letter = unicode.ToUpper
+		}
 		for k := range len(longest) {
 			if !sameInLowerCase(judged[i+k], longest[k]) {
-				plain[i+k] = longest[k]
+				plain[i+k] = byte(letter(rune(longest[k])))
 			}
 		}
 		i += len(longest)
