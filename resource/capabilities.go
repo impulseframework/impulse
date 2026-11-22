@@ -409,9 +409,10 @@ func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, gro
 			if err != nil {
 				return plannedCapability{}, err
 			}
-			// Deploy validation rejects new. on Execute grants; the bound is
-			// posture parity with intern — a post-image term would count
-			// potentially-true, never render.
+			// A term that reads the request (new.<field>) has nothing to read here: a
+			// row is answered before a request is written. It is dropped as potentially
+			// true, the posture intern takes, so the method is offered and the call
+			// itself is judged.
 			expr = condition.WithoutPostImage(expr)
 			if _, ok := expr.(condition.Truth); !ok {
 				exprs = append(exprs, expr)

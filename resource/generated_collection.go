@@ -489,7 +489,8 @@ func (b *CollectionBuilder) Data() CollectionData {
 // consumers that do not need the serializable form. It is the collection
 // NewGeneratedCollection builds from Data(), so it is held to every rule collection data
 // is held to, and it answers the refusal of what the builder took and the data refuses: a
-// method's former name that holds a dot is one.
+// method's former name that holds a dot is one. A declaration set on a name the builder
+// registered nothing under is no part of Data(), and so none of this collection.
 func (b *CollectionBuilder) GeneratedCollection() (*GeneratedCollection, error) {
 	return NewGeneratedCollection(b.Data())
 }
@@ -1855,8 +1856,11 @@ type resourceKey struct {
 	name  accesstypes.Resource
 }
 
-// collectionResourceKeys enumerates every (scope, resource) pair any of the
-// collection's stores mention, sorted by scope then name.
+// collectionResourceKeys enumerates the (scope, resource) pairs the collection registers,
+// sorted by scope then name: the pairs its resourceStore, tagStore, immutableFields,
+// bindings, computed, transitions and writeClasses hold. A declaration kept under a name
+// none of them holds (a target, a former name, the rows a method is offered on) is not among
+// them, and Data() leaves it out.
 func collectionResourceKeys(g *GeneratedCollection) []resourceKey {
 	keySet := make(map[resourceKey]struct{})
 	for scope, store := range g.resourceStore {

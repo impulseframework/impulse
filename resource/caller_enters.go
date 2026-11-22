@@ -44,8 +44,9 @@ type TenantsToEnter struct {
 	Match map[string]string
 }
 
-// tenantsToEnterer is what a resource's struct answers when a method that names its rows
-// is offered only to a caller whose session enters the row's tenants (@callerEnters).
+// tenantsToEnterer is what a resource's struct answers when a method that names its rows,
+// or is offered on them, is offered only to a caller whose session enters the row's tenants
+// (@callerEnters).
 type tenantsToEnterer interface {
 	TenantsToEnter() TenantsToEnter
 }
@@ -68,8 +69,8 @@ func (q *QuerySet[Resource]) tenantsToEnter() (TenantsToEnter, bool) {
 }
 
 // askUnentered keeps for the statement the tenants the session does not enter, asked
-// once, where held, a method that names the resource's rows, is offered only to a caller
-// whose session enters the row's tenants. The resource's struct must say which tenants
+// once, where held, a method that names the resource's rows or is offered on them, is
+// offered only to a caller whose session enters the row's tenants. The resource's struct must say which tenants
 // those are, in a form a statement can render. It is held to that form here, whether or
 // not this session's statement renders the term, so a declaration that cannot work fails
 // the first read that asks for capabilities=Execute, and not the first read of a caller
