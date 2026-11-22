@@ -47,6 +47,8 @@ type mailLinks struct {
 	// the store was asked for, whatever it answered.
 	beforeRevoke func(ctx context.Context)
 	revokes      int
+	// consumes counts the store's ConsumeMailLink calls, whatever it answered.
+	consumes int
 
 	// unmailed holds the ids of the links the store was told could not be mailed.
 	unmailed map[impulse.UUID]bool
@@ -114,6 +116,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 	f.store.EXPECT().ConsumeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, hash []byte) error {
 		links.mu.Lock()
 		defer links.mu.Unlock()
+		links.consumes++
 		for _, l := range links.rows {
 			if bytes.Equal(l.TokenHash, hash) && l.ConsumedAt == nil {
 				now := time.Now()
@@ -212,6 +215,63 @@ func (m *mailLinks) insert(l *sessionstorage.MailLink) {
 		l.ID = impulse.Must(impulse.NewUUID())
 	}
 	m.rows = append(m.rows, l)
+}
+
+// expectConfirmation expects the store to be asked once to confirm email on userID by
+// a mail link (ConfirmAddressByLink), and answers as the store does in its one
+// transaction, over the fixture's mail links table and row, the account as the store
+// holds it: a link that is not live, and an account that is not there (row nil), are
+// NotFound; what row holds, with the identity links the test gave the account
+// (linkIdentities), is shown to the caller's rule, whose error is the answer; an
+// address another account holds (holds) is a Conflict; otherwise the link is consumed
+// and the answer is what row held, its username, and whether the write renamed it (a
+// store whose usernames are the addresses, and a username that differs from the address
+// in any byte). Nothing is written on row: a case reads the write from the expectation
+// being met.
+func (m *mailLinks) expectConfirmation(f *authFixture, userID impulse.UUID, email string, row *sessionstorage.SessionUser) *gomock.Call {
+	return f.store.EXPECT().ConfirmAddressByLink(gomock.Any(), gomock.Cond(func(c *sessionstorage.AddressConfirmation) bool {
+		return c.UserID == userID && c.Email == email
+	})).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation) (*sessionstorage.ConfirmedAddress, error) {
+		return m.confirm(f, c, row)
+	})
+}
+
+// confirm is the store's confirmation of an address by its link, as expectConfirmation
+// describes it.
+func (m *mailLinks) confirm(f *authFixture, c *sessionstorage.AddressConfirmation, row *sessionstorage.SessionUser) (*sessionstorage.ConfirmedAddress, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var link *sessionstorage.MailLink
+	for _, l := range m.rows {
+		if l.ID == c.LinkID && l.ConsumedAt == nil && time.Now().Before(l.ExpiresAt) {
+			link = l
+		}
+	}
+	if link == nil {
+		return nil, httpio.NewNotFoundMessage("no live mail link")
+	}
+	if row == nil {
+		return nil, httpio.NewNotFoundMessagef("user id %q does not exist", c.UserID)
+	}
+	identities, _ := linkedIdentities.Load(c.UserID)
+	links, _ := identities.([]*sessionstorage.SessionIdentity)
+	held := sessionstorage.AddressHeld{Email: row.Email, Directory: organizationLinked(links)}
+	if row.Email != nil {
+		held.ConfirmedAt = row.EmailVerifiedAt
+	}
+	if c.Refuse != nil {
+		shown := held
+		if err := c.Refuse(&shown); err != nil {
+			return nil, err
+		}
+	}
+	if holder := m.accounts[strings.ToLower(c.Email)]; holder != nil && holder.ID != c.UserID {
+		return nil, httpio.NewConflictMessagef("the email address %q is already in use", c.Email)
+	}
+	now := time.Now()
+	link.ConsumedAt = &now
+
+	return &sessionstorage.ConfirmedAddress{Held: held, Username: row.Username, Renamed: f.auth.registered().usernameIsEmail() && row.Username != c.Email}, nil
 }
 
 // testMail is the fixture's mail settings, without their sender.
@@ -1176,7 +1236,7 @@ func authEmailCase1(t *testing.T) {
 		t.Errorf("the address's mail count after Add() = %+v, want one", record)
 	}
 
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "Pat@Lakeside.edu").Return(nil)
+	links.expectConfirmation(f, userID, "Pat@Lakeside.edu", pat(userID))
 	rr = f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": token}, nil)
 	if rr.Code != http.StatusOK || decoded(t, rr)["email"] != "Pat@Lakeside.edu" {
 		t.Errorf("Verify() = %d %s, want the address", rr.Code, rr.Body.String())
@@ -1244,8 +1304,9 @@ func authEmailCase3(t *testing.T) {
 func authEmailCase5(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
-	f, recorder, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
-	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat@lakeside.edu"})
+	f, recorder, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+	user := &sessionstorage.SessionUser{ID: userID, Username: "pat@lakeside.edu"}
+	f.expectSession(sessionID, user)
 	f.store.EXPECT().UserByEmail(gomock.Any(), "pat.lee@lakeside.edu").Return(nil, httpio.NewNotFoundMessage("none"))
 	var renamed []string
 	f.auth.SetUserRenamed(func(_ context.Context, id impulse.UUID, from, to string) error {
@@ -1261,7 +1322,7 @@ func authEmailCase5(t *testing.T) {
 		t.Fatalf("Add() = %d %s, want 200", rr.Code, rr.Body.String())
 	}
 	token := tokenIn(t, recorder.Messages()[0].Text, "verify")
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "pat.lee@lakeside.edu").Return(nil)
+	links.expectConfirmation(f, userID, "pat.lee@lakeside.edu", user)
 	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": token}, nil); rr.Code != http.StatusOK {
 		t.Fatalf("Verify() = %d %s, want 200", rr.Code, rr.Body.String())
 	}

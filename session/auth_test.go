@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mockstore.AuthStore[mockTx] {
 	// an empty store unless a test says otherwise.
 	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
 	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID impulse.UUID) ([]*sessionstorage.SessionIdentity, error) {
+		identityReadsOf(userID).Add(1)
 		links, _ := linkedIdentities.Load(userID)
 		identities, _ := links.([]*sessionstorage.SessionIdentity)
 
@@ -68,6 +70,17 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mockstore.AuthStore[mockTx] {
 // id: what every mocked store answers IdentitiesByUser with, and none for a user no test
 // named. A test's users have ids of their own, so tests run at once share nothing.
 var linkedIdentities sync.Map
+
+// identityReads counts every mocked store's IdentitiesByUser calls by the user's id: a
+// test reads it to show that a path reads no identity links of its own.
+var identityReads sync.Map
+
+// identityReadsOf is userID's count in identityReads.
+func identityReadsOf(userID impulse.UUID) *atomic.Int64 {
+	n, _ := identityReads.LoadOrStore(userID, new(atomic.Int64))
+
+	return n.(*atomic.Int64)
+}
 
 // linkIdentities makes every mocked store answer userID's identities with links, until
 // the test ends or names others.

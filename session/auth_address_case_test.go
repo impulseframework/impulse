@@ -108,7 +108,7 @@ func TestAuth_addressChange_foldsOnlyASCIICase(t *testing.T) {
 		t.Fatalf("messages after the request = %d, want one link at the address asked for: it is another address than the one the account holds", len(msgs))
 	}
 	token := tokenIn(t, msgs[0].Text, "address")
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, asked).Return(nil)
+	links.expectConfirmation(f, userID, asked, user)
 	if rr := f.serve(f.auth.Email().Confirm(), http.MethodPost, "/email/confirm", map[string]string{"token": token}, nil); rr.Code != http.StatusOK {
 		t.Fatalf("Confirm() = %d, want 200", rr.Code)
 	}
