@@ -72,7 +72,7 @@ func (api *API) Select(ctx context.Context, db Querier, dst any, statement spann
 	return nil
 }
 
-// UpdateAndGet is a package-level helper function that uses the API.Get() call inside a transaction.
+// UpdateAndGet is a high-level helper function that uses the API.Get() call inside a transaction.
 // This should be used when data is being returned after an update using the THEN RETURN clause.
 //
 // The transaction names no isolation level: the statement is the caller's, and it runs at
