@@ -34,6 +34,7 @@ type DataChangeEvent struct {
 	EventTime   time.Time            `spanner:"EventTime"`
 	EventSource string               `spanner:"EventSource"`
 	ChangeSet   spanner.NullJSON     `spanner:"ChangeSet"`
+	TenantID    string               `spanner:"TenantId"`
 }
 
 // PatchType returns the PatchType for DataChangeEvent

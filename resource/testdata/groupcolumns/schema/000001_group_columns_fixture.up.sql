@@ -1,8 +1,9 @@
 -- The fixture of the tests that hold a group a row names to the row's tenant: an auth's
 -- groups table as the permission store keeps one (a group is kept in one tenant, or for
 -- the whole application with an empty DomainId), a tenant's table whose rows name a
--- group and carry their tenant (Yard), and a table whose rows name a group and reach
--- their tenant through a parent. Names are the fixture's own.
+-- group and carry their tenant (Yard), a table whose rows name a group and reach their
+-- tenant through a parent, and one whose rows reach it through a parent their own key
+-- names. Names are the fixture's own.
 
 CREATE TABLE CastGroups (
   Id STRING(36) NOT NULL,
@@ -25,3 +26,10 @@ CREATE TABLE GroupSeals (
   CONSTRAINT FK_GroupSeals_ShareId FOREIGN KEY (ShareId) REFERENCES GroupShares (Id),
   CONSTRAINT FK_GroupSeals_GroupId FOREIGN KEY (GroupId) REFERENCES CastGroups (Id),
 ) PRIMARY KEY (Id);
+
+CREATE TABLE GroupPennants (
+  ShareId STRING(36) NOT NULL,
+  GroupId STRING(36),
+  CONSTRAINT FK_GroupPennants_ShareId FOREIGN KEY (ShareId) REFERENCES GroupShares (Id),
+  CONSTRAINT FK_GroupPennants_GroupId FOREIGN KEY (GroupId) REFERENCES CastGroups (Id),
+) PRIMARY KEY (ShareId);
