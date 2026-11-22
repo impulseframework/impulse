@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -34,9 +35,10 @@ import (
 //
 // The subject namespace is one for the whole application: collections that say one set
 // describes two auths' people are refused (refuseSetOfTwoAuths), collections that
-// declare one set in two different ways are refused (refuseSetDefinedTwoWays), and so,
-// where the collections together know several auths, is a set a collection lists
-// without saying whose people it describes (refuseUnsaidSet).
+// declare one set in two different ways are refused (refuseSetDefinedTwoWays), and so
+// are collections that know two auths whose names are one in PascalCase
+// (refuseAuthsOfOneForm). Where the collections together know several auths, so is a
+// set a collection lists without saying whose people it describes (refuseUnsaidSet).
 //
 // A collection handed over as nil (the nil interface, or a nil pointer of a collection's
 // type, which a variable nothing was assigned to hands over) is refused with a sentence
@@ -104,6 +106,9 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 		return nil, err
 	}
 	if err := refuseSetDefinedTwoWays(collections); err != nil {
+		return nil, err
+	}
+	if err := refuseAuthsOfOneForm(u.Auths()); err != nil {
 		return nil, err
 	}
 	if err := refuseUnsaidSet(collections, u.Auths()); err != nil {
@@ -202,6 +207,28 @@ func refuseSetDefinedTwoWays(collections []PermissionCollection) error {
 			return errors.Newf("UnionCollection: collections %d and %d (in argument order) both declare subject set %q and define it differently: %s vs %s. "+
 				"A role file reads the set by its name alone, so it must hold the same people in every site: declare the set the same way in both, or give one of the two sets another name",
 				first+1, i+1, name, definitionPart(definition, at), definitionPart(other, at))
+		}
+	}
+
+	return nil
+}
+
+// refuseAuthsOfOneForm refuses collections that know two auths whose names are one in
+// PascalCase (strcase.ToPascal), the form generation names an auth's tables and its set
+// of a person's groups by, so the two auths would share them. auths is the union's
+// (Auths: sorted, each once); the first two names in that order whose forms are one
+// are said, whether one collection knows both or two collections know one each.
+func refuseAuthsOfOneForm(auths []string) error {
+	for i, auth := range auths {
+		form := strcase.ToPascal(auth)
+		for _, other := range auths[i+1:] {
+			if strcase.ToPascal(other) != form {
+				continue
+			}
+
+			return errors.Newf("UnionCollection: the collections know the auths %q and %q, and the two names are one in PascalCase (%s). "+
+				"Generation names an auth's tables and its set of a person's groups by that form, so the two auths would share them: rename one of the two auth packages",
+				auth, other, form)
 		}
 	}
 

@@ -621,6 +621,50 @@ func TestUnionCollection_oneSetNameForTwoAuths(t *testing.T) {
 	}
 }
 
+// TestUnionCollection_authsOfOneForm pins that the union refuses collections that know
+// two auths whose names are one in PascalCase, the form generation names an auth's
+// tables and its set of a person's groups by, so the two auths would share them: known
+// to two collections or to one. Names whose forms differ, and one name every collection
+// knows, are taken.
+func TestUnionCollection_authsOfOneForm(t *testing.T) {
+	t.Parallel()
+
+	refusal := `UnionCollection: the collections know the auths "crewOps" and "crew_ops", and the two names are one in PascalCase (CrewOps). ` +
+		"Generation names an auth's tables and its set of a person's groups by that form, so the two auths would share them: rename one of the two auth packages"
+
+	tests := []struct {
+		name    string
+		sites   [][]string
+		wantErr string
+	}{
+		{name: "two collections each know one of the two names", sites: [][]string{{"crew_ops"}, {"crewOps"}}, wantErr: refusal},
+		{name: "one collection knows both names", sites: [][]string{{"crewOps", "crew_ops"}}, wantErr: refusal},
+		{name: "two names whose forms differ", sites: [][]string{{"crew"}, {"crews"}}},
+		{name: "one name both collections know", sites: [][]string{{"crew_ops"}, {"crew_ops"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			collections := make([]PermissionCollection, 0, len(tt.sites))
+			for _, auths := range tt.sites {
+				collections = append(collections, &stubCollection{auths: auths})
+			}
+			_, err := UnionCollection(collections...)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("UnionCollection() error = %v", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Fatalf("UnionCollection() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestUnionCollection_oneSetDefinedTwoWays pins that the union refuses collections that
 // declare one subject set in two different ways, naming both by position, the set, and
 // the first part their definitions differ in: a role file reads a set by its name
