@@ -402,16 +402,44 @@ func TestRoles(t *testing.T) {
 `
 )
 
-// handedUnderNameText is the finding for the staff auth's role file handed over by the
-// data level, at line of pkg/config/data.go, under text: anything but a package's Name.
+// handedUnderNameText is the finding for the staff auth's role file handed over by its
+// own package, among the options of the engine it opens, at line of
+// pkg/auth/staff/staff.go, under text: anything but a package's Name.
 func handedUnderNameText(line int, text string) string {
-	return fmt.Sprintf("pkg/auth/staff: pkg/config/data.go:%d hands staff.Roles() to access.WithDefaultRoles under %s, and impulse check takes only the package's own Name there; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)", line, text)
+	return fmt.Sprintf("pkg/auth/staff: pkg/auth/staff/staff.go:%d hands Roles() to access.WithDefaultRoles under %s, and impulse check takes only the package's own Name there; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(Roles(), Name)", line, text)
 }
 
 // handedNoRolesCall is the finding for a role file handed to access.WithDefaultRoles at
 // line of pkg/config/data.go as anything but an auth package's own Roles() call.
 func handedNoRolesCall(line int) string {
-	return fmt.Sprintf("pkg/config/data.go:%d hands access.WithDefaultRoles a role file that is not an auth package's own Roles() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over as its package gives it, under the package's own name: access.WithDefaultRoles(<name>.Roles(), <name>.Name)", line)
+	return fmt.Sprintf("pkg/config/data.go:%d hands access.WithDefaultRoles a role file that is not an auth package's own Roles() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over in the auth's own package, as the package gives it and under its own name: access.WithDefaultRoles(Roles(), Name)", line)
+}
+
+// handedOutside is the finding for an auth's role file handed over at file:line, outside
+// the auth's own package.
+func handedOutside(auth, file string, line int) string {
+	return fmt.Sprintf("pkg/auth/%s: %s:%d hands %s.Roles() to access.WithDefaultRoles outside the %s auth's own package, where nothing ties the call to the engine it opens; an auth's role file is handed over in the auth's own package, among the options of the access.New call that opens its engine, so no other auth's engine can be given it: write access.WithDefaultRoles(Roles(), Name) there and take this call out", auth, file, line, auth, auth)
+}
+
+// staffHanding is the staff auth package with its engine's role file option written as
+// handOver, and with lead written at the start of New.
+func staffHanding(lead, handOver string) string {
+	return strings.Replace(staffAuth, "\tengine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))\n", lead+"\tengine, err := access.New(nil, collection, "+handOver+")\n", 1)
+}
+
+// staffNamed is the staff auth package with its Name declared as decl, and its
+// TablePrefix in a declaration of its own.
+func staffNamed(decl string) string {
+	return strings.Replace(staffAuth, "const (\n\tName        = \"staff\"\n\tTablePrefix = \"Staff\"\n)\n", decl+"\n\nconst TablePrefix = \"Staff\"\n", 1)
+}
+
+// staffNameNotWritten is the finding for a staff auth package that hands its role file
+// over and declares no constant Name written out as a string.
+const staffNameNotWritten = `pkg/auth/staff: the package declares no constant Name written out as a string; it is the name the staff auth's role file is handed over under, and impulse check reads it where it is declared, so declare it: const Name = "staff"`
+
+// staffImportingMembers is the staff auth package importing the members auth's package.
+func staffImportingMembers(auth string) string {
+	return strings.Replace(auth, "\t\"github.com/impulseframework/impulse/session/signin\"\n", "\t\"github.com/impulseframework/impulse/session/signin\"\n\n\t\"example.com/harbor/pkg/auth/members\"\n", 1)
 }
 
 func TestAuthsWired(t *testing.T) {
@@ -493,37 +521,103 @@ func TestAuthsWired(t *testing.T) {
 		},
 		{
 			name: "the role file handed over by the data level", files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go", staffConfigHanding),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedOutside("staff", "pkg/config/data.go", 17)},
+		},
+		{
+			name: "an auth's engine handed another auth's role file beside its own",
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles(Roles(), Name), access.WithDefaultRoles(members.Roles(), members.Name)"))),
+			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
+				handedOutside("members", "pkg/auth/staff/staff.go", 35),
+				`pkg/auth/members: no outlet declares Auth("example.com/harbor/pkg/auth/members", ...) and no surface takes *members.Auth; nothing binds to the members auth, so its people can sign in nowhere`,
+				"pkg/auth/members, pkg/auth/staff: both issue their XSRF token in the cookie XSRF-TOKEN, so a login to one overwrites the other's token in the browser; name each auth's cookie (session.WithXSRFCookieName) and the same name in the web app that binds to it (withXsrfConfiguration)",
+				"pkg/auth/members, pkg/auth/staff: both remember a browser in the cookie auth-trusted, so a browser one auth remembers after a sign-in code forgets the other's remembered browsers; name each auth's cookie (session.WithTrustedDeviceCookieName, the skeletons' <name>-trusted)",
+				"pkg/auth/members, pkg/auth/staff: both ride their sessions in the cookie auth, so a login to one ends the other's session in the browser; name each auth's cookie (session.WithCookieName)",
+				"pkg/auth/members: no test validates the members auth's role file (access.ValidateRoles over the collection, parsing members.Roles()), so a warning the deploy prints is accepted nowhere in code; add the members row to pkg/deploy/deploy_test.go with its expected warnings empty",
+			},
+		},
+		{
+			name: "an auth's engine handed another auth's role file beside its own, with a comment before each option's parenthesis",
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles /* its own */ (Roles(), Name), access.WithDefaultRoles /* the roles */ (members.Roles(), members.Name)"))),
+			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
+				handedOutside("members", "pkg/auth/staff/staff.go", 35),
+				`pkg/auth/members: no outlet declares Auth("example.com/harbor/pkg/auth/members", ...) and no surface takes *members.Auth; nothing binds to the members auth, so its people can sign in nowhere`,
+				"pkg/auth/members, pkg/auth/staff: both issue their XSRF token in the cookie XSRF-TOKEN, so a login to one overwrites the other's token in the browser; name each auth's cookie (session.WithXSRFCookieName) and the same name in the web app that binds to it (withXsrfConfiguration)",
+				"pkg/auth/members, pkg/auth/staff: both remember a browser in the cookie auth-trusted, so a browser one auth remembers after a sign-in code forgets the other's remembered browsers; name each auth's cookie (session.WithTrustedDeviceCookieName, the skeletons' <name>-trusted)",
+				"pkg/auth/members, pkg/auth/staff: both ride their sessions in the cookie auth, so a login to one ends the other's session in the browser; name each auth's cookie (session.WithCookieName)",
+				"pkg/auth/members: no test validates the members auth's role file (access.ValidateRoles over the collection, parsing members.Roles()), so a warning the deploy prints is accepted nowhere in code; add the members row to pkg/deploy/deploy_test.go with its expected warnings empty",
+			},
+		},
+		{
+			name:       "the package's Name is another auth's",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`const Name = "members"`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{`pkg/auth/staff: the package's Name is "members", and the package is the staff auth; a role file handed over under another auth's name is held to that auth's subject sets, so write Name = "staff", the directory's name, which generation knows the auth by, or rename the directory`},
+		},
+		{
+			name:       "the package's Name is a variable",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`var Name = "staff"`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{staffNameNotWritten},
+		},
+		{
+			name:       "the package's Name is a sum",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`const Name = "st" + "aff"`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{staffNameNotWritten},
+		},
+		{
+			name:       "the package's Name is a typed constant of the directory's name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`const Name string = "staff"`)),
 			wantStatus: Pass, wantSummary: "1 auth(s) constructed, roles handed to the engine, and bound: staff",
 		},
 		{
-			name: "the role file handed over under another package's name",
-			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
-				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "staff.Roles(), members.Name", 1),
-					"\t\"example.com/harbor/pkg/auth/staff\"\n", "\t\"example.com/harbor/pkg/auth/members\"\n\t\"example.com/harbor/pkg/auth/staff\"\n", 1)),
+			name:       "a package that hands no role file over and declares no Name",
+			files:      with(without(), "pkg/auth/staff/staff.go", strings.Replace(staffAuthUnhanded, "\tName        = \"staff\"\n", "", 1)),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
-			wantDetails: []string{"pkg/auth/staff: pkg/config/data.go:18 hands staff.Roles() to access.WithDefaultRoles under members.Name; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)"},
+			wantDetails: []string{"pkg/auth/staff: nothing outside tests hands staff.Roles() to access.WithDefaultRoles; the staff auth's default roles never reach its permission engine"},
 		},
 		{
-			name: "the role file handed over under the auth's name written out",
-			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
-				strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", `staff.Roles(), "staff"`, 1)),
+			name:       "the role file handed over in the auth's package, outside the access.New call",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\toption := access.WithDefaultRoles(Roles(), Name)\n", "option")),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
-			wantDetails: []string{handedUnderNameText(17, `"staff"`)},
+			wantDetails: []string{"pkg/auth/staff: pkg/auth/staff/staff.go:33 hands Roles() to access.WithDefaultRoles outside an access.New call, so impulse check cannot tell which engine is given the staff auth's role file; write the option among the arguments of the access.New call that opens the auth's engine: access.New(store, collection, access.WithDefaultRoles(Roles(), Name))"},
 		},
 		{
-			name: "the role file handed over under no name",
-			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
-				strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", `staff.Roles(), ""`, 1)),
+			name:       "the role file handed over under a Name the function declares for itself",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\tName := TablePrefix\n", "access.WithDefaultRoles(Roles(), Name)")),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
-			wantDetails: []string{handedUnderNameText(17, `""`)},
+			wantDetails: []string{"pkg/auth/staff: pkg/auth/staff/staff.go:34 hands Roles() to access.WithDefaultRoles under a Name the function declares for itself, which hides the package's own; rename the function's, and hand the staff auth's file over under the package's: access.WithDefaultRoles(Roles(), Name)"},
 		},
 		{
-			name: "the role file handed over under a variable that holds the package's Name",
-			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
-				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "staff.Roles(), name", 1),
-					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\tname := staff.Name\n", 1)),
+			name:       "the role file handed over under another package's name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles(Roles(), members.Name)"))),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
-			wantDetails: []string{handedUnderNameText(18, "name")},
+			wantDetails: []string{"pkg/auth/staff: pkg/auth/staff/staff.go:35 hands Roles() to access.WithDefaultRoles under members.Name; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(Roles(), Name)"},
+		},
+		{
+			name:       "the role file handed over under the auth's name written out",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("", `access.WithDefaultRoles(Roles(), "staff")`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(33, `"staff"`)},
+		},
+		{
+			name:       "the role file handed over under no name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("", `access.WithDefaultRoles(Roles(), "")`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(33, `""`)},
+		},
+		{
+			name:       "the role file handed over under a variable that holds the package's Name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\tname := Name\n", "access.WithDefaultRoles(Roles(), name)")),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(34, "name")},
 		},
 		{
 			name: "beside the auth package's own call, a role file handed over in a variable that holds the package's Roles()",

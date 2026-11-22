@@ -395,3 +395,127 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 		}
 	}
 }
+
+// TestGeneratedCollection_SubjectSetDefinition pins the parts a union of collections
+// compares a subject set by: where the set is declared, the column that holds its
+// person, the value with each hop it takes, its type, its who: and where: parts, and
+// the way its rows reach a tenant, the anchor's own or the set's, each part said the
+// same way whichever collection answers. The auth the set names is in no part. A name
+// no set has is answered nil.
+func TestGeneratedCollection_SubjectSetDefinition(t *testing.T) {
+	t.Parallel()
+
+	g, err := NewGeneratedCollection(CollectionData{Auths: []string{"crew"}, Resources: []CollectionResource{
+		{
+			Name:  "HangarPasses",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{{
+				Name: "hangarsRun", UserColumn: "UserId", Column: "BayId", Type: AttributeTypeString, Auth: "crew",
+				Path: []BindingHop{{Table: "Bays", JoinColumn: "Id", Column: "DeckId"}, {Table: "Decks", JoinColumn: "Id", Column: "HangarId"}},
+				Who:  []SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}},
+				Where: &SubjectWhereData{
+					Condition: "LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now)",
+					Columns: []SubjectColumnData{
+						{Name: "LevelID", Column: "LevelId", Type: AttributeTypeString},
+						{Name: "ExpiresAt", Column: "ExpiresAt", Type: AttributeTypeTimestamp},
+					},
+				},
+				Domain: &DomainBindingData{Column: "GroupId", Path: []BindingHop{{Table: "Groups", JoinColumn: "Id", Column: "DomainId"}}},
+			}},
+		},
+		{
+			Name:        "Watches",
+			Scope:       accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{{Name: "watches", UserColumn: "UserId", Column: "WatchId", Type: AttributeTypeString}},
+		},
+		{
+			Name:        "SquadronMemberships",
+			Scope:       accesstypes.DomainPermissionScope,
+			Domain:      &DomainBindingData{Column: "SectorId"},
+			SubjectSets: []SubjectBindingData{{Name: "squadrons", UserColumn: "UserId", Column: "SquadronId", Type: AttributeTypeString}},
+		},
+		{
+			Name:        "CrewGroupMembers",
+			Scope:       accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{{Name: "crewGroups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true, Auth: "crew"}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		set  string
+		want []string
+	}{
+		{
+			name: "a set with a path, both kinds of who: test, a where: with its columns and a way of its own to a tenant",
+			set:  "hangarsRun",
+			want: []string{
+				"declared on HangarPasses (global)",
+				"person: UserId",
+				"value: BayId > Bays.DeckId by Id > Decks.HangarId by Id",
+				"type: string",
+				"who: UserId, SquadronId IN subject.squadrons",
+				"where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now) [LevelID=LevelId (string), ExpiresAt=ExpiresAt (timestamp)]",
+				"tenant: GroupId > Groups.DomainId by Id",
+			},
+		},
+		{
+			name: "a set that writes neither part, on a table of no tenant",
+			set:  "watches",
+			want: []string{
+				"declared on Watches (global)",
+				"person: UserId",
+				"value: WatchId",
+				"type: string",
+				"who: (none)",
+				"where: (none)",
+				"tenant: (none)",
+			},
+		},
+		{
+			name: "a set on a tenant's table, whose rows reach their tenant by the table's own way",
+			set:  "squadrons",
+			want: []string{
+				"declared on SquadronMemberships (domain)",
+				"person: UserId",
+				"value: SquadronId",
+				"type: string",
+				"who: (none)",
+				"where: (none)",
+				"tenant: SectorId",
+			},
+		},
+		{
+			name: "a set the generator declares for an auth, which the listing leaves out",
+			set:  "crewGroups",
+			want: []string{
+				"declared on CrewGroupMembers (global)",
+				"person: UserId",
+				"value: GroupId",
+				"type: string",
+				"who: (none)",
+				"where: (none)",
+				"tenant: (none)",
+			},
+		},
+		{
+			name: "a name no set has",
+			set:  "ghosts",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, g.SubjectSetDefinition(tt.set)); diff != "" {
+				t.Errorf("SubjectSetDefinition(%q) mismatch (-want +got):\n%s", tt.set, diff)
+			}
+		})
+	}
+	if _, listed := g.SubjectSets("")["crewGroups"]; listed {
+		t.Errorf("SubjectSets(\"\") lists crewGroups, a set the generator declares, want it left out")
+	}
+}

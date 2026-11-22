@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -33,9 +34,11 @@ import (
 // refused here.
 //
 // The subject namespace is one for the whole application: collections that say one set
-// describes two auths' people are refused (refuseSetOfTwoAuths), and so, where the
-// collections together know several auths, is a set a collection lists without saying
-// whose people it describes (refuseUnsaidSet).
+// describes two auths' people are refused (refuseSetOfTwoAuths), collections that
+// declare one set in two different ways are refused (refuseSetDefinedTwoWays), and so
+// are collections that know two auths whose names are one in PascalCase
+// (refuseAuthsOfOneForm). Where the collections together know several auths, so is a
+// set a collection lists without saying whose people it describes (refuseUnsaidSet).
 //
 // A collection handed over as nil (the nil interface, or a nil pointer of a collection's
 // type, which a variable nothing was assigned to hands over) is refused with a sentence
@@ -102,6 +105,12 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 	if err := refuseSetOfTwoAuths(collections); err != nil {
 		return nil, err
 	}
+	if err := refuseSetDefinedTwoWays(collections); err != nil {
+		return nil, err
+	}
+	if err := refuseAuthsOfOneForm(u.Auths()); err != nil {
+		return nil, err
+	}
 	if err := refuseUnsaidSet(collections, u.Auths()); err != nil {
 		return nil, err
 	}
@@ -166,6 +175,89 @@ func refuseSetOfTwoAuths(collections []PermissionCollection) error {
 	}
 
 	return nil
+}
+
+// refuseSetDefinedTwoWays refuses collections that declare one subject set in two
+// different ways (SubjectSetDefinition). subject.<name> is one name to a role file, so
+// a name holds the same people in every site. For each set some collection lists
+// (SubjectSets), in name order, every collection that lists it or answers a definition
+// for it is compared with the first of them, in argument order; the first two that
+// differ are named, with the part at the first place their definitions differ. A
+// collection that answers a definition without listing the set is compared too: the
+// set of a person's groups that generation declares for an auth is listed by no
+// collection, and a set a person wrote under its name in another site is a second
+// meaning of the name. A name no collection lists is not compared.
+func refuseSetDefinedTwoWays(collections []PermissionCollection) error {
+	listings := make([]map[string][]string, len(collections))
+	listed := make(map[string]bool)
+	for i, c := range collections {
+		listings[i] = c.SubjectSets("")
+		for name := range listings[i] {
+			listed[name] = true
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(listed)) {
+		var declarers []int
+		for i, c := range collections {
+			if _, lists := listings[i][name]; lists || c.SubjectSetDefinition(name) != nil {
+				declarers = append(declarers, i)
+			}
+		}
+		first := declarers[0]
+		definition := collections[first].SubjectSetDefinition(name)
+		for _, i := range declarers[1:] {
+			other := collections[i].SubjectSetDefinition(name)
+			if slices.Equal(definition, other) {
+				continue
+			}
+			at := 0
+			for at < len(definition) && at < len(other) && definition[at] == other[at] {
+				at++
+			}
+
+			return errors.Newf("UnionCollection: collections %d and %d (in argument order) both declare subject set %q and define it differently: %s vs %s. "+
+				"A role file reads the set by its name alone, so it must hold the same people in every site: declare the set the same way in both, or give one of the two sets another name",
+				first+1, i+1, name, definitionPart(definition, at), definitionPart(other, at))
+		}
+	}
+
+	return nil
+}
+
+// refuseAuthsOfOneForm refuses collections that know two auths whose names are one in
+// PascalCase (strcase.ToPascal), the form generation names an auth's tables and its set
+// of a person's groups by, so the two auths would share them. auths is the union's
+// (Auths: sorted, each once); the first two names in that order whose forms are one
+// are said, whether one collection knows both or two collections know one each.
+func refuseAuthsOfOneForm(auths []string) error {
+	for i, auth := range auths {
+		form := strcase.ToPascal(auth)
+		for _, other := range auths[i+1:] {
+			if strcase.ToPascal(other) != form {
+				continue
+			}
+
+			return errors.Newf("UnionCollection: the collections know the auths %q and %q, and the two names are one in PascalCase (%s). "+
+				"Generation names an auth's tables and its set of a person's groups by that form, so the two auths would share them: rename one of the two auth packages",
+				auth, other, form)
+		}
+	}
+
+	return nil
+}
+
+// definitionPart says the part of a subject set's definition at a place, the way a
+// refusal of two definitions names it: the part itself, or, where the definition has
+// none there, no definition when it is empty and nothing more when it stops short.
+func definitionPart(definition []string, at int) string {
+	switch {
+	case at < len(definition):
+		return definition[at]
+	case len(definition) == 0:
+		return "no definition"
+	default:
+		return "nothing more"
+	}
 }
 
 // registration is what one collection says about a resource it registers: the
@@ -309,8 +401,9 @@ func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.Att
 }
 
 // SubjectSets merges the subject sets the collections declare for one auth's people:
-// the subject namespace is application-wide, and a set two collections declare builds
-// on what either says.
+// the subject namespace is application-wide, and a set two collections declare is
+// declared the same way in both (refuseSetDefinedTwoWays), so it builds on what either
+// says.
 func (u *unionCollection) SubjectSets(auth string) map[string][]string {
 	sets := make(map[string][]string)
 	for _, c := range u.collections {
@@ -358,6 +451,22 @@ func (u *unionCollection) SubjectSetAuth(name string) string {
 	}
 
 	return ""
+}
+
+// SubjectSetDefinition says how a subject set is declared, from the first collection
+// (in argument order) that answers for it: the subject namespace is application-wide,
+// and collections that declare a set one of them lists in two different ways are
+// refused where the union is built (UnionCollection), whether each lists the set or
+// only answers for it, so for a listed set the first answer is every answering
+// collection's.
+func (u *unionCollection) SubjectSetDefinition(name string) []string {
+	for _, c := range u.collections {
+		if definition := c.SubjectSetDefinition(name); definition != nil {
+			return definition
+		}
+	}
+
+	return nil
 }
 
 // SubjectValueComparisonType resolves a subject value's comparison type from

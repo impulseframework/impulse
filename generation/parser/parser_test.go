@@ -491,3 +491,36 @@ func testStruct(t *testing.T, qualifiedName string, fieldParams ...testField) *S
 
 	return s
 }
+
+// Test_LooseComments pins which comments of a package belong to no declaration, in file
+// and then source order: a comment a blank line parts from the constant below it,
+// outside a const group or inside one, and a comment no declaration follows. A
+// constant's doc and line comments, a group's comment, a function's doc comment and a
+// comment in a function's body are not loose. Each is placed by its file's base name and
+// the line its first line is on.
+func Test_LooseComments(t *testing.T) {
+	t.Parallel()
+
+	pkgMap, err := LoadPackages("../testdata/permissionfixture")
+	if err != nil {
+		t.Fatalf("LoadPackages() error = %v", err)
+	}
+	type loose struct {
+		position string
+		text     string
+	}
+	var got []loose
+	for _, c := range LooseComments(pkgMap["permissionfixture"]) {
+		got = append(got, loose{position: c.Position(), text: c.Text()})
+	}
+	want := []loose{
+		{position: "fixture.go:221", text: "@manualAddResource(Read)\n"},
+		{position: "fixture.go:227", text: "@manualAddPermission\n"},
+		{position: "fixture.go:234", text: "This prose names @manualAddResource(Read) inside a line, and a blank line parts it\nfrom the constant below.\n"},
+		{position: "fixture.go:240", text: "@manualAddResourceSet(Read)\n"},
+		{position: "fixture.go:254", text: "The fixture ends with a comment no declaration follows.\n\n@manualAddPermission\n"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("LooseComments() = %q, want %q", got, want)
+	}
+}
