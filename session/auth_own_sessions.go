@@ -80,10 +80,11 @@ func (a *Auth[S, U, Tx]) OwnSessions() http.HandlerFunc {
 
 // EndOwnSession is the handler a signed-in person's account page signs them out of one
 // browser of their own with: it accepts {"sessionId"}, one of the sessions OwnSessions
-// lists, ends it and answers 200 with no body. The browser the person is using is refused with a
-// 400 (they sign out of it with the logout), and a session that is not among their own
-// live ones with a 404: it has ended already, or is no session of theirs to end. No
-// mail is sent: it is the person's own act, at their own browser.
+// lists, ends it and answers 200 with no body. A session of theirs that timed out, and so
+// is no longer listed, ends too, so nothing can bring it back. The browser the person is
+// using is refused with a 400 (they sign out of it with the logout), and a session that
+// is not among their own unended ones with a 404: it has ended already, or is no session
+// of theirs to end. No mail is sent: it is the person's own act, at their own browser.
 //
 // The handler validates the session itself, as OwnSessions does, and refuses an
 // impersonated session.
@@ -103,19 +104,19 @@ func (a *Auth[S, U, Tx]) EndOwnSession() http.HandlerFunc {
 		if req.SessionID == sessioninfo.IDFromCtx(ctx) {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("This is the browser you are using. Use Sign out to leave it."))
 		}
-		live, err := a.liveOwnSessions(ctx, sessioninfo.UserFromCtx(ctx).ID)
+		own, err := a.unexpiredOwnSessions(ctx, sessioninfo.UserFromCtx(ctx).ID)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		listed := false
-		for _, s := range live {
+		held := false
+		for _, s := range own {
 			if s.ID == req.SessionID {
-				listed = true
+				held = true
 
 				break
 			}
 		}
-		if !listed {
+		if !held {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("That browser is already signed out."))
 		}
 		if err := a.storage.DestroySession(ctx, req.SessionID); err != nil {
@@ -128,8 +129,10 @@ func (a *Auth[S, U, Tx]) EndOwnSession() http.HandlerFunc {
 
 // EndOtherSessions is the handler a signed-in person's account page signs them out of
 // every browser but the one they are using with: every session OwnSessions lists but
-// the request's own ends, and the answer is {"ended"}, how many did. A session someone
-// else established acting as the person is not theirs, and stands. No mail is sent.
+// the request's own ends, and the answer is {"ended"}, how many of the listed ones did.
+// A session of theirs that timed out, and so is no longer listed, ends too and is not
+// counted, so nothing can bring it back. A session someone else established acting as
+// the person is not theirs, and stands. No mail is sent.
 //
 // The handler validates the session itself, as OwnSessions does, and refuses an
 // impersonated session.
@@ -146,20 +149,23 @@ func (a *Auth[S, U, Tx]) EndOtherSessions() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live, err := a.liveOwnSessions(ctx, sessioninfo.UserFromCtx(ctx).ID)
+		own, err := a.unexpiredOwnSessions(ctx, sessioninfo.UserFromCtx(ctx).ID)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		current := sessioninfo.IDFromCtx(ctx)
+		activeSince := time.Now().Add(-a.baseSession.SessionTimeout)
 		ended := 0
-		for _, s := range live {
+		for _, s := range own {
 			if s.ID == current {
 				continue
 			}
 			if err := a.storage.DestroySession(ctx, s.ID); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroySession()"))
 			}
-			ended++
+			if !s.UpdatedAt.Before(activeSince) {
+				ended++
+			}
 		}
 
 		return httpio.NewEncoder(w).Ok(response{Ended: ended})
@@ -218,6 +224,18 @@ func (a *Auth[S, U, Tx]) liveOwnSessions(ctx context.Context, userID impulse.UUI
 	}
 
 	return live, nil
+}
+
+// unexpiredOwnSessions are userID's own sessions that are not ended, whenever each was
+// last used: the ones a sign-out ends, so that a session that only timed out cannot be
+// brought back by anything that moves its clock or lengthens the timeout.
+func (a *Auth[S, U, Tx]) unexpiredOwnSessions(ctx context.Context, userID impulse.UUID) ([]*sessionstorage.OwnSession, error) {
+	own, err := a.storage.OwnSessions(ctx, userID, time.Time{})
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.OwnSessions()")
+	}
+
+	return own, nil
 }
 
 // ownSessionsOf lists live as the page shows them: the session current first, marked,

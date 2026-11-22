@@ -2025,7 +2025,8 @@ stores the name in the two indexes a list reads without a row of the table.
 `{"username"}` and answers `{"username"}` as it is kept. The one rule is that no other
 account holds the name; `Auth.UsernameFree()` answers `{"free"}` for a name as the
 person types it, and says nothing of who holds one. The person's sessions follow the
-name, so they stay signed in, and they sign in under the new name from then on. Where
+name, so they stay signed in, and they sign in under the new name from then on. A
+rename is no use of a session: when each was last used stays as it was. Where
 the password method declares `UsernameIsEmail()` both refuse with 409: the username
 changes when the person confirms a new address. Both validate the session themselves
 and refuse an impersonated session.
@@ -2035,10 +2036,12 @@ their own live sessions, the one of the request first and marked, each with the 
 the browser it was signed in from ("Chrome on Android", worked out from the User-Agent
 header when the session was made; absent where it was not recognized), when it was
 signed in and when it was last used, and how many browsers are remembered for them.
-`Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of them, never the request's
-own; `Auth.EndOtherSessions()` ends all but the request's own; `Auth.ForgetBrowsers()`
-forgets every browser the second factor remembered for them, this one included, and
-ends no session. A session someone else established acting as the person is not
+`Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
+sessions, never the request's own; `Auth.EndOtherSessions()` ends all but the request's
+own and answers how many of the listed ones ended. Both also end a session of the
+person's that has timed out and is no longer listed, so nothing can bring it back.
+`Auth.ForgetBrowsers()` forgets every browser the second factor remembered for them,
+this one included, and ends no session. A session someone else established acting as the person is not
 theirs: it is not listed and not ended here. All four validate the session themselves
 and refuse an impersonated session.
 

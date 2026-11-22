@@ -138,6 +138,18 @@ func (c *ownSessionsCase) listed(rows ...*sessionstorage.OwnSession) {
 	c.f.store.EXPECT().OwnSessions(gomock.Any(), c.userID, gomock.Any()).Return(rows, nil)
 }
 
+// unexpired expects the store's list of every session of the person's own that is not
+// ended, whenever it was last used (no cut), to answer rows.
+func (c *ownSessionsCase) unexpired(rows ...*sessionstorage.OwnSession) {
+	c.f.store.EXPECT().OwnSessions(gomock.Any(), c.userID, time.Time{}).Return(rows, nil)
+}
+
+// timedOut is a moment before the session timeout of the case's Auth: a session last used
+// then is no longer live.
+func (c *ownSessionsCase) timedOut() time.Time {
+	return time.Now().Add(-2 * c.f.auth.baseSession.SessionTimeout)
+}
+
 // row is a session of the person's own as the store lists it.
 func row(id impulse.UUID, browser string, createdAt, updatedAt time.Time) *sessionstorage.OwnSession {
 	s := &sessionstorage.OwnSession{ID: id, CreatedAt: createdAt, UpdatedAt: updatedAt}
@@ -241,18 +253,18 @@ func TestAuth_OwnSessions(t *testing.T) {
 	})
 }
 
-// TestAuth_EndOwnSession proves a person signs out of one browser of their own: one the
-// list holds ends; one it does not hold, and the browser the person is using, end
-// nothing.
+// TestAuth_EndOwnSession proves a person signs out of one browser of their own: one of
+// their sessions that is not ended ends, whether or not it was used within the timeout;
+// one the store does not hold, and the browser the person is using, end nothing.
 func TestAuth_EndOwnSession(t *testing.T) {
 	t.Parallel()
 
-	t.Run("a session the list holds ends", func(t *testing.T) {
+	t.Run("a session of the person's own ends", func(t *testing.T) {
 		t.Parallel()
 		c := newOwnSessionsCase(t)
 		c.signedIn()
 		other := impulse.Must(impulse.NewUUID())
-		c.listed(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(other, "Safari on iPhone", time.Now(), time.Now()))
+		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(other, "Safari on iPhone", time.Now(), time.Now()))
 		c.f.store.EXPECT().DestroySession(gomock.Any(), other).Return(nil)
 
 		rr := c.serve(c.f.auth.EndOwnSession(), c.ctx(), http.MethodPost, `{"sessionId":"`+other.String()+`"}`)
@@ -261,11 +273,25 @@ func TestAuth_EndOwnSession(t *testing.T) {
 		}
 	})
 
-	t.Run("a session the list does not hold is already signed out, and nothing ends", func(t *testing.T) {
+	t.Run("a session of the person's own that timed out ends too, so nothing can bring it back", func(t *testing.T) {
 		t.Parallel()
 		c := newOwnSessionsCase(t)
 		c.signedIn()
-		c.listed(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()))
+		idle := impulse.Must(impulse.NewUUID())
+		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(idle, "Safari on iPhone", c.timedOut(), c.timedOut()))
+		c.f.store.EXPECT().DestroySession(gomock.Any(), idle).Return(nil)
+
+		rr := c.serve(c.f.auth.EndOwnSession(), c.ctx(), http.MethodPost, `{"sessionId":"`+idle.String()+`"}`)
+		if rr.Code != http.StatusOK || rr.Body.Len() != 0 {
+			t.Errorf("EndOwnSession() = %d %s, want 200 with no body", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("a session the store does not hold is already signed out, and nothing ends", func(t *testing.T) {
+		t.Parallel()
+		c := newOwnSessionsCase(t)
+		c.signedIn()
+		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()))
 
 		rr := c.serve(c.f.auth.EndOwnSession(), c.ctx(), http.MethodPost, `{"sessionId":"`+impulse.Must(impulse.NewUUID()).String()+`"}`)
 		if rr.Code != http.StatusNotFound || messageOf(t, rr) != "That browser is already signed out." {
@@ -306,7 +332,7 @@ func TestAuth_EndOtherSessions(t *testing.T) {
 		c := newOwnSessionsCase(t)
 		c.signedIn()
 		first, second := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
-		c.listed(row(first, "Firefox on Windows", time.Now(), time.Now()), row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(second, "", time.Now(), time.Now()))
+		c.unexpired(row(first, "Firefox on Windows", time.Now(), time.Now()), row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(second, "", time.Now(), time.Now()))
 		c.f.store.EXPECT().DestroySession(gomock.Any(), first).Return(nil)
 		c.f.store.EXPECT().DestroySession(gomock.Any(), second).Return(nil)
 
@@ -316,11 +342,40 @@ func TestAuth_EndOtherSessions(t *testing.T) {
 		}
 	})
 
+	t.Run("a session that timed out ends with the live ones, and the live ones alone are counted", func(t *testing.T) {
+		t.Parallel()
+		c := newOwnSessionsCase(t)
+		c.signedIn()
+		live, idle := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(live, "Firefox on Windows", time.Now(), time.Now()), row(idle, "Safari on iPhone", c.timedOut(), c.timedOut()))
+		c.f.store.EXPECT().DestroySession(gomock.Any(), live).Return(nil)
+		c.f.store.EXPECT().DestroySession(gomock.Any(), idle).Return(nil)
+
+		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
+		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":1}` {
+			t.Errorf("EndOtherSessions() = %d %s, want 200 {\"ended\":1}", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("others that all timed out end, and none is counted", func(t *testing.T) {
+		t.Parallel()
+		c := newOwnSessionsCase(t)
+		c.signedIn()
+		idle := impulse.Must(impulse.NewUUID())
+		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()), row(idle, "Safari on iPhone", c.timedOut(), c.timedOut()))
+		c.f.store.EXPECT().DestroySession(gomock.Any(), idle).Return(nil)
+
+		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
+		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":0}` {
+			t.Errorf("EndOtherSessions() = %d %s, want 200 {\"ended\":0}", rr.Code, rr.Body.String())
+		}
+	})
+
 	t.Run("a person signed in nowhere else ends nothing", func(t *testing.T) {
 		t.Parallel()
 		c := newOwnSessionsCase(t)
 		c.signedIn()
-		c.listed(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()))
+		c.unexpired(row(c.sessionID, "Chrome on Linux", time.Now(), time.Now()))
 
 		rr := c.serve(c.f.auth.EndOtherSessions(), c.ctx(), http.MethodPost, "")
 		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"ended":0}` {
