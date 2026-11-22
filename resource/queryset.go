@@ -525,6 +525,44 @@ func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *
 	return nil
 }
 
+// keepGrantedDeclaredOrder is the computed resource's rule for its declared
+// order, where the request states no sort: the handler, or the body, sorts the
+// rows by their real values and nothing masks a cell to the sort, so a field of
+// the order the caller does not hold with no condition is left out of the
+// caller's order, and the list comes in the order of the order's other terms,
+// then the key. Nothing is refused: the caller asked for no sort. The order kept
+// is a new slice, since the one the query set was given is the decoder's own,
+// shared by every request.
+func (q *QuerySet[Resource]) keepGrantedDeclaredOrder(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions) error {
+	fields := q.declaredOrderFields()
+	if len(fields) == 0 {
+		return nil
+	}
+	decisions, decided, err := q.queryFieldDecisions(ctx, rSet, userPermissions, fields)
+	if err != nil {
+		return err
+	}
+	kept := make([]SortField, 0, len(q.defaultOrder))
+	for _, sf := range q.defaultOrder {
+		field := q.grantField(accesstypes.Field(sf.Field))
+		at := slices.IndexFunc(decided, func(qf queryField) bool { return qf.field == field })
+		if at >= 0 && !decisions[decided[at].res].IsGranted() {
+			continue
+		}
+		kept = append(kept, sf)
+	}
+	if len(kept) == 0 {
+		// An order with no term left is still the key's: Order() appends the
+		// key to an order it is given, and to none.
+		for _, key := range q.keyFields {
+			kept = append(kept, SortField{Field: string(key), Direction: SortAscending})
+		}
+	}
+	q.defaultOrder = kept
+
+	return nil
+}
+
 // queryField pairs a grant-bearing sort or filter field with its resource.
 type queryField struct {
 	field accesstypes.Field
