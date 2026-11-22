@@ -520,6 +520,43 @@ func TestTenancy_Apply_regeneratesWithTheRole(t *testing.T) {
 	}
 }
 
+// TestTenancy_grantTenantMaking_namesWhatItCouldNotGive pins the hand step the tenancy
+// step leaves where no role the foothold names is in the role file: it names the lists a
+// tenant is made with, the list of the roles a new tenant's people may start with only
+// where a tenant can have a directory, since only there is that list served.
+func TestTenancy_grantTenantMaking_namesWhatItCouldNotGive(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	tests := []struct {
+		name    string
+		tenancy Tenancy
+		want    string
+	}{
+		{
+			name:    "a tenant can have a directory",
+			tenancy: Tenancy{Table: "Tenants"},
+			want:    "and List on StaffInvitedTenants and StaffInvitedTenantRoles, as the tenanted skeleton's Administrator holds them",
+		},
+		{
+			name:    "no tenant has a directory",
+			tenancy: Tenancy{Table: "Tenants", NoDirectories: true},
+			want:    "and List on StaffInvitedTenants, as the tenanted skeleton's Administrator holds them",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ch := &Change{}
+			tt.tenancy.grantTenantMaking(&roleFile{}, &roleFile{}, nil, "staff", roles, &footholdRoles{}, ch)
+			if got := skippedLine(ch, roles+": no global role the staff auth's", tt.want); len(got) != 1 {
+				t.Errorf("Tenancy.grantTenantMaking() skipped %q, want one line holding %q", ch.Skipped, tt.want)
+			}
+		})
+	}
+}
+
 // TestRoleFile_keepsTheFile pins that a role file read to be changed is written back as
 // it was: every role file the command renders reads and writes to the same bytes, so a
 // change to one is the change alone, the file's auth stays its first key, and the

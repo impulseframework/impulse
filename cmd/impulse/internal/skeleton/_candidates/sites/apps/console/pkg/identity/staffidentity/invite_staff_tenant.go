@@ -58,10 +58,12 @@ type (
 		TenantDirectoryOnly bool
 		// DefaultRole is the role a person from the tenant's directory starts with,
 		// where the first sign-in sets one; empty, the tenant admits its
-		// directory's people by invitation. It is a role the caller could give a person
-		// directly, and a grant's condition reads it as new.role.
+		// directory's people by invitation. It is picked from the roles the caller could
+		// start a new tenant's people with (StaffInvitedTenantRoles),
+		// and a grant's condition reads it as new.role.
 		//
 		// @attribute(role)
+		// @enumerate(StaffInvitedTenantRoles)
 		DefaultRole *string
 	}
 	// InviteStaffTenantResult answers the invitation's id and whether its message went.

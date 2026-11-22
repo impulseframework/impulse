@@ -315,6 +315,11 @@ describe("the library's pages over an auth's generated management", () => {
       expect(takes, `${Methods.InviteCrewSector}.${name}`).toContain(name);
     }
     // The starting role is picked from the roles the server lists, each by its name and description.
+    const startingRole = sends.fields.find((field) => field.fieldName === 'defaultRole');
+    expect([startingRole?.displayType, startingRole?.enumeratedResource]).toEqual([
+      'enumerated',
+      Resources.CrewInvitedSectorRoles,
+    ]);
     expect(invite?.shows).toEqual({ defaultRole: ['name', 'description'] });
     // Every detail the list shows of the sector is one the form asks for, under the same name.
     for (const [id] of shown.slice(0, 5)) {

@@ -1650,7 +1650,7 @@ const methodMap: MethodMap = {
       { fieldName: 'sectorRegion', displayType: 'string', required: true },
       { fieldName: 'sectorEstablished', displayType: 'civildate', required: true },
       { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
-      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+      { fieldName: 'defaultRole', displayType: 'enumerated', enumeratedResource: Resources.CrewInvitedSectorRoles, optional: true, attribute: 'role' },
     ],
   },
   [Methods.InviteCrewSectorUser]: {

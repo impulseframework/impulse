@@ -216,6 +216,8 @@ type GeneratedHandlers interface {
 
 	StaffInvitedTenants() http.HandlerFunc
 
+	StaffInvitedTenantRoles() http.HandlerFunc
+
 	StaffListedGroups() http.HandlerFunc
 	StaffListedGroup() http.HandlerFunc
 
@@ -511,6 +513,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffInvitedTenantsHandler := h.StaffInvitedTenants()
 	bounded.Get("/api/staff-invited-tenants", staffInvitedTenantsHandler)
 	bounded.Post("/api/staff-invited-tenants", staffInvitedTenantsHandler)
+
+	staffInvitedTenantRolesHandler := h.StaffInvitedTenantRoles()
+	bounded.Get("/api/staff-invited-tenant-roles", staffInvitedTenantRolesHandler)
+	bounded.Post("/api/staff-invited-tenant-roles", staffInvitedTenantRolesHandler)
 
 	staffListedGroupsHandler := h.StaffListedGroups()
 	bounded.Get("/api/staff-listed-groups", staffListedGroupsHandler)
