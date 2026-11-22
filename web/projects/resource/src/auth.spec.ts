@@ -1124,8 +1124,8 @@ describe("changing the person's own username", () => {
 describe('asking whether a username is free', () => {
   it('posts to the path of the list last read, reading the list only when none was read', async () => {
     const { auth, transport } = authOver(ownAccount());
-    expect(await auth.usernameFree('nova')).toBe(true);
-    expect(await auth.usernameFree('novae')).toBe(true);
+    expect(await auth.usernameFree('nova')).toEqual({ outcome: 'answered', free: true });
+    expect(await auth.usernameFree('novae')).toEqual({ outcome: 'answered', free: true });
     expect(sent(transport)).toEqual([
       `GET /console/api/${loginMethodsRoute}`,
       `POST ${usernameFreePath}`,
@@ -1134,17 +1134,24 @@ describe('asking whether a username is free', () => {
     expect(transport.requests[1].body).toEqual({ username: 'nova' });
   });
 
-  it('answers false for anything but free: true', async () => {
+  it('answers not free for anything but free: true', async () => {
     for (const body of [{ free: false }, { free: 'yes' }, {}, null]) {
       const { auth } = authOver(ownAccount({ usernameFree: { status: 200, body } }));
-      expect(await auth.usernameFree('nova')).toBe(false);
+      expect(await auth.usernameFree('nova')).toEqual({ outcome: 'answered', free: false });
     }
   });
 
-  it('asks quietly: an answer that is an error is thrown and handed to no error hook', async () => {
-    const { auth, errors } = authOver(
-      ownAccount({ usernameFree: { status: 409, body: { message: 'You sign in with your email address' } } }),
-    );
+  for (const status of [400, 401, 403, 409]) {
+    it(`resolves a ${status} as refused, with the server's words, handed to no error hook`, async () => {
+      const message = 'A username is text on one line, with no tab or other control character.';
+      const { auth, errors } = authOver(ownAccount({ usernameFree: { status, body: { message } } }));
+      expect(await auth.usernameFree('nova')).toEqual({ outcome: 'refused', status, message });
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('asks quietly: any other answer that is an error is thrown and handed to no error hook', async () => {
+    const { auth, errors } = authOver(ownAccount({ usernameFree: { status: 500, body: { message: 'boom' } } }));
     await expect(auth.usernameFree('nova')).rejects.toBeInstanceOf(ApiError);
     expect(errors).toEqual([]);
   });

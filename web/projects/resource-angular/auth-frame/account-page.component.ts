@@ -57,10 +57,15 @@ export const usernameMaxLength = 200;
 /** A line of the page that opens as a form. */
 type Line = 'username' | 'name' | 'email' | 'password';
 
-/** What the server answered about a username the person typed, for the text it answered; `failed` where the question failed. */
+/**
+ * What the server answered about a username the person typed, for the text it answered:
+ * `refused`, the server's words, where it does not keep the name; `failed` where the
+ * question failed.
+ */
 interface UsernameAnswer {
   readonly text: string;
   readonly free: boolean;
+  readonly refused?: string;
   readonly failed: boolean;
 }
 
@@ -256,6 +261,9 @@ export class AccountPageComponent {
     }
     if (answer.failed) {
       return 'We could not check that name. Change it to try again.';
+    }
+    if (answer.refused !== undefined) {
+      return answer.refused;
     }
     return answer.free ? 'That username is free.' : 'Someone else has that username.';
   });
@@ -584,8 +592,12 @@ export class AccountPageComponent {
     this.usernameAsking = true;
     const release = this.pendingTasks.add();
     try {
-      const free = await this.client.auth.usernameFree(text);
-      this.usernameAnswer.set({ text, free, failed: false });
+      const answer = await this.client.auth.usernameFree(text);
+      this.usernameAnswer.set(
+        answer.outcome === 'answered'
+          ? { text, free: answer.free, failed: false }
+          : { text, free: false, refused: answer.message, failed: false },
+      );
     } catch {
       this.usernameAnswer.set({ text, free: false, failed: true });
     } finally {

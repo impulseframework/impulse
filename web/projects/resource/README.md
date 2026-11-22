@@ -717,8 +717,9 @@ endOthers }`, present only with all three) and `forgetBrowsers`, each absent whe
 does not serve it, and the first two absent too where the usernames are the addresses.
 `changeUsername(username)` resolves `changed` with the username as the server keeps it, or
 `refused` with the server's words (someone else holds the name, the usernames are the addresses,
-an impersonated session); `usernameFree(username)` resolves whether the person may take the name,
-`true` for one no one else holds, and uses the list last read, as `passwordStrength` does;
+an impersonated session); `usernameFree(username)` resolves `answered` with whether the person
+may take the name (`free`, true for one no one else holds), or `refused` with the server's words
+for a name it does not keep, and uses the list last read, as `passwordStrength` does;
 `ownSessions()` resolves `{ sessions, rememberedBrowsers }`, the person's own live sessions, the
 one of this browser first and marked `current`, each with its `browser` name where the server
 recognized it, whether it is a `phone`, `signedInAt` and `lastUsedAt`, and how many browsers the

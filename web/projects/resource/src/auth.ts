@@ -489,6 +489,15 @@ export type NameChangeResult = { readonly outcome: 'changed'; readonly name?: st
 export type UsernameChangeResult = { readonly outcome: 'changed'; readonly username: string } | SignInRefusal;
 
 /**
+ * What the question whether a username is free answers: `answered`, with whether the
+ * person may take the name (`free`, true for one no one else holds, or the person holds
+ * themselves); or the server's refusal, resolved rather than thrown, with its words: the
+ * name is not one the server keeps, the usernames are the addresses, or the session is an
+ * impersonation.
+ */
+export type UsernameFreeResult = { readonly outcome: 'answered'; readonly free: boolean } | SignInRefusal;
+
+/**
  * Where a signed-in person is signed in, as the server answers it: their own live
  * sessions, the one of this browser first, and how many browsers the second factor
  * remembers for them.
@@ -1348,23 +1357,29 @@ export class AuthClient {
 
   /**
    * Asks the server whether the signed-in person may take a username, for a page to say
-   * while the person types it: true for a name no one holds, or the person holds
-   * themselves. Posts to the path of the list the client last read, reading the list only
-   * when none was read, as the password strength question does. The question is quiet: an
-   * answer that is an error is thrown, and never handed to the application's error hook. A
-   * server whose list names no such path serves none, and the call throws saying so.
+   * while the person types it: `answered`, free for a name no one holds, or the person
+   * holds themselves; or the server's refusal with its words, for a name it does not keep.
+   * Posts to the path of the list the client last read, reading the list only when none
+   * was read, as the password strength question does. The question is quiet: a refusal is
+   * resolved, any other answer that is an error is thrown, and neither is handed to the
+   * application's error hook. A server whose list names no such path serves none, and the
+   * call throws saying so.
    */
-  async usernameFree(username: string): Promise<boolean> {
+  async usernameFree(username: string): Promise<UsernameFreeResult> {
     const list = this.snapshot.get() ?? (await this.methods());
     if (!list.usernameFree) {
       throw new Error('this server names no is-this-name-free path in its methods list: it does not serve one');
     }
-    const response = await this.options.request<{ free?: unknown } | null>('POST', list.usernameFree, {
+    const response = await this.options.request<{ free?: unknown } | RefusalAnswer | null>('POST', list.usernameFree, {
       body: { username },
       absolute: true,
       quiet: true,
+      accept: changeRefusals,
     });
-    return response.body?.free === true;
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'answered', free: (response.body as { free?: unknown } | null)?.free === true };
   }
 
   /**

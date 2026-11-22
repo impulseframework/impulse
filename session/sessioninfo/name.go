@@ -11,6 +11,10 @@ import (
 // MaxNameLength is the longest name a user holds, in characters.
 const MaxNameLength = 200
 
+// MaxUsernameLength is the longest username somebody may type, in characters: neither
+// database's index on the username keeps every longer name.
+const MaxUsernameLength = 200
+
 // CleanName is a person's name as a user row keeps it: without the space around it, nil
 // for none (nil, or nothing but space). A name longer than MaxNameLength, and one that
 // is not text on one line (a control character in it, a line break and a tab among
@@ -25,7 +29,7 @@ func CleanName(name *string) (*string, error) {
 	if clean == "" {
 		return nil, nil
 	}
-	if !OneLineOfText(clean) {
+	if !oneLineOfText(clean) {
 		return nil, httpio.NewBadRequestMessage("a name is text on one line: it holds no line break, tab or other control character")
 	}
 	if utf8.RuneCountInString(clean) > MaxNameLength {
@@ -48,9 +52,24 @@ func KeptName(name string) string {
 	return *clean
 }
 
-// OneLineOfText reports whether a value is text a row keeps and a page draws on one
+// UsernameRefusal is the refusal, in words, of a username somebody typed that the
+// databases do not all keep: one that is not text on one line, or of more than
+// MaxUsernameLength characters. It is nil for any other name. A name nobody typed (a
+// directory's, an address used as the username) is not held to it.
+func UsernameRefusal(name string) error {
+	if !oneLineOfText(name) {
+		return httpio.NewBadRequestMessage("A username is text on one line, with no tab or other control character.")
+	}
+	if utf8.RuneCountInString(name) > MaxUsernameLength {
+		return httpio.NewBadRequestMessagef("A username is at most %d characters.", MaxUsernameLength)
+	}
+
+	return nil
+}
+
+// oneLineOfText reports whether a value is text a row keeps and a page draws on one
 // line: valid UTF-8 with no control character in it. A database refuses some of these
 // outright (PostgreSQL keeps no NUL in text), so the rule refuses them first, in words.
-func OneLineOfText(value string) bool {
+func oneLineOfText(value string) bool {
 	return utf8.ValidString(value) && !strings.ContainsFunc(value, unicode.IsControl)
 }

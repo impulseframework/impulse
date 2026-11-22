@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -19,7 +20,8 @@ import (
 // role, which carry the actor's own name). Nothing the person holds follows the name:
 // the permission store names a person by the id of their account, so the roles stay
 // where they are. A name another user holds is a Conflict; the same name in another
-// case is the person's own. A super administrator is renamed by a super administrator
+// case is the person's own. The name is a typed one, held to sessioninfo.UsernameRefusal.
+// A super administrator is renamed by a super administrator
 // alone, since the name is what the person signs in with
 // (requireSuperAdministratorFor).
 //
@@ -35,6 +37,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	name := strings.TrimSpace(username)
 	if name == "" {
 		return httpio.NewBadRequestMessage("a username is required")
+	}
+	if err := sessioninfo.UsernameRefusal(name); err != nil {
+		return err
 	}
 	old, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {

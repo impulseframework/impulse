@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
@@ -28,10 +27,6 @@ func errUsernameIsAddress() error {
 
 // usernameHeldMessage is the refusal of a username someone else holds.
 const usernameHeldMessage = "Someone else has that username."
-
-// maxUsernameLength is the most characters a person's own username may have: neither
-// database's index on the username keeps every longer name.
-const maxUsernameLength = 200
 
 // ChangeUsername is the handler a signed-in person's account page calls to change their
 // own username: it accepts {"username"} and answers {"username"}, the username as it is
@@ -73,7 +68,7 @@ func (a *Auth[S, U, Tx]) ChangeUsername() http.HandlerFunc {
 		if name == "" {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Type a username."))
 		}
-		if err := unkeptUsername(name); err != nil {
+		if err := sessioninfo.UsernameRefusal(name); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if name == user.Username {
@@ -138,7 +133,7 @@ func (a *Auth[S, U, Tx]) UsernameFree() http.HandlerFunc {
 		if name == "" {
 			return httpio.NewEncoder(w).Ok(response{Free: false})
 		}
-		if err := unkeptUsername(name); err != nil {
+		if err := sessioninfo.UsernameRefusal(name); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		free, err := a.usernameFreeFor(ctx, name, sessioninfo.UserFromCtx(ctx))
@@ -148,20 +143,6 @@ func (a *Auth[S, U, Tx]) UsernameFree() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(response{Free: free})
 	}))
-}
-
-// unkeptUsername is the refusal, in words, of a name neither database keeps as a
-// username: one that is not text on one line, or of more than maxUsernameLength
-// characters. It is nil for any other name, and asks the store nothing.
-func unkeptUsername(name string) error {
-	if !sessioninfo.OneLineOfText(name) {
-		return httpio.NewBadRequestMessage("A username is text on one line, with no tab or other control character.")
-	}
-	if utf8.RuneCountInString(name) > maxUsernameLength {
-		return httpio.NewBadRequestMessagef("A username is at most %d characters.", maxUsernameLength)
-	}
-
-	return nil
 }
 
 // usernameFreeFor reports whether user may take name: no user holds it, as a sign-in

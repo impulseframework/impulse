@@ -1294,6 +1294,8 @@ func TestAuth_SignUp(t *testing.T) {
 	t.Run("while the method is invite only every sign-up route answers 404: nothing is mailed, stored or created", authSignUpCase3)
 	t.Run("a completion the store refuses because the method was closed since the link was mailed is 404, and nobody is signed in", authSignUpCase4)
 	t.Run("the login page is told the sign-up routes only while the method is open, read as each request arrives", authSignUpCase5)
+	t.Run("a chosen username with a control character in it is refused in words, and no account is made", authSignUpCase6)
+	t.Run("where the usernames are the addresses, an address longer than a typed username may be is not held to that rule", authSignUpCase7)
 }
 
 func authSignUpCase1(t *testing.T) {
@@ -1455,6 +1457,40 @@ func authSignUpCase4(t *testing.T) {
 	}
 	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count = %+v, want it untouched by a refused sign-up", record)
+	}
+}
+
+func authSignUpCase6(t *testing.T) {
+	t.Parallel()
+	f, _, links := newMailFixture(t, gomock.NewController(t))
+	token, hash, err := linkToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	links.insert(&sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: "new@lakeside.edu", ExpiresAt: time.Now().Add(time.Hour)})
+
+	// The mocked store refuses a call it was not told of: no account is made and nobody
+	// is signed in.
+	rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse battery staple", "username": "new\x00bie"}, nil)
+	if rr.Code != http.StatusBadRequest || messageOf(t, rr) != "A username is text on one line, with no tab or other control character." {
+		t.Errorf("Complete() with a NUL in the username = %d %s, want 400 saying a username is text on one line", rr.Code, rr.Body.String())
+	}
+	if links.rows[0].ConsumedAt != nil {
+		t.Error("the refused sign-up spent its link, want it standing")
+	}
+}
+
+func authSignUpCase7(t *testing.T) {
+	t.Parallel()
+	f, _, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+	address := strings.Repeat("a", sessioninfo.MaxUsernameLength) + "@lakeside.edu"
+
+	insert, err := f.auth.newAccount(address, "", "correct horse battery staple", "")
+	if err != nil {
+		t.Fatalf("newAccount() of an address of %d characters error = %v, want the account", len(address), err)
+	}
+	if insert.Username != address {
+		t.Errorf("newAccount() username = %q, want the address", insert.Username)
 	}
 }
 

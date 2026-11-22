@@ -626,6 +626,27 @@ describe('AccountPageComponent', () => {
       ]);
     });
 
+    it("says the server's words for a name it does not keep, keeps Save locked, and asks about the next name", async () => {
+      const words = 'A username is text on one line, with no tab or other control character.';
+      await open({ hold: [passwordMethods.usernameFree] });
+      await openLine('username');
+      type('username', 'gale\tr');
+      await drain();
+      held[0]?.answer({ status: 400, body: { message: words } });
+      await drain();
+      expect(say()).toBe(words);
+      expect(save()?.disabled).toBe(true);
+      expect(page().refusal()).toBeUndefined();
+
+      type('username', 'gale.r');
+      await drain();
+      held[1]?.answer({ status: 200, body: { free: true } });
+      await drain();
+      expect(say()).toBe('That username is free.');
+      expect(save()?.disabled).toBe(false);
+      expect(held.map((h) => h.body)).toEqual([{ username: 'gale\tr' }, { username: 'gale.r' }]);
+    });
+
     it('asks no second question while one is out, draws no answer for an older text, and asks again for the text the box holds', async () => {
       await open({ hold: [passwordMethods.usernameFree] });
       await openLine('username');
