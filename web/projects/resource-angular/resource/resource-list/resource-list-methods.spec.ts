@@ -495,6 +495,35 @@ describe('ResourceListComponent row methods', () => {
     expect(opened).toEqual([{ method: 'SweepBerth', label: 'Sweep the berth', preset: { berth: 'North' } }]);
   });
 
+  const listsBerths: PermissionDigest = { [berths]: { List: 'granted' }, [`${berths}.name`]: { List: 'granted' } };
+  for (const tt of [
+    {
+      name: 'the page fills none of them',
+      presentation: { method: 'SweepBerth' as Method, label: 'Sweep the berth' } as MethodPresentation,
+      granted: { ...listsBerths, SweepBerth: { Execute: 'granted' } } as PermissionDigest,
+    },
+    {
+      name: 'the digest does not grant the one it fills',
+      presentation: {
+        method: 'SweepBerth' as Method,
+        label: 'Sweep the berth',
+        fill: (row) => ({ berth: row['name'] }),
+      } as MethodPresentation,
+      granted: listsBerths,
+    },
+  ]) {
+    it(`asks for no row's Execute answer on an offered method's account where ${tt.name}`, async () => {
+      await create(
+        { primaryResource: berths, listColumns: [{ id: 'name' as FieldName }], rowMethods: [tt.presentation] } as never,
+        tt.granted,
+      );
+
+      expect(fixture.componentInstance.offeredMethodNames()).toEqual([]);
+      expect(listRequests()).toEqual(['GET /api/sectors/anvil/berths?columns=name%2Cid&count=true']);
+      expect(actionsOf(0)).toEqual([]);
+    });
+  }
+
   it('draws a button above the list for each method the page names there and the digest grants, and runs it with no row', async () => {
     await create(
       {

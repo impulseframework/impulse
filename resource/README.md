@@ -725,7 +725,8 @@ that names no row can be held the same way on the rows a page runs it from:
 `@callerEnters(Row, ...)` names the resource structs, each declares `TenantsToEnter`, and a row
 of one of them lists the method in its `Execute` answer as a row lists a method that names it.
 The generated method metadata carries the resources (`offeredOn`), and a page that fills the
-method's request from a row offers it only where the row's answer lists it. The declaration
+method's request from a row of one of them offers it only where the row's answer lists it;
+from a row of any other resource the method is offered by the grant alone. The declaration
 shapes what a page offers and refuses nothing: the method's own code refuses the call.
 
 ## 6. Impersonated sessions

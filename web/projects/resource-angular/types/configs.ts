@@ -171,7 +171,8 @@ export interface MethodPresentation {
    * target row and a `fill` is offered on every row while the digest grants the
    * caller Execute on it, since the server gives no answer for a row a method does not
    * name; a method whose metadata lists the resources whose rows answer for it
-   * (`offeredOn`) is offered only on a row whose Execute answer lists it.
+   * (`offeredOn`) is offered on a row of one of those resources only where the row's
+   * Execute answer lists it, and on a row of any other resource by the grant alone.
    */
   fill?: (row: RecordData) => Record<string, unknown>;
   /**

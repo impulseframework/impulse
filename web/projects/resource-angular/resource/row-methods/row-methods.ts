@@ -174,17 +174,19 @@ export function rowMethods(
  * The methods a row offers that name no target row and are filled from it: the ones the
  * page names with a `fill`, each while the caller holds Execute on the method (the
  * digest's answer), less the ones the page hides and the ones whose row predicate says
- * no. A method the server answers for on the rows a page runs it from (`offeredOn` in its
- * metadata) is offered only where the row's Execute answer lists it, and on no row read
- * without that answer; for any other, the server gives no answer for a row the method
- * does not name. Each presentation is offered as itself, so a method named twice is
- * offered under each one's own words and filled as each one fills it. As for a method
- * that names its row (rowMethods), a presentation whose predicate keeps the method off
- * the row is an entry of words where the page says what the row shows in its place
+ * no. On a row of a resource the method's metadata lists (`offeredOn`), the server answers
+ * for the method: it is offered only where the row's Execute answer lists it, and on no
+ * such row read without that answer. On a row of any other resource, and for a method that
+ * lists none, the server gives no answer for the row and the grant alone decides. Each
+ * presentation is offered as itself, so a method named twice is offered under each one's
+ * own words and filled as each one fills it. As for a method that names its row
+ * (rowMethods), a presentation whose predicate keeps the method off the row is an entry of
+ * words where the page says what the row shows in its place
  * (`otherwise`).
  */
 export function filledMethods(
   row: RecordData,
+  resource: Resource | undefined,
   presentations: readonly MethodPresentation[] | undefined,
   metaOf: (method: string) => MethodMeta | undefined,
   granted: (method: string) => boolean,
@@ -195,9 +197,13 @@ export function filledMethods(
     if (!presentation.fill || !meta || meta.target || !granted(presentation.method)) {
       continue;
     }
-    // The server answers for the method on this row: what it leaves out is not offered,
-    // and nothing is said in its place.
-    if (meta.offeredOn?.length && !rowCapabilities(row)?.Execute?.includes(presentation.method)) {
+    // The server answers for the method on the rows of this resource: what a row's answer
+    // leaves out is not offered, and nothing is said in its place.
+    if (
+      resource !== undefined &&
+      meta.offeredOn?.includes(resource) &&
+      !rowCapabilities(row)?.Execute?.includes(presentation.method)
+    ) {
       continue;
     }
     const entry = offeredAs(presentation.method, meta, presentation);

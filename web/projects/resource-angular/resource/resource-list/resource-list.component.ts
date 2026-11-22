@@ -397,25 +397,26 @@ export class ResourceListComponent implements OnInit {
     return this.store.methodsTargeting(config.primaryResource);
   });
   /**
-   * The generated methods that name no target row and are offered on the rows of the
-   * listed resource (`offeredOn` naming it), by the method metadata: the list asks the
-   * server about them with each row, and a row's menu offers the ones the page fills from
-   * the row where the row's answer lists them. None where `rowMethodNames` is none for the
-   * page.
+   * The methods the page fills from a row (`filledMethodNames`) that the rows of the listed
+   * resource answer for (`offeredOn` naming it), by the method metadata: the list asks the
+   * server about them with each row, and a row's menu offers each where the row's answer
+   * lists it. None where the page fills none of them, so a list that would not read the
+   * answer does not ask for it.
    */
   offeredMethodNames = computed<string[]>(() => {
     const config = this.config();
     if (config.rowMethods === false || !config.primaryResource || this.across()) {
       return [];
     }
-    return this.store.methodsOfferedOn(config.primaryResource);
+    const filled = this.filledMethodNames();
+    return this.store.methodsOfferedOn(config.primaryResource).filter((method) => filled.includes(method));
   });
   /**
    * The methods the page fills from a row and that name no target row (`fill` on a
    * presentation among `rowMethods`), each while the digest grants the caller Execute
    * on it: offered on every row, since the server answers nothing for a row the method
-   * does not name, and, for a method the rows answer for (`offeredOn`), where the row's
-   * Execute answer lists it.
+   * does not name, and, for a method the rows of the listed resource answer for
+   * (`offeredOn` naming it), where the row's Execute answer lists it.
    */
   filledMethodNames = computed<string[]>(() =>
     (this.across() ? [] : (this.methodPresentations() ?? []))
@@ -1123,7 +1124,9 @@ export class ResourceListComponent implements OnInit {
     const presentations = this.methodPresentations();
     const offeredHere = [
       ...rowMethods(row, methods, this.store.methodMeta, presentations),
-      ...filledMethods(row, presentations, this.store.methodMeta, (method) => filled.includes(method)),
+      ...filledMethods(row, this.config().primaryResource, presentations, this.store.methodMeta, (method) =>
+        filled.includes(method),
+      ),
     ];
     // A method the page presents more than once may be offered twice on one row: each
     // entry after the first carries its position, so the menu tells them apart.
