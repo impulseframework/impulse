@@ -94,6 +94,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "Logout"},
 		{url: "/console/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
 		{url: "/console/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
+		{url: "/console/api/user/sessions", suffix: "/user/sessions", method: http.MethodGet, handler: "OwnSessions"},
 		{url: "/console/api/user/google/login", suffix: "/user/google/login", method: http.MethodGet, handler: "GoogleLogin"},
 		{url: "/console/api/user/google/callback", suffix: "/user/google/callback", method: http.MethodGet, handler: "GoogleCallback"},
 		{url: "/console/api/user/sign-up/login", suffix: "/user/sign-up/login", method: http.MethodGet, handler: "SignUpLogin"},
@@ -112,6 +113,11 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "ForgetBrowser", xsrf: true},
 		{url: "/console/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "ChangeName", xsrf: true},
 		{url: "/console/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
+		{url: "/console/api/user/username", suffix: "/user/username", method: http.MethodPost, handler: "ChangeUsername", xsrf: true},
+		{url: "/console/api/user/username/free", suffix: "/user/username/free", method: http.MethodPost, handler: "UsernameFree", xsrf: true},
+		{url: "/console/api/user/sessions/end", suffix: "/user/sessions/end", method: http.MethodPost, handler: "EndOwnSession", xsrf: true},
+		{url: "/console/api/user/sessions/end-others", suffix: "/user/sessions/end-others", method: http.MethodPost, handler: "EndOtherSessions", xsrf: true},
+		{url: "/console/api/user/browser/forget-all", suffix: "/user/browser/forget-all", method: http.MethodPost, handler: "ForgetBrowsers", xsrf: true},
 		{url: "/console/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/console/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
 		{url: "/console/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
@@ -137,6 +143,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "PortalLogout"},
 		{url: "/portal/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PortalPendingStatus"},
 		{url: "/portal/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "PortalSignInMeans"},
+		{url: "/portal/api/user/sessions", suffix: "/user/sessions", method: http.MethodGet, handler: "PortalOwnSessions"},
 		{url: "/portal/api/user/directory/login", suffix: "/user/directory/login", method: http.MethodGet, handler: "PortalDirectoryLogin"},
 		{url: "/portal/api/user/directory/callback", suffix: "/user/directory/callback", method: http.MethodGet, handler: "PortalDirectoryCallback"},
 		{url: "/portal/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PortalPendingCancel", xsrf: true},
@@ -146,6 +153,11 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "PortalForgetBrowser", xsrf: true},
 		{url: "/portal/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "PortalChangeName", xsrf: true},
 		{url: "/portal/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "PortalChangeLook", xsrf: true},
+		{url: "/portal/api/user/username", suffix: "/user/username", method: http.MethodPost, handler: "PortalChangeUsername", xsrf: true},
+		{url: "/portal/api/user/username/free", suffix: "/user/username/free", method: http.MethodPost, handler: "PortalUsernameFree", xsrf: true},
+		{url: "/portal/api/user/sessions/end", suffix: "/user/sessions/end", method: http.MethodPost, handler: "PortalEndOwnSession", xsrf: true},
+		{url: "/portal/api/user/sessions/end-others", suffix: "/user/sessions/end-others", method: http.MethodPost, handler: "PortalEndOtherSessions", xsrf: true},
+		{url: "/portal/api/user/browser/forget-all", suffix: "/user/browser/forget-all", method: http.MethodPost, handler: "PortalForgetBrowsers", xsrf: true},
 		{url: "/portal/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "PortalInvitationOpen", xsrf: true},
 		{url: "/portal/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "PortalEmailConfirm", xsrf: true},
 		{url: "/portal/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "PortalInvitationAccept", xsrf: true, validated: true},
@@ -1800,6 +1812,10 @@ func (s *routerDefaultSessionStub) SignInMeans() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
+func (s *routerDefaultSessionStub) OwnSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnSessions")
+}
+
 func (s *routerDefaultSessionStub) GoogleLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "GoogleLogin")
 }
@@ -1870,6 +1886,26 @@ func (s *routerDefaultSessionStub) ChangeName() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) ChangeLook() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
+}
+
+func (s *routerDefaultSessionStub) ChangeUsername() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeUsername")
+}
+
+func (s *routerDefaultSessionStub) UsernameFree() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "UsernameFree")
+}
+
+func (s *routerDefaultSessionStub) EndOwnSession() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOwnSession")
+}
+
+func (s *routerDefaultSessionStub) EndOtherSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOtherSessions")
+}
+
+func (s *routerDefaultSessionStub) ForgetBrowsers() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowsers")
 }
 
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {
@@ -2007,6 +2043,10 @@ func (s *routerPortalSessionStub) SignInMeans() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
+func (s *routerPortalSessionStub) OwnSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnSessions")
+}
+
 func (s *routerPortalSessionStub) DirectoryLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "DirectoryLogin")
 }
@@ -2041,6 +2081,26 @@ func (s *routerPortalSessionStub) ChangeName() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) ChangeLook() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
+}
+
+func (s *routerPortalSessionStub) ChangeUsername() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeUsername")
+}
+
+func (s *routerPortalSessionStub) UsernameFree() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "UsernameFree")
+}
+
+func (s *routerPortalSessionStub) EndOwnSession() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOwnSession")
+}
+
+func (s *routerPortalSessionStub) EndOtherSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOtherSessions")
+}
+
+func (s *routerPortalSessionStub) ForgetBrowsers() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowsers")
 }
 
 func (s *routerPortalSessionStub) InvitationOpen() http.HandlerFunc {
