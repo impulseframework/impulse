@@ -248,6 +248,9 @@ func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Exece
 	if err := d.editMenuSpec(a, ch); err != nil {
 		return nil, err
 	}
+	if err := d.writeDialogsSpec(a, ch); err != nil {
+		return nil, err
+	}
 	if !settled[integrationHarness] || !settled[migrateTest] {
 		// The tests were not written for the methods, so what each registration
 		// validates is still the author's to give them.
