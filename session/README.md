@@ -1284,10 +1284,12 @@ the person reaches.
    together, in however many sign-ins, and no time resets the count. The wrong code
    that takes the twenty-fifth place, and every code asked for or entered for that
    account after it, is `401 {"code": "codes_spent"}`; nothing more is mailed to the
-   account from this step. The right code resets the count, and so does a password
-   chosen at a reset link, which shows the mailbox's reader as the code does and ends
-   the password the codes were guessed behind. An administrator resets it by clearing
-   the count's row, as a name's lock is cleared. The links, and a code asked for an
+   account from this step. The right code resets the count, once the sign-in has held it
+   to the address the account holds (a right code that was mailed to another address is
+   dead and resets nothing), and so does a password chosen at a reset link, which shows
+   the mailbox's reader as the code does and ends the password the codes were guessed
+   behind. An administrator resets it by clearing the count's row, as a name's lock is
+   cleared. The links, and a code asked for an
    address a person types at this step, are counted together under another key
    (`MAIL:`), which anybody who knows an address can run up. So nothing a person who
    has not reached an account's code step asks for in its person's name, or with a link

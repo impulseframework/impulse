@@ -91,10 +91,20 @@ func newOwnCodeFixture(t *testing.T) *ownCodeWaits {
 // account makes an account named username that holds the address email, nobody having
 // confirmed it, and returns its id and a password sign-in of it held for its own code.
 func (w *ownCodeWaits) account(username, email string) (impulse.UUID, *pendingState) {
-	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: username, Email: new(email)}
+	user, wait := w.holder(username, new(email))
+
+	return user.ID, wait
+}
+
+// holder makes an account named username that holds the address email, nil for none,
+// and returns it and a password sign-in of it held for the mailed code. The store
+// answers every read of the account with the account returned, so a change made to it
+// is the account's change.
+func (w *ownCodeWaits) holder(username string, email *string) (*sessionstorage.SessionUser, *pendingState) {
+	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: username, Email: email}
 	w.f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
 
-	return user.ID, w.wait(user.ID, username, sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()})
+	return user, w.wait(user.ID, username, sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()})
 }
 
 // wait is a sign-in of the account with id through identity, held for the account's
@@ -188,6 +198,7 @@ func TestAuth_ownCodeGuesses(t *testing.T) {
 	t.Run("a typed address's code, an invitation's code and a code entered while none stands take no place in the count", ownCodeGuessesNotCounted)
 	t.Run("a password chosen at a reset link starts the count again", ownCodeGuessesResetByLink)
 	t.Run("two accounts whose addresses read alike have a count each: one's wrong codes take no place in the other's, one's right code leaves the other's count as it was, and one's spent count leaves the other mailed its code", ownCodeCountIsTheAccounts)
+	t.Run("a right code that was mailed to another address than the account holds is dead and starts no count again", ownCodeMailedElsewhere)
 }
 
 func ownCodesSpentByWrongCodes(t *testing.T) {
@@ -448,4 +459,65 @@ func ownCodeCountIsTheAccounts(t *testing.T) {
 	w.mailCodeTo(t, sam, samAddress)
 	_, err := w.f.auth.sendCodeToUser(t.Context(), pat)
 	assertCodesSpent(t, err, "a code asked for pat once pat's count is spent")
+}
+
+func ownCodeMailedElsewhere(t *testing.T) {
+	t.Parallel()
+
+	// Each case mails the code, then gives the account the address it holds when the code
+	// is entered, and returns the account, its sign-in and the code.
+	for _, tc := range []struct {
+		name string
+		mail func(t *testing.T, w *ownCodeWaits) (*sessionstorage.SessionUser, *pendingState, string)
+	}{
+		{
+			name: "the account held none, its person typed an address and was mailed a code, and the account was then given another address",
+			mail: func(t *testing.T, w *ownCodeWaits) (*sessionstorage.SessionUser, *pendingState, string) {
+				t.Helper()
+				user, wait := w.holder("pat", nil)
+				if _, err := w.f.auth.enrollEmail(t.Context(), wait, typedAddress); err != nil {
+					t.Fatalf("enrollEmail(%q) error = %v, want the code mailed", typedAddress, err)
+				}
+				msgs := w.recorder.Messages()
+				last := msgs[len(msgs)-1]
+				m := signInCodeSubject.FindStringSubmatch(last.Subject)
+				if last.To != typedAddress || m == nil {
+					t.Fatalf("the last message = %q to %q, want the sign-in code mailed to %q", last.Subject, last.To, typedAddress)
+				}
+				user.Email = new(ownAddress)
+
+				return user, wait, m[1] + m[2]
+			},
+		},
+		{
+			name: "the account's address was changed while its code stood",
+			mail: func(t *testing.T, w *ownCodeWaits) (*sessionstorage.SessionUser, *pendingState, string) {
+				t.Helper()
+				user, wait := w.holder("pat", new(ownAddress))
+				code := w.mailCodeTo(t, wait, ownAddress)
+				user.Email = new("pat@elsewhere.example")
+
+				return user, wait, code
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newOwnCodeFixture(t)
+			user, wait, code := tc.mail(t, w)
+			for range 3 {
+				w.f.countFailure(ownCodeRow(user.ID), codeGuessLimit)
+			}
+
+			if got := w.enter(t, wait, code); got != sessioninfo.RefusedCodeExpired {
+				t.Fatalf("the right code, mailed to another address than the account holds = %q, want %q", got, sessioninfo.RefusedCodeExpired)
+			}
+			if len(w.claims) != 0 {
+				t.Errorf("the sign-ins that reached the store = %+v, want none", w.claims)
+			}
+			if got := ownCodeGuesses(w.f, user.ID); got != 4 {
+				t.Errorf("the account's count after the code = %d, want 4: the code took its place, and nothing started the count again", got)
+			}
+		})
+	}
 }

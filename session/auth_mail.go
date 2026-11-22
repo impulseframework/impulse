@@ -959,9 +959,10 @@ func (a *Auth[S, U, Tx]) clearAddressGuesses(ctx context.Context, email string) 
 }
 
 // clearCodeGuesses resets the count of the wrong codes entered for the account with
-// userID once a proof of its mailbox was given: the account's own right code, or a
-// password chosen at a reset link mailed to the account's address. It is bookkeeping
-// after the proof: a failure is logged, and the request goes on.
+// userID once a proof of its mailbox was given: the account's own right code, once the
+// sign-in held it to the address the account holds, or a password chosen at a reset
+// link mailed to the account's address. It is bookkeeping after the proof: a failure is
+// logged, and the request goes on.
 func (a *Auth[S, U, Tx]) clearCodeGuesses(ctx context.Context, userID impulse.UUID) {
 	if err := a.storage.ClearSignInAttempts(ctx, codeGuessKey(userID)); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))

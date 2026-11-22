@@ -711,20 +711,25 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 	}
 	email := entered.Email
 	// The code reached the person: the counts it was sent under are reset, and so is the
-	// count of the wrong codes entered for the address they typed, or for their account.
+	// count of the wrong codes entered for the address where they typed it.
 	a.clearCodeLimit(ctx, email)
 	a.clearMailLimit(ctx, email)
 	a.clearInvitationCodeOf(ctx, email)
 	if typedAddressCode(before, entered) {
 		a.clearAddressGuesses(ctx, email)
 	}
-	if ownCode(before, entered) {
-		a.clearCodeGuesses(ctx, before.ID)
-	}
 
 	at, err := a.attemptWithCode(ctx, p, before, entered)
 	if err != nil {
 		return nil, err
+	}
+	// The code was mailed to the address the account holds, and was right: the mailbox the
+	// account's codes go to has shown its reader, and the account's count of wrong codes
+	// starts again. A right code that was mailed elsewhere, to an address the account held
+	// before or one its person typed while it held none, is dead (codeHolder) and starts
+	// nothing again.
+	if ownCode(before, entered) {
+		a.clearCodeGuesses(ctx, before.ID)
 	}
 	outcome, err := a.signIn(ctx, w, at)
 	if err != nil {
