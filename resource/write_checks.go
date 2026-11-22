@@ -123,7 +123,8 @@ func (p *PatchSet[Resource]) writeConditionGroups() ([]writeCheckGroup, error) {
 // consistent snapshot — plus the mutation's structural-tenancy obligation
 // (design plan §06): a partitioned update or delete locates its row within
 // the tenant predicate (a cross-tenant key is NotFound), and a partitioned
-// insert proves its image belongs to the partition. Any failing conditional
+// insert, or an update that moves its row along a join path, proves its image
+// belongs to the partition. Any failing conditional
 // group aborts the mutation as Forbidden; nothing commits. No carried
 // conditions and no partition — no query.
 func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn ReadWriteTransaction) error {
@@ -172,7 +173,7 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 		}
 	}
 
-	if tenancy.insertPathTerm() {
+	if tenancy.pathTerm() {
 		var inPartition spanner.NullBool
 		if err := row.Column(len(groups), &inPartition); err != nil {
 			return errors.Wrap(err, "spanner.Row.Column()")
@@ -194,7 +195,8 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 // the target row located by primary key WITHIN the tenant predicate when the
 // request is partitioned (design plan §06): a cross-tenant key finds no row.
 // Insert has no target-row FROM; a partitioned insert over a join-path
-// binding appends the proposed image's tenancy EXISTS as the last term.
+// binding, or an update that sets the foreign key the path leaves through,
+// appends the proposed image's tenancy EXISTS as the last term.
 func (p *PatchSet[Resource]) writeCheckStatement(dbType DBType, groups []writeCheckGroup, tenancy *mutationTenancy) (*Statement, error) {
 	q := p.querySet
 	if q.collection == nil {
@@ -234,8 +236,8 @@ func (p *PatchSet[Resource]) writeCheckStatement(dbType DBType, groups []writeCh
 		terms = append(terms, fmt.Sprintf("(%s) AS g%d", sql, i+1))
 	}
 
-	if tenancy.insertPathTerm() {
-		sql, err := insertTenancyTerm(tenancy, lctx, gen, registry)
+	if tenancy.pathTerm() {
+		sql, err := pathTenancyTerm(tenancy, lctx, gen, registry)
 		if err != nil {
 			return nil, errors.Wrapf(err, "resource %s", q.Resource())
 		}

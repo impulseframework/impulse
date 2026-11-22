@@ -706,7 +706,9 @@ and does not find, are answered "This mission does not exist.", by the record's 
 name in words. What it looked for (the statement's `WHERE` clause with its values, or
 the row's key) is kept for the log and never sent. A write whose record names another
 that is not there for the caller is answered "A record this one refers to does not
-exist."
+exist." A record that reads its tenant through other rows (`@domain(via: ...)`) is
+answered so on both writes: when it is created under a row of another tenant, and when
+an update moves it under one.
 
 ## 6. Impersonated sessions
 

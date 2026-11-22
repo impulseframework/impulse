@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -117,4 +118,63 @@ func TestWriteTenancy(t *testing.T) {
 	}
 
 	_ = codes.NotFound
+}
+
+// TestWriteTenancy_moveUnderAnotherSector pins the update's join-path proof: an expense
+// reads its sector through its sortie and that sortie's mission, and an update that moves
+// it under a sortie of another sector is answered as one that moves it under a sortie that
+// is not there, and leaves it where it was. Moved under another sortie of its own sector,
+// it moves.
+func TestWriteTenancy_moveUnderAnotherSector(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A sortie of Bastion, on Bastion's open mission.
+	const bastionSortieID = "9b000000-0000-4000-8000-000000000001"
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.Insert("Sorties",
+		[]string{"Id", "MissionId", "ShipId", "PilotUserId", "LaunchedAt"},
+		[]any{bastionSortieID, missionBeaconID, shipBastionWatchID, "f0000000-0000-4000-8000-000000000004", time.Now().UTC()},
+	)}); err != nil {
+		t.Fatalf("spanner.Apply(Sorties): %v", err)
+	}
+
+	h := newTestApp(db, grants{accesstypes.Update: withFields("SortieExpenses", "sortieId")})
+	move := func(t *testing.T, expense, sortie string) (int, []byte) {
+		t.Helper()
+
+		body := fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"sortieId":%q}}]`, opPath(anvil, "sortie-expenses/"+expense), sortie)
+
+		return doRequest(t, h, http.MethodPatch, "/console/api/resources", body)
+	}
+
+	t.Run("an expense of Anvil moved under a sortie of Bastion is refused as one moved under a sortie that is not there", func(t *testing.T) {
+		t.Parallel()
+
+		for _, sortie := range []string{bastionSortieID, "9b000000-0000-4000-8000-0000000000ff"} {
+			status, body := move(t, expenseConvoyFuelID, sortie)
+			assertStatus(t, status, http.StatusNotFound, body)
+			if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
+				t.Errorf("moved under %s: message = %q, want %q", sortie, got, want)
+			}
+		}
+		if got := readColumn[string](ctx, t, db, "SortieExpenses", spanner.Key{expenseConvoyFuelID}, "SortieId"); got != sortieConvoyID {
+			t.Errorf("SortieId = %s, want unchanged %s", got, sortieConvoyID)
+		}
+	})
+
+	t.Run("an expense of Anvil moved under another sortie of Anvil is moved", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := move(t, expenseConvoyMedID, sortieCourierID)
+		assertStatus(t, status, http.StatusOK, body)
+		if got := readColumn[string](ctx, t, db, "SortieExpenses", spanner.Key{expenseConvoyMedID}, "SortieId"); got != sortieCourierID {
+			t.Errorf("SortieId = %s, want %s", got, sortieCourierID)
+		}
+	})
 }

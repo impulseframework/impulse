@@ -370,9 +370,12 @@ type tenancyChildCreateRequest struct {
 	Note     string       `json:"note"`
 }
 
-// TestPatchSet_mutationTenancy_joinPath pins a join-path binding's insert
-// proof: the proposed foreign key must land in the request's partition,
-// rendered as correlated EXISTS over the proposed image.
+// TestPatchSet_mutationTenancy_joinPath pins a join-path binding's proof that
+// the proposed foreign key lands in the request's partition, rendered as
+// correlated EXISTS over the proposed image: on an insert, and on an update
+// that moves the row to another parent, whose row is still located within its
+// own tenant predicate. An update that leaves the foreign key proves nothing
+// more than where its row is.
 func TestPatchSet_mutationTenancy_joinPath(t *testing.T) {
 	t.Parallel()
 
@@ -385,7 +388,7 @@ func TestPatchSet_mutationTenancy_joinPath(t *testing.T) {
 		g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
 			Name:        tenancyChildTestResource,
 			Scope:       accesstypes.DomainPermissionScope,
-			Permissions: []accesstypes.Permission{accesstypes.Create},
+			Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Update},
 			Domain:      &DomainBindingData{Column: "ParentId", Path: []BindingHop{{Table: "Parents", JoinColumn: "Id", Column: "StationId"}}},
 		}}})
 		if err != nil {
@@ -397,24 +400,53 @@ func TestPatchSet_mutationTenancy_joinPath(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		patchType  PatchType
 		set        map[accesstypes.Field]any
+		wantTerm   bool
 		wantSQL    string
 		wantParams map[string]any
 		wantErr    string
 	}{
 		{
-			name:    "insert proves the proposed parent lands in the partition",
-			set:     map[accesstypes.Field]any{"ParentID": parentID, "Note": "spare part"},
-			wantSQL: "SELECT (EXISTS (SELECT 1 FROM `Parents` `ca1` WHERE `ca1`.`Id` = @_c1 AND `ca1`.`StationId` = @domain)) AS zzTenancy",
+			name:      "insert proves the proposed parent lands in the partition",
+			patchType: CreatePatchType,
+			set:       map[accesstypes.Field]any{"ParentID": parentID, "Note": "spare part"},
+			wantTerm:  true,
+			wantSQL:   "SELECT (EXISTS (SELECT 1 FROM `Parents` `ca1` WHERE `ca1`.`Id` = @_c1 AND `ca1`.`StationId` = @domain)) AS zzTenancy",
 			wantParams: map[string]any{
 				"_c1":    parentID,
 				"domain": "station-alpha",
 			},
 		},
 		{
-			name:    "insert without the anchor foreign key fails loud",
-			set:     map[accesstypes.Field]any{"Note": "spare part"},
-			wantErr: "must set ParentId",
+			name:      "insert without the anchor foreign key fails loud",
+			patchType: CreatePatchType,
+			set:       map[accesstypes.Field]any{"Note": "spare part"},
+			wantTerm:  true,
+			wantErr:   "must set ParentId",
+		},
+		{
+			name:      "update that moves the row to another parent proves the proposed parent lands in the partition, from the row located within its own",
+			patchType: UpdatePatchType,
+			set:       map[accesstypes.Field]any{"ParentID": parentID},
+			wantTerm:  true,
+			wantSQL: "SELECT (EXISTS (SELECT 1 FROM `Parents` `ca1` WHERE `ca1`.`Id` = @_c1 AND `ca1`.`StationId` = @domain)) AS zzTenancy " +
+				"FROM tenancyChildResources WHERE `Id` = @_id AND (EXISTS (SELECT 1 FROM `Parents` `ca2` WHERE `ca2`.`Id` = `tenancyChildResources`.`ParentId` AND `ca2`.`StationId` = @domain))",
+			wantParams: map[string]any{
+				"_c1":    parentID,
+				"_id":    id,
+				"domain": "station-alpha",
+			},
+		},
+		{
+			name:      "update that leaves the parent only locates the row within its own partition",
+			patchType: UpdatePatchType,
+			set:       map[accesstypes.Field]any{"Note": "spare part"},
+			wantSQL:   "SELECT TRUE AS g0 FROM tenancyChildResources WHERE `Id` = @_id AND (EXISTS (SELECT 1 FROM `Parents` `ca1` WHERE `ca1`.`Id` = `tenancyChildResources`.`ParentId` AND `ca1`.`StationId` = @domain))",
+			wantParams: map[string]any{
+				"_id":    id,
+				"domain": "station-alpha",
+			},
 		},
 	}
 
@@ -422,14 +454,14 @@ func TestPatchSet_mutationTenancy_joinPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rSet, err := NewSet[tenancyChildResource, tenancyChildCreateRequest](accesstypes.Create)
+			rSet, err := NewSet[tenancyChildResource, tenancyChildCreateRequest](accesstypes.Create, accesstypes.Update)
 			if err != nil {
 				t.Fatalf("NewSet() error = %v", err)
 			}
 
 			p := NewPatchSet(NewMetadata[tenancyChildResource]()).
 				SetKey("ID", id).
-				SetPatchType(CreatePatchType)
+				SetPatchType(tt.patchType)
 			p.querySet.collection = childCollection(t)
 			p.EnableUserPermissionEnforcement(rSet, renderStubPermissions{}, accesstypes.DomainScope("station-alpha"), accesstypes.Create)
 			for field, value := range tt.set {
@@ -440,8 +472,8 @@ func TestPatchSet_mutationTenancy_joinPath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mutationTenancy() error = %v", err)
 			}
-			if !tenancy.insertPathTerm() {
-				t.Fatal("insertPathTerm() = false, want true")
+			if got := tenancy.pathTerm(); got != tt.wantTerm {
+				t.Fatalf("pathTerm() = %t, want %t", got, tt.wantTerm)
 			}
 
 			stmt, err := p.writeCheckStatement(SpannerDBType, nil, tenancy)
