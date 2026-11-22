@@ -76,7 +76,7 @@ export class ThemeService {
   private document = inject(DOCUMENT);
   private schemeSignal = signal<ColorScheme>('light');
   private paletteSignal = signal<string | undefined>(this.palettes[0]?.id);
-  /** The scheme the person chose and is in force: light, dark or the device's. */
+  /** The scheme in force: light, dark, or the device's, which the browser draws as its device is set. */
   readonly scheme = this.schemeSignal.asReadonly();
   /** The id of the palette in force, undefined when the application offers none. */
   readonly palette = this.paletteSignal.asReadonly();

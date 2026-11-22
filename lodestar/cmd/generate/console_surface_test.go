@@ -387,8 +387,8 @@ func TestConsoleHandsTheClientItsHooks(t *testing.T) {
 // app.config.ts names the same ids to provideTheme (the portal, with one palette, names
 // none), and the library's frame, which every signed-in page of both sits in, offers the
 // choice under Appearance in the person's menu: light, dark or as their device is set,
-// and the colors where the application names more than one palette; nothing of the choice
-// is stored on the server.
+// and the colors where the application names more than one palette. The frame keeps the
+// choice with the person's account, which look_test.go holds on the served stack.
 //
 // Demonstrates: webapp.theme-choice.
 func TestThemeChoiceSurface(t *testing.T) {
