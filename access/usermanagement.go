@@ -1,6 +1,7 @@
 package access
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -294,6 +295,9 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 
 	// A name is taken under any spelling: a directory names roles without regard
 	// to case, so two roles that differ only in case could never be told apart.
+	// A role held in every domain is read in each domain beside that domain's
+	// own, so it is held to every domain's custom roles too.
+	const caseTwin = "role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held"
 	held, roleDoesExist, err := u.ResolveRole(ctx, scope, string(role))
 	if err != nil {
 		return err
@@ -302,7 +306,26 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
 	}
 	if roleDoesExist {
-		return httpio.NewConflictMessagef("role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held", string(role), string(held), scope)
+		return httpio.NewConflictMessagef(caseTwin, string(role), string(held), scope)
+	}
+	if scope.IsEveryDomain() {
+		domainHeld, err := u.store.domainRoles(ctx)
+		if err != nil {
+			return err
+		}
+		twins := slices.DeleteFunc(domainHeld, func(r policy.Role) bool {
+			return r.Name == role || !sameRoleName(string(r.Name), string(role))
+		})
+		if len(twins) > 0 {
+			twin := slices.MinFunc(twins, func(a, b policy.Role) int {
+				aDomain, _ := a.Scope.Domain()
+				bDomain, _ := b.Scope.Domain()
+
+				return cmp.Or(cmp.Compare(aDomain, bDomain), cmp.Compare(a.Name, b.Name))
+			})
+
+			return httpio.NewConflictMessagef(caseTwin, string(role), string(twin.Name), twin.Scope)
+		}
 	}
 
 	if err := u.store.addRole(ctx, scope, role, description); err != nil {

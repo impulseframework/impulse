@@ -234,8 +234,9 @@ func Test_userManager_defaults_Roles(t *testing.T) {
 // a name outside the grammar every role name follows (letters and digits
 // starting with a capital letter), a default's of the scope's kind (a
 // conflict), a name a custom role held in every domain already answers to in
-// one domain, and the empty name — and that a role without a description, or
-// with whitespace for one, is refused.
+// one domain, a name in every domain that differs only in case from a custom
+// role one domain holds, and the empty name — and that a role without a
+// description, or with whitespace for one, is refused.
 func Test_userManager_defaults_AddRole(t *testing.T) {
 	t.Parallel()
 
@@ -245,6 +246,7 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		role        accesstypes.Role
 		description string
 		wantErr     func(error) bool
+		wantMessage string // held by the refusal's message when not empty
 	}{
 		{name: "a domain default's name is refused in one domain", scope: tenant1Policy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a domain default's name is refused in every domain", scope: everyDomainPolicy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
@@ -263,6 +265,11 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "ZED", description: aDescription},
+		{
+			name: "a name differing only in case from a custom role one domain holds is refused in every domain", scope: everyDomainPolicy, role: "ZED", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: `differs only in case from the role "Zed"`,
+		},
+		{name: "a name one domain holds in the same spelling is free in every domain", scope: everyDomainPolicy, role: "Zed", description: aDescription},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -287,6 +294,9 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 			}
 			if err == nil || !tt.wantErr(err) {
 				t.Fatalf("AddRole() error = %v, want a refusal of the expected kind", err)
+			}
+			if !strings.Contains(httpio.Message(err), tt.wantMessage) {
+				t.Errorf("AddRole() message = %q, want one holding %q", httpio.Message(err), tt.wantMessage)
 			}
 			if len(store.roles) != rolesBefore {
 				t.Errorf("AddRole() wrote a role row on a refused call")

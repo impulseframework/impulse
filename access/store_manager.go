@@ -96,6 +96,24 @@ func (m *storeManager) roles(ctx context.Context, scope accesstypes.PolicyScope)
 	return roles, nil
 }
 
+// domainRoles lists every custom role held in one domain, whatever the
+// domain, from the whole policy the store holds.
+func (m *storeManager) domainRoles(ctx context.Context) ([]policy.Role, error) {
+	records, err := m.store.ReadPolicy(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "access.Store.ReadPolicy()")
+	}
+
+	roles := make([]policy.Role, 0, len(records.Roles))
+	for _, role := range records.Roles {
+		if _, oneDomain := role.Scope.Domain(); oneDomain {
+			roles = append(roles, role)
+		}
+	}
+
+	return roles, nil
+}
+
 // deleteRole is scoped to (scope, role). Grants cascade in the store;
 // memberships held in the scope block the delete, checked by the store in the
 // delete's own transaction, backstopping the caller's has-users guard.

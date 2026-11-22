@@ -740,7 +740,9 @@ domain alone cannot be assigned in every domain.
 No two roles in a scope differ only in case: the role file is refused at `New`
 when it declares such a pair, and `AddRole` refuses a custom role whose name
 matches an existing role of the scope without regard to case, so a resolution
-is never ambiguous. `AddRole` also holds a custom role's name to the one grammar
+is never ambiguous. A role added in every domain is held to the custom roles of
+each single domain as well, since a name asked in one domain is read against
+both. `AddRole` also holds a custom role's name to the one grammar
 every role name follows — letters and digits starting with a capital letter, such
 as `Administrator` or `TenantAdministrator` (see Default Roles) — and refuses a
 name outside it with the same words the role file is refused with.
