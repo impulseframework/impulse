@@ -267,6 +267,24 @@ func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstyp
 	return nil
 }
 
+// removeAllGrants removes every grant row the store holds for the role, each by
+// the four columns the store lists it with, never by a name joined and split
+// again, so a row no write could have made is removed with the rest.
+func (m *storeManager) removeAllGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	grants, err := m.store.ListRoleGrants(ctx, scope, role)
+	if err != nil {
+		return errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
+	}
+	for _, g := range grants {
+		if err := m.store.DeleteGrant(ctx, scope, role, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
+			return errors.Wrapf(err, "access.Store.DeleteGrant(): %q on resource %q, field %q for role %q", g.Perm, g.Resource, g.Field, role)
+		}
+		m.notifyPolicyChange()
+	}
+
+	return nil
+}
+
 func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {

@@ -368,6 +368,43 @@ func Test_userManager_defaults_DeleteRole(t *testing.T) {
 	}
 }
 
+// Test_userManager_defaults_DeleteAllRolePermissions_storedRows pins that
+// removing all of a custom role's permissions removes every row the store
+// holds for it by the row's own columns: the rows a write makes, and the rows
+// no write could have made, which a load skips and reports.
+func Test_userManager_defaults_DeleteAllRolePermissions_storedRows(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	m, store := defaultsManager(t)
+
+	for _, row := range []struct {
+		resource, field, condition string
+	}{
+		{resource: "Widgets", field: "name"},
+		{resource: "Widgets", condition: "true"},
+		{resource: "Widgets.name"},
+		{resource: "Widgets.name", field: "*"},
+		{field: "name"},
+		{resource: "Widgets", field: "name.first"},
+		{},
+	} {
+		if err := store.InsertGrant(ctx, tenant1Policy, "Zed", "Read", row.resource, row.field, row.condition); err != nil {
+			t.Fatalf("InsertGrant(%q, %q, %q) error = %v", row.resource, row.field, row.condition, err)
+		}
+	}
+
+	if err := m.DeleteAllRolePermissions(ctx, tenant1Policy, "Zed"); err != nil {
+		t.Fatalf("DeleteAllRolePermissions() error = %v", err)
+	}
+	left, err := store.ListRoleGrants(ctx, tenant1Policy, "Zed")
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
+	if len(left) != 0 {
+		t.Errorf("ListRoleGrants() after DeleteAllRolePermissions = %v, want none", left)
+	}
+}
+
 // Test_userManager_defaults_grantWrites pins that every grant write is refused
 // on a default role, whose grants are the release's; is not found on a custom
 // role held in every domain when addressed through one domain, since the row

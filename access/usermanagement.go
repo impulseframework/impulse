@@ -157,7 +157,9 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 }
 
 // DeleteAllRolePermissions removes all permissions from a custom role held in
-// scope, scope-wide and resource-specific alike.
+// scope, scope-wide and resource-specific alike. Each row is removed by the
+// columns the store holds it under, so a row no write could have made, which a
+// load skips and reports, is removed with the rest.
 func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -168,25 +170,7 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope access
 		return err
 	}
 
-	perms, err := u.store.roleGrants(ctx, scope, role)
-	if err != nil {
-		return errors.Wrap(err, "roleGrants()")
-	}
-
-	for permission, grants := range perms {
-		if grants.ScopeWide {
-			if err := u.store.removeScopeWideGrant(ctx, scope, role, permission); err != nil {
-				return err
-			}
-		}
-		for _, resource := range grants.Resources {
-			if err := u.store.removeGrants(ctx, scope, role, permission, resource); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return u.store.removeAllGrants(ctx, scope, role)
 }
 
 // DeleteUserRoles removes user's memberships of roles held in scope. The
