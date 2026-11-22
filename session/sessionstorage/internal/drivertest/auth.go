@@ -313,6 +313,11 @@ type AuthInstance struct {
 	// the proof of the password the sign-in rests on; none is the sign-in no password
 	// proved.
 	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error)
+	// SignInByCode establishes the session of a request that enters the account's own
+	// mailed code, as SignIn does: claim is the address the code confirms, as the Auth
+	// reads it off the account when the code is checked. The harness builds it with
+	// NewSignInByCode.
+	SignInByCode func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error)
 	// Accept accepts inv for userID by hand, as the Auth does for a person already
 	// signed in, with the configured acceptor. The harness builds it with NewAccept.
 	Accept func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error
@@ -444,6 +449,30 @@ func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.In
 func NewSignIn[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
+	signIn := newSignIn(d, cfg, adapt)
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
+		return signIn(ctx, insert, req, oneProof(proven), nil)
+	}
+}
+
+// NewSignInByCode returns an instance's SignInByCode over d: NewSignIn's flow, for a
+// sign-in that enters the account's own mailed code and carries the address it confirms.
+func NewSignInByCode[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error) {
+	signIn := newSignIn(d, cfg, adapt)
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error) {
+		return signIn(ctx, insert, req, nil, claim)
+	}
+}
+
+// newSignIn is the flow NewSignIn and NewSignInByCode run over d: proof and claim are
+// the rules' Proven and CodeAddress, nil for none.
+func newSignIn[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress) (impulse.UUID, error) {
 	var rule signin.AccountRule[Tx]
 	switch {
 	case cfg.Resolve != nil:
@@ -463,15 +492,15 @@ func NewSignIn[Tx any](
 	directories, seat, onlyIn := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	signUp := adaptSignUp(cfg, adapt)
-	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
-			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: oneProof(proven), NoPassword: cfg.NoPassword,
-			ConfirmAddress: cfg.ConfirmAddress,
+			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: proof, NoPassword: cfg.NoPassword,
+			ConfirmAddress: cfg.ConfirmAddress, CodeAddress: claim,
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
