@@ -63,7 +63,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}{
 		{path: "/api/user/sign-up", body: `{"email":"pat@mail.example"}`},
 		{path: "/api/user/sign-up/open", body: `{"token":"none"}`},
-		{path: "/api/user/sign-up/complete", body: `{"token":"none","password":"a-long-password","username":"pat"}`},
+		{path: "/api/user/sign-up/complete", body: `{"token":"none","password":"a-long-password-of-my-own","username":"pat"}`},
 	}
 	for _, call := range closed {
 		if status, body := stranger.do(ctx, http.MethodPost, call.path, []byte(call.body)); status != http.StatusNotFound {
@@ -187,7 +187,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 		t.Errorf("changes to the sign-in methods = %q, want two: opened, then made invite only", sources)
 	}
 	accounts = countRows(ctx, t, s, "StaffSessionUsers")
-	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up/complete", []byte(`{"token":"`+lateToken+`","password":"a-long-password","username":"sam"}`)); status != http.StatusNotFound {
+	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up/complete", []byte(`{"token":"`+lateToken+`","password":"a-long-password-of-my-own","username":"sam"}`)); status != http.StatusNotFound {
 		t.Errorf("completing a sign-up mailed while the method was open, after it was closed: status %d, want 404: %s", status, body)
 	}
 	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up", []byte(`{"email":"tess@mail.example"}`)); status != http.StatusNotFound {
@@ -198,7 +198,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}
 	again := newBrowser(t, s)
 	again.prime(ctx)
-	if status, body := again.do(ctx, http.MethodPost, "/api/user/password/login", []byte(`{"username":"pat","password":"a-long-password"}`)); status != http.StatusOK {
+	if status, body := again.do(ctx, http.MethodPost, "/api/user/password/login", []byte(`{"username":"pat","password":"a-long-password-of-my-own"}`)); status != http.StatusOK {
 		t.Errorf("the person who signed up, signing in once the method is invite only: status %d, want 200: they keep their account: %s", status, body)
 	}
 	if status, body := pat.do(ctx, http.MethodGet, "/api/feature-flags", nil); status != http.StatusOK {
@@ -338,7 +338,7 @@ func signedUp(ctx context.Context, t *testing.T, s *served, email, username stri
 	if status, body := b.do(ctx, http.MethodPost, "/api/user/sign-up/open", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK || !strings.Contains(string(body), email) {
 		t.Fatalf("POST /api/user/sign-up/open: status %d: %s, want 200 naming %s", status, body, email)
 	}
-	complete, err := json.Marshal(map[string]string{"token": token, "password": "a-long-password", "username": username})
+	complete, err := json.Marshal(map[string]string{"token": token, "password": "a-long-password-of-my-own", "username": username})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email
 	if status, body := b.do(ctx, http.MethodPost, "/api/user/invitation", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK {
 		t.Fatalf("POST /api/user/invitation as %s: status %d: %s", username, status, body)
 	}
-	accept, err := json.Marshal(map[string]string{"password": "a-long-password", "username": username})
+	accept, err := json.Marshal(map[string]string{"password": "a-long-password-of-my-own", "username": username})
 	if err != nil {
 		t.Fatal(err)
 	}

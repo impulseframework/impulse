@@ -108,6 +108,7 @@ func TestAuth_couldAdmitAddress(t *testing.T) {
 			list.Methods = append(list.Methods, AdvertisedMethod{Name: name, Label: name, Path: "/api/user/" + name + "/login"})
 			if name == "password" {
 				list.ChangePassword = "/api/user/password"
+				list.PasswordStrength = "/api/user/password/strength"
 			}
 		}
 

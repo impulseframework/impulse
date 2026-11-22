@@ -833,6 +833,11 @@ func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.{{.Field}}.RemoveUserPassword()
 }
 
+// PasswordStrength answers how strong a password is while a person types it, before it is set.
+func (h *Handlers) PasswordStrength() http.HandlerFunc {
+	return h.{{.Field}}.Strength()
+}
+
 // FirstPasswordSendCode mails the signed-in person who has no password, because they
 // have only ever signed in through a directory, the code they choose their first one
 // with, at the address their account holds confirmed. Whoever asks must read that

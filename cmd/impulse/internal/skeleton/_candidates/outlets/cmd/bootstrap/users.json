@@ -2,12 +2,12 @@
   "users": [
     {
       "user": "admin",
-      "password": "password",
+      "password": "open-the-console-first",
       "roles": { "global": ["SuperAdministrator", "Administrator", "FeatureAdministrator"], "everyDomain": ["TenantAdministrator"], "domains": {} }
     },
     {
       "user": "member",
-      "password": "password",
+      "password": "open-the-console-first",
       "roles": { "global": [], "everyDomain": [], "domains": { "North": ["TenantAdministrator", "DeviceOperator"] } }
     }
   ],

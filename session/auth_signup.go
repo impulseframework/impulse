@@ -49,7 +49,7 @@ func (h *SignUpHandlers) Open() http.HandlerFunc { return h.open }
 // address verified and the method's default role, and signs the person in, answering as
 // the password login does ({"mfaIsRequired"}). username is the address when the
 // password method declares the username as the email address, and chosen otherwise. A
-// taken username or address is 409, a password under eight characters 400, a token
+// taken username or address is 409, a password the judgment refuses 400, a token
 // whose link is no longer live 404, and a sign-up through a method that was closed
 // since the link was mailed 404: the link is spent, the account made and the role
 // given in one transaction that reads the method's row, or none of it is. Route it

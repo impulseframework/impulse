@@ -195,7 +195,7 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
     cp .envrc.template .envrc && direnv allow
     overmind start -l spanner,firestore,server
 
-That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, roles, the `admin` / `password`
+That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, roles, the `admin` / `open-the-console-first`
 login), and serves the API on `$PORT` (:8090). The first run compiles and bootstraps
 before it listens; wait for "Starting Server" in the server pane.
 

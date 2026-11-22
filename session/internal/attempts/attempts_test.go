@@ -821,3 +821,97 @@ func TestLimiter_TakenAtOnce(t *testing.T) {
 		})
 	}
 }
+
+// TestLimiter_Count holds the count of requests that are attempts on no name: the client's
+// keys alone, at the client's limit, with the store never asked.
+func TestLimiter_Count(t *testing.T) {
+	t.Parallel()
+
+	clientLimit := ClientMultiple * testLimit.Failures
+
+	tests := []struct {
+		name string
+		run  func(t *testing.T, l *Limiter, store *fakeStore, c *clock)
+	}{
+		{
+			name: "the request that reaches the client's limit is held for the lock, and every later one extends the hold",
+			run: func(t *testing.T, l *Limiter, store *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1", Cookie: "tok"}
+				for i := range clientLimit - 1 {
+					if wait := l.Count(client); wait != 0 {
+						t.Fatalf("Count() number %d waits %v, want nothing under the client's limit", i+1, wait)
+					}
+				}
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Fatalf("Count() at the client's limit waits %v, want the lock period %v", wait, testLimit.Lock)
+				}
+				c.advance(time.Minute)
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Errorf("Count() during the hold waits %v, want the lock period again: the hold is extended", wait)
+				}
+				// Past the end of the first hold, the one the later request extended still holds.
+				c.advance(testLimit.Lock - 30*time.Second)
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Errorf("Count() past the first hold's end waits %v, want the extended hold's lock period", wait)
+				}
+				if store.asked() != 0 {
+					t.Errorf("the store was asked %d times, want none", store.asked())
+				}
+			},
+		},
+		{
+			name: "a new window starts the count again",
+			run: func(t *testing.T, l *Limiter, _ *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1"}
+				for range clientLimit - 1 {
+					l.Count(client)
+				}
+				c.advance(testLimit.Window)
+				for i := range clientLimit - 1 {
+					if wait := l.Count(client); wait != 0 {
+						t.Fatalf("Count() number %d of the new window waits %v, want nothing: the window's count starts again", i+1, wait)
+					}
+				}
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Errorf("Count() at the new window's limit waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "a client with no address and no cookie is never held",
+			run: func(t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
+				for i := range 3 * clientLimit {
+					if wait := l.Count(Client{}); wait != 0 {
+						t.Fatalf("Count() number %d of a client with no keys waits %v, want nothing", i+1, wait)
+					}
+				}
+			},
+		},
+		{
+			name: "a client held by one limiter's count is free on another, and its sign-in there is taken",
+			run: func(t *testing.T, l *Limiter, store *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1", Cookie: "tok"}
+				for range clientLimit {
+					l.Count(client)
+				}
+				if wait := l.Count(client); wait == 0 {
+					t.Fatal("Count() past the client's limit waits nothing, want the hold")
+				}
+				other := New(testLimit, store)
+				other.SetClock(c.now)
+				if wait := other.Count(client); wait != 0 {
+					t.Errorf("Count() on another limiter waits %v, want nothing: the hold is the first limiter's", wait)
+				}
+				take(t.Context(), t, other, "pat", client)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			l, store, c := newLimiter(t)
+			tt.run(t, l, store, c)
+		})
+	}
+}

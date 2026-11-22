@@ -1202,9 +1202,9 @@ external method under its registration name, `GET user/<name>/login` and `GET
 user/<name>/callback` (`GET user/<name>/logout` too for Azure, the directory's
 front-channel logout). The sign-in's POSTs sit behind the outlet's XSRF guard alone, as
 the session library wires them: `POST user/password/login`, `POST user/password/change`,
-`POST user/password/remove`, `POST user/pending/cancel`, `POST user/pending/code` (mails
-the sign-in code to a sign-in that waits for the second factor), `POST
-user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
+`POST user/password/remove`, `POST user/password/strength`, `POST user/pending/cancel`,
+`POST user/pending/code` (mails the sign-in code to a sign-in that waits for the second
+factor), `POST user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
 none gives for the code); `POST user/email/confirm` (the link an administrator's change
 of a person's address mails to the new address, confirmed by a person who need not be
 signed in); and, for an Auth with a password method, `POST user/pending/confirm` (a
@@ -1225,7 +1225,9 @@ page where (`changePassword`), which renders the change form before the signed-i
 (section 21). The removal of a person's own password (`PasswordRemove`, the password
 method's `RemoveUserPassword`) is mounted beside it the same way, and the methods route
 names it as `removePassword`: where the person's account page posts the password as
-proof.
+proof. The password strength question (`PasswordStrength`, the password method's
+`Strength`) reads no session and is mounted beside them; the methods route names it as
+`passwordStrength`, where every page that sets a password asks while the person types.
 
 **Machine outlets.** A machine outlet declares the auth whose `Auth` issues its tokens,
 `Tokens(importPath)`, the same `*session.Auth` a session outlet of the program binds to

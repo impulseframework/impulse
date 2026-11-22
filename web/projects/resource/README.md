@@ -800,7 +800,7 @@ address has an account (one with none is mailed nothing), or the refusal: not an
 what the page shows. `openPasswordReset(token)` answers
 the username the link resets the password of, for a link the person asked for or one an
 administrator sent; `completePasswordReset(token, password)` sets the new password, or
-resolves the refusal: a password under eight characters (400), a dead link (404), or a
+resolves the refusal: a password the judgment refuses (400), a dead link (404), or a
 password that changed while the reader was choosing (409, which changes nothing). Every
 session of the person ends with a reset, this browser's too, and nobody is signed in by it:
 the person signs in with the new password.

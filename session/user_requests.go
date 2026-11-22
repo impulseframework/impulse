@@ -3,6 +3,7 @@ package session
 import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/passwordstrength"
 )
 
 // ChangeSessionUserPasswordRequest takes in the user information for changing a SessionUser password
@@ -36,6 +37,20 @@ type CreateUserRequest struct {
 	// Name is the person's name as people read it, nil for none: kept without the
 	// space around it, and refused when longer than sessioninfo.MaxNameLength.
 	Name *string `json:"name"`
+}
+
+// details are what the request says of the person, which a password it carries is judged
+// against: the username, the name and the address, "" for one it gives none of.
+func (r *CreateUserRequest) details() passwordstrength.Details {
+	who := passwordstrength.Details{Username: r.Username}
+	if r.Name != nil {
+		who.Name = *r.Name
+	}
+	if r.Email != nil {
+		who.Email = *r.Email
+	}
+
+	return who
 }
 
 // seedUserNamespace is the namespace the ids of seeded users are derived in.

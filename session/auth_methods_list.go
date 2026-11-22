@@ -38,6 +38,10 @@ type MethodList struct {
 	// through a directory, or none. It is refused when the password method is not
 	// listed.
 	RemovePassword string
+	// PasswordStrength is the path of the password method's Strength handler, which every
+	// page that sets a password asks while the person types. It is required when the
+	// password method is listed and refused when it is not.
+	PasswordStrength string
 	// FirstPassword are the paths of the first password handlers
 	// (FirstPassword().SendCode() and Set()), where the account page of a signed-in
 	// person who holds no password mails them a code and takes the password they
@@ -159,15 +163,16 @@ type PendingRoutes struct {
 
 // methodsAnswer is what Methods writes.
 type methodsAnswer struct {
-	Methods        []signin.Advertisement `json:"methods"`
-	Pending        *pendingAnswer         `json:"pending,omitempty"`
-	ChangePassword string                 `json:"changePassword,omitempty"`
-	RemovePassword string                 `json:"removePassword,omitempty"`
-	FirstPassword  *firstPasswordAnswer   `json:"firstPassword,omitempty"`
-	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
-	ChangeName     string                 `json:"changeName,omitempty"`
-	SignInMeans    string                 `json:"signInMeans,omitempty"`
-	ChangeLook     string                 `json:"changeLook,omitempty"`
+	Methods          []signin.Advertisement `json:"methods"`
+	Pending          *pendingAnswer         `json:"pending,omitempty"`
+	ChangePassword   string                 `json:"changePassword,omitempty"`
+	RemovePassword   string                 `json:"removePassword,omitempty"`
+	PasswordStrength string                 `json:"passwordStrength,omitempty"`
+	FirstPassword    *firstPasswordAnswer   `json:"firstPassword,omitempty"`
+	ForgetBrowser    string                 `json:"forgetBrowser,omitempty"`
+	ChangeName       string                 `json:"changeName,omitempty"`
+	SignInMeans      string                 `json:"signInMeans,omitempty"`
+	ChangeLook       string                 `json:"changeLook,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
 	UsernameIsEmail bool              `json:"usernameIsEmail,omitempty"`
@@ -284,6 +289,7 @@ type pendingAnswer struct {
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
 //	 "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
 //	 "changePassword": "/api/user/password",
+//	 "passwordStrength": "/api/user/password/strength",
 //	 "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
 //	                "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["google"]}}}
 //
@@ -293,7 +299,8 @@ type pendingAnswer struct {
 // or with a path that is not a canonical path in the application, a pending block
 // with some of its paths (a list of an Auth that registers no password method may
 // leave the confirm path out), the password method without the password change
-// route, or that route or the remove-password route without the password method.
+// route or the password strength route, or one of those or the remove-password route
+// without the password method.
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
@@ -465,6 +472,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.Pending = pendingAnswerOf(&list.Pending, a.methods.passwordRegistered())
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
 	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
+	answer.PasswordStrength = passwordStrengthPathOf(list, passwordListed)
 	answer.FirstPassword = firstPasswordAnswerOf(list.FirstPassword, passwordListed)
 	answer.ForgetBrowser = forgetBrowserPathOf(list)
 	answer.ChangeName = changeNamePathOf(list)
@@ -557,6 +565,21 @@ func changePasswordPathOf(list *MethodList, passwordListed bool) string {
 	}
 
 	return list.ChangePassword
+}
+
+// passwordStrengthPathOf validates the password strength route: present and canonical
+// with the password method, absent without it.
+func passwordStrengthPathOf(list *MethodList, passwordListed bool) string {
+	switch {
+	case passwordListed && !advertisedPath(list.PasswordStrength):
+		panic(fmt.Sprintf("session: Methods lists the password method with the password strength route %q: "+
+			"give it the path its Strength handler is mounted at, such as /api/user/password/strength, "+
+			"which every page that sets a password asks while the person types", list.PasswordStrength))
+	case !passwordListed && list.PasswordStrength != "":
+		panic(fmt.Sprintf("session: Methods is given the password strength route %q but lists no password method: drop it, or list the method", list.PasswordStrength))
+	}
+
+	return list.PasswordStrength
 }
 
 // removePasswordPathOf validates the remove-your-password route: none, or a canonical

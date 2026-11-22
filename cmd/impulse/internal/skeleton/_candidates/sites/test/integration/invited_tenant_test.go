@@ -17,7 +17,7 @@ const (
 	// notCreatedDirectly is what the Tenant record's create answers, whoever asks.
 	notCreatedDirectly = "a tenant is not created directly: invite one person, and the tenant is made when that person first signs in"
 	// invitedPassword is the password an invited person signs up with.
-	invitedPassword = "a-long-password"
+	invitedPassword = "a-long-password-of-my-own"
 )
 
 // sentInvitation is what the method that sends an invitation answers: the invitation's
