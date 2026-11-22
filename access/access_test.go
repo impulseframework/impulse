@@ -1,6 +1,7 @@
 package access
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -311,6 +312,56 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 	want = accesstypes.Decisions{"employees": accesstypes.Denied()}
 	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 		t.Errorf("CheckUserResources() in unknown tenant (-want +got):\n%s", diff)
+	}
+}
+
+// TestClient_CheckResources_moreThanOneDot pins that a check asked about a
+// name with more than one dot is refused with an error naming it, before
+// anything is read, and answers about none of the names in the call: a dot
+// separates a resource from one of its fields, so such a name names nothing.
+func TestClient_CheckResources_moreThanOneDot(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	client, err := New(newFakeStore(), fixtureCollection)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	manager := client.UserManager()
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor", aDescription); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
+		t.Fatalf("AddRolePermissionResources() error = %v", err)
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1.PolicyScope(), "Editor", "erin"); err != nil {
+		t.Fatalf("AddRoleUsers() error = %v", err)
+	}
+
+	const want = `resource "employees.name.first": a name a check is asked about holds at most one dot. A dot separates a resource from one of its fields (Resource.field), so a name with more than one names nothing. Ask about the resource, or about one field of it`
+	env := accesstypes.NewEnvironment()
+
+	decisions, err := client.CheckUserResources(ctx, env, "erin", tenant1, "Read", "employees", "employees.name.first")
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("CheckUserResources() error = %v, want one ending in %q", err, want)
+	}
+	if decisions != nil {
+		t.Errorf("CheckUserResources() = %v, want no decisions beside the error", decisions)
+	}
+
+	decisions, err = client.CheckRoleResources(ctx, env, "Editor", tenant1, "Read", "employees", "employees.name.first")
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("CheckRoleResources() error = %v, want one ending in %q", err, want)
+	}
+	if decisions != nil {
+		t.Errorf("CheckRoleResources() = %v, want no decisions beside the error", decisions)
 	}
 }
 

@@ -490,7 +490,7 @@ const superAdministratorReserved = "the name is reserved: every auth has the Sup
 // case: a directory names roles without regard to case, so no spelling of it
 // is another role's.
 func isSuperAdministratorName(name accesstypes.Role) bool {
-	return strings.EqualFold(string(name), string(accesstypes.SuperAdministrator))
+	return sameRoleName(string(name), string(accesstypes.SuperAdministrator))
 }
 
 // superAdministratorRole compiles the role the framework defines in every
@@ -520,6 +520,47 @@ func superAdministratorRole(store PermissionCollection, methods []accesstypes.Re
 // role's in the file and a custom role's at AddRole alike: letters and
 // digits starting with a capital letter.
 var roleNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// sameRoleName reports whether a and b are the same role name but for the case
+// of their ASCII letters: an ASCII capital letter equals its lower-case letter,
+// and every other byte equals only itself. It is the rule the library compares
+// two addresses by, never Unicode's case folding, which takes some letters from
+// outside ASCII for ASCII ones (the Kelvin sign for k, the long s for s), so a
+// name written with one would find the role its plain name names.
+func sameRoleName(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if lowerRoleNameByte(a[i]) != lowerRoleNameByte(b[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// foldRoleName is name with its ASCII capital letters in lower case and every
+// other byte as it was written: two names fold alike exactly when sameRoleName
+// reports them the same.
+func foldRoleName(name string) string {
+	b := []byte(name)
+	for i, c := range b {
+		b[i] = lowerRoleNameByte(c)
+	}
+
+	return string(b)
+}
+
+// lowerRoleNameByte is c in lower case when it is an ASCII capital letter, and
+// c otherwise.
+func lowerRoleNameByte(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+
+	return c
+}
 
 // roleNameRule is the rule a name outside the grammar is refused with, in
 // the file and at AddRole alike, after "role NAME: ".
@@ -581,11 +622,11 @@ func validateRoleNames(roles ScopedRoles) error {
 
 				return errors.Newf("role %s is declared in both the global and domain roles — a role describes powers at exactly one scope; declare two roles with distinct names", r.Name)
 			}
-			if other, taken := folded[strings.ToLower(string(r.Name))]; taken {
+			if other, taken := folded[foldRoleName(string(r.Name))]; taken {
 				return errors.Newf("roles %s and %s differ only in case — a directory names roles without regard to case, so the two could never be told apart; declare two roles with distinct names", other, r.Name)
 			}
 			seen[r.Name] = kind
-			folded[strings.ToLower(string(r.Name))] = r.Name
+			folded[foldRoleName(string(r.Name))] = r.Name
 		}
 
 		return nil
@@ -610,9 +651,11 @@ func validateRoleDescriptions(roles ScopedRoles) error {
 }
 
 // validateGrantGrammar checks one role's authored grants for what needs no
-// collection: every grant names a resource; a dotted field resource is a
-// bare mechanical grant, with no Fields or Condition; and no
-// (permission, resource, condition) triple is written twice.
+// collection: every grant names a resource; a resource holds at most one dot,
+// with a name on each side of it, and a field named in Fields is not empty and
+// holds none; a dotted field resource is a bare mechanical grant, with no
+// Fields or Condition; and no (permission, resource, condition) triple is
+// written twice.
 func validateGrantGrammar(r *Role) error {
 	seen := make(authoredGrants)
 	for perm, grants := range r.Permissions {
@@ -620,8 +663,25 @@ func validateGrantGrammar(r *Role) error {
 			if grant.Resource == "" {
 				return errors.Newf("role %s: a %s grant names no resource", r.Name, perm)
 			}
+			if strings.Count(string(grant.Resource), ".") > 1 {
+				return errors.Newf("role %s: grant on %s: a grant's resource holds at most one dot. A dot separates a resource from one of its fields: name the resource, one of its fields (Resource.field) or all of them (Resource.*)", r.Name, grant.Resource)
+			}
+			if strings.HasPrefix(string(grant.Resource), ".") {
+				return errors.Newf("role %s: grant on %s: no resource is named before the dot. A dot separates a resource from one of its fields: name the resource, one of its fields (Resource.field) or all of them (Resource.*)", r.Name, grant.Resource)
+			}
+			if strings.HasSuffix(string(grant.Resource), ".") {
+				return errors.Newf("role %s: grant on %s: no field is named after the dot. A dot separates a resource from one of its fields: name the resource alone, one of its fields (Resource.field) or all of them (Resource.*)", r.Name, grant.Resource)
+			}
 			if strings.ContainsRune(string(grant.Resource), '.') && (len(grant.Fields) > 0 || grant.Condition != "") {
 				return errors.Newf("role %s: grant on %s: a dotted field resource takes no Fields or Condition — name the base resource and put fields in Fields", r.Name, grant.Resource)
+			}
+			for _, field := range grant.Fields {
+				if field == "" {
+					return errors.Newf("role %s: grant on %s: one of its fields has no name. A field is named as the resource lists it; take the empty entry out of Fields", r.Name, grant.Resource)
+				}
+				if strings.ContainsRune(string(field), '.') {
+					return errors.Newf("role %s: grant on %s: field %q holds a dot. A field is named as the resource lists it, with no dot; a dot separates a resource from one of its fields", r.Name, grant.Resource, field)
+				}
 			}
 			if seen.note(perm, grant.Resource, grant.Condition) {
 				if grant.Condition == "" {

@@ -96,6 +96,24 @@ func (m *storeManager) roles(ctx context.Context, scope accesstypes.PolicyScope)
 	return roles, nil
 }
 
+// domainRoles lists every custom role held in one domain, whatever the
+// domain, from the whole policy the store holds.
+func (m *storeManager) domainRoles(ctx context.Context) ([]policy.Role, error) {
+	records, err := m.store.ReadPolicy(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "access.Store.ReadPolicy()")
+	}
+
+	roles := make([]policy.Role, 0, len(records.Roles))
+	for _, role := range records.Roles {
+		if _, oneDomain := role.Scope.Domain(); oneDomain {
+			roles = append(roles, role)
+		}
+	}
+
+	return roles, nil
+}
+
 // deleteRole is scoped to (scope, role). Grants cascade in the store;
 // memberships held in the scope block the delete, checked by the store in the
 // delete's own transaction, backstopping the caller's has-users guard.
@@ -245,6 +263,24 @@ func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstyp
 		return errors.Wrapf(err, "access.Store.DeleteGrant(): scope-wide %q for role %q", perm, role)
 	}
 	m.notifyPolicyChange()
+
+	return nil
+}
+
+// removeAllGrants removes every grant row the store holds for the role, each by
+// the four columns the store lists it with, never by a name joined and split
+// again, so a row no write could have made is removed with the rest.
+func (m *storeManager) removeAllGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	grants, err := m.store.ListRoleGrants(ctx, scope, role)
+	if err != nil {
+		return errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
+	}
+	for _, g := range grants {
+		if err := m.store.DeleteGrant(ctx, scope, role, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
+			return errors.Wrapf(err, "access.Store.DeleteGrant(): %q on resource %q, field %q for role %q", g.Perm, g.Resource, g.Field, role)
+		}
+		m.notifyPolicyChange()
+	}
 
 	return nil
 }

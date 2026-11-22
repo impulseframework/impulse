@@ -106,6 +106,9 @@ type policyStore interface {
 	// it, and listed with it.
 	addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
 	roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error)
+	// domainRoles lists every custom role held in one domain, whatever the
+	// domain.
+	domainRoles(ctx context.Context) ([]policy.Role, error)
 	// deleteRole removes the role and its grants, scoped to (scope, role).
 	deleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 	roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
@@ -120,6 +123,7 @@ type policyStore interface {
 	removeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error
 	addScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
 	removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
+	removeAllGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 	roleResourceGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.RoleGrant, error)
 

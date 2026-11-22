@@ -808,11 +808,12 @@ func countingAt(memberships []policy.Membership, at time.Time) (kept []policy.Me
 // custom role whose name a default of its kind has is shadowed — the default
 // wins, so the custom role's grants are left out and its members hold the
 // default's grants — and is reported; the rest are the custom roles the
-// snapshot defines, keyed by where they are held. A role with grants is
-// defined where its grants are held whether or not its row came back: the
-// stores keep a grant under its role row, so this only widens the set for
-// records built by hand. It returns the store's grants less the shadowed
-// roles'.
+// snapshot defines, keyed by where they are held. A grant under a default
+// role's name is left out, and the role reported, whether or not its row came
+// back: the stores keep a grant under its role row, so one with no row is a
+// record built by hand, and a default role's grants are the release's alone. A
+// custom role with grants is defined where its grants are held whether or not
+// its row came back. It returns the store's grants less the shadowed roles'.
 func definedRoles(records *policy.Records, defaults *defaultRoles) (customs map[policy.Role]bool, grants []policy.Grant, findings []policyFinding) {
 	customs = make(map[policy.Role]bool, len(records.Roles))
 	shadowed := make(map[policy.Role]bool)
@@ -829,12 +830,15 @@ func definedRoles(records *policy.Records, defaults *defaultRoles) (customs map[
 	for _, g := range records.Grants {
 		if g.Subject.Kind == policy.SubjectRole {
 			role := policy.Role{Scope: g.Scope, Name: accesstypes.Role(g.Subject.Name)}
-			if shadowed[role] {
+			if defaults.exists(role.Scope, role.Name) {
+				if !shadowed[role] {
+					shadowed[role] = true
+					findings = append(findings, &ShadowedRole{Scope: role.Scope, Role: role.Name})
+				}
+
 				continue
 			}
-			if !defaults.exists(role.Scope, role.Name) {
-				customs[role] = true
-			}
+			customs[role] = true
 		}
 		grants = append(grants, g)
 	}

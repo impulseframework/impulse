@@ -1,6 +1,7 @@
 package access
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -156,7 +157,9 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 }
 
 // DeleteAllRolePermissions removes all permissions from a custom role held in
-// scope, scope-wide and resource-specific alike.
+// scope, scope-wide and resource-specific alike. Each row is removed by the
+// columns the store holds it under, so a row no write could have made, which a
+// load skips and reports, is removed with the rest.
 func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -167,25 +170,7 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope access
 		return err
 	}
 
-	perms, err := u.store.roleGrants(ctx, scope, role)
-	if err != nil {
-		return errors.Wrap(err, "roleGrants()")
-	}
-
-	for permission, grants := range perms {
-		if grants.ScopeWide {
-			if err := u.store.removeScopeWideGrant(ctx, scope, role, permission); err != nil {
-				return err
-			}
-		}
-		for _, resource := range grants.Resources {
-			if err := u.store.removeGrants(ctx, scope, role, permission, resource); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return u.store.removeAllGrants(ctx, scope, role)
 }
 
 // DeleteUserRoles removes user's memberships of roles held in scope. The
@@ -264,6 +249,16 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 	return userPermissions, nil
 }
 
+// roleCaseTwin is the refusal of a custom role's name that differs only in case
+// from a custom role already held: the name asked, the role held and the scope
+// it is held in.
+const roleCaseTwin = "role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held"
+
+// defaultRoleCaseTwin is the refusal of a custom role's name that differs only
+// in case from one of the release's default roles: the name asked and the
+// default role.
+const defaultRoleCaseTwin = "role %q differs only in case from %q, one of the release's default roles; a directory names roles without regard to case, so one spelling is held"
+
 // AddRole creates a custom role held in scope, with the description saying
 // what it is for. The scope is an opaque partition label: its validity is
 // the caller's business. The name follows the one grammar every role name
@@ -294,6 +289,8 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 
 	// A name is taken under any spelling: a directory names roles without regard
 	// to case, so two roles that differ only in case could never be told apart.
+	// A role held in every domain is read in each domain beside that domain's
+	// own, so it is held to every domain's custom roles too.
 	held, roleDoesExist, err := u.ResolveRole(ctx, scope, string(role))
 	if err != nil {
 		return err
@@ -302,7 +299,26 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
 	}
 	if roleDoesExist {
-		return httpio.NewConflictMessagef("role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held", string(role), string(held), scope)
+		return u.caseTwinRefusal(ctx, scope, role, held)
+	}
+	if scope.IsEveryDomain() {
+		domainHeld, err := u.store.domainRoles(ctx)
+		if err != nil {
+			return err
+		}
+		twins := slices.DeleteFunc(domainHeld, func(r policy.Role) bool {
+			return r.Name == role || !sameRoleName(string(r.Name), string(role))
+		})
+		if len(twins) > 0 {
+			twin := slices.MinFunc(twins, func(a, b policy.Role) int {
+				aDomain, _ := a.Scope.Domain()
+				bDomain, _ := b.Scope.Domain()
+
+				return cmp.Or(cmp.Compare(aDomain, bDomain), cmp.Compare(a.Name, b.Name))
+			})
+
+			return httpio.NewConflictMessagef(roleCaseTwin, string(role), string(twin.Name), twin.Scope)
+		}
 	}
 
 	if err := u.store.addRole(ctx, scope, role, description); err != nil {
@@ -310,6 +326,28 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 	}
 
 	return nil
+}
+
+// caseTwinRefusal is the Conflict AddRole answers a name with when scope already
+// holds held, a role that differs from the name only in case. It says where held
+// is held: among the release's default roles, in scope itself, or, for one
+// domain, in every domain.
+func (u *userManager) caseTwinRefusal(ctx context.Context, scope accesstypes.PolicyScope, role, held accesstypes.Role) error {
+	if u.defaults.exists(scope, held) {
+		return httpio.NewConflictMessagef(defaultRoleCaseTwin, string(role), string(held))
+	}
+	place := scope
+	if _, oneDomain := scope.Domain(); oneDomain {
+		inScope, err := u.store.roleExists(ctx, scope, held)
+		if err != nil {
+			return err
+		}
+		if !inScope {
+			place = accesstypes.EveryDomainPolicyScope()
+		}
+	}
+
+	return httpio.NewConflictMessagef(roleCaseTwin, string(role), string(held), place)
 }
 
 // Roles returns the roles that exist in scope, sorted by name, each with its
@@ -863,8 +901,14 @@ func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role access
 // a custom role held in scope, or — for one domain — a custom role held in
 // every domain. The exact spelling wins when it exists; otherwise the one role
 // that matches case-insensitively; two such roles with no exact match is an
-// error, never a guess (AddRole and the role file refuse the pair, so only a
-// store written before this rule can hold one).
+// error, never a guess (AddRole and the role file refuse the pair. A store can
+// hold one all the same: where a release brings a default role whose name
+// differs only in case from a custom role already held, where two such names
+// were added at the same moment, or where the store was written before this
+// rule. The answer is then this error, which names the roles, until one of them
+// is removed). Case is the case of ASCII letters alone: a letter from outside
+// ASCII matches only itself, so a name written with a look-alike letter (the
+// Kelvin sign for k, the long s for s) is no role's.
 func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -878,7 +922,7 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 		if role.Name == accesstypes.Role(name) {
 			return role.Name, true, nil
 		}
-		if strings.EqualFold(string(role.Name), name) {
+		if sameRoleName(string(role.Name), name) {
 			matches = append(matches, role.Name)
 		}
 	}

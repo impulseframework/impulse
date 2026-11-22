@@ -249,13 +249,18 @@ rollback, or after a release removes a field or a permission, the grant is
 denied and reported, and everything else keeps working. The row stays in the
 store until it is removed (`DeleteRolePermission`, `DeleteRoleGrant`), so a
 later release that declares the name again carries the grant again: the
-report is the notice to remove a grant nobody means any more.
+report is the notice to remove a grant nobody means any more. A row no write
+could have made (a dot in its resource or its field column, or a field and no
+resource) is skipped and reported whatever the collection declares. No removal
+by name reaches such a row: `DeleteAllRolePermissions` removes it with the
+role's other grants, and `DeleteRole` with the role.
 
 A load reports two more findings the same way. A custom role whose name a
 default role of the running release has, in the same kind of scope, is a
 `*access.ShadowedRole`: the default wins, the custom role's grants are skipped,
 and its members hold the default role's grants; rename or delete the custom
-role to clear it. Memberships naming a role that is neither a default role nor
+role to clear it. A stored grant under a default role's name is skipped and
+reported the same way where the store holds no row for the role. Memberships naming a role that is neither a default role nor
 a custom role in their scope are an `*access.OrphanedMembership`: the members
 hold nothing from it, as happens when a release retires a default role and its
 memberships remain. Each finding reaches the hook once per compiled snapshot,
@@ -732,15 +737,25 @@ under a name, matched without regard to case, and returns it in the spelling the
 store holds: in one domain a domain default role, a custom role held in that
 domain, or a custom role held in every domain. The exact spelling wins when it
 exists; otherwise the one role that matches case-insensitively, and two such roles
-with no exact match is an error. It is how a name from outside the application,
+with no exact match is an error. Only the case of ASCII letters is set aside: a
+letter from outside ASCII matches only itself, so a name written with a
+look-alike letter (the Kelvin sign for `k`, the long s for `s`) finds no role.
+It is how a name from outside the application,
 a directory's group (a Google group is an email address, so its name is
 lowercase), finds the role the role file spelled. A custom role held in one
 domain alone cannot be assigned in every domain.
 
-No two roles in a scope differ only in case: the role file is refused at `New`
-when it declares such a pair, and `AddRole` refuses a custom role whose name
-matches an existing role of the scope without regard to case, so a resolution
-is never ambiguous. `AddRole` also holds a custom role's name to the one grammar
+The library keeps two roles in a scope from differing only in case: the role
+file is refused at `New` when it declares such a pair, and `AddRole` refuses a
+custom role whose name matches an existing role of the scope without regard to
+case, so a resolution
+is ambiguous only where a pair came about another way: a release that brings a
+default role whose name differs only in case from a custom role a tenant already
+holds, or two such names added at the same moment. `ResolveRole` then answers an
+error that names the roles, until one of them is removed. A role added in every
+domain is held to the custom roles of each single domain as well, since a name
+asked in one domain is read against both. `AddRole` also holds a custom role's
+name to the one grammar
 every role name follows — letters and digits starting with a capital letter, such
 as `Administrator` or `TenantAdministrator` (see Default Roles) — and refuses a
 name outside it with the same words the role file is refused with.

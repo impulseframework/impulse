@@ -45,6 +45,11 @@ func Test_resolveFieldFormerly(t *testing.T) {
 			wantErr:    "struct TwoFormer field Body: @formerly(Title) names the former name field Headline already carries; a former name belongs to one field",
 		},
 		{
+			name:       "a former name with a dot is refused",
+			structName: "Dotted",
+			wantErr:    "struct Dotted field Headline: @formerly(Old.Title) holds a dot",
+		},
+		{
 			name:       "the struct form on a resource is refused",
 			structName: "Renamed",
 			wantErr:    "struct Renamed: @formerly renames a field or a method; a resource keeps its name",
@@ -194,6 +199,11 @@ func Test_structsToRPCMethods_formerly(t *testing.T) {
 			name:        "another method's name is refused",
 			structNames: []string{"Publish", "Published", "Retract"},
 			wantErr:     "struct Retract: @formerly(Publish) names method Publish; a former name belongs to no method",
+		},
+		{
+			name:        "a former method name with a dot is refused",
+			structNames: []string{"Reissue"},
+			wantErr:     "struct Reissue: @formerly(Old.Release) holds a dot",
 		},
 		{
 			name:        "a request field naming another field's wire name is refused",

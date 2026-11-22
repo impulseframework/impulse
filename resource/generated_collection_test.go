@@ -1300,6 +1300,156 @@ func TestGeneratedCollection_noDotInAResourceName(t *testing.T) {
 	}
 }
 
+// TestGeneratedCollection_noDotInAFieldName pins that a field's name and a former name
+// hold no dot, however they are handed over: a dot separates a resource from one of its
+// fields, so the collection could not name such a field, and a former name with a dot
+// would be read as a field of another resource. Collection data and the builder's
+// AddResourceSet refuse each before anything is stored, so a tag a.b no longer reaches
+// List, which could not name it.
+func TestGeneratedCollection_noDotInAFieldName(t *testing.T) {
+	t.Parallel()
+
+	fieldName := func(tag, res string) string {
+		return fmt.Sprintf("tag %q under resource %q: a field's name holds no dot. "+
+			"A dot separates a resource from one of its fields, so the collection could not name this one. "+
+			"Give the field a name without a dot", tag, res)
+	}
+	formerTag := func(tag, res, former string) string {
+		return fmt.Sprintf("tag %q under resource %q names %q as its former name: a former name holds no dot. "+
+			"Give the former name as the field was called, without a dot", tag, res, former)
+	}
+	read := []accesstypes.Permission{accesstypes.Read}
+	widgets := func(tags ...TagData) CollectionData {
+		return CollectionData{Resources: []CollectionResource{{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Permissions: read, Tags: tags}}}
+	}
+	tests := []struct {
+		name     string
+		register func() error
+		want     string
+	}{
+		{name: "collection data, a tag's name", want: fieldName("name.first", "Widgets"), register: func() error {
+			_, err := NewGeneratedCollection(widgets(TagData{Name: "name.first", Permissions: read}))
+
+			return err
+		}},
+		{name: "collection data, a tag's former name", want: formerTag("title", "Widgets", "old.title"), register: func() error {
+			_, err := NewGeneratedCollection(widgets(TagData{Name: "title", Permissions: read, Formerly: "old.title"}))
+
+			return err
+		}},
+		{
+			name: "collection data, a resource's former name",
+			want: `resource "Reissue" names "Old.Reissue" as its former name: a former name holds no dot. ` +
+				"A dot separates a resource from one of its fields, so the former name would be read as a field of another resource. " +
+				"Give the former name as the method was called, without a dot",
+			register: func() error {
+				_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
+					Name: "Reissue", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Formerly: "Old.Reissue",
+				}}})
+
+				return err
+			},
+		},
+		{name: "the builder's AddResourceSet, a tag's name", want: fieldName("name.first", "Widgets"), register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "Widgets", SetData{
+				Permissions: read, TagPermissions: accesstypes.TagPermissions{"name.first": read},
+			})
+		}},
+		{name: "the builder's AddResourceSet, a former tag name", want: formerTag("title", "Widgets", "old.title"), register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "Widgets", SetData{
+				Permissions: read, TagPermissions: accesstypes.TagPermissions{"title": read}, FormerTags: map[accesstypes.Tag]accesstypes.Tag{"title": "old.title"},
+			})
+		}},
+		{name: "collection data with a tag a.b is refused before List could read it", want: fieldName("a.b", "Widgets"), register: func() error {
+			g, err := NewGeneratedCollection(widgets(TagData{Name: "a.b", Permissions: read}))
+			if err == nil {
+				g.List()
+			}
+
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := tt.register(); err == nil || !strings.HasSuffix(err.Error(), tt.want) {
+				t.Errorf("error = %v, want one ending in %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestGeneratedCollection_noEmptyOrStarName pins that a field has a name and is not
+// named *, and that a resource has a name, however they are handed over: Resource.
+// names no field, which a grant reads as the resource itself, and Resource.* is how a
+// grant names all of a resource's fields. Collection data and the builder's
+// AddResourceSet refuse the two field names, and each of the builder's registrations
+// refuses the empty resource name, as collection data does.
+func TestGeneratedCollection_noEmptyOrStarName(t *testing.T) {
+	t.Parallel()
+
+	noName := func(res string) string {
+		return fmt.Sprintf("resource %q lists a field with no name. Give the field a name", res)
+	}
+	star := func(res string) string {
+		return fmt.Sprintf("tag %q under resource %q: a field is not named *. "+
+			"Resource.* is how a grant names all of a resource's fields, so the collection could not name this field alone. "+
+			"Give the field another name", "*", res)
+	}
+	const emptyResource = "resource with empty name"
+	read := []accesstypes.Permission{accesstypes.Read}
+	widgets := func(tags ...TagData) CollectionData {
+		return CollectionData{Resources: []CollectionResource{{Name: "Widgets", Scope: accesstypes.DomainPermissionScope, Permissions: read, Tags: tags}}}
+	}
+	tests := []struct {
+		name     string
+		register func() error
+		want     string
+	}{
+		{name: "collection data, a tag with no name", want: noName("Widgets"), register: func() error {
+			_, err := NewGeneratedCollection(widgets(TagData{Name: "", Permissions: read}))
+
+			return err
+		}},
+		{name: "collection data, a tag named *", want: star("Widgets"), register: func() error {
+			_, err := NewGeneratedCollection(widgets(TagData{Name: "*", Permissions: read}))
+
+			return err
+		}},
+		{name: "the builder's AddResourceSet, a tag with no name", want: noName("Widgets"), register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "Widgets", SetData{
+				Permissions: read, TagPermissions: accesstypes.TagPermissions{"": read},
+			})
+		}},
+		{name: "the builder's AddResourceSet, a tag named *", want: star("Widgets"), register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "Widgets", SetData{
+				Permissions: read, TagPermissions: accesstypes.TagPermissions{"*": read},
+			})
+		}},
+		{name: "the builder's AddResourceSet, a resource with no name", want: emptyResource, register: func() error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, "", SetData{Permissions: read})
+		}},
+		{name: "the builder's AddResource, a resource with no name", want: emptyResource, register: func() error {
+			return NewCollectionBuilder().AddResource(accesstypes.DomainPermissionScope, accesstypes.Read, "")
+		}},
+		{name: "the builder's AddMethodResource, a resource with no name", want: emptyResource, register: func() error {
+			return NewCollectionBuilder().AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "")
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := tt.register(); err == nil || !strings.HasSuffix(err.Error(), tt.want) {
+				t.Errorf("error = %v, want one ending in %q", err, tt.want)
+			}
+		})
+	}
+}
+
 // TestNewGeneratedCollection_actionClassValidation pins what the collection refuses of
 // an action's classes at start-up.
 func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
