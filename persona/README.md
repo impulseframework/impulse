@@ -81,7 +81,8 @@ together on an empty store, the store keeps one key and both sign with it. The a
 tokens are encrypted under a key derived from the first signing key, which the store
 keeps for good, so an instance started after a rotation reads the tokens of one started
 before it. `RotateSigningKey` adds a new key; the older ones stay published so tokens
-signed before the rotation still verify.
+signed before the rotation still verify. A new key signs only once every instance
+publishes it, two minutes after it was made.
 
 ## The registration endpoint
 

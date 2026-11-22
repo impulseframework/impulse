@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -266,6 +267,45 @@ func (th *testHost) userinfoEndpoint(ctx context.Context, t *testing.T) string {
 	return doc.UserinfoEndpoint
 }
 
+// signedKeyID signs in at a host as the persona cadet and returns the key ID its ID token
+// carries.
+func signedKeyID(ctx context.Context, t *testing.T, th *testHost) string {
+	t.Helper()
+
+	b := th.browser(t)
+	b.signInToHost(ctx, th, "u-pat")
+	o := exchange(ctx, th, getCode(ctx, t, th, b), nil)
+	if o.status != http.StatusOK || o.kid == "" {
+		t.Fatalf("the exchange = %+v, want an ID token with a key ID", o)
+	}
+
+	return o.kid
+}
+
+// keyIDs reads the key IDs the key set publishes.
+func (th *testHost) keyIDs(ctx context.Context, t *testing.T) []string {
+	t.Helper()
+
+	status, answer := th.call(ctx, t, http.MethodGet, th.issuer+"/keys", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET keys = %d %s", status, answer)
+	}
+	var set struct {
+		Keys []struct {
+			Kid string `json:"kid"`
+		} `json:"keys"`
+	}
+	if err := json.Unmarshal([]byte(answer), &set); err != nil {
+		t.Fatalf("json.Unmarshal(keys) error = %v", err)
+	}
+	ids := make([]string, 0, len(set.Keys))
+	for _, k := range set.Keys {
+		ids = append(ids, k.Kid)
+	}
+
+	return ids
+}
+
 // keyID is the key ID in a token's header.
 func keyID(token string) string {
 	header, err := base64.RawURLEncoding.DecodeString(strings.SplitN(token, ".", 2)[0])
@@ -489,5 +529,67 @@ func TestSignIn_tokensReadAcrossARotation(t *testing.T) {
 	_ = json.Unmarshal([]byte(answer), &info)
 	if status != http.StatusOK || info.Subject != "cadet" {
 		t.Errorf("instance B's userinfo answered A's access token with %d and subject %q, want 200 and cadet", status, info.Subject)
+	}
+}
+
+// TestSignIn_rotatedKeySignsOncePublished: two instances on one store, each with its own
+// clock. A key one of them rotates in signs only once every instance publishes it, two
+// key-cache lifetimes after it was made; until then the older key signs.
+func TestSignIn_rotatedKeySignsOncePublished(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client := newDatabase(ctx, t)
+	hosts := map[string]*testHost{}
+	for _, name := range []string{"A", "B"} {
+		if hosts[name] = newHostOn(ctx, t, client, spannerstore.New(client)); hosts[name] == nil {
+			t.FailNow()
+		}
+	}
+	hostA, hostB := hosts["A"], hosts["B"]
+	hostA.mustRegister(ctx, t)
+
+	// After a sign-in at each, both publish the one key.
+	first := signedKeyID(ctx, t, hostA)
+	if kid := signedKeyID(ctx, t, hostB); kid != first {
+		t.Errorf("A and B sign with different keys")
+	}
+	for name, th := range hosts {
+		if ids := th.keyIDs(ctx, t); len(ids) != 1 {
+			t.Errorf("%s publishes %d keys, want 1", name, len(ids))
+		}
+	}
+
+	// A second later, A rotates. A sign-in at A at once is signed with a key B publishes,
+	// B's cache not having run out. (The test clocks stand still: the second tells the two
+	// keys apart by age.)
+	for _, th := range hosts {
+		th.clock.Advance(time.Second)
+	}
+	if err := hostA.svc.RotateSigningKey(ctx); err != nil {
+		t.Fatalf("Service.RotateSigningKey() error = %v", err)
+	}
+	if kid := signedKeyID(ctx, t, hostA); !slices.Contains(hostB.keyIDs(ctx, t), kid) {
+		t.Errorf("A signs at once after its rotation with a key B does not publish")
+	}
+
+	// Two key-cache lifetimes and a second later, both sign with the new key and publish both.
+	for _, th := range hosts {
+		th.clock.Advance(2*time.Minute + time.Second)
+	}
+	signed := map[string]string{"A": signedKeyID(ctx, t, hostA), "B": signedKeyID(ctx, t, hostB)}
+	for name, th := range hosts {
+		ids := th.keyIDs(ctx, t)
+		if len(ids) != 2 {
+			t.Errorf("%s publishes %d keys after the rotation, want 2", name, len(ids))
+
+			continue
+		}
+		rotated := ids[0]
+		if rotated == first {
+			rotated = ids[1]
+		}
+		if signed[name] != rotated {
+			t.Errorf("%s does not sign with the rotated key two key-cache lifetimes after it was made", name)
+		}
 	}
 }

@@ -26,6 +26,10 @@ const (
 	// keyCacheTTL is how long the signing keys are kept in memory before the store is
 	// asked again, so a rotation reaches every instance within it.
 	keyCacheTTL = time.Minute
+	// keyPublishWait is how old a signing key is before it signs: every instance has read
+	// it within one key-cache lifetime, and the second covers clocks that differ by less
+	// than one.
+	keyPublishWait = 2 * keyCacheTTL
 	// rsaKeyBits is the size of a signing key the service generates.
 	rsaKeyBits = 2048
 )
@@ -240,8 +244,10 @@ func (s *Service) generateKey() (*SigningKey, error) {
 	return &SigningKey{ID: id.String(), Key: key, CreatedAt: s.now()}, nil
 }
 
-// RotateSigningKey adds a new signing key, which signs from the next cache refresh on;
-// the key set keeps publishing the older ones.
+// RotateSigningKey adds a new signing key. Every instance publishes it within the key
+// cache's lifetime and signs with it once it is two of those lifetimes old, so no token is
+// signed with a key an instance does not publish yet; the key set keeps publishing the older
+// ones.
 func (s *Service) RotateSigningKey(ctx context.Context) error {
 	key, err := s.generateKey()
 	if err != nil {

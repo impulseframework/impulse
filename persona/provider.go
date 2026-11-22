@@ -160,14 +160,21 @@ func (*storage) GetRefreshTokenInfo(context.Context, string, string) (userID, to
 	return "", "", op.ErrInvalidRefreshToken
 }
 
-// SigningKey is the key that signs: the newest.
+// SigningKey is the key that signs: the newest one made at least two key-cache lifetimes
+// ago, by which time every instance publishes it, and the oldest when none is that old.
 func (s *storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
 	list, err := s.svc.signingKeys(ctx)
 	if err != nil {
 		return nil, serverError("the signing keys could not be read", err)
 	}
+	publishedBy := s.svc.now().Add(-keyPublishWait)
+	for _, k := range list {
+		if !k.CreatedAt.After(publishedBy) {
+			return &signingKey{k}, nil
+		}
+	}
 
-	return &signingKey{list[0]}, nil
+	return &signingKey{list[len(list)-1]}, nil
 }
 
 // SignatureAlgorithms is the one algorithm the provider signs with.
