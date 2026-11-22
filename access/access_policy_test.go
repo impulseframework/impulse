@@ -246,6 +246,36 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 			wantErr:    `grant on Widgets: field "name.first" holds a dot`,
 		},
 		{
+			name:       "a file granting on a lone dot",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "."}]}}]}}`),
+			wantErr:    "grant on .: no resource is named before the dot",
+		},
+		{
+			name:       "a file granting on a field with no resource before its dot",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": ".name"}]}}]}}`),
+			wantErr:    "grant on .name: no resource is named before the dot",
+		},
+		{
+			name:       "a file granting all the fields of no resource",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": ".*"}]}}]}}`),
+			wantErr:    "grant on .*: no resource is named before the dot",
+		},
+		{
+			name:       "a file granting on a resource with no field after its dot",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets."}]}}]}}`),
+			wantErr:    "grant on Widgets.: no field is named after the dot",
+		},
+		{
+			name:       "a file naming a field with no name",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": [""]}]}}]}}`),
+			wantErr:    "grant on Widgets: one of its fields has no name",
+		},
+		{
 			name:       "a file granting a domain resource to a global role",
 			collection: grammarCollection{},
 			file:       RoleFile(`{"roles": {"global": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
