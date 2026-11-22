@@ -101,9 +101,15 @@ func (s *storage) SaveAuthCode(ctx context.Context, id, code string) error {
 	return nil
 }
 
-// DeleteAuthRequest removes a request once its code is exchanged.
+// DeleteAuthRequest removes a request once its code is exchanged. It is the last step of
+// an exchange and the one that decides it: when another exchange of the same code removed
+// the request first, this one is refused and no token leaves.
 func (s *storage) DeleteAuthRequest(ctx context.Context, id string) error {
 	if err := s.svc.store.DeleteRequest(ctx, id); err != nil {
+		if errors.Is(err, ErrUnknownRequest) {
+			return oidc.ErrInvalidGrant().WithDescription("the sign-in's code was already used or has expired; start the sign-in again").WithParent(err)
+		}
+
 		return serverError("the sign-in request could not be removed", errors.Wrap(err, "persona.Store.DeleteRequest()"))
 	}
 
@@ -154,14 +160,16 @@ func (*storage) GetRefreshTokenInfo(context.Context, string, string) (userID, to
 	return "", "", op.ErrInvalidRefreshToken
 }
 
-// SigningKey is the key that signs: the newest.
+// SigningKey is the key that signs: the newest one this instance has itself held for longer
+// than the key cache's lifetime, by which time every instance publishes it, and the first key
+// while it has held none that long.
 func (s *storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
 	list, err := s.svc.signingKeys(ctx)
 	if err != nil {
 		return nil, serverError("the signing keys could not be read", err)
 	}
 
-	return &signingKey{list[0]}, nil
+	return &signingKey{s.svc.keyThatSigns(list)}, nil
 }
 
 // SignatureAlgorithms is the one algorithm the provider signs with.

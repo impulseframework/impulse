@@ -248,6 +248,35 @@ func TestManager_GivableGroupRoles(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("a tenant's administrator's role of a tenant that is directory only is held to the rule as the method holds it", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tt := range []struct {
+			group  impulse.UUID
+			enters []accesstypes.Domain
+			want   []string
+		}{
+			{group: staffID, want: []string{"Reader", "Warden"}},
+			{group: staffID, enters: []accesstypes.Domain{"alpha"}, want: []string{"Reader", "Warden"}},
+			{group: nightID, want: []string{"Reader"}},
+			{group: nightID, enters: []accesstypes.Domain{"alpha"}, want: []string{"Reader", "Warden"}},
+		} {
+			m := outsiderManager(t, groupStore())
+			roles, err := m.GivableGroupRoles(asEntering(t.Context(), erin, tt.enters...), fakeDatabase{}, gives, tt.group, alphaScope)
+			if err != nil {
+				t.Fatalf("GivableGroupRoles() error = %v", err)
+			}
+			got := make([]string, 0, len(roles))
+			for _, role := range roles {
+				got = append(got, string(role.Name))
+			}
+			slices.Sort(got)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("GivableGroupRoles(group %s, caller entering %v) (-want +got):\n%s", tt.group, tt.enters, diff)
+			}
+		}
+	})
 }
 
 // TestGivingGroup pins which group a list of the roles to give answers for, from the

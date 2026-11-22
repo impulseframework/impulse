@@ -34,6 +34,7 @@ import (
 type CrewSectorDirectoryRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Crew)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
 }

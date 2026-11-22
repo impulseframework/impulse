@@ -51,6 +51,7 @@ import {
   closedRecordText,
   closedSourceText,
   displayFromOptions,
+  keyDisplay,
   matchOptions,
   narrowedFilter,
   notPermitted,
@@ -70,8 +71,9 @@ import {
  * carries a fixed value set the picker renders with no request. The configuration
  * narrows and presents those rows — `filter`, `sorts`, the display columns — and never
  * chooses another resource. Where the configuration names no display column an option
- * shows its key, and a role's key in words ("Sector marshal" for `SectorMarshal`) on a
- * method's request field that names a role.
+ * shows its key. A field of the source that holds a role's name (`roles` in its metadata)
+ * is shown in words ("Night shift lead" for `NightShiftLead`), the key and a display field
+ * alike.
  *
  * How the resource is read is the generated descriptor's statement alone: its declared
  * maximum page size (readMode). A source with no maximum is read whole in one request,
@@ -318,14 +320,17 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   multiple = computed((): boolean => this.fieldMeta()?.displayType === 'enumerated[]');
 
   /**
-   * The field holds a role: a method's request field that a grant's condition reads as
-   * the role (`attribute: 'role'` in the generated metadata). Where the page configured
-   * no display field, such a picker shows each role's key in words and stores the key.
+   * The source's fields that hold a role's name: those whose metadata lists the roles they
+   * may hold (`roles`). The picker writes a role in words where it shows one of them, a
+   * display field or the key, and stores the key as it is. None for a fixed enumeration or
+   * a source with no metadata.
    */
-  private readonly namesRole = computed((): boolean => {
-    const meta = this.fieldMeta();
-    return meta !== undefined && 'attribute' in meta && meta.attribute === 'role';
-  });
+  private readonly roleFields = computed(
+    (): ReadonlySet<string> =>
+      new Set(
+        (this.sourceMeta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
+      ),
+  );
 
   /** The picked keys of a field that takes several, in the order they were picked. */
   private readonly chosenKeys = computed((): string[] => {
@@ -550,17 +555,19 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     // Nothing names what is stored where the source is closed to the person: its key shows.
     if (this.closedTo() === 'source') {
-      return value ? String(value) : defaultEmptyFieldValue;
+      return value ? this.bareKey(String(value)) : defaultEmptyFieldValue;
     }
     // A whole source holds every row in its list: the display comes from there, and a
     // value the list does not hold shows as itself.
     if (!this.paged()) {
-      return value ? displayFromOptions(this.allEnumOptions(), value).display : defaultEmptyFieldValue;
+      return value
+        ? displayFromOptions(this.allEnumOptions(), value, this.roleFields(), this.keyField()).display
+        : defaultEmptyFieldValue;
     }
     // A row the person may not read, or one whose read failed, shows as its key, beside
     // what the field says under itself.
     if (this.closedTo() === 'row' || this.chosenRowFailed()) {
-      return value ? String(value) : defaultEmptyFieldValue;
+      return value ? this.bareKey(String(value)) : defaultEmptyFieldValue;
     }
     const record = this.chosenRow();
     if (record === undefined) {
@@ -601,7 +608,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
       });
     }
     const options = this.allEnumOptions();
-    return keys.map((key) => displayFromOptions(options, key));
+    return keys.map((key) => displayFromOptions(options, key, this.roleFields(), this.keyField()));
   });
 
   singleEnumValue = computed((): PickerOption[] | undefined => {
@@ -614,10 +621,10 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     if (!currentValue) return [];
     if (!this.paged()) {
-      return [displayFromOptions(this.allEnumOptions(), String(currentValue))];
+      return [displayFromOptions(this.allEnumOptions(), String(currentValue), this.roleFields(), this.keyField())];
     }
     if (this.closedTo() === 'row' || this.chosenRowFailed()) {
-      return [{ id: String(currentValue), display: String(currentValue) }];
+      return [{ id: String(currentValue), display: this.bareKey(String(currentValue)) }];
     }
     const record = this.chosenRow();
     if (!record || Object.keys(record).length === 0) return [];
@@ -786,7 +793,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const key = resource[this.keyField()] ?? '';
     const option: PickerOption = {
       id: key,
-      display: optionDisplay(resource, key, displayFields, concatFunction, this.namesRole()),
+      display: optionDisplay(resource, key, displayFields, concatFunction, this.roleFields(), this.keyField()),
     };
     if (enumeratedConfig.searchable && !this.paged()) {
       option.text = this.ownSearchFields().map((field) => String(resource[field] ?? ''));
@@ -800,7 +807,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (typeof value === 'string') {
       const option = this.availableEnumOptions()?.find((o) => o.id === value);
       // An id with no matching option displays as itself rather than blanking the field.
-      return option ? option.display : value;
+      return option ? option.display : this.bareKey(value);
     }
 
     return value['display'] || this.formatDisplay(value);
@@ -808,6 +815,11 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   private formatDisplay(resource: Record<string, string>): string {
     return this.toEnumerated(resource).display;
+  }
+
+  /** A key the source answered no row for, as the picker shows it (keyDisplay). */
+  private bareKey(key: string): string {
+    return keyDisplay(key, this.roleFields(), this.keyField());
   }
 
   search(value: string): void {

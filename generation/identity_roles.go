@@ -36,14 +36,14 @@ func (r *resourceGenerator) refuseReservedRole(inst *identityInstance) error {
 
 // moduleDir is the directory of a package of the main module, from its import path: the
 // inverse of modulePath. ok is false for a package of another module.
-func (r *resourceGenerator) moduleDir(importPath string) (dir string, ok bool) {
-	if r.modulePathRoot == "" {
+func (c *client) moduleDir(importPath string) (dir string, ok bool) {
+	if c.modulePathRoot == "" {
 		return "", false
 	}
-	if importPath == r.modulePathRoot {
+	if importPath == c.modulePathRoot {
 		return ".", true
 	}
-	rel, ok := strings.CutPrefix(importPath, r.modulePathRoot+"/")
+	rel, ok := strings.CutPrefix(importPath, c.modulePathRoot+"/")
 	if !ok {
 		return "", false
 	}

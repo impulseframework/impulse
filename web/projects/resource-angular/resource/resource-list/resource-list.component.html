@@ -100,6 +100,7 @@
       [page]="store.page()"
       (sortChange)="onSortChange($event)"
       (filterChange)="onFilterChange($event)"
+      (filterMenuOpened)="onFilterMenuOpened($event)"
       (pageTurn)="onPageTurn($event)">
     </impulse-grid>
   </div>

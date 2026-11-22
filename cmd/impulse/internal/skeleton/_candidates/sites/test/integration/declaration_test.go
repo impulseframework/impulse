@@ -217,7 +217,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodGet, "/api/tenants/"+north+"/staff-tenant-directory-roles", nil); status != http.StatusOK || !strings.Contains(string(body), `"name":"TenantAdministrator"`) {
 		t.Errorf("listing the roles the tenant may be opened with: status %d: %s, want 200 with TenantAdministrator among them", status, body)
 	}
-	opens := "Anyone who signs in through " + "north.example" + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
+	opens := "Anyone who signs in through " + "north.example" + " will be able to enter this tenant without an invitation and gets the role Tenant administrator."
 	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) {
 		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q", status, body, opens)
 	}

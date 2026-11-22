@@ -312,6 +312,12 @@ export class AppGridComponent {
   sortChange = output<SortRule[]>();
   /** The column filters to request next, after a filter menu commits or clears. */
   filterChange = output<ColumnFilter[]>();
+  /**
+   * The id of the column whose filter menu opened, each time one opens: the page may then
+   * ask for values the column's menu offers (`filterChoices`), which the open menu shows
+   * as they arrive.
+   */
+  filterMenuOpened = output<string>();
   /** The page to show next. */
   pageTurn = output<PageTurn>();
 
@@ -1257,6 +1263,11 @@ export class AppGridComponent {
     if (event.key !== 'Escape') {
       event.stopPropagation();
     }
+  }
+
+  /** A column's filter menu opened: the page is told which column's. */
+  onFilterMenuOpened(col: ColumnConfig): void {
+    this.filterMenuOpened.emit(col.id);
   }
 
   /** A menu that closes with a complete draft commits it; an incomplete draft is dropped and the committed filter stays. */

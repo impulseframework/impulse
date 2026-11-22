@@ -40,6 +40,20 @@ func InWords(name string) string {
 	return strings.Join(kept, " ")
 }
 
+// RoleInWords names a role as a sentence a person reads names it, and as a role picker
+// shows it: its words in lower case with the first in upper case, so "NightShiftLead" is
+// "Night shift lead". A plural acronym keeps its letters: "KeyIDs" is "Key IDs". An empty
+// name stays empty. It is the one place the library's Go code spells a role; the stored
+// name stays in a refusal's cause, for the server's log.
+func RoleInWords(role string) string {
+	spelled := InWords(role)
+	if spelled == "" {
+		return spelled
+	}
+
+	return strings.ToUpper(spelled[:1]) + spelled[1:]
+}
+
 // pluralAcronymAt reports whether a plural acronym starts at name[i], and where it ends:
 // a run, as long as it goes, of two or more ASCII capital letters, followed at once by a
 // lower-case s that ends the name or is followed by anything but an ASCII lower-case

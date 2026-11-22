@@ -562,6 +562,18 @@ describe("the filter menu's value control", () => {
     expect(emitted).toBeUndefined();
   });
 
+  it("tells the page which column's filter menu opened, each time one opens", async () => {
+    await create({}, statuses);
+    const opened: string[] = [];
+    fixture.componentInstance.filterMenuOpened.subscribe((id) => opened.push(id));
+    await openMenu(3);
+    await closeMenu();
+    await openMenu(2);
+    await closeMenu();
+    await openMenu(3);
+    expect(opened).toEqual(['statusId', 'title', 'statusId']);
+  });
+
   it('a pick shows the name of the filter the list was asked with, and Choose a value takes it away', async () => {
     await create({}, statuses);
     fixture.componentRef.setInput('filters', [{ field: 'statusId', operator: 'eq', value: 'open' }]);

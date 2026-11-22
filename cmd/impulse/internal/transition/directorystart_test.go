@@ -87,6 +87,8 @@ func (r *regeneration) Run(ctx context.Context, dir string, env []string, name s
 				return nil, errors.Wrap(err, "os.Remove()")
 			}
 		}
+		// The generator removes a file once; a later run finds it gone.
+		r.removes = nil
 	}
 
 	return r.fakeExec.Run(ctx, dir, env, name, args...)

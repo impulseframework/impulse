@@ -22,6 +22,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -199,6 +200,67 @@ func TestGeneratedIdentityRolesAreOneList(t *testing.T) {
 	assertStatus(t, status, http.StatusNotFound, body)
 	if got := heldRoles(t, adas("marshal", sectorPath(anvil, sectorHeldRolesPath))); !slices.Equal(got, want) {
 		t.Errorf("the roles ada holds after a removal that named no row:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// TestGeneratedIdentityHeldRolesAnswerTheRoleQuestion holds the question a list's role
+// column asks when its filter menu opens, as the browser sends it to the whole fleet's
+// list of the roles people hold: the roles named left out, the rows sorted by role, one
+// row, and the role column. Asked, as the first question is while no role is known, for a
+// row whose role holds a value, the list answers one row, holding the first role in order.
+// Named every role the list holds but one, it answers one row, holding the role left out;
+// named every role, it answers none.
+func TestGeneratedIdentityHeldRolesAnswerTheRoleQuestion(t *testing.T) {
+	t.Parallel()
+	w := newTenantListsWorld(t)
+	path := consoleAPI + "/" + heldRolesPath
+
+	status, body := doRequestAs(t, w.h, "governor", http.MethodGet, path+"?limit=200", "")
+	assertStatus(t, status, http.StatusOK, body)
+	rows := decodeRows(t, body)
+	if len(rows) == 200 {
+		t.Fatalf("the list of the roles people hold filled a page of 200 rows, want it whole in one")
+	}
+	var held []string
+	for _, row := range rows {
+		if role := cell[string](t, row, "role"); !slices.Contains(held, role) {
+			held = append(held, role)
+		}
+	}
+	slices.Sort(held)
+	if len(held) < 2 {
+		t.Fatalf("the roles the list holds = %v, want two at least", held)
+	}
+
+	ask := func(filter string) []map[string]any {
+		t.Helper()
+		query := url.Values{
+			"filter":  {filter},
+			"sort":    {"role:asc"},
+			"limit":   {"1"},
+			"columns": {"role"},
+		}
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, path+"?"+query.Encode(), "")
+		assertStatus(t, status, http.StatusOK, body)
+
+		return decodeRows(t, body)
+	}
+
+	notin := func(known []string) string {
+		return "role:notin:(" + strings.Join(known, ",") + ")"
+	}
+
+	// The first question, while the browser knows no role: any row whose cell holds one.
+	if answer := ask("role:isnotnull"); len(answer) != 1 || cell[string](t, answer[0], "role") != held[0] {
+		t.Errorf("asked for a role, any, the list answered %v, want one row holding %s, the first of %v", answer, held[0], held)
+	}
+	left := held[len(held)/2]
+	answer := ask(notin(slices.DeleteFunc(slices.Clone(held), func(role string) bool { return role == left })))
+	if len(answer) != 1 || cell[string](t, answer[0], "role") != left {
+		t.Errorf("asked for a role other than %v, the list answered %v, want one row holding %s", held, answer, left)
+	}
+	if answer := ask(notin(held)); len(answer) != 0 {
+		t.Errorf("asked for a role other than every one it holds, %v, the list answered %v, want no row", held, answer)
 	}
 }
 

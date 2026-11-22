@@ -306,14 +306,18 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 		return "", err
 	}
 	if role == accesstypes.SuperAdministrator {
-		return "", httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, and is never the role a %s's people start with", string(role), m.tenantWord)
+		const said = "the %s role is held for the whole application alone, and is never the role a %s's people start with"
+
+		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord), said, roleInWords(role), m.tenantWord)
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.EveryDomainPolicyScope()})
 	if err != nil {
 		return "", err
 	}
 	if !exists {
-		return "", httpio.NewBadRequestMessagef("role %q is no role of a %s: the people of the new %s's directory start with one of its roles", role, m.tenantWord, m.tenantWord)
+		const said = "role %q is no role of a %s: the people of the new %s's directory start with one of its roles"
+
+		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, role, m.tenantWord, m.tenantWord), said, roleInWords(role), m.tenantWord, m.tenantWord)
 	}
 
 	return role, nil

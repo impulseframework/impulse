@@ -862,11 +862,15 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
 // A picker the page gave no display of its own, as a method's dialog draws one from the
 // metadata alone. Over a record keyed by an id that says which field its rows are called
 // by (the tenant record's name), it lists and shows names; over any other source it shows
-// the key, which reads well where the key is the row's name.
+// the key, which reads well where the key is the row's name, and in words where the
+// source's metadata says the key holds a role's name.
 describe('EnumeratedFieldComponent with no display of its own', () => {
   const methods = 'Methods' as Resource;
   const sectors = 'Sectors' as Resource;
   const roles = 'Roles' as Resource;
+  const titles = 'Titles' as Resource;
+  const crewRoles = 'CrewRoles' as Resource;
+  const callsigns = 'Callsigns' as Resource;
   const source = (resource: Resource, route: string, keys: string[]): ApiDescriptor['resources'][string] => ({
     resource,
     property: route,
@@ -878,12 +882,29 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     page: { default: 25, max: 200 },
     order: [{ field: 'name', direction: 'asc' }],
   });
+  /** A source with no maximum page size, read whole in one request. */
+  const wholeSource = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys: ['name'],
+    operations: ['list', 'read'],
+    order: [{ field: 'name', direction: 'asc' }],
+  });
   const descriptor: ApiDescriptor = {
     permissionDigestRoute: 'permission-digest',
     userDomainsRoute: 'user-domains',
     features: { route: 'features' },
     methods: {},
-    resources: { [sectors]: source(sectors, 'sectors', ['id']), [roles]: source(roles, 'roles', ['name']) },
+    resources: {
+      [sectors]: source(sectors, 'sectors', ['id']),
+      [roles]: source(roles, 'roles', ['name']),
+      [titles]: source(titles, 'titles', ['name']),
+      [crewRoles]: wholeSource(crewRoles, 'crewroles'),
+      [callsigns]: wholeSource(callsigns, 'callsigns'),
+    },
   };
   const picker = (fieldName: string, resource: Resource): FieldMeta => ({
     fieldName,
@@ -892,15 +913,25 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     isIndex: false,
     enumeratedResource: resource,
   });
-  // A request field that names a role declares the name a grant's condition reads it by.
+  // A request field that names a role declares the name a grant's condition reads it by;
+  // here over a source whose metadata says nothing of roles.
   const givenRole: RPCFieldMeta = {
     fieldName: 'givenRole',
     displayType: 'enumerated',
-    enumeratedResource: roles,
+    enumeratedResource: titles,
     attribute: 'role',
   };
   const metas: Record<string, ResourceMeta> = {
-    [methods]: { route: 'methods', fields: [picker('domain', sectors), picker('role', roles)] },
+    [methods]: {
+      route: 'methods',
+      fields: [
+        picker('domain', sectors),
+        picker('role', roles),
+        picker('title', titles),
+        picker('crewRole', crewRoles),
+        picker('callsign', callsigns),
+      ],
+    },
     [sectors]: {
       route: 'sectors',
       nameField: 'name',
@@ -909,8 +940,41 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
         { fieldName: 'name', displayType: 'string', required: true, isIndex: true },
       ],
     },
+    // The source's key field holds a role's name: the metadata lists the roles it may hold.
     [roles]: {
       route: 'roles',
+      fields: [
+        {
+          fieldName: 'name',
+          primaryKey: { ordinalPosition: 0 },
+          displayType: 'string',
+          required: true,
+          isIndex: true,
+          roles: ['Cadet', 'SectorMarshal'],
+        },
+      ],
+    },
+    [titles]: {
+      route: 'titles',
+      fields: [
+        { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
+      ],
+    },
+    [crewRoles]: {
+      route: 'crewroles',
+      fields: [
+        {
+          fieldName: 'name',
+          primaryKey: { ordinalPosition: 0 },
+          displayType: 'string',
+          required: true,
+          isIndex: true,
+          roles: ['Cadet'],
+        },
+      ],
+    },
+    [callsigns]: {
+      route: 'callsigns',
       fields: [
         { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
       ],
@@ -924,6 +988,9 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
       { id: bastion, name: 'Bastion' },
     ],
     roles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
+    titles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
+    crewroles: [{ name: 'Cadet' }],
+    callsigns: [{ name: 'Cadet' }],
   };
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
@@ -1006,12 +1073,12 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
   });
 
   it('over a source that names no field, shows the key', async () => {
-    await pickerOver('role', 'Cadet');
-    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Cadet');
+    await pickerOver('title', 'SectorMarshal');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('SectorMarshal');
 
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
-    expect(lastPage()).toBe('GET /api/roles?columns=name&count=true');
+    expect(lastPage()).toBe('GET /api/titles?columns=name&count=true');
     expect(
       (fixture.componentInstance.availableEnumOptions() ?? [])
         .filter((option) => option.id !== null)
@@ -1022,8 +1089,8 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     ]);
   });
 
-  it('over the roles, for a request field that names a role, shows each role in words and stores its key', async () => {
-    await pickerOver('givenRole', 'SectorMarshal');
+  it("over a source whose key field holds a role's name, shows each role in words and stores its key", async () => {
+    await pickerOver('role', 'SectorMarshal');
     expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Sector marshal');
 
     fixture.componentRef.setInput('editMode', 'edit');
@@ -1036,6 +1103,58 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     ).toEqual([
       ['Cadet', 'Cadet'],
       ['SectorMarshal', 'Sector marshal'],
+    ]);
+  });
+
+  // A key the source answers no row for is shown by itself. Where the source's key field
+  // holds a role's name it reads in words all the same, so a role reads the same with a row
+  // and without one; over a source that declares nothing it reads as stored.
+  it('over a source read whole whose rows do not hold the chosen role, shows the role in words', async () => {
+    await pickerOver('crewRole', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('Night shift lead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'Night shift lead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('Night shift lead');
+  });
+
+  it('over a paged source whose row of the chosen role cannot be read, shows the role in words', async () => {
+    await pickerOver('role', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('Night shift lead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'Night shift lead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('Night shift lead');
+  });
+
+  it('over a source read whole that declares nothing, shows a key it holds no row for as stored', async () => {
+    await pickerOver('callsign', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('NightShiftLead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'NightShiftLead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('NightShiftLead');
+  });
+
+  it('over a paged source that declares nothing, shows a key whose row cannot be read as stored', async () => {
+    await pickerOver('title', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('NightShiftLead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'NightShiftLead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('NightShiftLead');
+  });
+
+  it('for a request field that names a role, over a source that declares nothing, shows the key as stored', async () => {
+    await pickerOver('givenRole', 'SectorMarshal');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('SectorMarshal');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(lastPage()).toBe('GET /api/titles?columns=name&count=true');
+    expect(
+      (fixture.componentInstance.availableEnumOptions() ?? [])
+        .filter((option) => option.id !== null)
+        .map((option) => [option.id, option.display]),
+    ).toEqual([
+      ['Cadet', 'Cadet'],
+      ['SectorMarshal', 'SectorMarshal'],
     ]);
   });
 });
