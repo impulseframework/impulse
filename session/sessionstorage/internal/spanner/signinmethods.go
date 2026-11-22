@@ -12,8 +12,12 @@ import (
 	"google.golang.org/api/iterator"
 )
 
+// selfServiceResetColumn is the column of the sign-in methods table that says whether a
+// person may ask for their own password reset link.
+const selfServiceResetColumn = "SelfServiceReset"
+
 // signInMethodColumns are the sign-in methods table's columns.
-var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", "SelfServiceReset", updatedAtColumn}
+var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", selfServiceResetColumn, updatedAtColumn}
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
@@ -98,7 +102,7 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 
 	row := map[string]any{
 		nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "OpenedFor": spanner.NullString{}, "DefaultRole": spanner.NullString{},
-		"SelfServiceReset": m.SelfServiceReset, updatedAtColumn: spanner.CommitTimestamp,
+		selfServiceResetColumn: m.SelfServiceReset, updatedAtColumn: spanner.CommitTimestamp,
 	}
 	if m.OpenedFor != nil {
 		row["OpenedFor"] = spanner.NullString{StringVal: *m.OpenedFor, Valid: true}
@@ -127,7 +131,7 @@ func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method s
 		if err != nil {
 			return err
 		}
-		row := map[string]any{nameColumn: method, "SelfServiceReset": on, updatedAtColumn: spanner.CommitTimestamp}
+		row := map[string]any{nameColumn: method, selfServiceResetColumn: on, updatedAtColumn: spanner.CommitTimestamp}
 		write := spanner.UpdateMap(s.signInMethodsTableName, row)
 		if standing == nil {
 			row["OpenSignUp"] = false

@@ -242,7 +242,8 @@ func testSelfServiceResetOneField(ctx context.Context, t *testing.T, h *AuthHarn
 		t.Fatalf("SignInMethods() error = %v", err)
 	}
 	want := []*dbtype.SignInMethod{
-		{Name: "azure", SelfServiceReset: true}, other,
+		{Name: "azure", SelfServiceReset: true},
+		other,
 		{Name: "password", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole)},
 	}
 	if diff := cmp.Diff(want, got, opts); diff != "" {

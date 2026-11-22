@@ -78,8 +78,9 @@ var identityReads sync.Map
 // identityReadsOf is userID's count in identityReads.
 func identityReadsOf(userID impulse.UUID) *atomic.Int64 {
 	n, _ := identityReads.LoadOrStore(userID, new(atomic.Int64))
+	count, _ := n.(*atomic.Int64)
 
-	return n.(*atomic.Int64)
+	return count
 }
 
 // linkIdentities makes every mocked store answer userID's identities with links, until

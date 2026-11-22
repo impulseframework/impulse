@@ -262,7 +262,7 @@ func (m *mailLinks) confirm(f *authFixture, c *sessionstorage.AddressConfirmatio
 	if c.Refuse != nil {
 		shown := held
 		if err := c.Refuse(&shown); err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "sessionstorage.AddressConfirmation.Refuse()")
 		}
 	}
 	if holder := m.accounts[strings.ToLower(c.Email)]; holder != nil && holder.ID != c.UserID {
