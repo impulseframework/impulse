@@ -99,6 +99,7 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a username outside ASCII in another case", password: "ЩЖФЫХЦЭЮБЬЪЙ", who: Details{Username: "щжфыхцэюбьъй"}},
 		{name: "a Greek name in capitals", password: "ΝΙΚΟΛΑΟΣ1990", who: Details{Name: "Νικόλαος Παπαδόπουλος"}},
 		{name: "a name typed without a letter's mark", password: "Федоров1985!", who: Details{Name: "Фёдор Фёдоров"}},
+		{name: "the name in look-alike characters", password: "Z@br0w$k!2077", who: Details{Name: "Quentin Zabrowski"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,6 +116,50 @@ func TestJudge_personalDetails(t *testing.T) {
 				t.Errorf("Judge(%q, %+v) = %+v, want strong enough with details it does not hold", tt.password, other, got)
 			}
 		})
+	}
+}
+
+func TestPlainReading(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		judged string
+		words  []string
+		want   string
+	}{
+		{judged: "Z@br0w$k!2077", words: []string{"Zabrowski"}, want: "Zabrowski2077"},
+		{judged: "zabrowski2077", words: []string{"Zabrowski"}, want: "zabrowski2077"},
+		{judged: "P@T77", words: []string{"pat"}, want: "PaT77"},
+		{judged: "1!1!xx", words: []string{"lili"}, want: "lilixx"},
+		{judged: "0'ne1l", words: []string{"O'Neil"}, want: "o'neil"},
+		{judged: "@nn@belle", words: []string{"ann", "anna"}, want: "annabelle"},
+		{judged: "@nn@nn", words: []string{"anna"}, want: "annann"},
+		{judged: "xx@1", words: []string{"al"}, want: "xx@1"},
+		{judged: "2077", words: []string{"zott"}, want: "zott"},
+		{judged: "n1ck", words: []string{"nick"}, want: "nick"},
+		{judged: "nick", words: []string{"n1ck"}, want: "nick"},
+	}
+	for _, tt := range tests {
+		if got := plainReading(tt.judged, tt.words); got != tt.want {
+			t.Errorf("plainReading(%q, %q) = %q, want %q", tt.judged, tt.words, got, tt.want)
+		}
+	}
+}
+
+func TestJudge_lookAlikesThatSpellNoDetailAreJudgedAsTyped(t *testing.T) {
+	t.Parallel()
+
+	const password, minimum = "Ba9ZyWABu99[BK#6MBgbH88Tofv)vs$w", 30
+	who := Details{Name: "Quentin Zabrowski"}
+	read := newReading()
+	judged := read.of(password)
+	inputs := inputsOf(who, read)
+	if plain := plainReading(judged, inputs); plain != judged {
+		t.Errorf("plainReading(%q, %q) = %q, want it as typed: no word of the person's is in it", judged, inputs, plain)
+	}
+	want := strengthOf(estimate(judged, inputs), minimum)
+	if got := Judge(password, who, minimum); !got.StrongEnough || got.Strength != want {
+		t.Errorf("Judge(%q, %+v) = %+v, want strong enough at the strength %d the library gives the password as typed", password, who, got, want)
 	}
 }
 

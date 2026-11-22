@@ -13,8 +13,15 @@
 // and each detail's first maxDetail, and it reads look-alike characters as letters (4 for a,
 // $ for s) while the passes that reading takes, each costing the square of the length, cost
 // no more than maxL33tWork passes over MaxJudged characters. A password past that holds many
-// different look-alike characters for its length, and is estimated as typed. The list is
-// asked about the whole password.
+// different look-alike characters for its length, and is estimated as typed. The library
+// does not read look-alike characters against the person's words, so a password that spells
+// one of them in look-alikes (Z@br0w$k! for Zabrowski) is estimated a second time with the
+// word written in its letters, and the lower estimate counts; finding the words compares each
+// one with the password at each of its first MaxJudged characters, no further than MaxJudged
+// characters each time. One judgment asks the library at most three times: about the password,
+// about it with the person's words written in their letters, and, when it falls short, about
+// the password without the person's details, to name the reason. The list is asked about the
+// whole password.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone, one character for each character typed: an accented letter is read as its
@@ -145,6 +152,9 @@ func Judge(password string, who Details, minimum int) Judgment {
 	judged := read.of(firstRunes(password, MaxJudged))
 	inputs := inputsOf(who, read)
 	bits := estimate(judged, inputs)
+	if plain := plainReading(judged, inputs); plain != judged {
+		bits = min(bits, estimate(plain, inputs))
+	}
 	strength := strengthOf(bits, minimum)
 	if bits >= float64(minimum) {
 		return Judgment{StrongEnough: true, Strength: max(strength, Mark), Reason: ""}
@@ -227,6 +237,88 @@ func inputsOf(who Details, read *reading) []string {
 	}
 
 	return inputs
+}
+
+// plainReading is judged with each of the person's words it spells in look-alike characters
+// written in that word's letters, so the estimate finds the word: Z@br0w$k!2077 with the word
+// Zabrowski is Zabrowski2077. The words are the inputs at least minRun characters long, in
+// lower case. From the left, at each character where words read (spellsAt), the longest is
+// taken, the first in inputs of equal lengths: a character matched as itself stays as typed,
+// one matched by look-alike becomes the word's letter in lower case, and the reading goes on
+// after the word. Where no word reads, the character stays. The plain reading is as long as
+// judged, and is judged itself when no word reads anywhere in it. judged and the inputs are
+// as read reads them, in ASCII, so a byte is a character.
+func plainReading(judged string, inputs []string) string {
+	var words []string
+	for _, input := range inputs {
+		if len(input) >= minRun {
+			words = append(words, strings.ToLower(input))
+		}
+	}
+	if words == nil {
+		return judged
+	}
+
+	plain := []byte(judged)
+	for i := 0; i < len(judged); {
+		longest := ""
+		for _, word := range words {
+			if len(word) > len(longest) && spellsAt(judged[i:], word) {
+				longest = word
+			}
+		}
+		if longest == "" {
+			i++
+
+			continue
+		}
+		for k := range len(longest) {
+			if !sameInLowerCase(judged[i+k], longest[k]) {
+				plain[i+k] = longest[k]
+			}
+		}
+		i += len(longest)
+	}
+
+	return string(plain)
+}
+
+// spellsAt says whether text begins with word with at least one of word's letters in a
+// look-alike character: each of word's characters is matched in order, by a character that is
+// the same in lower case or, for a letter, by one of the characters l33tTable lists for it.
+// word is in lower case.
+func spellsAt(text, word string) bool {
+	if len(word) > len(text) {
+		return false
+	}
+	lookAlike := false
+	for k := range len(word) {
+		switch {
+		case sameInLowerCase(text[k], word[k]):
+		case standsFor(text[k], word[k]):
+			lookAlike = true
+		default:
+			return false
+		}
+	}
+
+	return lookAlike
+}
+
+// sameInLowerCase says whether the ASCII characters a and b are the same in lower case.
+func sameInLowerCase(a, b byte) bool {
+	return unicode.ToLower(rune(a)) == unicode.ToLower(rune(b))
+}
+
+// standsFor says whether the character c is one l33tTable lists as standing for the letter.
+func standsFor(c, letter byte) bool {
+	for _, char := range l33tTable[string(letter)] {
+		if char == string(c) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // notLetterOrDigit says whether r ends a run of letters and digits.

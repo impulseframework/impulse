@@ -1584,7 +1584,8 @@ an invitation's acceptance makes, a first password, a person's own change, the p
 reset link ends in, and `CreateSessionUser` with a password. A password is refused (400, with
 the sentence that says why) when it is too easy to guess, when it is built on the person's
 own name, username or email address, or when it is among the 100,000 passwords most often
-found in data breaches.
+found in data breaches. The person's details count however they are written: in either case,
+with or without accents, and in look-alike characters (`@` for a, `0` for o, `$` for s).
 
 How hard a password is to guess is an estimate in bits. The password method's
 `MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an
