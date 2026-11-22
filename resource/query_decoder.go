@@ -111,14 +111,15 @@ func (d *QueryDecoder[Resource, Request]) hiddenFields() map[accesstypes.Field]s
 	return d.resourceSet.hiddenFields(d.features)
 }
 
-// visibleFields returns the request type's fields less the hidden ones.
+// visibleFields returns the request type's fields less the hidden ones. It filters a
+// copy: the mapper's list is the decoder's for every request, so it is never written to.
 func (d *QueryDecoder[Resource, Request]) visibleFields() []accesstypes.Field {
 	hidden := d.hiddenFields()
 	if len(hidden) == 0 {
 		return d.requestFieldMapper.Fields()
 	}
 
-	return slices.DeleteFunc(d.requestFieldMapper.Fields(), func(field accesstypes.Field) bool {
+	return slices.DeleteFunc(slices.Clone(d.requestFieldMapper.Fields()), func(field accesstypes.Field) bool {
 		_, isHidden := hidden[field]
 
 		return isHidden
