@@ -329,8 +329,10 @@ func TestChangeRecordTenant_ownColumn(t *testing.T) {
 		},
 		{
 			name: "a compound key keyed in another order is the same row",
-			writes: []write{{"Berths", UpdatePatchType, rowMatchKey(KeySet{}.Add("YardID", "yard-1").Add("Number", 3)),
-				map[string]any{"YardId": "yard-1", "Number": 3, "DockId": "dock-2"}}},
+			writes: []write{{
+				"Berths", UpdatePatchType, rowMatchKey(KeySet{}.Add("YardID", "yard-1").Add("Number", 3)),
+				map[string]any{"YardId": "yard-1", "Number": 3, "DockId": "dock-2"},
+			}},
 			row:       rowMatchKey(KeySet{}.Add("Number", 3).Add("YardID", "yard-1")),
 			want:      "dock-2",
 			wantKnown: true,
