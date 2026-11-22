@@ -379,6 +379,25 @@ func TestJudge_aLongDetailCostsNoMoreThanItsFirstCharacters(t *testing.T) { //no
 	}
 }
 
+func TestJudge_aLongPasswordAllocatesNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates
+	const minimum = 30
+	long := strings.Repeat("vexillumtrek", 4<<20/12)
+	first := firstRunes(long, MaxJudged)
+	allocated := func(password string) uint64 {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		Judge(password, Details{}, minimum)
+		runtime.ReadMemStats(&after)
+
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	allocated(first)
+	short := allocated(first)
+	if got := allocated(long); got > short+64<<10 {
+		t.Errorf("Judge of a password of %d bytes allocated %d bytes, want no more than the %d of its first %d characters, within 64 KiB", len(long), got, short, MaxJudged)
+	}
+}
+
 func TestFirstRunes(t *testing.T) {
 	t.Parallel()
 

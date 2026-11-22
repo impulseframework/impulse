@@ -25,7 +25,7 @@
 // characters each time. One judgment asks the library at most three times: about the password,
 // about it with the person's words written in their letters, and, when it falls short, about
 // the password without the person's details, to name the reason. The list is asked about the
-// whole password.
+// whole password, which is hashed in pieces and never copied.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone, one character for each character typed but a letter read as two (ß, æ, œ, þ):
