@@ -74,6 +74,8 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				"  name: string;",
 				// A resource that is not the tenant record says no field its rows are called by.
 				"nameField",
+				// A table's sorts and filters run over what the caller may see: it is not marked computed.
+				"    computed: true,",
 			},
 		},
 		{
@@ -99,6 +101,8 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				"{ fieldName: 'name', displayType: 'string', required: false, isIndex: false }",
 				// No publish reaches a computed resource yet: its pages stay plain by default.
 				"    live: false,\n    fields: [",
+				// Its handler orders and filters the rows by their real values: the metadata says it is computed.
+				"    deleteDisabled: true,\n    computed: true,\n    live: false,\n    fields: [",
 			},
 			wantNotContains: []string{
 				"  id?: string;",
@@ -112,7 +116,7 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				GenPrefix: "zz_gen",
 			},
 			wantContains:    []string{"    live: false,\n    fields: ["},
-			wantNotContains: []string{"live: true"},
+			wantNotContains: []string{"live: true", "    computed: true,"},
 		},
 		{
 			name: "a virtual resource whose tables are known says its changes are published",
@@ -121,7 +125,7 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				GenPrefix: "zz_gen",
 			},
 			wantContains:    []string{"    live: true,\n    fields: ["},
-			wantNotContains: []string{"live: false"},
+			wantNotContains: []string{"live: false", "    computed: true,"},
 		},
 	}
 

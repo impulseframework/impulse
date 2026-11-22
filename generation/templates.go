@@ -4249,6 +4249,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: {{ $resource.Published }},
     {{- if $resource.RowWord }}
     rowWords: {{ $resource.TypescriptRowWords }},

@@ -35,7 +35,7 @@ import {
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
-import { Domain, RemoveOptions, TenantProperty } from '@impulseframework/resource';
+import { Domain, ListPermission, RemoveOptions, TenantProperty } from '@impulseframework/resource';
 import {
   AlertType,
   ChildResourceConfig,
@@ -96,6 +96,7 @@ import {
   filterEligibility,
   filterInputKinds,
   listEmptyMessage,
+  queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
@@ -590,16 +591,30 @@ export class ResourceListComponent implements OnInit {
   );
 
   /**
+   * The listed resource's metadata as this caller may sort and filter by it
+   * (queryableMeta): on a computed resource, a column the digest lists under a condition
+   * offers no sort and no filter. Across tenants no one digest speaks for the rows, so
+   * nothing narrows.
+   */
+  queryMeta = computed(() => {
+    const resource = this.config().primaryResource;
+    if (this.across() || !resource) {
+      return this.meta();
+    }
+    return queryableMeta(this.meta(), this.auth.fieldPermissionStates({ resource, permission: ListPermission }));
+  });
+
+  /**
    * Which columns the server filters, from the listed resource's metadata: the grid draws
    * a filter control only on these, and a companion-only column waits for an indexed filter.
    */
-  filterability = computed(() => filterEligibility(this.meta(), this.columns()));
+  filterability = computed(() => filterEligibility(this.queryMeta(), this.columns()));
 
   /** The fields the page's own filter names, so the grid knows when an indexed filter is already in the request. */
   configFilterFields = computed(() => filterFields(this.filters()));
 
   /** Which text matches each column's field answers, from the listed resource's metadata: the grid's menu offers these. */
-  searches = computed(() => searchEligibility(this.meta(), this.columns()));
+  searches = computed(() => searchEligibility(this.queryMeta(), this.columns()));
 
   /** Which control each column's menu takes a value from, from the listed resource's metadata: a date control on a date field, a date and a time on a timestamp. */
   filterInputs = computed(() => filterInputKinds(this.meta(), this.columns()));
@@ -729,7 +744,7 @@ export class ResourceListComponent implements OnInit {
     const usedIds = new Set<string>();
     // A column over a field the server does not order is drawn with no sort button, as one
     // that opts out is: the metadata says which, so no sort is offered that the server refuses.
-    const unordered = unorderedFields(this.meta());
+    const unordered = unorderedFields(this.queryMeta());
 
     if (this.across()) {
       // The tenant column of a list across tenants takes its id before any column of the page's.
@@ -969,7 +984,7 @@ export class ResourceListComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
       this.store.reloadPage();
     });
   }

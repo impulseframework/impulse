@@ -496,11 +496,11 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
 });
 
 // A yes or no field starts at what the page's config gives it. With nothing given, a field
-// the resource requires starts unchecked, and a form saved untouched sends that; a field the
-// resource does not require starts at the default the schema declares, which the metadata
-// carries, and a form saved untouched sends it; where the schema declares none the form
-// holds nothing for the field and sends nothing. Whichever it is, the form writes nothing
-// to the console.
+// the resource requires starts at No, in the picker the form draws it as, and a form saved
+// untouched sends that; a field the resource does not require starts at the default the
+// schema declares, which the metadata carries, and a form saved untouched sends it; where
+// the schema declares none the form holds nothing for the field and sends nothing.
+// Whichever it is, the form writes nothing to the console.
 describe('ResourceCreateComponent starts a yes or no field', () => {
   const probes = 'Probes' as Resource;
   const descriptor: ApiDescriptor = {
@@ -617,7 +617,7 @@ describe('ResourceCreateComponent starts a yes or no field', () => {
     vi.restoreAllMocks();
   });
 
-  it('at what the page gives it; with nothing given, unchecked where the resource requires it, at the default the schema declares where it does not, and at nothing where the schema declares none; and writes nothing to the console', () => {
+  it('at what the page gives it; with nothing given, at No where the resource requires it, at the default the schema declares where it does not, and at nothing where the schema declares none; and writes nothing to the console', () => {
     // Both at once, so that a form that fails says what it started the fields at and what it wrote.
     expect({ held: held(), written }).toEqual({
       held: {
@@ -657,7 +657,24 @@ describe('ResourceCreateComponent starts a yes or no field', () => {
     });
   });
 
-  it('so a form saved untouched is sent: a no for the required box, what the page gave, what the schema declares, and nothing for the field with no default declared', async () => {
+  it('draws a field the resource requires as a picker that shows No, and no box for it', () => {
+    fixture.detectChanges();
+
+    const armed = (fixture.nativeElement as HTMLElement).querySelector('[data-field="armed"]');
+    const selects = armed?.querySelectorAll('mat-select') ?? [];
+
+    expect({
+      boxes: armed?.querySelectorAll('input[type="checkbox"]').length,
+      selects: selects.length,
+      shown: selects[0]?.querySelector('.mat-mdc-select-value-text')?.textContent?.trim(),
+    }).toEqual({
+      boxes: 0,
+      selects: 1,
+      shown: 'No',
+    });
+  });
+
+  it('so a form saved untouched is sent: a no for the required field, what the page gave, what the schema declares, and nothing for the field with no default declared', async () => {
     component.saveForm();
     for (let i = 0; i < 30 && adds().length === 0; i++) {
       TestBed.tick();
