@@ -288,6 +288,13 @@ schema through the Spanner emulator, so a container runtime has to be running, a
 every `impulse add`. A regeneration that fails stops `new` before the first commit, with
 the generator's output and the tree left rendered.
 
+The application's first migration (`schema/migrations/000001_DataChangeEvents.up.sql`) creates
+the change history table and says how long its records are kept: 365 days, after which Spanner
+removes a record in the background. The period is the application's own. Change the number in
+that file before the first deployment, or take the policy's statement out to keep every
+record; [the resource package's reference](../../resource/README.md), section 24, says the
+rest.
+
 The tree is committed as the application's first commit (`--skip-git` leaves it
 uncommitted), so `impulse add` can start from a clean tree. `new` installs nothing, and
 two things follow, each a step it prints. The application has no lockfile: the versions
@@ -1381,7 +1388,11 @@ each with its proof, a tenant's administrator does none of them. The auth's
 deployment package's test of the first administrator's roles holds it to the role file,
 and the application's own administrator role gains the grants a tenant is made with: the
 record, the invitation that makes one, its withdrawal and the list of the invitations
-that stand. So the application starts, and its served tests run, as it was made. An
+that stand. The role is written after the regeneration, since its grants are cut to what
+that regeneration serves, and the generated metadata lists the roles a field may hold from
+the role file (`@roleOf`), so where the command added the role it runs `go generate ./...`
+once more. So the application starts, its served tests run and `impulse check`'s `regen`
+passes, as it was made. An
 application that names a role held in every tenant already keeps its own, and where the
 command cannot write the role (a foothold or a role file that is not as the skeleton
 writes it) a line under what it could not make says why and gives the step. Which

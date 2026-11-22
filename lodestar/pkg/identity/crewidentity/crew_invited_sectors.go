@@ -39,15 +39,16 @@ type CrewInvitedSector struct {
 	ID    impulse.UUID `spanner:"Id"`
 	Email string       `spanner:"Email"`
 	// Name is the name the sender gave the person.
-	Name                *string       `spanner:"Name"`
-	SectorName          *string       `spanner:"SectorName"`
-	SectorRegion        *string       `spanner:"SectorRegion"`
-	SectorEstablished   *civil.Date   `spanner:"SectorEstablished"`
-	SectorDirectoryOnly *bool         `spanner:"SectorDirectoryOnly"`
-	DefaultRole         *string       `spanner:"DefaultRole"`
-	InvitedByUserID     *impulse.UUID `spanner:"InvitedByUserId"`
-	CreatedAt           time.Time     `spanner:"CreatedAt"`
-	ExpiresAt           time.Time     `spanner:"ExpiresAt"`
+	Name                *string     `spanner:"Name"`
+	SectorName          *string     `spanner:"SectorName"`
+	SectorRegion        *string     `spanner:"SectorRegion"`
+	SectorEstablished   *civil.Date `spanner:"SectorEstablished"`
+	SectorDirectoryOnly *bool       `spanner:"SectorDirectoryOnly"`
+	// @roleOf(Crew)
+	DefaultRole     *string       `spanner:"DefaultRole"`
+	InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
+	CreatedAt       time.Time     `spanner:"CreatedAt"`
+	ExpiresAt       time.Time     `spanner:"ExpiresAt"`
 }
 
 // Resource implements resource.Resourcer.

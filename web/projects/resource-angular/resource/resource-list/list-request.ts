@@ -1,4 +1,12 @@
-import { ApiError, FieldMeta, PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
+import {
+  ApiError,
+  FieldMeta,
+  PermissionDigestState,
+  Resource,
+  ResourceMeta,
+  serializeFilter,
+  where,
+} from '@impulseframework/resource';
 import {
   ColumnFilterability,
   ColumnFilterChoices,
@@ -6,7 +14,7 @@ import {
   ColumnSearches,
   PageTurn,
 } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig, keyFields, ListViewConfig } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, keyFields, ListViewConfig, roleInWords } from '@impulseframework/resource-angular/types';
 
 // The list page's pure parts around the server's page: which columns the server filters,
 // where the page sits after a turn, what an empty table says, and what a page refuses: a
@@ -170,20 +178,77 @@ export function filterInputKinds(meta: ResourceMeta | undefined, columns: readon
  * set: the generated metadata's `enumeration` for the field each column shows, each value
  * beside the name the list writes for it, by column id, in the metadata's order, which is
  * the order a sort by the column puts the rows in. The column's menu offers the names and
- * the filter carries the values. A column whose field lists none (a key into another
- * resource's rows among them), or whose id is not a field of the listed resource, is
- * absent.
+ * the filter carries the values. A field that holds a role's name offers the metadata's
+ * roles and, after them, the roles the list was found to hold beyond those (`found`), each
+ * by its words: a role made at run time is in no metadata, and the list is the one place
+ * that says a row holds it. A column whose field lists none and was found to hold none (a
+ * key into another resource's rows among them), or whose id is not a field of the listed
+ * resource, is absent.
  */
-export function filterChoiceLists(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnFilterChoices {
-  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.enumeration]));
+export function filterChoiceLists(
+  meta: ResourceMeta | undefined,
+  columns: readonly { id: string }[],
+  found: Readonly<Record<string, readonly string[]>> = {},
+): ColumnFilterChoices {
+  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field]));
   const choices: Record<string, ColumnFilterChoices[string]> = {};
   for (const column of columns) {
-    const enumeration = byField.get(column.id);
+    const field = byField.get(column.id);
+    const enumeration = field?.enumeration;
     if (enumeration !== undefined && enumeration.length > 0) {
       choices[column.id] = enumeration.map((option) => ({ value: option.id, label: option.display }));
+    } else if (enumeration === undefined && field?.roles !== undefined) {
+      const roles = [...new Set([...field.roles, ...(found[column.id] ?? [])])];
+      if (roles.length > 0) {
+        choices[column.id] = roles.map((role) => ({ value: role, label: roleInWords(role) }));
+      }
     }
   }
   return choices;
+}
+
+/** The most roles a role column's filter looks for beyond those the metadata lists. */
+export const foundRolesLimit = 50;
+
+/**
+ * The field of the column whose roles the list asks the server for when the column's
+ * filter menu opens: a field that holds a role's name (`roles` in the metadata), holds
+ * one name and not a list, and draws a filter control, since the server filters it for
+ * this caller (`filterable` in the metadata as the caller may query it, queryableMeta)
+ * and the column has not opted out (`filterable: false`). Undefined for any other
+ * column, which asks nothing.
+ */
+export function roleQuestionField(
+  meta: ResourceMeta | undefined,
+  column: { id: string; filterable?: boolean } | undefined,
+): FieldMeta | undefined {
+  if (column === undefined || column.filterable === false) {
+    return undefined;
+  }
+  const field = meta?.fields.find((candidate) => candidate.fieldName === column.id);
+  if (
+    field?.roles === undefined ||
+    field.enumeration !== undefined ||
+    field.displayType.endsWith('[]') ||
+    field.filterable === undefined
+  ) {
+    return undefined;
+  }
+  return field;
+}
+
+/**
+ * The condition a question about a role column's roles carries: the field holds none of
+ * the roles known (`<field>:notin:(...)`, by the library's own serializer), so a row the
+ * server answers with holds a role the list did not know of. While nothing is known the
+ * condition is that the field holds a value (`<field>:isnotnull`), so an empty cell, which
+ * sorts first, is never the answer.
+ */
+export function rolesQuestion(field: string, known: readonly string[]): string {
+  if (known.length === 0) {
+    return serializeFilter(where<Record<string, unknown>>(field, 'isnotnull'));
+  }
+  return serializeFilter(where<Record<string, unknown>>(field, 'notin', [...known]));
 }
 
 /** Where a page sits: the rows before it, and the total the first page answered. */

@@ -17,7 +17,7 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { askInDialog } from '@impulseframework/resource-angular/dialogs';
 import { openMethodDialog } from '@impulseframework/resource-angular/resource';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
-import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
+import { METHOD_META, MethodPresentation, roleInWords } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 
 /**
@@ -213,7 +213,7 @@ export class SectorSignInComponent {
   /** How the sector admits its directory's people, as the row says. */
   seatOf(directory: SectorDirectories): string {
     return directory.defaultSeat
-      ? `Open to the directory's people: each is given the role ${directory.defaultSeat} at their first sign-in through it.`
+      ? `Open to the directory's people: each is given the role ${roleInWords(directory.defaultSeat)} at their first sign-in through it.`
       : 'Invite only: a person from the directory enters once they are invited.';
   }
 

@@ -84,7 +84,7 @@ func (h *Handlers) RemoveStaffRole() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

@@ -126,8 +126,8 @@ func TestManager_OpenSignUp(t *testing.T) {
 		},
 		{
 			name:    "a default role that is not held for the whole application is refused",
-			open:    SignUp{Method: "google", DefaultRole: "Reader"},
-			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
+			open:    SignUp{Method: "google", DefaultRole: "NightShiftLead"},
+			refused: httpio.HasBadRequest, wantHas: `\"Night shift lead\" is not a role held for the whole application: choose one of the roles the picker lists`,
 		},
 		{
 			name:   "a caller who may give the role is told that it is not held for the whole application",
@@ -147,7 +147,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "the Super Administrator role is never a default role",
 			open:    SignUp{Method: "google", DefaultRole: accesstypes.SuperAdministrator},
-			refused: httpio.HasBadRequest, wantHas: "is never a default role",
+			refused: httpio.HasBadRequest, wantHas: "the Super administrator role is never a default role",
 		},
 		{
 			name:       "with tenants, a method is opened with no role",
@@ -227,9 +227,15 @@ func TestManager_OpenSignUp(t *testing.T) {
 func TestManager_OpenSignUpWarning(t *testing.T) {
 	t.Parallel()
 
+	// A custom role of the global scope whose name is several words.
+	nightKey := access.NewMembershipKey(globalScope, "", "NightShiftLead")
+	globalNightShiftLead := access.RoleKey{Kind: nightKey.Kind, Axis: nightKey.Axis, Domain: nightKey.Domain, Role: "NightShiftLead"}
+
 	tests := []struct {
-		name    string
-		open    SignUp
+		name string
+		open SignUp
+		// custom are the rows of the roles table: the custom roles; none where it is nil.
+		custom  map[access.RoleKey]bool
 		want    *resource.Warning
 		refused func(err error) bool
 	}{
@@ -258,6 +264,15 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 			},
 		},
 		{
+			name:   "a role whose name is several words is named in words",
+			open:   SignUp{Method: "google", DefaultRole: "NightShiftLead"},
+			custom: map[access.RoleKey]bool{globalNightShiftLead: true},
+			want: &resource.Warning{
+				Consequence: "Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Night shift lead.",
+				Confirm:     "Open to anyone with a Google account",
+			},
+		},
+		{
 			name: "before the role is picked, the warning says it is to be chosen",
 			open: SignUp{Method: "google"},
 			want: &resource.Warning{
@@ -281,7 +296,11 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{roles: map[access.RoleKey]bool{}}
+			custom := tt.custom
+			if custom == nil {
+				custom = map[access.RoleKey]bool{}
+			}
+			store := &fakeStore{roles: custom}
 			m := newSignUpManager(t, store)
 
 			var got *resource.Warning

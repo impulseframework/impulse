@@ -23,6 +23,10 @@ CREATE TABLE DataChangeEvents (
   ChangeSet JSON,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
 
+-- The change history's row deletion policy, as an application's first migration carries
+-- it. The table's two statements are resource.DataChangeEventsDDL's, which a test pins.
+ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
+
 -- The secret-field tests' fixture: a table that keeps change records and has a column
 -- its resource declares a secret, which holds the value sealed.
 CREATE TABLE SealedRows (

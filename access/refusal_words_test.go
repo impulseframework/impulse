@@ -9,37 +9,6 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 )
 
-// TestRoleInWords pins how a sentence a person reads names a role: as a role picker
-// shows it, its words in lower case with the first in upper case, never its code name.
-// The cases and their answers are the identity package's, whose copy of the rule is held
-// to the same table.
-func TestRoleInWords(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		role accesstypes.Role
-		want string
-	}{
-		{role: "SectorMarshal", want: "Sector marshal"},
-		{role: "SuperAdministrator", want: "Super administrator"},
-		{role: "Reader", want: "Reader"},
-		{role: "night_shift_lead", want: "Night shift lead"},
-		{role: "Night shift lead", want: "Night shift lead"},
-		{role: "HQAuditor", want: "Hq auditor"},
-		{role: "KeyIDs", want: "Key IDs"},
-		{role: "", want: ""},
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.role), func(t *testing.T) {
-			t.Parallel()
-
-			if got := roleInWords(tt.role); got != tt.want {
-				t.Errorf("roleInWords(%q) = %q, want %q", tt.role, got, tt.want)
-			}
-		})
-	}
-}
-
 // notFoundPlainly holds a refusal of something that is not there to what a person may be
 // told: it is NotFound, the person is sent the one sentence and nothing else, the
 // sentence carries none of the words kept from them (a role's code name, a group's id),

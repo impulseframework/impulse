@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -124,12 +125,11 @@ func (m *Manager) judged(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// roleInWords names a role as a role picker shows it: its words in lower case with the
-// first in upper case, so "SectorMarshal" is "Sector marshal". A sentence a person reads
-// names a role this way, never by its code name, which the refusal's cause keeps for the
-// server's log. A plural acronym keeps its letters: "KeyIDs" is "Key IDs".
+// roleInWords names a role as a sentence a person reads names it, "Night shift lead" for
+// NightShiftLead, never by its code name, which a refusal's cause keeps for the server's
+// log. The rule is the library's one (words.RoleInWords).
 func roleInWords(role accesstypes.Role) string {
-	return sentenceStart(inWords(string(role)))
+	return words.RoleInWords(string(role))
 }
 
 // refuseGivingThrough holds a change that gives people a group's roles to what giving

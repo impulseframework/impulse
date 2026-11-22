@@ -47,6 +47,7 @@ type (
 		GroupID   impulse.UUID `spanner:"GroupId"   index:"true"`
 		GroupName string       `spanner:"GroupName" index:"true"`
 		// @primarykey
+		// @roleOf(Members)
 		Role        string `spanner:"Role"        index:"true"`
 		GlobalGroup bool   `spanner:"GlobalGroup" index:"true"`
 		EveryDomain bool   `spanner:"EveryDomain" index:"true"`

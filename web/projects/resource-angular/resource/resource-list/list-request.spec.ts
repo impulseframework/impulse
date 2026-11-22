@@ -13,6 +13,8 @@ import {
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
+  roleQuestionField,
+  rolesQuestion,
   searchEligibility,
   unorderedFields,
 } from './list-request';
@@ -172,9 +174,77 @@ describe('filterChoiceLists', () => {
         ],
       }),
       field('pilotId', { displayType: 'enumerated', filterable: 'always', enumeratedResource: 'Pilots' as never }),
+      // A field that holds a role's name: the metadata lists the roles it may hold.
+      field('role', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
+      field('backupRole', { isIndex: true, filterable: 'always', roles: [] }),
     ],
   };
-  const cases: { name: string; meta: ResourceMeta | undefined; columns: string[]; want: Record<string, unknown> }[] = [
+  const cases: {
+    name: string;
+    meta: ResourceMeta | undefined;
+    columns: string[];
+    found?: Record<string, string[]>;
+    want: Record<string, unknown>;
+  }[] = [
+    {
+      name: "a field that holds a role's name offers each role the metadata lists, in words, in its order",
+      meta: missions,
+      columns: ['title', 'role'],
+      want: {
+        role: [
+          { value: 'NightShiftLead', label: 'Night shift lead' },
+          { value: 'Reader', label: 'Reader' },
+        ],
+      },
+    },
+    {
+      name: 'a role field whose metadata lists no role offers none',
+      meta: missions,
+      columns: ['backupRole'],
+      want: {},
+    },
+    { name: 'a field with neither fixed values nor roles offers none', meta: missions, columns: ['title'], want: {} },
+    {
+      name: "the roles the list was found to hold follow the metadata's, in words, in the order found",
+      meta: missions,
+      columns: ['role'],
+      found: { role: ['DockMaster', 'ArchiveKeeper'] },
+      want: {
+        role: [
+          { value: 'NightShiftLead', label: 'Night shift lead' },
+          { value: 'Reader', label: 'Reader' },
+          { value: 'DockMaster', label: 'Dock master' },
+          { value: 'ArchiveKeeper', label: 'Archive keeper' },
+        ],
+      },
+    },
+    {
+      name: 'a role found that the metadata names is offered once',
+      meta: missions,
+      columns: ['role'],
+      found: { role: ['Reader', 'DockMaster'] },
+      want: {
+        role: [
+          { value: 'NightShiftLead', label: 'Night shift lead' },
+          { value: 'Reader', label: 'Reader' },
+          { value: 'DockMaster', label: 'Dock master' },
+        ],
+      },
+    },
+    {
+      name: 'the roles found alone make the picks of a role field whose metadata lists none',
+      meta: missions,
+      columns: ['backupRole'],
+      found: { backupRole: ['DockMaster'] },
+      want: { backupRole: [{ value: 'DockMaster', label: 'Dock master' }] },
+    },
+    {
+      name: 'a role found on a field that holds no role is no pick',
+      meta: missions,
+      columns: ['title'],
+      found: { title: ['DockMaster'] },
+      want: {},
+    },
     {
       name: "a field that takes fixed values offers each value beside its name, in the metadata's order",
       meta: missions,
@@ -194,7 +264,72 @@ describe('filterChoiceLists', () => {
 
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(filterChoiceLists(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+      expect(
+        filterChoiceLists(
+          tt.meta,
+          tt.columns.map((id) => ({ id })),
+          tt.found,
+        ),
+      ).toEqual(tt.want as never);
+    });
+  }
+});
+
+// A role column's filter asks the list's own resource for the roles its rows hold beyond
+// those the metadata lists: which column asks, and what the question's condition says.
+describe('roleQuestionField', () => {
+  const shifts: ResourceMeta = {
+    route: 'shifts',
+    fields: [
+      field('id', { primaryKey: { ordinalPosition: 0 }, isIndex: true, filterable: 'always' }),
+      field('title', { isIndex: true, filterable: 'always' }),
+      field('role', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
+      field('backupRole', { filterable: 'withIndexed', roles: [] }),
+      field('roles', { displayType: 'string[]', sortable: false, roles: ['NightShiftLead'] }),
+      field('reliefRole', { roles: ['Reader'] }),
+    ],
+  };
+  const cases: { name: string; column: { id: string; filterable?: boolean } | undefined; want: string | undefined }[] =
+    [
+      { name: 'a role field the server filters asks', column: { id: 'role' }, want: 'role' },
+      { name: 'one whose metadata lists no role asks too', column: { id: 'backupRole' }, want: 'backupRole' },
+      { name: 'a field that holds no role asks nothing', column: { id: 'title' }, want: undefined },
+      { name: 'a list of roles asks nothing', column: { id: 'roles' }, want: undefined },
+      { name: 'a role field the server does not filter asks nothing', column: { id: 'reliefRole' }, want: undefined },
+      {
+        name: 'a column that opts out of its filter control asks nothing',
+        column: { id: 'role', filterable: false },
+        want: undefined,
+      },
+      { name: 'a column that is no field asks nothing', column: { id: 'view' }, want: undefined },
+      { name: 'no column, nothing', column: undefined, want: undefined },
+    ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(roleQuestionField(shifts, tt.column)?.fieldName).toBe(tt.want);
+    });
+  }
+
+  it('no metadata, nothing', () => {
+    expect(roleQuestionField(undefined, { id: 'role' })).toBeUndefined();
+  });
+});
+
+describe('rolesQuestion', () => {
+  const cases: { name: string; known: string[]; want: string }[] = [
+    {
+      name: 'the field holds none of the roles known',
+      known: ['NightShiftLead', 'Reader'],
+      want: 'role:notin:(NightShiftLead,Reader)',
+    },
+    { name: 'nothing known, the field holds a value', known: [], want: 'role:isnotnull' },
+    { name: 'a role is quoted where the grammar needs it', known: ['Odd,Name'], want: 'role:notin:("Odd,Name")' },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(rolesQuestion('role', tt.known)).toBe(tt.want);
     });
   }
 });

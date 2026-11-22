@@ -977,6 +977,14 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		if diff := cmp.Diff(wantOpen, rules.OpenToDirectoryWarning(beta, "Dockhand")); diff != "" {
 			t.Errorf("OpenToDirectoryWarning() mismatch (-want +got):\n%s", diff)
 		}
+		// A role whose name is several words is said in words.
+		wantInWords := &Warning{
+			Consequence: "Anyone who signs in through your organization's Microsoft directory will be able to enter this station without an invitation and gets the role Night shift lead.",
+			Confirm:     wantOpen.Confirm,
+		}
+		if diff := cmp.Diff(wantInWords, rules.OpenToDirectoryWarning(beta, "NightShiftLead")); diff != "" {
+			t.Errorf("OpenToDirectoryWarning() of a role whose name is several words mismatch (-want +got):\n%s", diff)
+		}
 		// While no role is picked yet the warning says one is to be chosen.
 		wantChoose := &Warning{
 			Consequence: "Anyone who signs in through your organization's Microsoft directory will be able to enter this station without an invitation. Choose the role each of them gets.",

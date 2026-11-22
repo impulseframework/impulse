@@ -67,6 +67,7 @@
                           class="filter-trigger"
                           [class.active]="hasFilter(col)"
                           [matMenuTriggerFor]="filterMenu"
+                          (menuOpened)="onFilterMenuOpened(col)"
                           aria-label="Filter column">
                           <mat-icon>filter_alt</mat-icon>
                         </button>

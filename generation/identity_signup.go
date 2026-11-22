@@ -213,6 +213,7 @@ type (
 		Name             string    ` + "`spanner:\"Name\"`" + `
 		OpenSignUp       bool      ` + "`spanner:\"OpenSignUp\"`" + `
 		OpenedFor        *string   ` + "`spanner:\"OpenedFor\"`" + `
+		// @roleOf({{ .Auth }})
 		DefaultRole      *string   ` + "`spanner:\"DefaultRole\"`" + `
 		SelfServiceReset bool      ` + "`spanner:\"SelfServiceReset\"`" + `
 		UpdatedAt        time.Time ` + "`spanner:\"UpdatedAt\"`" + `
@@ -392,6 +393,7 @@ type {{ .SignInMethod }} struct {
 	Label               string ` + "`spanner:\"Label\"`" + `
 	Admits              string ` + "`spanner:\"Admits\"`" + `
 	OpenSignUp          bool   ` + "`spanner:\"OpenSignUp\"`" + `
+	// @roleOf({{ .Auth }})
 	DefaultRole         string ` + "`spanner:\"DefaultRole\"`" + `
 	DirectoryGivesRoles bool   ` + "`spanner:\"DirectoryGivesRoles\"`" + `
 	OwnRule             bool   ` + "`spanner:\"OwnRule\"`" + `
@@ -467,6 +469,7 @@ import (
 type {{ .SignUpRole }} struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf({{ .Auth }})
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
 }

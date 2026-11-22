@@ -204,6 +204,7 @@ type {{ .InvitedTenant }} struct {
 	{{ .TenantName }}DirectoryOnly *bool ` + "`spanner:\"{{ .TenantName }}DirectoryOnly\"`" + `
 	{{- end }}
 	{{- if .TenantSeats }}
+	// @roleOf({{ .Auth }})
 	DefaultRole *string ` + "`spanner:\"DefaultRole\"`" + `
 	{{- end }}
 	InvitedByUserID *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `

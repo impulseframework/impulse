@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { API_URL, SessionInfo } from '@impulseframework/resource-angular/types';
+import { API_URL, roleInWords, SessionInfo } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 
 /** The impersonation record the session endpoint reports for a minted session. */
@@ -84,7 +84,7 @@ export class ImpersonationService {
     if (record.principalKind === 'Role') {
       return {
         kind: 'Role' as const,
-        text: `Acting as role ${record.principal}. You are ${record.actor}; subject still binds to you.`,
+        text: `Acting as role ${roleInWords(record.principal)}. You are ${record.actor}; subject still binds to you.`,
         remaining,
       };
     }

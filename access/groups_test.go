@@ -250,8 +250,8 @@ func Test_userManager_AddGroupRoles_refusals(t *testing.T) {
 		{name: "a tenant's group, another tenant", group: night, scope: tenant2Policy, role: "Reader", wantErr: "holds roles in that tenant alone"},
 		{name: "a tenant's group, every tenant", group: night, scope: everyDomainPolicy, role: "Reader", wantErr: "holds roles in that tenant alone"},
 		{name: "a tenant's group, the global scope", group: night, scope: globalPolicy, role: "Steward", wantErr: "holds roles in that tenant alone"},
-		{name: "the Super Administrator role, a global group", group: staff, scope: globalPolicy, role: accesstypes.SuperAdministrator, wantErr: "never to a group"},
-		{name: "the Super Administrator role, a tenant's group", group: night, scope: tenant1Policy, role: accesstypes.SuperAdministrator, wantErr: "never to a group"},
+		{name: "the Super Administrator role, a global group", group: staff, scope: globalPolicy, role: accesstypes.SuperAdministrator, wantErr: "the Super administrator role is given to a person, never to a group"},
+		{name: "the Super Administrator role, a tenant's group", group: night, scope: tenant1Policy, role: accesstypes.SuperAdministrator, wantErr: "the Super administrator role is given to a person, never to a group"},
 		{name: "a role that does not exist there", group: staff, scope: tenant2Policy, role: "Editor", wantErr: "The role Editor does not exist."},
 		{name: "a group that does not exist", group: "no-such-group", scope: globalPolicy, role: "Steward", wantErr: "This group does not exist."},
 	}
@@ -282,7 +282,7 @@ func Test_userManager_AddGroupRoles_refusals(t *testing.T) {
 
 	// The same rules for a caller that writes the row in a transaction of its own.
 	noCustomRoles := func(context.Context, RoleKey) (bool, error) { return false, nil }
-	if _, err := manager.GroupRole(ctx, staff, globalPolicy, globalPolicy, accesstypes.SuperAdministrator, noCustomRoles); err == nil || !strings.Contains(err.Error(), "never to a group") {
+	if _, err := manager.GroupRole(ctx, staff, globalPolicy, globalPolicy, accesstypes.SuperAdministrator, noCustomRoles); err == nil || !strings.Contains(err.Error(), "the Super administrator role is given to a person, never to a group") {
 		t.Errorf("GroupRole(Super Administrator) error = %v, want the role refused", err)
 	}
 	if _, err := manager.GroupRole(ctx, night, tenant1Policy, tenant2Policy, "Reader", noCustomRoles); err == nil || !strings.Contains(err.Error(), "holds roles in that tenant alone") {

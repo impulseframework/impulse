@@ -4,6 +4,7 @@ import {
   nameInLowerWords,
   RecordData,
   Resource,
+  roleInWords,
 } from '@impulseframework/resource-angular/types';
 import { Method } from '@impulseframework/resource';
 import {
@@ -169,6 +170,24 @@ describe('nameInWords', () => {
   for (const [name, want] of cases) {
     it(`${name} is "${want}"`, () => {
       expect(nameInWords(name)).toBe(want);
+    });
+  }
+});
+
+describe('roleInWords', () => {
+  const cases: [string, string][] = [
+    ['NightShiftLead', 'Night shift lead'],
+    ['SuperAdministrator', 'Super administrator'],
+    ['Reader', 'Reader'],
+    ['KeyIDs', 'Key IDs'],
+    // What follows the role's name says where it is held, and is kept as written.
+    ['NightShiftLead in every tenant', 'Night shift lead in every tenant'],
+    ['NightShiftLead in tenant North Base', 'Night shift lead in tenant North Base'],
+    ['', ''],
+  ];
+  for (const [name, want] of cases) {
+    it(`"${name}" is "${want}"`, () => {
+      expect(roleInWords(name)).toBe(want);
     });
   }
 });

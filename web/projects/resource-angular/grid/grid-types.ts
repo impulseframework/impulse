@@ -111,10 +111,12 @@ export interface FilterChoice {
 }
 
 /**
- * The values each column's field takes, by column id, where the field takes one of a
- * fixed set: the generated field metadata's `enumeration`. The column's menu offers the
- * names, as the column's cells write them, and the filter carries the values. A column
- * absent here takes its value from its control (`ColumnFilterInputs`).
+ * The values each column's field takes, by column id, where they are known: a fixed set
+ * the generated field metadata lists (`enumeration`), or the roles of a field that holds a
+ * role's name, those the metadata lists (`roles`) and those the list was found to hold
+ * beyond them. The column's menu offers the names, as the column's cells write them, and
+ * the filter carries the values. A column absent here takes its value from its control
+ * (`ColumnFilterInputs`).
  */
 export type ColumnFilterChoices = Readonly<Record<string, readonly FilterChoice[] | undefined>>;
 

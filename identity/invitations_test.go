@@ -43,6 +43,9 @@ func TestManager_Invite(t *testing.T) {
 	// A custom role of the global scope that carries the name of the tenants' Reader.
 	readerKey := access.NewMembershipKey(globalScope, "", "Reader")
 	globalReader := access.RoleKey{Kind: readerKey.Kind, Axis: readerKey.Axis, Domain: readerKey.Domain, Role: "Reader"}
+	// A custom role of every tenant whose name is several words.
+	nightKey := access.NewMembershipKey(everyScope, "", "NightShiftLead")
+	everyNightShiftLead := access.RoleKey{Kind: nightKey.Kind, Axis: nightKey.Axis, Domain: nightKey.Domain, Role: "NightShiftLead"}
 
 	row := func(email, tenant, roles, by string) string {
 		return "insert invitation " + invitationID.String() + " " + email + " tenant=" + tenant + " roles=" + roles + " by=" + by
@@ -170,6 +173,17 @@ func TestManager_Invite(t *testing.T) {
 			wantErr: func(err error) bool {
 				return httpio.HasBadRequest(err) &&
 					strings.Contains(httpio.Message(err), `"Reader" is a role held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant`)
+			},
+		},
+		{
+			// The refusal names the role as a person reads it; the server's log keeps the stored name.
+			name:   "a role of the tenants that the invitation names neither a tenant nor every tenant for is named in words",
+			inv:    Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward", "NightShiftLead"}},
+			custom: map[access.RoleKey]bool{everyNightShiftLead: true},
+			wantErr: func(err error) bool {
+				return httpio.HasBadRequest(err) &&
+					strings.Contains(httpio.Message(err), `"Night shift lead" is a role held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant`) &&
+					strings.Contains(err.Error(), `"NightShiftLead" is a role held in a tenant`)
 			},
 		},
 		{

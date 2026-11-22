@@ -150,6 +150,7 @@ type (
 		Kind      string       ` + "`spanner:\"Kind\"`" + `
 		Axis      string       ` + "`spanner:\"Axis\"`" + `
 		DomainID  string       ` + "`spanner:\"DomainId\"`" + `
+		// @roleOf({{ .Auth }})
 		Role      string       ` + "`spanner:\"Role\"`" + `
 		CreatedAt time.Time    ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time   ` + "`spanner:\"StartsAt\"`" + `
@@ -798,6 +799,7 @@ type (
 		Description string    ` + "`spanner:\"Description\"`" + `
 		UpdatedAt   time.Time ` + "`spanner:\"UpdatedAt\"`" + `
 		People      int64     ` + "`spanner:\"People\"`" + `
+		// @roleOf({{ .Auth }})
 		Roles       []string  ` + "`spanner:\"Roles\"`" + `
 	}
 )
@@ -869,6 +871,7 @@ type (
 		GroupName string       ` + "`spanner:\"GroupName\" index:\"true\"`" + `
 		// @primarykey
 		// @attribute(role)
+		// @roleOf({{ .Auth }})
 		Role      string     ` + "`spanner:\"Role\" index:\"true\"`" + `
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
@@ -977,6 +980,7 @@ type (
 		GroupName string       ` + "`spanner:\"GroupName\" index:\"true\"`" + `
 		{{- if .ForTenant }}
 		// @primarykey
+		// @roleOf({{ .Auth }})
 		Role        string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		GlobalGroup bool   ` + "`spanner:\"GlobalGroup\" index:\"true\"`" + `
 		EveryDomain bool   ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
@@ -988,6 +992,7 @@ type (
 		// @primarykey
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
+		// @roleOf({{ .Auth }})
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		{{- end }}
 		// CreatedAt is when the person came to hold the role through the group: the later

@@ -33,19 +33,20 @@ type (
 	// @page(default: 25, max: 200)
 	// @rowWord(impersonation)
 	CrewSessionImpersonation struct {
-		SessionID       impulse.UUID              `spanner:"SessionId"`
-		ActorUsername   string                    `spanner:"ActorUsername"`
-		ActorUserID     *impulse.UUID             `spanner:"ActorUserId"`
-		ActorRealm      *string                   `spanner:"ActorRealm"`
-		SourceSessionID *impulse.UUID             `spanner:"SourceSessionId"`
-		PrincipalKind   string                    `spanner:"PrincipalKind"`
-		PrincipalUserID *string                   `spanner:"PrincipalUserId"`
-		PrincipalRole   *string                   `spanner:"PrincipalRole"`
-		Mask            accesstypes.NullMaskWords `spanner:"Mask"`
-		Reason          *string                   `spanner:"Reason"`
-		StartedAt       time.Time                 `spanner:"StartedAt"`
-		ExpiresAt       time.Time                 `spanner:"ExpiresAt"`
-		EndedAt         *time.Time                `spanner:"EndedAt"`
-		EndReason       *string                   `spanner:"EndReason"`
+		SessionID       impulse.UUID  `spanner:"SessionId"`
+		ActorUsername   string        `spanner:"ActorUsername"`
+		ActorUserID     *impulse.UUID `spanner:"ActorUserId"`
+		ActorRealm      *string       `spanner:"ActorRealm"`
+		SourceSessionID *impulse.UUID `spanner:"SourceSessionId"`
+		PrincipalKind   string        `spanner:"PrincipalKind"`
+		PrincipalUserID *string       `spanner:"PrincipalUserId"`
+		// @roleOf(Crew)
+		PrincipalRole *string                   `spanner:"PrincipalRole"`
+		Mask          accesstypes.NullMaskWords `spanner:"Mask"`
+		Reason        *string                   `spanner:"Reason"`
+		StartedAt     time.Time                 `spanner:"StartedAt"`
+		ExpiresAt     time.Time                 `spanner:"ExpiresAt"`
+		EndedAt       *time.Time                `spanner:"EndedAt"`
+		EndReason     *string                   `spanner:"EndReason"`
 	}
 )

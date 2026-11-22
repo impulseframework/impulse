@@ -25,6 +25,7 @@ import {
   RecordData,
   Resource,
   ResourceMeta,
+  roleInWords,
   rootConfig,
   RootConfig,
   section,
@@ -924,7 +925,7 @@ class SideBuilder {
               icon: 'timer_off',
               fill: (row) => this.heldRole(row),
               confirm: (row) =>
-                `End ${String(row['role'])}${this.heldWhere(row)} for ${String(row['username'] ?? 'this person')} now? It is taken away, as any role is.`,
+                `End ${roleInWords(String(row['role']))}${this.heldWhere(row)} for ${String(row['username'] ?? 'this person')} now? It is taken away, as any role is.`,
               successMessage: 'The role is ended.',
             },
           ],
@@ -1012,7 +1013,8 @@ class SideBuilder {
               icon: 'person_remove',
               // A role that comes through a group is not the person's to lose here.
               when: own,
-              confirm: (row) => `Take ${String(row['role'])} away from ${String(row['username'] ?? 'this person')}?`,
+              confirm: (row) =>
+                `Take ${roleInWords(String(row['role']))} away from ${String(row['username'] ?? 'this person')}?`,
             },
           ],
         ]),
@@ -1056,7 +1058,7 @@ class SideBuilder {
             fill: (row) => this.heldRole(row),
             // The list sits under the person, and a role row carries their id, which
             // nobody reads: the question names the role and where it is held.
-            confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from this person?`,
+            confirm: (row) => `Take ${roleInWords(String(row['role']))}${this.heldWhere(row)} away from this person?`,
           },
         ],
       ]),
@@ -1196,7 +1198,7 @@ class SideBuilder {
             {
               label: 'Take the role away',
               icon: 'remove_moderator',
-              confirm: (row) => `Take ${String(row['role'])} away from the group? ${whoLoses(row)}`,
+              confirm: (row) => `Take ${roleInWords(String(row['role']))} away from the group? ${whoLoses(row)}`,
             },
           ],
         ]),
@@ -1231,7 +1233,8 @@ class SideBuilder {
             label: 'Take the role away',
             icon: 'remove_moderator',
             fill: (row) => ({ groupId: row['groupId'], role: row['role'], ...this.heldPlace(row) }),
-            confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from the group? ${whoLoses(row)}`,
+            confirm: (row) =>
+              `Take ${roleInWords(String(row['role']))}${this.heldWhere(row)} away from the group? ${whoLoses(row)}`,
           },
         ],
       ]),

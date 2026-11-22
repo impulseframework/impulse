@@ -328,6 +328,56 @@ export class ResourceStore {
     this.watchLive(this.pageSubscription, () => this.reloadPage());
   }
 
+  /**
+   * What a read beside the list's page (rowsBesidePage) is answered under: the route, the
+   * tenant the list reads in or that it reads across tenants, and the page's own filter.
+   * What such reads found stands while this stays the same.
+   */
+  readonly besidePageScope = computed((): string => {
+    const route = this.route();
+    const tenant = this.acrossTenants() ? null : (this.scopedDomain(this.descriptorFor(route)) ?? '');
+    return JSON.stringify([route, tenant, this.filter()]);
+  });
+
+  /**
+   * Rows of the listed resource read beside the list's page, which the table's rows never
+   * become: read as the page is read, in the selected tenant or across tenants, under the
+   * page's own filter (the conditions the person did not choose: the config's filter, a
+   * child list's parent key) joined with the condition given, and never under the person's
+   * column filters or search text. One request with the columns, the sort and the limit
+   * given: no count, not live, and no capability asked. A filter that names a PII field
+   * travels in the body, as the page's does.
+   */
+  async rowsBesidePage(query: {
+    condition: string;
+    columns: string[];
+    sorts: FieldSort[];
+    limit: number;
+  }): Promise<RecordData[]> {
+    const route = this.route();
+    const clauses = [this.filter().trim(), query.condition.trim()].filter((clause) => clause !== '');
+    const filter = clauses.length > 1 ? clauses.map((clause) => `(${clause})`).join(',') : clauses[0];
+    const pii = new Set(
+      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+    );
+    const sensitive =
+      this.disableCacheForFilterPii() || (filter !== undefined && filterFields(filter).some((field) => pii.has(field)));
+    const sort = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
+    const request = {
+      filter,
+      sensitiveFilter: sensitive || undefined,
+      columns: query.columns.length > 0 ? query.columns : undefined,
+      sort: sort.length > 0 ? (sort as ListQuery<RecordData>['sort']) : undefined,
+      limit: query.limit,
+    };
+    if (this.acrossTenants()) {
+      const across = acrossTenantsHandle<RecordData>(this.client, this.descriptorFor(route).resource);
+      return (await across.page(request as never)).rows;
+    }
+    const page = (await this.handleFor(route).page(request as never)) as Page<RecordData>;
+    return page.rows;
+  }
+
   /** The first page of the current request, with the count. */
   firstPage(): void {
     this.loadFirstPage(untracked(() => this.pageQuery()));

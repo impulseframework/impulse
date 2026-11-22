@@ -44,6 +44,7 @@ type (
 		// @primarykey
 		DomainID string `spanner:"DomainId" index:"true"`
 		// @primarykey
+		// @roleOf(Members)
 		Role string `spanner:"Role" index:"true"`
 		// GroupID is the group the role comes through, empty for a role of the person's own.
 		// @primarykey

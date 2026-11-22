@@ -79,37 +79,39 @@ func (tn Tenancy) roleHandStep(auth string) string {
 // tenant, and gives the application's own administrator role the grants a tenant is
 // made with. An application whose foothold names such a role already is left as it is.
 // It runs after the regeneration, since the role grants only what the application
-// serves, which the regenerated collection says.
-func (tn Tenancy) writeRoles(a *app.App, ch *Change) error {
+// serves, which the regenerated collection says, and reports whether it added the role
+// to the role file: the generated metadata lists the roles a field may hold from that
+// file, so a role added after the regeneration is listed by the next one.
+func (tn Tenancy) writeRoles(a *app.App, ch *Change) (added bool, err error) {
 	seat := tn.seatAuth(a)
 	if seat == nil {
-		return nil
+		return false, nil
 	}
 	foothold := path.Join(seat.Dir, footholdFile)
 	rel := path.Join(seat.Dir, app.RolesFileName)
 	if !exists(a, foothold) {
 		ch.skipf("%s: not there, so the role a %s's administrator holds was not written: %s", foothold, tn.oneLower(), tn.roleHandStep(seat.Name))
 
-		return nil
+		return false, nil
 	}
 	src, footholdMode, err := readFile(a, foothold)
 	if err != nil {
-		return err
+		return false, err
 	}
 	named, ok := readFootholdRoles(src, administratorRolesFunc)
 	switch {
 	case !ok:
 		ch.skipf("%s: %s() is not as the skeleton writes it (one return of the two lists of roles), so the role a %s's administrator holds was not written: %s", foothold, administratorRolesFunc, tn.oneLower(), tn.roleHandStep(seat.Name))
 
-		return nil
+		return false, nil
 	case len(named.everyDomain) > 0:
 		ch.didf("%s: left as it is, since %s() names a role held in every %s already (%s), which %s() answers", foothold, administratorRolesFunc, tn.oneLower(), strings.Join(named.everyDomain, ", "), tn.rolesAccessor())
 
-		return nil
+		return false, nil
 	}
 	served, err := a.Served()
 	if err != nil {
-		return err
+		return false, err
 	}
 	data, mode, err := readFile(a, rel)
 	var file *roleFile
@@ -119,30 +121,34 @@ func (tn Tenancy) writeRoles(a *app.App, ch *Change) error {
 	if served == nil || err != nil {
 		ch.skipf("%s: the role a %s's administrator holds was not written, since %s: %s", rel, tn.oneLower(), unreadWords(served, err), tn.roleHandStep(seat.Name))
 
-		return nil
+		return false, nil
 	}
 	reference, err := referenceRoles()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	role := tn.AdministratorRole()
 	if roleNamed(file.Roles.Global, role) != nil {
 		ch.skipf("%s: %s is a global role of the file, and a %s's administrator holds a domain role, so none was written: %s", rel, role, tn.oneLower(), tn.roleHandStep(seat.Name))
 
-		return nil
+		return false, nil
 	}
+	roles := len(file.Roles.Domain)
 	held, proof, err := tn.holdAdministratorRole(a, file, reference, served, seat, rel, ch)
 	if err != nil || !held {
-		return err
+		return false, err
 	}
 	tn.grantTenantMaking(file, reference, served, seat.Name, rel, &named, ch)
 
 	if err := writeRoleFile(a, rel, file, mode, proof); err != nil {
-		return err
+		return false, err
+	}
+	if err := tn.nameAdministrator(a, foothold, src, footholdMode, ch); err != nil {
+		return false, err
 	}
 
-	return tn.nameAdministrator(a, foothold, src, footholdMode, ch)
+	return len(file.Roles.Domain) > roles, nil
 }
 
 // writeRoleFile writes a role file as it now stands and, beside it, the proof of its

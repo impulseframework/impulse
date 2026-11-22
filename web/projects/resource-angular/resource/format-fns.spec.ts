@@ -68,8 +68,31 @@ describe('formatFieldValue', () => {
       { id: '7', display: 'Seven' },
     ],
   };
+  // A field that holds a role's name: the metadata lists the roles it may hold.
+  const role = { displayType: 'string' as const, roles: ['NightShiftLead', 'Reader'] };
+  const roleList = { displayType: 'string[]' as const, roles: ['NightShiftLead', 'Reader'] };
   const cases: { name: string; field: Parameters<typeof formatFieldValue>[0]; value: unknown; want: string }[] = [
     { name: 'a fixed value is its name', field: status, value: 'on_hold', want: 'On hold' },
+    { name: "a role's name is in words", field: role, value: 'NightShiftLead', want: 'Night shift lead' },
+    {
+      name: 'a list of roles is each role in words',
+      field: roleList,
+      value: ['NightShiftLead', 'Reader'],
+      want: 'Night shift lead, Reader',
+    },
+    { name: 'a null role is nothing', field: role, value: null, want: '' },
+    {
+      name: 'a role the metadata does not list is in words all the same',
+      field: role,
+      value: 'DockMaster',
+      want: 'Dock master',
+    },
+    {
+      name: 'a role of a field whose metadata lists none is in words',
+      field: { displayType: 'string', roles: [] },
+      value: 'DockMaster',
+      want: 'Dock master',
+    },
     { name: 'a fixed value the row carries as a number is its name', field: status, value: 7, want: 'Seven' },
     { name: 'a value the metadata does not list is itself', field: status, value: 'scrubbed', want: 'scrubbed' },
     { name: 'a null is nothing', field: status, value: null, want: '' },

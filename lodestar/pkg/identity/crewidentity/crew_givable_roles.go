@@ -66,6 +66,7 @@ import (
 type CrewGivableRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Crew)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
 	// Method is the method the role is listed for, the one the request's filter

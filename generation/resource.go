@@ -479,6 +479,9 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveFieldEnumerations(r.resources, r.computedResources); err != nil {
 		return err
 	}
+	if err := r.resolveRoleFields(r.resources, r.computedResources); err != nil {
+		return err
+	}
 	if err := r.validatePickerSources(r.resources, r.computedResources); err != nil {
 		return err
 	}

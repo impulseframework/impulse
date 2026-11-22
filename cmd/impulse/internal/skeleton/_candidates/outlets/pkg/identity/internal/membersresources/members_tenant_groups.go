@@ -40,7 +40,8 @@ type (
 		Description string    `spanner:"Description"`
 		UpdatedAt   time.Time `spanner:"UpdatedAt"`
 		People      int64     `spanner:"People"`
-		Roles       []string  `spanner:"Roles"`
+		// @roleOf(Members)
+		Roles []string `spanner:"Roles"`
 	}
 )
 

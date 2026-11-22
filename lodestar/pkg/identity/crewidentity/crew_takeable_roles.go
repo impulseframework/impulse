@@ -33,6 +33,7 @@ import (
 type CrewTakeableRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Crew)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
 }

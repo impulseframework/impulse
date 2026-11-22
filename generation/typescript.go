@@ -364,6 +364,11 @@ func (t *typescriptGenerator) Generate() error {
 	if err := t.resolveParsedEnumerations(resources, computedResources); err != nil {
 		return err
 	}
+	// A field's @roleOf reads its auth's role file, as the Go target's does, so the
+	// metadata lists the roles the field may hold.
+	if err := t.resolveRoleFields(resources, computedResources); err != nil {
+		return err
+	}
 	if err := t.validatePickerSources(resources, computedResources); err != nil {
 		return err
 	}
