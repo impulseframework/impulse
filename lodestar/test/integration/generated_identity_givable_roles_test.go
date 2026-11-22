@@ -440,6 +440,8 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 // the resource, for a suite that proves what a condition there does. It fails where the
 // role holds no such grant, or holds it under a condition already, so it never hands
 // back the file unchanged nor changes a condition the file says.
+//
+//nolint:unparam // The suites limit Headquarters' grants alone today; the next role's case names its own.
 func withCondition(t *testing.T, roles access.RoleFile, role, permission, res, condition string) access.RoleFile {
 	t.Helper()
 
