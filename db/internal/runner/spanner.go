@@ -10,6 +10,7 @@ import (
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	ccclogger "github.com/impulseframework/impulse/logger"
 	"google.golang.org/api/iterator"
 )
@@ -374,8 +375,10 @@ func (s *Spanner) ddlBatch(ctx context.Context, stmts []string) (*database.Updat
 	return op, nil
 }
 
-// dmlBatch runs DML statements in one read-write transaction. On failure nothing is
-// applied, and the index of the statement that failed comes back with the error.
+// dmlBatch runs DML statements in one read-write transaction at the serializable isolation
+// level (spannertxn.Serializable), so what a statement reads is serialized with any write
+// made while the migration runs. On failure nothing is applied, and the index of the
+// statement that failed comes back with the error.
 func (s *Spanner) dmlBatch(ctx context.Context, stmts []string) (int, error) {
 	batch := make([]spanner.Statement, len(stmts))
 	for i, sql := range stmts {
@@ -383,7 +386,7 @@ func (s *Spanner) dmlBatch(ctx context.Context, stmts []string) (int, error) {
 	}
 
 	failed := 0
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		counts, err := txn.BatchUpdate(ctx, batch)
 		if err != nil {
 			failed = len(counts)
@@ -394,7 +397,7 @@ func (s *Spanner) dmlBatch(ctx context.Context, stmts []string) (int, error) {
 		return nil
 	})
 	if err != nil {
-		return failed, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return failed, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return 0, nil

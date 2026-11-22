@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -89,11 +90,11 @@ func queryIdentities(ctx context.Context, q querier, stmt spanner.Statement) ([]
 	return identities, nil
 }
 
-// Transact runs fn in a read-write transaction, which Spanner may retry, and commits
-// when fn returns nil.
+// Transact runs fn in a read-write transaction at the serializable isolation level
+// (spannertxn.Serializable), which Spanner may retry, and commits when fn returns nil.
 func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context.Context, tx *spanner.ReadWriteTransaction) error) error {
-	if _, err := s.spanner.ReadWriteTransaction(ctx, fn); err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	if _, err := spannertxn.Serializable(ctx, s.spanner, fn); err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -452,7 +453,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.identitiesTableName, spanner.Key{identityID.String()}, []string{"UserId"})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
@@ -496,7 +497,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -552,7 +553,7 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 // still be linked to the user when the password goes, read in the transaction that
 // writes, as an unlink reads them.
 func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID) error {
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if followsProof {
 			if err := s.holdsProvenPasswordIn(ctx, txn, userID, proven); err != nil {
 				return err
@@ -586,7 +587,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -603,11 +604,11 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 		return errors.New("DestroyUserSessions needs the auth schema: use Auth storage")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		return s.destroyUserSessionsIn(ctx, txn, userID)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -679,7 +680,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return httpio.NewBadRequestMessage("an auth event needs a method")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID.String()}, []string{expiredColumnName})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
@@ -714,7 +715,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
