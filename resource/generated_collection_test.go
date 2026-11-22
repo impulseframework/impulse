@@ -545,11 +545,10 @@ func TestGeneratedCollection_roundTrip(t *testing.T) {
 func TestGeneratedCollection_readMethods(t *testing.T) {
 	t.Parallel()
 
-	// Build the same collection through both CollectionBuilder exit paths -
-	// GeneratedCollection() directly, and Data() round-tripped through
-	// NewGeneratedCollection - and require every read method to agree, so the two paths
-	// production code takes (in-run vs. deserialized-from-generated-code) can never
-	// diverge.
+	// What the builder took and what a load of its Data() answers must agree for every
+	// read method: a declaration a setter takes and Data() drops is found here. The
+	// builder's own state is read (b.g), since GeneratedCollection() is itself a load of
+	// Data().
 	listSet, err := NewSetData([]FieldTags{
 		{Field: "ID", JSON: "id", Perm: "-"},
 		{Field: "Name", JSON: "name"},
@@ -576,10 +575,7 @@ func TestGeneratedCollection_readMethods(t *testing.T) {
 		t.Fatalf("AddMethodResource() error = %v", err)
 	}
 
-	direct, err := b.GeneratedCollection()
-	if err != nil {
-		t.Fatalf("GeneratedCollection() error = %v", err)
-	}
+	direct := b.g
 	fromData, err := NewGeneratedCollection(b.Data())
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -849,12 +845,8 @@ func TestGeneratedCollection_methodCallerEnters(t *testing.T) {
 	if diff := cmp.Diff(want, marks(loaded)); diff != "" {
 		t.Errorf("MethodsTargeting(Tasks) CallerEnters after a load (-want +got):\n%s", diff)
 	}
-	built, err := b.GeneratedCollection()
-	if err != nil {
-		t.Fatalf("GeneratedCollection() error = %v", err)
-	}
-	if diff := cmp.Diff(want, marks(built)); diff != "" {
-		t.Errorf("MethodsTargeting(Tasks) CallerEnters on the built collection (-want +got):\n%s", diff)
+	if diff := cmp.Diff(want, marks(b.g)); diff != "" {
+		t.Errorf("MethodsTargeting(Tasks) CallerEnters on the builder's own state (-want +got):\n%s", diff)
 	}
 
 	_, err = NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
@@ -872,8 +864,8 @@ func TestGeneratedCollection_methodCallerEnters(t *testing.T) {
 // TestGeneratedCollection_methodOfferedOn pins the carriage of the rows that offer a
 // method that names no row (@callerEnters(Row, ...)): a method the builder gives rows comes
 // back from MethodsOfferedOn for each of them and for no other resource, through Data(),
-// which hands the rows back sorted, through a load of that data and through the builder's
-// own collection; and a load refuses rows given to a method that names its row, a row
+// which hands the rows back sorted, through a load of that data and in the builder's own
+// state; and a load refuses rows given to a method that names its row, a row
 // with no name and a row named twice.
 func TestGeneratedCollection_methodOfferedOn(t *testing.T) {
 	t.Parallel()
@@ -907,12 +899,8 @@ func TestGeneratedCollection_methodOfferedOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection(Data()) error = %v", err)
 	}
-	built, err := b.GeneratedCollection()
-	if err != nil {
-		t.Fatalf("GeneratedCollection() error = %v", err)
-	}
 	want := map[accesstypes.Resource][]accesstypes.Resource{"Docks": {"SweepKeepers"}, "Keepers": {"SweepKeepers"}, "Cranes": nil, "SweepKeepers": nil}
-	for name, g := range map[string]*GeneratedCollection{"a load of Data()": loaded, "the builder's collection": built} {
+	for name, g := range map[string]*GeneratedCollection{"a load of Data()": loaded, "the builder's own state": b.g} {
 		for row, methods := range want {
 			if diff := cmp.Diff(methods, g.MethodsOfferedOn(row)); diff != "" {
 				t.Errorf("%s: MethodsOfferedOn(%s) mismatch (-want +got):\n%s", name, row, diff)
