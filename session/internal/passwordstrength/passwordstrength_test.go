@@ -134,6 +134,10 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a short username in look-alike characters at the end", password: "shad0w|etme1nx!r+hor", who: Details{Username: "thor"}},
 		{name: "a name typed with its ß beside a word in look-alike characters", password: "Großkreutz!m0nk3y|1977", who: Details{Name: "Jörg Großkreutz"}},
 		{name: "a name typed with its þ beside a word in look-alike characters", password: "monk3y!þórsdóttir!1979", who: Details{Name: "Anna Þórsdóttir"}},
+		{name: "a name with a þ, typed with it, beside two more such letters", password: "ÞórÆÆ1980", who: Details{Name: "Þór Guðmundsson"}},
+		{name: "a name with an œ, typed with it, after a piece typed twice", password: "iz0riz0rŒhlen", who: Details{Name: "Ægir Œhlen"}},
+		{name: "a name with a ß, typed in capitals around it", password: "$tapl3GROßKREUTZDe", who: Details{Name: "Jürgen Großkreutz"}},
+		{name: "a part of the address, of a person whose name is written with vowel signs", password: "rahulv1eyXA", who: Details{Name: "राहुल शर्मा", Email: "rahul.sharma@example.com"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -156,6 +160,11 @@ func TestJudge_personalDetails(t *testing.T) {
 func TestInputsOf(t *testing.T) {
 	t.Parallel()
 
+	whole := newReading().as("राहुल शर्मा", spelledOnce)
+	halves := strings.Fields(whole)
+	if len(halves) != 2 {
+		t.Fatalf("the name %q reads %q, want two words: the case proves nothing", "राहुल शर्मा", whole)
+	}
 	tests := []struct {
 		who  Details
 		want []string
@@ -174,6 +183,14 @@ func TestInputsOf(t *testing.T) {
 		{who: Details{Name: "Søren Müller"}, want: []string{"Soren Muller", "Soren", "Muller", "Soeren", "Mueller"}},
 		{who: Details{Username: "müller77"}, want: []string{"muller77", "mueller77", "muller", "mueller"}},
 		{who: Details{Name: "Lü Bu"}, want: []string{"Lu Bu"}},
+		{
+			who:  Details{Name: "Jörg Großkreutz"},
+			want: []string{"Jorg Gro" + standIns[:1] + "kreutz", "Jorg", "Gro" + standIns[:1] + "kreutz", "Jorg Grosskreutz", "Joerg", "Grosskreutz"},
+		},
+		{
+			who:  Details{Name: "राहुल शर्मा", Email: "rahul.sharma@example.com"},
+			want: []string{whole, "rahul.sharma@example.com", "rahul", "sharma", "example", "com", halves[0], halves[1]},
+		},
 		{who: Details{}, want: nil},
 	}
 	for _, tt := range tests {

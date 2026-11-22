@@ -33,18 +33,19 @@
 // The list is asked about the whole password, which is hashed in pieces and never copied.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
-// ASCII alone: an accented letter is read as its letter, a dotless ı as i, a letter people also
-// write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), a letter people
-// write two ways in plain letters in both (ü as u and ue, ø as o and oe, å as a and aa, đ as d
-// and dj), and any other character outside ASCII as one stand-in, the same for the same letter,
-// with or without its marks and in either case, throughout one judgment. A letter read as two
-// (ß, æ, œ, þ) is written as its two letters to match a person's word, and counts as one
-// character toward the password's strength: the password as typed has it as its stand-in. A
-// vowel sign or tone mark that a script types as a character of its own, as Thai and Hindi do,
-// is a character: it counts toward the password's strength, and a name written with it counts
-// against a password built on it. A point a person may leave off (a Hebrew, Arabic or Syriac
-// point, an Indic nukta) is no character, so a password or a name counts the same with or
-// without its points.
+// ASCII alone: an accented letter is read as its letter, a dotless ı as i, a letter people
+// also write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae), a letter
+// people write two ways in plain letters in both (ü as u and ue, ø as o and oe, å as a and aa,
+// đ as d and dj), and any other character outside ASCII as one stand-in, the same for the same
+// letter, with or without its marks and in either case, throughout one judgment. A letter read
+// as two (ß, æ, œ, þ) is written as its two letters to match a person's word, and counts as
+// one character toward the password's strength: the password as typed has it as its stand-in.
+// The person's words are given both ways, as typed first, so a name with such a letter matches
+// the password as typed where it did before the letter was read as two. A vowel sign or tone
+// mark that a script types as a character of its own, as Thai and Hindi do, is a character: it
+// counts toward the password's strength, and a name written with it counts against a password
+// built on it. A point a person may leave off (a Hebrew, Arabic or Syriac point, an Indic
+// nukta) is no character, so a password or a name counts the same with or without its points.
 package passwordstrength
 
 import (
@@ -426,15 +427,19 @@ func firstRunes(s string, n int) string {
 // first maxDetailTyped characters, trimmed of surrounding space, put in NFC and cut to its
 // first maxDetail characters; an empty one gives nothing, as does one with more than
 // maxDetailTyped characters of space before anything else. The words come in two passes over
-// the details, each in the order Username, Name, Email. First, each detail whole, then each run
-// of letters, digits and marks in it whose reading is at least minRun characters long. Then,
-// for each run, the run in its second spelling (Mueller in Müller, spelledSecond), and for a
-// run that holds a digit, the run without the digits at its two ends (z4br0wski in z4br0wski77)
-// and each part of it between digits (zabrowski in zabrowski77), each in both spellings; each
-// of these whose reading is at least minRun characters long. The library prices a word by its
-// place in the list, so the second pass comes after every word of the first, and a word of the
-// first keeps the place it has without the second. Each word is as read reads it and given once
-// whatever its case. It is nil when the details give none.
+// the details, each in the order Username, Name, Email. The first gives the words read as the
+// password is typed (spelledOnce): each detail whole, then each run of letters and digits in it
+// that holds no mark and whose reading is at least minRun characters long. The password as
+// typed is asked with these in these places, so a name matches there with a letter read as two
+// (ß, æ, œ, þ) counted once. The second gives each detail whole in its plain spelling, then,
+// for each run of letters, digits and marks, and for a run that holds a digit also the run
+// without the digits at its two ends (z4br0wski in z4br0wski77) and each part of it between
+// digits (zabrowski in zabrowski77), the text as typed, in its plain spelling and in its second
+// spelling (Mueller in Müller, spelledSecond), when its reading as typed is at least minRun
+// characters long. The library prices a word by its place in the list, so every word of the
+// second pass (a plain or second spelling, a run with a mark, a part between digits) comes after
+// every word of the first, and a word of the first keeps the place it has without the second.
+// Each word is given once whatever its case. It is nil when the details give none.
 func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
@@ -446,19 +451,10 @@ func inputsOf(who Details, read *reading) []string {
 		seen[key] = true
 		inputs = append(inputs, word)
 	}
-	addRun := func(run string) {
-		// The reading is in ASCII, so its length in bytes is its length in characters.
-		if word := read.of(run); len(word) >= minRun {
-			add(word)
-		}
-	}
-	addBoth := func(text string) {
-		// A text too short to count in its own spelling does not count in another.
-		if len(read.of(text)) < minRun {
-			return
-		}
-		add(read.of(text))
-		add(read.as(text, spelledSecond))
+	// counts says whether text is long enough, read as the password is typed, to count as a word.
+	// That reading is in ASCII, so its length in bytes is its length in characters.
+	counts := func(text string) bool {
+		return len(read.as(text, spelledOnce)) >= minRun
 	}
 
 	var details []string
@@ -469,23 +465,35 @@ func inputsOf(who Details, read *reading) []string {
 			details = append(details, detail)
 		}
 	}
+	// The first pass: the words as the password is typed.
+	for _, detail := range details {
+		add(read.as(detail, spelledOnce))
+		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
+			if counts(run) && !strings.ContainsFunc(run, unicode.IsMark) {
+				add(read.as(run, spelledOnce))
+			}
+		}
+	}
+
+	// The second pass: the other spellings, the runs with a mark and the parts between digits.
+	var texts []string
 	for _, detail := range details {
 		add(read.of(detail))
 		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
-			addRun(run)
+			texts = append(texts, run)
+			if strings.ContainsFunc(run, unicode.IsDigit) {
+				texts = append(texts, strings.TrimFunc(run, unicode.IsDigit))
+				texts = append(texts, strings.FieldsFunc(run, unicode.IsDigit)...)
+			}
 		}
 	}
-	for _, detail := range details {
-		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
-			addBoth(run)
-			if !strings.ContainsFunc(run, unicode.IsDigit) {
-				continue
-			}
-			addBoth(strings.TrimFunc(run, unicode.IsDigit))
-			for _, part := range strings.FieldsFunc(run, unicode.IsDigit) {
-				addBoth(part)
-			}
+	for _, text := range texts {
+		if !counts(text) {
+			continue
 		}
+		add(read.as(text, spelledOnce))
+		add(read.of(text))
+		add(read.as(text, spelledSecond))
 	}
 
 	return inputs
