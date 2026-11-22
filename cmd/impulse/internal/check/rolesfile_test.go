@@ -100,6 +100,14 @@ func Collection() *resource.GeneratedCollection {
 			},
 		},
 		{
+			name:       "a grant of all the fields of an action no role is given",
+			files:      withCollection(`{"roles": {"global": [{"name": "Founder", "description": "Opens a harbor.", "permissions": {"Execute": [{"resource": "Launch"}, {"resource": "CreateHarbor.*"}]}}], "domain": []}}`, harborCollection),
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{
+				"pkg/auth/staff/roles.json: role Founder grants Execute on CreateHarbor.*, " + whyNoRole,
+			},
+		},
+		{
 			name: "a file that grants the actions a role is given, beside an action no role is given", files: withCollection(launcher, harborCollection),
 			wantStatus: Pass, wantSummary: "1 role file(s) parse the way the permission engine reads them and grant only what the application serves (pkg/router/zz_gen_collection.go): pkg/auth/staff/roles.json",
 		},
