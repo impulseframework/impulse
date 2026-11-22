@@ -206,7 +206,7 @@ func codeGuessKey(userID impulse.UUID) string {
 // no more codes (codeGuessLimit).
 func errCodesSpent() error {
 	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedCodesSpent,
-		httpio.NewUnauthorizedMessage("Too many wrong codes were entered for this account. Reset your password, or ask an administrator to unlock your sign-in."))
+		httpio.NewUnauthorizedMessage("Too many wrong codes were entered for this account. Reset your password if you can, or ask an administrator to unlock your sign-in."))
 }
 
 // errInvitationNotOpen is the refusal of a code mailed for an invitation and entered in

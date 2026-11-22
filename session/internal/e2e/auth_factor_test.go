@@ -658,7 +658,7 @@ func seamTypedAddressRightCodeWithinBudget[Tx any](ctx context.Context, t *testi
 
 // codesSpentSentence is what a person is told of an account whose address takes no
 // more codes.
-const codesSpentSentence = "Too many wrong codes were entered for this account. Reset your password, or ask an administrator to unlock your sign-in."
+const codesSpentSentence = "Too many wrong codes were entered for this account. Reset your password if you can, or ask an administrator to unlock your sign-in."
 
 // ownCodeGuesses is the count of the wrong codes entered for the account with id, 0 for
 // none.
