@@ -223,8 +223,15 @@ func (tn Tenancy) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Ch
 	if err := tn.pruneRoles(a, g, served, ch); err != nil {
 		return nil, err
 	}
-	if err := tn.writeRoles(a, ch); err != nil {
+	added, err := tn.writeRoles(a, ch)
+	if err != nil {
 		return nil, err
+	}
+	if added {
+		role := tn.AdministratorRole()
+		if err := generate(ctx, a, exec, ch, fmt.Sprintf("go generate ./... failed once the role file held %s, so the generated metadata does not list the role yet; fix the cause and run it:", role), fmt.Sprintf("ran go generate ./... again once the role file held %s, since the generated metadata lists the roles a field may hold from the role file", role)); err != nil {
+			return nil, err
+		}
 	}
 
 	return ch, nil
