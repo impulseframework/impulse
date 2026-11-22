@@ -25,6 +25,9 @@ func TestCheckWarning(t *testing.T) {
 		{name: "no warning at all", wantErr: "RetireShip.Warning answered no warning"},
 		{name: "no consequence", warning: &Warning{Consequence: " \n", Confirm: "Retire the Kestrel"}, wantErr: "RetireShip.Warning answered a warning with no consequence"},
 		{name: "no words for the button", warning: &Warning{Consequence: "The Kestrel is taken out of service for good.", Confirm: "  "}, wantErr: "RetireShip.Warning answered a warning with no words for the confirm button"},
+		{name: "a note with a sentence", warning: &Warning{Consequence: "The Kestrel is taken out of service for good.", Confirm: "Retire the Kestrel", Also: []WarningNote{{Says: "2 crew members are still assigned to it.", Names: []string{"Ines Okoro", "Wren"}}, {Says: "Its next voyage is canceled."}}}},
+		{name: "a note with an empty sentence", warning: &Warning{Consequence: "The Kestrel is taken out of service for good.", Confirm: "Retire the Kestrel", Also: []WarningNote{{Says: "Its next voyage is canceled."}, {Names: []string{"Wren"}}}}, wantErr: "RetireShip.Warning answered a note with no sentence: say what else the person should read before they confirm, or leave the note out"},
+		{name: "a note whose sentence is only spaces", warning: &Warning{Consequence: "The Kestrel is taken out of service for good.", Confirm: "Retire the Kestrel", Also: []WarningNote{{Says: " \n\t"}}}, wantErr: "RetireShip.Warning answered a note with no sentence: say what else the person should read before they confirm, or leave the note out"},
 	}
 
 	for _, tt := range tests {
