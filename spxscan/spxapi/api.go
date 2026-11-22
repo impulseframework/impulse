@@ -72,8 +72,13 @@ func (api *API) Select(ctx context.Context, db Querier, dst any, statement spann
 	return nil
 }
 
-// UpdateAndGet is a package-level helper function that uses the API.Get() call inside a transaction.
+// UpdateAndGet is a high-level helper function that uses the API.Get() call inside a transaction.
 // This should be used when data is being returned after an update using the THEN RETURN clause.
+//
+// The transaction names no isolation level: the statement is the caller's, and it runs at
+// the level the caller's runner gives a transaction that names none (for a spanner.Client,
+// the level set in spanner.ClientConfig.TransactionOptions). The library's own transactions
+// do not go this way (spannertxn.Serializable).
 func (api *API) UpdateAndGet(ctx context.Context, client TxnRunner, dst any, statement spanner.Statement) error {
 	_, err := client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := api.Get(ctx, txn, dst, statement); err != nil {
@@ -91,6 +96,11 @@ func (api *API) UpdateAndGet(ctx context.Context, client TxnRunner, dst any, sta
 
 // UpdateAndSelect is a high-level helper function that uses the API.Select() call inside a transaction.
 // This should be used when data is being returned after an update using the THEN RETURN clause.
+//
+// The transaction names no isolation level: the statement is the caller's, and it runs at
+// the level the caller's runner gives a transaction that names none (for a spanner.Client,
+// the level set in spanner.ClientConfig.TransactionOptions). The library's own transactions
+// do not go this way (spannertxn.Serializable).
 func (api *API) UpdateAndSelect(ctx context.Context, client TxnRunner, dst any, statement spanner.Statement) error {
 	_, err := client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := api.Select(ctx, txn, dst, statement); err != nil {

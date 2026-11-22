@@ -63,7 +63,7 @@ A migration source is a directory, given as `file://<path>`: relative to the wor
 
 ### Spanner
 
-A file is split into statements with the comments stripped, since Spanner's DDL API refuses them. `INSERT`, `UPDATE` and `DELETE` statements are DML and every other statement is DDL. Consecutive statements of one kind form a group: a DDL group goes to Spanner as one batch, a DML group runs in one read-write transaction.
+A file is split into statements with the comments stripped, since Spanner's DDL API refuses them. `INSERT`, `UPDATE` and `DELETE` statements are DML and every other statement is DDL. Consecutive statements of one kind form a group: a DDL group goes to Spanner as one batch, a DML group runs in one read-write transaction, at the serializable isolation level.
 
 Spanner validates a DDL batch as a whole before applying anything, then applies its statements in order, and a statement that fails at apply time (a unique index over duplicate values, a foreign key over rows with no parent) leaves the earlier ones applied. The runner records how far the file got on the version row, in the `Applied`, `Checkpoint` and `Operation` columns, which it adds to a version table the earlier releases created, and returns a `DirtyError` naming the file, the statement and Spanner's message. Fix the cause and run again: the file continues from the failed statement. A DML group that fails rolls back whole, and nothing of it is applied.
 

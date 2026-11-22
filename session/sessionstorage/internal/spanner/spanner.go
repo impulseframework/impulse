@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -21,7 +22,13 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// SessionStorageDriver represents the session storage implementation for Spanner.
+// SessionStorageDriver represents the session storage implementation for Spanner. Every
+// read-write transaction it runs is at the serializable isolation level
+// (spannertxn.Serializable), whatever level the application set for the client. Its rules
+// read before they write (a sign-in reads the user's row and inserts a session, the
+// removal of a link or a password reads the person's other means of sign-in, a sign-in
+// code's insert reads the pending sign-in's live codes), and each holds only while Spanner
+// serializes the read with what another transaction writes at the same moment.
 type SessionStorageDriver struct {
 	spanner          *spanner.Client
 	sessionTableName string
@@ -451,7 +458,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id impuls
 	}
 
 	// Use a ReadWriteTransaction so the resolver can read within the same transaction.
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := txn.BufferWrite(sessionMutations); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
@@ -474,7 +481,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id impuls
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -535,7 +542,7 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID imp
 		statements = append(statements, endRecord)
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.BatchUpdate(ctx, statements); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
@@ -543,7 +550,7 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID imp
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -684,7 +691,7 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 	}
 	mutation := spanner.UpdateMap(s.userTableName, row)
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -743,7 +750,7 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 			return errEmailTaken(newUsername)
 		}
 
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -826,7 +833,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 	}
 	columns := map[string]any{idColumn: userID, passwordHashColumn: passwordHash, passwordChangeRequiredColumn: false}
 
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{passwordHashColumn})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
@@ -849,7 +856,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -870,7 +877,7 @@ func (s *SessionStorageDriver) replaceProvenPassword(
 	}
 	columns[idColumn] = userID
 
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := s.holdsProvenPasswordIn(ctx, txn, userID, provenHash); err != nil {
 			return err
 		}
@@ -886,7 +893,7 @@ func (s *SessionStorageDriver) replaceProvenPassword(
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -976,7 +983,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 			WHERE Id = @id`, s.userTableName))
 	stmt.Params["id"] = id
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if s.users {
 			links := spanner.NewStatement(fmt.Sprintf(`DELETE FROM %s WHERE UserId = @userId`, s.identitiesTableName))
 			links.Params["userId"] = id.String()
@@ -994,7 +1001,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -1049,7 +1056,7 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
 	selectSessions.Params["username"] = username
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		ids, _, err := selectSessionIDs(ctx, txn, selectSessions)
 		if err != nil {
 			return err
@@ -1076,7 +1083,7 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -1135,7 +1142,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return errors.New("custom session data config is not set")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		sessionRow, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID}, []string{expiredColumnName})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
@@ -1182,7 +1189,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

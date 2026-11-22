@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/api/iterator"
@@ -230,7 +231,7 @@ func (s *SessionStorageDriver) TouchToken(ctx context.Context, id impulse.UUID, 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET LastUsedAt = PENDING_COMMIT_TIMESTAMP() WHERE Id = @id AND RevokedAt IS NULL AND ExpiresAt > @now`, s.tokensTableName))
 		stmt.Params["id"] = id.String()
 		stmt.Params["now"] = now
@@ -241,7 +242,7 @@ func (s *SessionStorageDriver) TouchToken(ctx context.Context, id impulse.UUID, 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -273,7 +274,7 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE Id = @id AND UserId = @userId AND RevokedAt IS NULL AND ExpiresAt > @now`, tokenColumns, s.tokensTableName))
 		stmt.Params["id"] = id.String()
 		stmt.Params["userId"] = userID.String()
@@ -299,7 +300,7 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 		return httpio.NewNotFoundMessage("no live token")
 	}
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -310,13 +311,13 @@ func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impu
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		_, err := s.revokeIn(ctx, txn, "UserId", userID.String(), reason)
 
 		return err
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -333,7 +334,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 	defer span.End()
 
 	var reused bool
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		reused = false
 		old, err := s.tokenByHashIn(ctx, txn, tokenHash)
 		if err != nil {
@@ -383,7 +384,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 	case errors.Is(err, errTokenNotLive):
 		return httpio.NewNotFoundMessage("no live refresh token")
 	case err != nil:
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	case reused:
 		return dbtype.ErrTokenReuse
 	}
@@ -519,7 +520,7 @@ func (s *SessionStorageDriver) DeviceCodeByUserCode(ctx context.Context, userCod
 // of its own: set is the column list the update sets. A code that is not pending is
 // NotFound, so one decision stands.
 func (s *SessionStorageDriver) decideDeviceCode(ctx context.Context, id impulse.UUID, now time.Time, set string, params map[string]any) error {
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET %s WHERE Id = @id AND ApprovedAt IS NULL AND DeniedAt IS NULL AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.deviceCodesTableName, set))
 		stmt.Params["id"] = id.String()
 		stmt.Params["now"] = now
@@ -540,7 +541,7 @@ func (s *SessionStorageDriver) decideDeviceCode(ctx context.Context, id impulse.
 		return httpio.NewNotFoundMessage("no pending device code")
 	}
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -580,7 +581,7 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 
 	var code *dbtype.DeviceCode
 	var status dbtype.DeviceCodeStatus
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE DeviceCodeHash = @hash`, deviceCodeColumns, s.deviceCodesTableName))
 		stmt.Params["hash"] = deviceCodeHash
 		codes, err := queryDeviceCodes(ctx, txn, stmt)
@@ -599,7 +600,7 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 	case errors.Is(err, errDeviceCodeNotPending):
 		return nil, "", httpio.NewNotFoundMessage("no device code to redeem")
 	case err != nil:
-		return nil, "", errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return nil, "", errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return code, status, nil

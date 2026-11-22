@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/grpc/codes"
@@ -47,14 +48,14 @@ func (s *SessionStorageDriver) ClaimUserName(ctx context.Context, userID impulse
 	defer span.End()
 
 	var claimed bool
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var err error
 		claimed, err = s.ClaimUserNameIn(ctx, txn, userID, name)
 
 		return err
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return false, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return claimed, nil

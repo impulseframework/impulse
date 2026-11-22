@@ -439,7 +439,7 @@ func (p *PatchSet[Resource]) applyInsert(ctx context.Context, c Client, eventSou
 
 		return nil
 	}); err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "Client.ExecuteFunc()")
 	}
 
 	return nil
@@ -453,7 +453,7 @@ func (p *PatchSet[Resource]) applyUpdate(ctx context.Context, c Client, eventSou
 
 		return nil
 	}); err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "Client.ExecuteFunc()")
 	}
 
 	return nil
@@ -468,7 +468,7 @@ func (p *PatchSet[Resource]) applyInsertOrUpdate(ctx context.Context, c Client, 
 
 		return nil
 	}); err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "Client.ExecuteFunc()")
 	}
 
 	return nil
@@ -482,7 +482,7 @@ func (p *PatchSet[Resource]) applyDelete(ctx context.Context, c Client, eventSou
 
 		return nil
 	}); err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "Client.ExecuteFunc()")
 	}
 
 	return nil

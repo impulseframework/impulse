@@ -3971,6 +3971,21 @@ level names that seam in one comment. Lodestar
 ([data.go](../lodestar/pkg/config/data.go), [site.go](../lodestar/pkg/config/site.go)) and
 the skeleton candidates are the examples.
 
+**The isolation level on Spanner.** Every read-write transaction the library runs on
+the Spanner client names the serializable isolation level: the resource client's
+(`SpannerClient.ExecuteFunc`, and so every generated handler and every `@rpc` method in
+the transaction form), the session store's, the permission store's, the persona store's
+and the migration runner's DML groups. The library decides its rules by reading before
+it writes: a sign-in reads the user's row and inserts a session, a delete counts the
+rows under the record, taking the role from an auth's last super administrator reads who
+else holds it. Each holds only while Spanner serializes the read with what another
+transaction writes at the same moment. At repeatable read only two writes of one row
+conflict, and two such transactions would both commit. So a level set for the client
+(`spanner.ClientConfig.TransactionOptions`) reaches none of the library's transactions.
+It applies to the transactions the application opens on the client itself
+(`Driver.SpannerClient`), and to `spxscan.UpdateAndGet` and `spxscan.UpdateAndSelect`,
+which run the application's own statement.
+
 ## 21. User management: an auth's management as generated code
 
 `generation.GenerateIdentity(treeDir)` writes the management of every Auth the program

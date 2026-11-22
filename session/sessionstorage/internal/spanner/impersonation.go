@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
@@ -201,7 +202,7 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID i
 	stmt.Params["id"] = sessionID
 	stmt.Params["reason"] = reason
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
@@ -209,7 +210,7 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID i
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -245,7 +246,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 	endRecords.Params["actor"] = actor
 	endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.BatchUpdate(ctx, []spanner.Statement{expireSessions, endRecords}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
@@ -253,7 +254,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -289,7 +290,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 	endRecord.Params["id"] = sessionID
 	endRecord.Params["reason"] = reason
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.BatchUpdate(ctx, []spanner.Statement{expireSession, endRecord}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
@@ -297,7 +298,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
