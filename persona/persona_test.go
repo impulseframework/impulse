@@ -3,8 +3,6 @@ package persona_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,7 +17,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid/v5"
 	"github.com/impulseframework/impulse/db"
@@ -138,64 +135,11 @@ type testHost struct {
 func newTestHost(ctx context.Context, t *testing.T) *testHost {
 	t.Helper()
 
-	sum := sha256.Sum256([]byte(t.Name()))
-	database, err := container.CreateDatabase(ctx, "t"+hex.EncodeToString(sum[:])[:24])
-	if err != nil {
-		t.Fatalf("SpannerContainer.CreateDatabase() error = %v", err)
+	client := newDatabase(ctx, t)
+	th := newHostOn(ctx, t, client, spannerstore.New(client))
+	if th == nil {
+		t.FailNow()
 	}
-	t.Cleanup(func() {
-		if err := database.Close(); err != nil {
-			t.Errorf("SpannerDB.Close() error = %v", err)
-		}
-	})
-	if err := database.MigrateUp("file://schema/spanner/migrations"); err != nil {
-		t.Fatalf("SpannerDB.MigrateUp() error = %v", err)
-	}
-
-	var handler http.Handler
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-
-	host := &fakeHost{
-		apps: map[string]*persona.Application{"lanterns": {ID: "app-1", Tenant: "lakeside", Name: "Lanterns", ClientID: "lanterns", DeployIdentities: []string{deployer}}},
-		deny: map[string]bool{},
-	}
-	clk := &clock{t: time.Now()}
-	th := &testHost{server: server, issuer: server.URL + "/persona", host: host, clock: clk, db: database.Client}
-	svc, err := persona.New(ctx, host, spannerstore.New(database.Client), &persona.Config{
-		Issuer: th.issuer, Actor: actorFromContext, LoginURL: "/login", Deployers: fakeDeployers{issuer: th.issuer}, AllowInsecureIssuer: true, Now: clk.Now,
-	})
-	if err != nil {
-		t.Fatalf("persona.New() error = %v", err)
-	}
-	th.svc = svc
-
-	r := chi.NewRouter()
-	r.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if c, err := r.Cookie("actor"); err == nil {
-				if a, ok := people[c.Value]; ok {
-					r = r.WithContext(context.WithValue(r.Context(), actorKey{}, a))
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
-	})
-	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
-		as := r.URL.Query().Get("as")
-		if _, ok := people[as]; !ok {
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = io.WriteString(w, "<h1>Sign in to the host</h1>")
-
-			return
-		}
-		http.SetCookie(w, &http.Cookie{Name: "actor", Value: as, Path: "/"})
-		http.Redirect(w, r, r.URL.Query().Get("returnUrl"), http.StatusFound)
-	})
-	r.Mount("/persona", svc.Handler())
-	handler = r
 
 	return th
 }
