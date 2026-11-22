@@ -190,7 +190,7 @@ func Test_prepareIdentity_listedRoleGrants(t *testing.T) {
 		"for row, err := range query.List(ctx, reader) {",
 		"yield(nil, errors.Wrap(err, \"crewresources.CrewRoleGrantQuery.List()\"))",
 		// The engine is asked of all of them at once, and each row carries its answer.
-		"skipped, err := client.manager.SkippedStoredGrants(grants)",
+		"if len(grants) == 0 {\n return\n }\n skipped, err := client.manager.SkippedStoredGrants(grants)",
 		"yield(nil, errors.Wrap(err, \"identity.Manager.SkippedStoredGrants()\"))",
 		"row.Skipped = skipped[i]",
 	}, nil)

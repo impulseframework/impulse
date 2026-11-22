@@ -89,6 +89,10 @@ func ListCrewListedRoleGrant(ctx context.Context, _ *resource.QuerySet[CrewListe
 				Resource: grant.ResourceName, Field: grant.Field, Condition: grant.Condition,
 			})
 		}
+		// With no row there is nothing to ask the engine.
+		if len(grants) == 0 {
+			return
+		}
 		skipped, err := client.manager.SkippedStoredGrants(grants)
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.SkippedStoredGrants()"))
