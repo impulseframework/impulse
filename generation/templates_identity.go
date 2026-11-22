@@ -454,6 +454,7 @@ type (
 		SourceSessionID *impulse.UUID ` + "`spanner:\"SourceSessionId\"`" + `
 		PrincipalKind   string        ` + "`spanner:\"PrincipalKind\"`" + `
 		PrincipalUserID   *string       ` + "`spanner:\"PrincipalUserId\"`" + `
+		// @roleOf({{ .Auth }})
 		PrincipalRole   *string       ` + "`spanner:\"PrincipalRole\"`" + `
 		Mask            accesstypes.NullMaskWords ` + "`spanner:\"Mask\"`" + `
 		Reason          *string       ` + "`spanner:\"Reason\"`" + `
