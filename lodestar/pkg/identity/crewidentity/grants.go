@@ -88,6 +88,11 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 //
 //	AssignCrewRole, InviteCrewUser, GiveCrewGroupRole
 //
+// The invitation that makes a sector (InviteCrewSector) is asked the same
+// way for the list its starting role is picked from
+// (CrewInvitedSectorRoles), with the role alone: the sector does
+// not exist yet, so the request names no place.
+//
 // A method that is none of them gives no role by hand where the request was made, and
 // is an error.
 func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
@@ -117,6 +122,8 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 		return couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case GiveCrewGroupRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	case InviteCrewSector{}.Method():
+		return couldGiveBy(ctx, caller, method, &InviteCrewSector{DefaultRole: new(string(role))})
 	}
 
 	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignCrewRole, InviteCrewUser, GiveCrewGroupRole", method)

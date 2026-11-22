@@ -877,6 +877,11 @@ export interface CrewInvitedSectors {
   expiresAt?: Date;
 }
 
+export interface CrewInvitedSectorRoles {
+  name: string;
+  description?: string;
+}
+
 export interface CrewListedRoleGrants {
   kind: string;
   axis: string;
@@ -2337,6 +2342,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewInvitedSectorRoles]: {
+    route: 'crew-invited-sector-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewListedRoleGrants]: {
     route: 'crew-listed-role-grants',
     readDisabled: true,
@@ -2699,6 +2718,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.BriefingTemplates]: PermissionScopes.global,
   [Resources.CrewGivableRoles]: PermissionScopes.global,
   [Resources.CrewInvitedSectors]: PermissionScopes.global,
+  [Resources.CrewInvitedSectorRoles]: PermissionScopes.global,
   [Resources.CrewListedRoleGrants]: PermissionScopes.global,
   [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,

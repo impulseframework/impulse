@@ -384,6 +384,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-givable-roles", method: http.MethodPost},
 		{url: "/portal/api/staff-invited-tenants", method: http.MethodGet},
 		{url: "/portal/api/staff-invited-tenants", method: http.MethodPost},
+		{url: "/portal/api/staff-invited-tenant-roles", method: http.MethodGet},
+		{url: "/portal/api/staff-invited-tenant-roles", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-role-grants", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-role-grants", method: http.MethodPost},
 		{url: "/portal/api/staff-sign-in-methods", method: http.MethodGet},
@@ -676,6 +678,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-givable-roles", method: http.MethodPost},
 		{url: "/devices/staff-invited-tenants", method: http.MethodGet},
 		{url: "/devices/staff-invited-tenants", method: http.MethodPost},
+		{url: "/devices/staff-invited-tenant-roles", method: http.MethodGet},
+		{url: "/devices/staff-invited-tenant-roles", method: http.MethodPost},
 		{url: "/devices/staff-listed-role-grants", method: http.MethodGet},
 		{url: "/devices/staff-listed-role-grants", method: http.MethodPost},
 		{url: "/devices/staff-sign-in-methods", method: http.MethodGet},
@@ -2089,6 +2093,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/staff-invited-tenant-roles", method: http.MethodGet,
+			handlerFunc: "StaffInvitedTenantRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-invited-tenant-roles", method: http.MethodPost,
+			handlerFunc: "StaffInvitedTenantRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/staff-listed-role-grants", method: http.MethodGet,
 			handlerFunc: "StaffListedRoleGrants",
 			parameters:  map[string]string{},
@@ -2629,6 +2643,10 @@ func (s *generatedHandlersStub) StaffHeldRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffInvitedTenants() http.HandlerFunc {
 	return s.record("StaffInvitedTenants")
+}
+
+func (s *generatedHandlersStub) StaffInvitedTenantRoles() http.HandlerFunc {
+	return s.record("StaffInvitedTenantRoles")
 }
 
 func (s *generatedHandlersStub) StaffListedGroups() http.HandlerFunc {

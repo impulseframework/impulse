@@ -779,6 +779,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-invited-tenant-roles", method: http.MethodGet,
+			handlerFunc: "StaffInvitedTenantRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-invited-tenant-roles", method: http.MethodPost,
+			handlerFunc: "StaffInvitedTenantRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-listed-role-grants", method: http.MethodGet,
 			handlerFunc: "StaffListedRoleGrants",
 			parameters:  map[string]string{},
@@ -1248,6 +1258,10 @@ func (s *generatedHandlersStub) StaffHeldRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffInvitedTenants() http.HandlerFunc {
 	return s.record("StaffInvitedTenants")
+}
+
+func (s *generatedHandlersStub) StaffInvitedTenantRoles() http.HandlerFunc {
+	return s.record("StaffInvitedTenantRoles")
 }
 
 func (s *generatedHandlersStub) StaffListedGroups() http.HandlerFunc {

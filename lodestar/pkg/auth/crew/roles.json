@@ -516,6 +516,12 @@
                 "createdAt",
                 "expiresAt"
               ]
+            },
+            {
+              "resource": "CrewInvitedSectorRoles",
+              "fields": [
+                "description"
+              ]
             }
           ],
           "Read": [
@@ -1214,6 +1220,12 @@
                 "invitedByUserId",
                 "createdAt",
                 "expiresAt"
+              ]
+            },
+            {
+              "resource": "CrewInvitedSectorRoles",
+              "fields": [
+                "description"
               ]
             }
           ],

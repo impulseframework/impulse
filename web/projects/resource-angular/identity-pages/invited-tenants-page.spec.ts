@@ -87,6 +87,8 @@ const resourceMeta = (resource: Resource): ResourceMeta => metas[resource];
 
 const invite = 'InviteCrewSector';
 const withdraw = 'WithdrawCrewInvitedSector';
+/** The list the server writes for the invitation's starting role to be picked from. */
+const startingRoles = 'CrewInvitedSectorRoles' as Resource;
 const method = (name: string): ApiDescriptor['methods'][string] => ({
   method: name as Method,
   property: name.charAt(0).toLowerCase() + name.slice(1),
@@ -156,7 +158,13 @@ const methodMetas: Record<string, MethodMeta> = {
       { fieldName: 'sectorRegion', displayType: 'string', required: true },
       { fieldName: 'sectorEstablished', displayType: 'civildate', required: true },
       { fieldName: 'sectorDirectoryOnly', displayType: 'boolean' },
-      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+      {
+        fieldName: 'defaultRole',
+        displayType: 'enumerated',
+        enumeratedResource: startingRoles,
+        optional: true,
+        attribute: 'role',
+      },
     ],
   } as MethodMeta,
   [withdraw]: {
@@ -333,7 +341,7 @@ describe('identityPages, the invitations that make a tenant', () => {
     expect(built.map((config) => config.routeData.route)).toEqual(['crew-accounts', 'new-sectors']);
   });
 
-  it("words the method that sends one and its form: the person's address and name, the record's fields by their names, the switch and the starting role", () => {
+  it("words the method that sends one and its form: the person's address and name, the record's fields by their names, the switch and the starting role, each role by its name and description", () => {
     expect(list(page as RootConfig).listMethods).toEqual([
       {
         method: invite,
@@ -345,6 +353,7 @@ describe('identityPages, the invitations that make a tenant', () => {
           sectorDirectoryOnly: 'Entered through its directory only',
           defaultRole: "Role its directory's people start with",
         },
+        shows: { defaultRole: ['name', 'description'] },
         answered: expect.any(Function),
       },
     ]);
@@ -510,7 +519,7 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
     expect(actionsOf(0).map((action) => action.label)).toEqual(['Withdraw']);
   });
 
-  it("opens the method that sends one in the method dialog, which draws the form from the method's fields under the page's words, nothing filled", async () => {
+  it("opens the method that sends one in the method dialog, which draws the form from the method's fields under the page's words, nothing filled, and lists each starting role by its name and description", async () => {
     await create([dawn], { ...maySend, ...mayWithdraw });
 
     fixture.componentInstance.runMethod(fixture.componentInstance.listMethods()[0]);
@@ -527,6 +536,7 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
           sectorDirectoryOnly: 'Entered through its directory only',
           defaultRole: "Role its directory's people start with",
         },
+        shows: { defaultRole: ['name', 'description'] },
       },
     ]);
   });

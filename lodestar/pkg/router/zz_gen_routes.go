@@ -202,6 +202,8 @@ type GeneratedHandlers interface {
 
 	CrewInvitedSectors() http.HandlerFunc
 
+	CrewInvitedSectorRoles() http.HandlerFunc
+
 	CrewListedGroups() http.HandlerFunc
 	CrewListedGroup() http.HandlerFunc
 
@@ -741,6 +743,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewInvitedSectorsHandler := h.CrewInvitedSectors()
 	bounded.Get("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
 	bounded.Post("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
+
+	crewInvitedSectorRolesHandler := h.CrewInvitedSectorRoles()
+	bounded.Get("/console/api/crew-invited-sector-roles", crewInvitedSectorRolesHandler)
+	bounded.Post("/console/api/crew-invited-sector-roles", crewInvitedSectorRolesHandler)
 
 	crewListedGroupsHandler := h.CrewListedGroups()
 	bounded.Get("/console/api/crew-listed-groups", crewListedGroupsHandler)

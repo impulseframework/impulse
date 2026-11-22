@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -300,6 +302,209 @@ func TestManager_InviteTenant_startingRoleIsAskedForATenantToBe(t *testing.T) {
 	}
 	if len(grants.asked) != 1 || !strings.HasPrefix(grants.asked[0], "give domain/") || strings.Contains(grants.asked[0], "/alpha ") || !strings.HasSuffix(grants.asked[0], " Reader") {
 		t.Errorf("the role file was asked %q, want one question: giving Reader in one tenant that is no tenant yet", grants.asked)
+	}
+}
+
+// invitesTenant is the method the tests' lists of the starting roles are asked for: the
+// invitation that makes a tenant, as a role file names it.
+const invitesTenant accesstypes.Resource = "InviteMembersTenant"
+
+// TestManager_StartingRoles pins the list the starting role of an invitation that makes a
+// tenant is picked from: the roles held in every tenant, never the Super Administrator
+// role, that the request's caller could give a person in a tenant no row names and that
+// the invitation's own grant does not refuse; every one outside a request, none where a
+// tenant's directory keeps no starting role, and an error where a request reaches a
+// manager that cannot judge it.
+func TestManager_StartingRoles(t *testing.T) {
+	t.Parallel()
+
+	// The engine holds a role of the whole application, a role of one tenant alone and the
+	// Super Administrator role in the every-tenant scope, none of which is offered.
+	roles := map[accesstypes.PolicyScope][]accesstypes.Role{
+		globalScope: {accesstypes.SuperAdministrator, "Steward"},
+		everyScope:  {"Reader", accesstypes.SuperAdministrator, "Keeper"},
+		alphaScope:  {"Warden"},
+	}
+	reader := access.RoleInfo{Name: "Reader", Description: "the Reader role"}
+	keeper := access.RoleInfo{Name: "Keeper", Description: "the Keeper role"}
+
+	tests := []struct {
+		name string
+		// caller makes the request, "" for a call outside any request; grants are the
+		// role file's answers on giving a role, nil for a manager built without them.
+		caller  accesstypes.User
+		grants  *fakeGrants
+		maker   *fakeMaker
+		noMaker bool
+		want    []access.RoleInfo
+		wantErr string
+		// asks says the role file is asked; otherwise it is asked nothing.
+		asks bool
+	}{
+		{
+			name:   "outside a request: every role held in every tenant with its description, and no other",
+			grants: &fakeGrants{}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader, keeper},
+		},
+		{
+			name:   "a caller who may give every role is offered every one",
+			caller: erin, grants: &fakeGrants{}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader, keeper}, asks: true,
+		},
+		{
+			name:   "a role the caller may not give a person in a tenant is left out: the invitation refuses it",
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Keeper"}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader}, asks: true,
+		},
+		{
+			name:   "a role the invitation's own grant refuses is left out",
+			caller: erin, grants: &fakeGrants{noneGives: []accesstypes.Role{"Keeper"}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader}, asks: true,
+		},
+		{
+			name:   "a role another method alone gives is left out",
+			caller: erin, grants: &fakeGrants{onlyBy: map[accesstypes.Role]accesstypes.Resource{"Keeper": assigns}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader}, asks: true,
+		},
+		{
+			name:   "a role the invitation alone gives is listed",
+			caller: erin, grants: &fakeGrants{onlyBy: map[accesstypes.Role]accesstypes.Resource{"Keeper": invitesTenant}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader, keeper}, asks: true,
+		},
+		{
+			name:   "a caller who may give no role is offered none",
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Reader", "Keeper", accesstypes.SuperAdministrator}}, maker: &fakeMaker{seats: true},
+			asks: true,
+		},
+		{
+			name:   "where a tenant's directory keeps no starting role the list is empty, and nothing is asked",
+			caller: erin, grants: &fakeGrants{}, maker: &fakeMaker{seats: false},
+		},
+		{
+			name:   "a request reaches a manager built without the role file's grants: an error, never the whole list",
+			caller: erin, maker: &fakeMaker{seats: true},
+			wantErr: "identity.WithRoleGrants",
+		},
+		{
+			name:   "a manager built without a maker lists none: an error",
+			caller: erin, grants: &fakeGrants{}, noMaker: true,
+			wantErr: "identity.WithTenantMaker",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			opts := []Option{WithAdministratorRoles([]accesstypes.Role{"Keeper"})}
+			if tt.grants != nil {
+				opts = append(opts, WithRoleGrants(tt.grants))
+			}
+			if !tt.noMaker {
+				opts = append(opts, WithTenantMaker(tt.maker))
+			}
+			m, _ := newManager(t, &fakeStore{}, roles, opts...)
+
+			got, err := m.StartingRoles(asCaller(t.Context(), tt.caller), invitesTenant)
+
+			if tt.wantErr != "" {
+				if err == nil || !containsText(err, tt.wantErr) {
+					t.Fatalf("StartingRoles() = %v, %v; want an error saying %q", got, err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("StartingRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("StartingRoles() (-want +got):\n%s", diff)
+			}
+			if !tt.asks {
+				if len(tt.grants.asked) != 0 {
+					t.Errorf("the role file was asked %q, want nothing", tt.grants.asked)
+				}
+
+				return
+			}
+			assertAskedForATenantToBe(t, tt.grants.asked)
+		})
+	}
+}
+
+// assertAskedForATenantToBe holds what the role file was asked for a list of the starting
+// roles to the questions the invitation is held to: giving a role in one tenant no row of
+// the tests names, to nobody in particular, and the invitation's own grant on the role in
+// that same tenant.
+func assertAskedForATenantToBe(t *testing.T, asked []string) {
+	t.Helper()
+
+	if len(asked) == 0 {
+		t.Fatal("the role file was asked nothing, want the questions of the invitation")
+	}
+	nobody := string(User(impulse.NilUUID))
+	scopes := map[string]bool{}
+	for _, question := range asked {
+		words := strings.Fields(question)
+		switch {
+		case len(words) == 4 && words[0] == "give" && strings.HasPrefix(words[1], "domain/"):
+			if words[2] != nobody {
+				t.Errorf("question %q names %s, want nobody in particular", question, words[2])
+			}
+			scopes[strings.TrimPrefix(words[1], "domain/")] = true
+		case len(words) == 5 && words[1] == "could" && words[2] == "give":
+			if words[0] != string(invitesTenant) {
+				t.Errorf("question %q names the method %s, want %s", question, words[0], invitesTenant)
+			}
+			scopes[words[3]] = true
+		default:
+			t.Errorf("question %q is neither giving a role in a tenant nor the invitation's own grant", question)
+		}
+	}
+	if len(scopes) != 1 {
+		t.Errorf("the questions %q name the tenants %v, want one for the whole list", asked, scopes)
+	}
+	for scope := range scopes {
+		if scope == "" || scope == "alpha" || scope == string(madeTenant) {
+			t.Errorf("the questions name the tenant %q, want one no row names", scope)
+		}
+	}
+}
+
+// TestManager_StartingRoles_theListAndTheInvitationAgree pins the list to the invitation's
+// own rule: each role the engine holds is offered exactly when an invitation that names it
+// as the starting role is taken from the same caller.
+func TestManager_StartingRoles_theListAndTheInvitationAgree(t *testing.T) {
+	t.Parallel()
+
+	newInviter := func(t *testing.T) *Manager {
+		t.Helper()
+
+		return newTenantInviter(t, &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}, &fakeMaker{seats: true},
+			&fakeMail{id: invitationID}, &fakeGrants{noGive: []accesstypes.Role{"Keeper"}})
+	}
+	listed, err := newInviter(t).StartingRoles(asCaller(t.Context(), dana), invitesTenant)
+	if err != nil {
+		t.Fatalf("StartingRoles() error = %v", err)
+	}
+	var held []accesstypes.Role
+	for _, scope := range []accesstypes.PolicyScope{everyScope, globalScope} {
+		held = append(held, invitedTenantRoles[scope]...)
+	}
+	for _, role := range held {
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+			m := newInviter(t)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				_, err := m.InviteTenant(asCaller(ctx, dana), txn, &TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", DefaultRole: ptr(string(role))}, nil)
+
+				return err
+			})
+
+			offered := slices.ContainsFunc(listed, func(info access.RoleInfo) bool { return info.Name == role })
+			if taken := err == nil; taken != offered {
+				t.Errorf("the list offers %s = %v, and the invitation takes it = %v (error %v): want the two to agree", role, offered, taken, err)
+			}
+		})
 	}
 }
 
