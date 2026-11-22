@@ -62,7 +62,9 @@ func TestFoundedTenant_takesItsFoundersDirectory(t *testing.T) {
 		}
 
 		// The tenant is made, with the organization its founder signed in from as its
-		// one directory.
+		// one directory. The founder reads it: the acceptance seats the founder as the
+		// tenant's administrator, and the application's administrator holds no role in a
+		// tenant they did not join, so to them its routes answer that it does not exist.
 		made := tenantNamed(ctx, t, admin, f.tenant)
 		if made == nil {
 			t.Fatalf("no tenant named %s after its invitation was accepted through the %s registration", f.tenant, f.registration)
@@ -71,7 +73,7 @@ func TestFoundedTenant_takesItsFoundersDirectory(t *testing.T) {
 		if !ok {
 			t.Fatalf("the tenant %s as listed = %v, want its id", f.tenant, made)
 		}
-		if got := tenantDirectories(ctx, t, admin, id); len(got) != 1 || got[0] != f.want {
+		if got := tenantDirectories(ctx, t, founder, id); len(got) != 1 || got[0] != f.want {
 			t.Errorf("%s's directories = %+v, want the one its founder signed in from through the %s registration, %+v", f.tenant, got, f.registration, f.want)
 		}
 	}
