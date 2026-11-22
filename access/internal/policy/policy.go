@@ -167,6 +167,11 @@ var ErrHeldByGroup = errors.New("a group holds the role, now or for a period tha
 // not exist.
 var ErrNoRole = errors.New("the roles table holds no row of the role")
 
+// ErrHeldInDomain is the refusal of the deletion of a role held in every domain while
+// a holding in one domain reads it: a role deleted from under the holding would leave
+// it behind, and a role of the name made again would at once be theirs.
+var ErrHeldInDomain = errors.New("a person or a group holds the role in one domain, now or for a period that has not begun")
+
 // SameRoleName reports whether a and b are the same role name but for the case
 // of their ASCII letters: an ASCII capital letter equals its lower-case letter,
 // and every other byte equals only itself. It is the rule the library compares

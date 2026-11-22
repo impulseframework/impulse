@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -56,6 +57,7 @@ func runCustomHoldings(t *testing.T, store access.Store) {
 	t.Run("a person's custom role is not given where no row of it is held", func(t *testing.T) { customRefused(t, store) })
 	t.Run("a group's custom role", func(t *testing.T) { customGroupRoles(t, store) })
 	t.Run("a role given and deleted at the same moment", func(t *testing.T) { customTogether(t, store) })
+	t.Run("a role held in every domain and in one domain", func(t *testing.T) { heldInDomain(t, store, &p) })
 
 	if deleted, err := store.DeleteGroup(ctx, wardGroup); err != nil || !deleted {
 		t.Fatalf("DeleteGroup() of the phase's group = (%v, %v), want it deleted", deleted, err)
@@ -238,6 +240,146 @@ func customTogether(t *testing.T, store access.Store) {
 			})
 		}
 	})
+}
+
+// heldInDomain holds DeleteRole of a role held in every domain to its refusal while a
+// person or a group holds the role in one domain whose holding reads the every-domain
+// row: the refusal wraps policy.ErrHeldInDomain, names the lowest such domain and
+// deletes nothing; a holding that has not begun refuses as one that counts now; the
+// ended ones go with the role; and a domain that holds a role of the name of its own
+// neither refuses the delete nor loses what it holds. Of a holding given in one domain
+// at the moment the every-domain row is deleted, one of the two stands.
+func heldInDomain(t *testing.T, store access.Store, p *periods) {
+	t.Helper()
+	ctx := t.Context()
+	everyWarden := policy.Role{Scope: everyDomain, Name: warden}
+
+	for _, tc := range []struct {
+		name   string
+		give   func() error
+		remove func(t *testing.T)
+		holder string
+	}{
+		{
+			name: "a person holds it in two domains now",
+			give: func() error {
+				if err := store.InsertCustomUserRole(ctx, otherTenant, lou, warden, accesstypes.Period{}, ""); err != nil {
+					return err
+				}
+
+				return store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, "")
+			},
+			remove: func(t *testing.T) {
+				removeUserRole(t, store, otherTenant, warden)
+				removeUserRole(t, store, wardTenant, warden)
+			},
+			holder: `a person holds it in the domain "wards"`,
+		},
+		{
+			name:   "a person holds it in one domain for a period that has not begun",
+			give:   func() error { return store.InsertCustomUserRole(ctx, wardTenant, lou, warden, p.upcoming, "") },
+			remove: func(t *testing.T) { removeUserRole(t, store, wardTenant, warden) },
+			holder: `a person holds it in the domain "wards"`,
+		},
+		{
+			name: "a group kept for the whole application holds it in one domain",
+			give: func() error {
+				return store.InsertCustomGroupRole(ctx, wardGroup, wardTenant, warden, accesstypes.Period{})
+			},
+			remove: func(t *testing.T) { removeGroupRole(t, store, wardTenant, warden) },
+			holder: `a group holds it in the domain "wards"`,
+		},
+	} {
+		insertRole(t, store, everyDomain, warden)
+		if err := tc.give(); err != nil {
+			t.Fatalf("%s: giving the role error = %v", tc.name, err)
+		}
+		deleted, err := store.DeleteRole(ctx, everyDomain, warden)
+		if deleted || !errors.Is(err, policy.ErrHeldInDomain) {
+			t.Errorf("%s: DeleteRole(every domain) = (%v, %v), want it refused with policy.ErrHeldInDomain", tc.name, deleted, err)
+		} else if !strings.Contains(err.Error(), tc.holder) {
+			t.Errorf("%s: DeleteRole(every domain) error = %v, want it to say %s", tc.name, err, tc.holder)
+		}
+		if !roleExists(t, store, everyDomain, warden) {
+			t.Errorf("%s: the every-domain role is gone after the refusal, want it there", tc.name)
+		}
+		tc.remove(t)
+		if deleted, err := store.DeleteRole(ctx, everyDomain, warden); err != nil || !deleted {
+			t.Errorf("%s: DeleteRole(every domain) once the holding was taken away = (%v, %v), want (true, nil)", tc.name, deleted, err)
+		}
+	}
+
+	// The ended holdings in a domain that reads the every-domain row go with it.
+	insertRole(t, store, everyDomain, warden)
+	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, p.ended, ""); err != nil {
+		t.Fatalf("InsertCustomUserRole(ended) error = %v", err)
+	}
+	if err := store.InsertCustomGroupRole(ctx, wardGroup, wardTenant, warden, p.ended); err != nil {
+		t.Fatalf("InsertCustomGroupRole(ended) error = %v", err)
+	}
+	if deleted, err := store.DeleteRole(ctx, everyDomain, warden); err != nil || !deleted {
+		t.Errorf("DeleteRole(every domain) over ended holdings in one domain = (%v, %v), want (true, nil)", deleted, err)
+	}
+	if held := heldIn(t, store, wardTenant, warden); len(held) != 0 {
+		t.Errorf("ReadPolicy() after the every-domain role was deleted holds %v in %s, want nothing: the ended holdings go with the role", held, wardTenant)
+	}
+
+	// A domain with a role of the name of its own: its holdings read that row.
+	insertRole(t, store, everyDomain, warden)
+	insertRole(t, store, wardTenant, warden)
+	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, ""); err != nil {
+		t.Fatalf("InsertCustomUserRole() error = %v", err)
+	}
+	if err := store.InsertCustomGroupRole(ctx, wardGroup, wardTenant, warden, p.ended); err != nil {
+		t.Fatalf("InsertCustomGroupRole(ended) error = %v", err)
+	}
+	if deleted, err := store.DeleteRole(ctx, everyDomain, warden); err != nil || !deleted {
+		t.Errorf("DeleteRole(every domain) with the domain's own role of the name = (%v, %v), want (true, nil)", deleted, err)
+	}
+	if !userHolds(t, store, wardTenant, warden) {
+		t.Errorf("lou does not hold %s in %s after the every-domain role was deleted, want the holding of the domain's own role kept", warden, wardTenant)
+	}
+	if held := heldIn(t, store, wardTenant, warden); len(held) != 2 {
+		t.Errorf("ReadPolicy() after the every-domain role was deleted holds %v in %s, want lou's and the group's ended one: they read the domain's own row", held, wardTenant)
+	}
+	if deleted, err := store.DeleteRole(ctx, wardTenant, warden); deleted || !errors.Is(err, policy.ErrStillAssigned) {
+		t.Errorf("DeleteRole(%s) of the domain's own role lou holds = (%v, %v), want it refused with policy.ErrStillAssigned", wardTenant, deleted, err)
+	}
+	removeUserRole(t, store, wardTenant, warden)
+	removeGroupRole(t, store, wardTenant, warden)
+	deleteRoles(t, store, policy.Role{Scope: wardTenant, Name: warden})
+
+	for round := range holdRound {
+		role := accesstypes.Role(fmt.Sprintf("Warden%02d", round))
+		giveTogether(t, store, &together{
+			row: policy.Role{Scope: everyDomain, Name: role},
+			give: func(ctx context.Context) error {
+				return store.InsertCustomUserRole(ctx, wardTenant, lou, role, accesstypes.Period{}, "")
+			},
+			holds:   func(t *testing.T) bool { return userHolds(t, store, wardTenant, role) },
+			remove:  func(t *testing.T) { removeUserRole(t, store, wardTenant, role) },
+			refusal: policy.ErrHeldInDomain,
+		})
+	}
+	deleteRoles(t, store, everyWarden)
+}
+
+// heldIn lists, from the policy read, every holding of role in scope, a person's or a
+// group's, ended or not.
+func heldIn(t *testing.T, store access.Store, scope accesstypes.PolicyScope, role accesstypes.Role) []policy.Membership {
+	t.Helper()
+	records, err := store.ReadPolicy(t.Context())
+	if err != nil {
+		t.Fatalf("ReadPolicy() error = %v", err)
+	}
+	var held []policy.Membership
+	for _, m := range records.Memberships {
+		if m.Scope == scope && m.Role == role {
+			held = append(held, m)
+		}
+	}
+
+	return held
 }
 
 // together is one round of a custom role given at the moment the role row the holding

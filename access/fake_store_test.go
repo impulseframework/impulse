@@ -331,19 +331,23 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 			return false, errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %q", role, scope)
 		}
 	}
+	if err := f.refuseHeldInDomain(scope, role); err != nil {
+		return false, err
+	}
 	if !f.hasRole(scope, role) {
 		return false, nil
 	}
 	delete(f.roles, fakeRoleKey{scope, role})
 	// The memberships of the role that have ended go with it, a person's and a
-	// group's.
+	// group's, and for a role held in every domain the ones held in one domain
+	// that read its row.
 	for m := range f.memberships {
-		if m.scope == scope && m.role == role {
+		if m.role == role && (m.scope == scope || f.readsEveryDomainRow(scope, m.scope, role)) {
 			delete(f.memberships, m)
 		}
 	}
 	for r := range f.groups.held {
-		if r.scope == scope && r.role == role {
+		if r.role == role && (r.scope == scope || f.readsEveryDomainRow(scope, r.scope, role)) {
 			delete(f.groups.held, r)
 		}
 	}
@@ -354,6 +358,42 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 	}
 
 	return true, nil
+}
+
+// readsEveryDomainRow reports whether a holding of role held in scope reads the row a
+// deletion in deleted deletes, where that is every domain's: the holding is held in
+// one domain that holds no role of the name of its own. The caller holds mu.
+func (f *fakeStore) readsEveryDomainRow(deleted, scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	_, oneDomain := scope.Domain()
+
+	return deleted.IsEveryDomain() && oneDomain && !f.hasRole(scope, role)
+}
+
+// refuseHeldInDomain refuses the deletion of a role held in every domain while a
+// holding of it in one domain that has not ended reads its row, naming the lowest such
+// domain, a person's before a group's. The caller holds mu.
+func (f *fakeStore) refuseHeldInDomain(scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	var people, groups []string
+	for m, period := range f.memberships {
+		if m.role == role && !period.Ended(f.now()) && f.readsEveryDomainRow(scope, m.scope, role) {
+			domain, _ := m.scope.Domain()
+			people = append(people, string(domain))
+		}
+	}
+	for r, period := range f.groups.held {
+		if r.role == role && !period.Ended(f.now()) && f.readsEveryDomainRow(scope, r.scope, role) {
+			domain, _ := r.scope.Domain()
+			groups = append(groups, string(domain))
+		}
+	}
+	if len(people) > 0 {
+		return errors.Wrapf(policy.ErrHeldInDomain, "role %q: a person holds it in the domain %q", role, slices.Min(people))
+	}
+	if len(groups) > 0 {
+		return errors.Wrapf(policy.ErrHeldInDomain, "role %q: a group holds it in the domain %q", role, slices.Min(groups))
+	}
+
+	return nil
 }
 
 func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {

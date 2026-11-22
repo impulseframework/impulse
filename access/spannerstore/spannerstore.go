@@ -142,6 +142,8 @@ type Store struct {
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
 	sqlDeleteEndedMembers  string
+	sqlHeldInDomain        string
+	sqlEndedInDomain       string
 	sqlRoleExists          string
 	sqlListRoles           string
 	sqlReadMeetingRoles    string
@@ -173,6 +175,8 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlDeleteRole:          fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1", names.userRoles, standing("")),
 		sqlDeleteEndedMembers:  fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", names.userRoles, ended),
+		sqlHeldInDomain:        fmt.Sprintf("SELECT u.DomainId FROM %s u WHERE %s AND %s ORDER BY u.DomainId LIMIT 1", names.userRoles, readsEveryDomainRow(names.roles), standing("u.")),
+		sqlEndedInDomain:       fmt.Sprintf("DELETE FROM %s u WHERE %s AND u.%s", names.userRoles, readsEveryDomainRow(names.roles), ended),
 		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
 		sqlReadMeetingRoles:    fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s WHERE Axis = @axis AND ((Kind = @kind AND DomainId = @domain) OR (@kind != '%s' AND Kind = '%s') OR (@kind = '%s' AND Kind = '%s'))", names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
@@ -212,6 +216,14 @@ func standing(alias string) string {
 
 // ended is the predicate of an assignment whose end has passed.
 const ended = "EndsAt <= CURRENT_TIMESTAMP()"
+
+// readsEveryDomainRow is the predicate of a holding, under the alias u, that reads the
+// every-domain row of @role: one held in one domain of @axis that names the role, where
+// the domain holds no row of the exact name in roles, the roles table, of its own.
+func readsEveryDomainRow(roles string) string {
+	return fmt.Sprintf("u.Kind = '%s' AND u.Axis = @axis AND u.Role = @role AND NOT EXISTS (SELECT 1 FROM %s r WHERE r.Kind = u.Kind AND r.Axis = u.Axis AND r.DomainId = u.DomainId AND r.Role = u.Role)",
+		policy.KindDomain, roles)
+}
 
 // periodOf reassembles an assignment's period from its two columns.
 func periodOf(start, end spanner.NullTime) accesstypes.Period {
@@ -698,6 +710,11 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		} else if held {
 			return errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %s", role, scope)
 		}
+		if scope.IsEveryDomain() {
+			if err := s.refuseHeldInDomain(ctx, txn, role, params); err != nil {
+				return err
+			}
+		}
 
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.sqlDeleteRole, Params: params})
 		if err != nil {
@@ -715,6 +732,13 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		if _, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.deleteEndedOf, Params: params}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended group roles")
 		}
+		if scope.IsEveryDomain() {
+			for _, sql := range []string{s.sqlEndedInDomain, s.groups.endedInDomain} {
+				if _, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: params}); err != nil {
+					return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended holdings in one domain")
+				}
+			}
+		}
 
 		return nil
 	})
@@ -723,6 +747,39 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	}
 
 	return deleted, nil
+}
+
+// refuseHeldInDomain refuses, inside the transaction of a deletion of a role held in
+// every domain, while a person's or a group's holding in one domain reads the role's
+// row: one that names the role, has not ended, and whose domain holds no role of the
+// name of its own. The refusal wraps policy.ErrHeldInDomain and names the lowest such
+// domain, a person's before a group's.
+func (s *Store) refuseHeldInDomain(ctx context.Context, txn *spanner.ReadWriteTransaction, role accesstypes.Role, params map[string]any) error {
+	for _, holder := range []struct {
+		sql, who string
+	}{
+		{sql: s.sqlHeldInDomain, who: "a person"},
+		{sql: s.groups.heldInDomain, who: "a group"},
+	} {
+		var domain string
+		found := false
+		err := txn.Query(ctx, spanner.Statement{SQL: holder.sql, Params: params}).Do(func(row *spanner.Row) error {
+			if err := row.Columns(&domain); err != nil {
+				return errors.Wrap(err, "spanner.Row.Columns()")
+			}
+			found = true
+
+			return nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Query() holdings in one domain")
+		}
+		if found {
+			return errors.Wrapf(policy.ErrHeldInDomain, "role %q: %s holds it in the domain %q", role, holder.who, domain)
+		}
+	}
+
+	return nil
 }
 
 // anyRow reports whether a statement of the transaction answers a row.

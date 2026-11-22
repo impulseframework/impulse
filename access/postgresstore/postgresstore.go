@@ -130,6 +130,8 @@ type Store struct {
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
 	sqlDeleteEndedMembers  string
+	sqlHeldInDomain        string
+	sqlEndedInDomain       string
 	sqlRoleExists          string
 	sqlListRoles           string
 	sqlInsertUserRole      string
@@ -169,6 +171,8 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		sqlDeleteRole:         fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4`, names.roles),
 		sqlRoleHasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s)`, names.userRoles, standing("")),
 		sqlDeleteEndedMembers: fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s`, names.userRoles, ended),
+		sqlHeldInDomain:       fmt.Sprintf(`select u."DomainId" from %s u where %s and %s order by u."DomainId" limit 1`, names.userRoles, readsEveryDomainRow(names.roles), standing("u.")),
+		sqlEndedInDomain:      fmt.Sprintf(`delete from %s u where %s and u.%s`, names.userRoles, readsEveryDomainRow(names.roles), ended),
 		sqlRoleExists:         fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4)`, names.roles),
 		sqlListRoles:          fmt.Sprintf(`select "Role", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Role"`, names.roles),
 		sqlInsertUserRole: fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "UserId", "StartsAt", "EndsAt", "Reason") values ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -223,6 +227,15 @@ const (
 	// as it was.
 	replacePeriod = `"StartsAt" = excluded."StartsAt", "EndsAt" = excluded."EndsAt"`
 )
+
+// readsEveryDomainRow is the predicate of a holding, under the alias u, that reads the
+// every-domain row of the role $2: one held in one domain of the axis $1 that names the
+// role, where the domain holds no row of the exact name in roles, the roles table, of
+// its own.
+func readsEveryDomainRow(roles string) string {
+	return fmt.Sprintf(`u."Kind" = '%s' and u."Axis" = $1 and u."Role" = $2 and not exists (select 1 from %s r where r."Kind" = u."Kind" and r."Axis" = u."Axis" and r."DomainId" = u."DomainId" and r."Role" = u."Role")`,
+		policy.KindDomain, roles)
+}
 
 // periodOf reassembles an assignment's period from its two columns.
 func periodOf(start, end *time.Time) accesstypes.Period {
@@ -695,6 +708,11 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	if held {
 		return false, errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %s", role, scope)
 	}
+	if scope.IsEveryDomain() {
+		if err := s.refuseHeldInDomain(ctx, tx, axis, role); err != nil {
+			return false, err
+		}
+	}
 	tag, err := tx.Exec(ctx, s.sqlDeleteRole, kind, axis, domain, role)
 	if err != nil {
 		return false, errors.Wrap(err, "pgx.Tx.Exec() delete role")
@@ -709,12 +727,43 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		if _, err := tx.Exec(ctx, s.groups.deleteEndedOf, kind, axis, domain, role); err != nil {
 			return false, errors.Wrap(err, "pgx.Tx.Exec() ended group roles")
 		}
+		if scope.IsEveryDomain() {
+			for _, sql := range []string{s.sqlEndedInDomain, s.groups.endedInDomain} {
+				if _, err := tx.Exec(ctx, sql, axis, role); err != nil {
+					return false, errors.Wrap(err, "pgx.Tx.Exec() ended holdings in one domain")
+				}
+			}
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, errors.Wrap(err, "pgx.Tx.Commit() delete role")
 	}
 
 	return tag.RowsAffected() > 0, nil
+}
+
+// refuseHeldInDomain refuses, inside the transaction of a deletion of a role held in
+// every domain, while a person's or a group's holding in one domain reads the role's
+// row: one that names the role, has not ended, and whose domain holds no role of the
+// name of its own. The refusal wraps policy.ErrHeldInDomain and names the lowest such
+// domain, a person's before a group's.
+func (s *Store) refuseHeldInDomain(ctx context.Context, tx pgx.Tx, axis string, role accesstypes.Role) error {
+	for _, holder := range []struct {
+		sql, who string
+	}{
+		{sql: s.sqlHeldInDomain, who: "a person"},
+		{sql: s.groups.heldInDomain, who: "a group"},
+	} {
+		var domain string
+		switch err := tx.QueryRow(ctx, holder.sql, axis, role).Scan(&domain); {
+		case err == nil:
+			return errors.Wrapf(policy.ErrHeldInDomain, "role %q: %s holds it in the domain %q", role, holder.who, domain)
+		case !errors.Is(err, pgx.ErrNoRows):
+			return errors.Wrap(err, "pgx.Tx.QueryRow() holdings in one domain")
+		}
+	}
+
+	return nil
 }
 
 // RoleExists reports whether the (scope, role) row exists.

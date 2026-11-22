@@ -5,7 +5,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // goneStore is the fake store with one custom role's rows deleted as a write of a
@@ -166,5 +169,52 @@ func Test_userManager_AddUserRoles_secondRoleDeleted(t *testing.T) {
 	}
 	if got := signal.begun.Load(); got != announced+1 {
 		t.Errorf("announcements made by the call = %d, want 1 for the role it gave", got-announced)
+	}
+}
+
+// heldInTenant is what a person is told of a role held in every tenant that a person or
+// a group holds in one tenant.
+const heldInTenant = "A person or a group holds the role in a tenant, now or for a period that has not begun yet. You cannot delete a role that is held in a tenant: take it away there first"
+
+// Test_userManager_DeleteRole_heldInDomain pins that a role held in every tenant is not
+// deleted while a person holds it in one tenant through it: the deletion is refused in
+// words, with the store's refusal kept as its cause, and the role stays. A tenant with a
+// role of the name of its own does not stand in the way: its people hold that one.
+func Test_userManager_DeleteRole_heldInDomain(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	_, manager, store := periodClient(t)
+	every := accesstypes.EveryDomainPolicyScope()
+
+	if err := manager.AddRole(ctx, every, nightWarden, aDescription); err != nil {
+		t.Fatalf("AddRole(every domain) error = %v", err)
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1Policy, nightWarden, "bob"); err != nil {
+		t.Fatalf("AddRoleUsers(%s) error = %v", tenant1Policy, err)
+	}
+
+	deleted, err := manager.DeleteRole(ctx, every, nightWarden)
+	if deleted || err == nil || !httpio.HasBadRequest(err) || !errors.Is(err, policy.ErrHeldInDomain) {
+		t.Fatalf("DeleteRole(every domain) of a role bob holds in a tenant = (%v, %v), want a bad request whose cause is policy.ErrHeldInDomain", deleted, err)
+	}
+	if messages := httpio.Messages(err); len(messages) != 1 || messages[0] != heldInTenant {
+		t.Errorf("the person is told %q, want only %q", messages, heldInTenant)
+	}
+	if exists, err := store.RoleExists(ctx, every, nightWarden); err != nil || !exists {
+		t.Fatalf("Store.RoleExists() after the refusal = (%v, %v), want the role there", exists, err)
+	}
+
+	// The tenant's own role of the name is made first: a role held in every domain
+	// is the one a tenant's new role of the name would be refused beside.
+	for _, scope := range []accesstypes.PolicyScope{tenant1Policy, every} {
+		if err := manager.AddRole(ctx, scope, dayWarden, aDescription); err != nil {
+			t.Fatalf("AddRole(%s) error = %v", scope, err)
+		}
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1Policy, dayWarden, "bob"); err != nil {
+		t.Fatalf("AddRoleUsers(%s) error = %v", tenant1Policy, err)
+	}
+	if deleted, err := manager.DeleteRole(ctx, every, dayWarden); err != nil || !deleted {
+		t.Errorf("DeleteRole(every domain) of a role bob holds through the tenant's own role of the name = (%v, %v), want it deleted", deleted, err)
 	}
 }

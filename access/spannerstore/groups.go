@@ -52,6 +52,8 @@ type groupStatements struct {
 	listRolesIn    string
 	roleHeld       string
 	deleteEndedOf  string
+	heldInDomain   string
+	endedInDomain  string
 	readGroups     string
 	readMembers    string
 	readRoles      string
@@ -89,6 +91,9 @@ WHERE g.Kind = @kind AND g.Axis = @axis AND g.DomainId = @domain AND %s ORDER BY
 		roleHeld: fmt.Sprintf("SELECT 1 FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1",
 			n.groupRoles, n.groupRolesIndex, standing("")),
 		deleteEndedOf: fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", n.groupRoles, ended),
+		// The group roles held in one domain that read a role's every-domain row.
+		heldInDomain:  fmt.Sprintf("SELECT u.DomainId FROM %s u WHERE %s AND %s ORDER BY u.DomainId LIMIT 1", n.groupRoles, readsEveryDomainRow(n.roles), standing("u.")),
+		endedInDomain: fmt.Sprintf("DELETE FROM %s u WHERE %s AND u.%s", n.groupRoles, readsEveryDomainRow(n.roles), ended),
 		readGroups:    fmt.Sprintf("SELECT Id, Kind, Axis, DomainId FROM %s", n.groups),
 		readMembers:   fmt.Sprintf("SELECT GroupId, UserId, StartsAt, EndsAt FROM %s", n.groupMembers),
 		readRoles:     fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s", n.groupRoles),

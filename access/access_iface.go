@@ -339,8 +339,9 @@ type UserManager interface {
 
 	// DeleteRole removes a custom role held in scope with its grants. Returns
 	// false with an error if the role has members in scope, if a group holds
-	// it there, or if it is a default role. The delete is scoped to the given
-	// scope.
+	// it there, if it is held in every domain and a person or a group holds
+	// it in one domain, or if it is a default role. The delete is scoped to
+	// the given scope.
 	DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 
 	// AddRolePermission grants permission to role scope-wide: the permission is

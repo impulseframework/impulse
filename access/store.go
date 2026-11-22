@@ -69,7 +69,11 @@ import (
 //     refuses with an error while memberships held in that scope that have
 //     not ended still name the role (checked in the same transaction as the
 //     delete), takes the ended ones with the role, and reports whether a row
-//     was actually deleted.
+//     was actually deleted. A role held in every domain is refused as well,
+//     wrapping policy.ErrHeldInDomain, while a membership or a group's role
+//     held in one domain names it, has not ended, and that domain holds no
+//     custom role of the name itself; the ended ones of those go with the
+//     role.
 //   - InsertRole reads the roles a new name is held to and inserts in one
 //     transaction that no other insert of a name alike but for case runs
 //     beside: of two such names added at the same moment, one is held and the
@@ -197,7 +201,9 @@ type Store interface {
 	// sorted by name then id: the groups a role is held through. DeleteRole
 	// refuses, wrapping policy.ErrHeldByGroup, while a group's row of the role
 	// in the scope has not ended, checked in the delete's own transaction, and
-	// takes the ended ones with the role.
+	// takes the ended ones with the role; for a role held in every domain it
+	// refuses, wrapping policy.ErrHeldInDomain, for a group's row in one domain
+	// as the contract above says.
 	// CountGroupMembersIn and ListGroupRolesIn say what the groups kept in
 	// scope hold, for a listing of them: how many people each has, and the
 	// roles each holds with their periods, sorted by group, then where the
