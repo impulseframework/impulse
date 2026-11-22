@@ -152,17 +152,17 @@ func TestJudge_personalDetails(t *testing.T) {
 		{
 			name:     "a name with an accent NFC leaves apart, of a person with an address",
 			password: "Adebayo!x9Lq",
-			who:      Details{Name: "Adébáyọ̀ Ọ̀làdé", Email: "ade@example.com"},
+			who:      Details{Name: "Ad\u00e9b\u00e1y\u1ecd\u0300 \u1ecc\u0300l\u00e0d\u00e9", Email: "ade@example.com"},
 		},
 		{
 			name:     "the part of a name before an accent NFC leaves apart",
-			password: "Chukwuẹs2077",
-			who:      Details{Name: "Chukwuẹ̀mẹ́ka Ọ̀kọ̀nkwọ́"},
+			password: "Chukwu\u1eb9s2077",
+			who:      Details{Name: "Chukwu\u1eb9\u0300m\u1eb9\u0301ka \u1ecc\u0300k\u1ecd\u0300nkw\u1ecd\u0301"},
 		},
 		{
 			name:     "the part of an Arabic name before its shadda",
-			password: "محمT2077",
-			who:      Details{Name: "محمّد علي"},
+			password: "\u0645\u062d\u0645T2077",
+			who:      Details{Name: "\u0645\u062d\u0645\u0651\u062f \u0639\u0644\u064a"},
 		},
 	}
 	for _, tt := range tests {
@@ -227,7 +227,7 @@ func TestInputsOf(t *testing.T) {
 		},
 		{who: Details{Name: "Jääskeläinen"}, want: []string{"Jaaskelainen", "Jaeaeskelaeinen"}},
 		{
-			who:  Details{Name: "Adébáyọ̀ Ọ̀làdé", Email: "ade@example.com"},
+			who:  Details{Name: "Ad\u00e9b\u00e1y\u1ecd\u0300 \u1ecc\u0300l\u00e0d\u00e9", Email: "ade@example.com"},
 			want: []string{"Adebayo Olade", "Adebayo", "lade", "ade@example.com", "ade", "example", "com", "Olade"},
 		},
 		{who: Details{}, want: nil},
