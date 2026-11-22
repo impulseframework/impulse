@@ -80,6 +80,10 @@ func (probeCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (probeCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
 func (probeCollection) Auths() []string {
 	return nil
 }
@@ -258,6 +262,13 @@ func TestValidateRoles_errors(t *testing.T) {
 				"Delete": {{Resource: "Missions", Condition: "owner = subject"}},
 			}}}},
 			wantErr: "is not an attribute of Missions",
+		},
+		{
+			name: "a field named with a dot",
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
+				"Read": {{Resource: "Missions", Fields: []accesstypes.Tag{"hazard.level"}}},
+			}}}},
+			wantErr: `grant on Missions: field "hazard.level" holds a dot`,
 		},
 		{
 			name: "a role declared at both scopes",

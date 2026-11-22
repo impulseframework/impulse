@@ -403,7 +403,10 @@ DML what a later rule must read.
   trusted)`, `signin.Provision(newUser, onProvisioned)`, `signin.Confirm(userID)` or
   `signin.Standard()`, which leaves the identity to the standard rule once the rule's
   own checks have passed; `signin.Tenant(key)` on any of the last four stores the
-  application's tenant key on the link. A `Link` is the rule's own evidence, and the
+  application's tenant key on the link. A provisioned user has no password unless the
+  rule sets `NewUser.PasswordHash`, which carries over a password the person already
+  had: the hash is written as given, and no strength judgment is made of it, since the
+  password behind it is not known. A `Link` is the rule's own evidence, and the
   library asks for more when it can: a user who has a password must confirm with it
   (`Confirm`) unless the link is `trusted`; a user without a password cannot confirm,
   so an identity from another connection than the ones that user already signs in

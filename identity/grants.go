@@ -127,7 +127,7 @@ func (m *Manager) judged(ctx context.Context) (bool, error) {
 // roleInWords names a role as a role picker shows it: its words in lower case with the
 // first in upper case, so "SectorMarshal" is "Sector marshal". A sentence a person reads
 // names a role this way, never by its code name, which the refusal's cause keeps for the
-// server's log.
+// server's log. A plural acronym keeps its letters: "KeyIDs" is "Key IDs".
 func roleInWords(role accesstypes.Role) string {
 	return sentenceStart(inWords(string(role)))
 }

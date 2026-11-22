@@ -144,6 +144,15 @@
   padding-right: 20px;
 }
 
+// Where the box is not offered, the sentence that says why stands in its place, in the
+// small secondary words a field's note under it takes.
+.impulse-resource-list-search-refused {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+}
+
 // What holds the rows keeps the room the styles sheet gives the container of a resource's
 // page, a little air above it and a border's width around it, so the rows stand where they
 // did under a name of the list's own.

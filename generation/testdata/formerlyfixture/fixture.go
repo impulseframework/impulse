@@ -106,6 +106,20 @@ type (
 		Headline string
 		Body     string
 	}
+
+	// Dotted names a former field name with a dot, which is refused.
+	Dotted struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @formerly(Old.Title)
+		Headline string `spanner:"Headline"`
+	}
+
+	// Reissue names a former method name with a dot, which is refused.
+	// @rpc
+	// @formerly(Old.Release)
+	Reissue struct {
+		ID impulse.UUID
+	}
 )
 
 // Execute answers with the published article.
@@ -131,4 +145,9 @@ func (*Reword) Execute(context.Context, resource.ReadWriteTransaction, *Client) 
 // Execute answers with the restated article.
 func (*Restate) Execute(context.Context, resource.ReadWriteTransaction, *Client) (*Restated, error) {
 	return nil, nil
+}
+
+// Execute reissues.
+func (*Reissue) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
 }

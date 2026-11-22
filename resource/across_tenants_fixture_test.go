@@ -489,6 +489,20 @@ type acrossWalk struct {
 	postgresPages [][]acrossAnswer
 	// total is the count the first page answers when the walk asks for one.
 	total int64
+	// paging is the crates' declared paging the walk is read under; nil is the
+	// crates' own (crateDecoder).
+	paging *Paging
+}
+
+// decoder is the crates' list decoder under the walk's declared paging.
+func (w *acrossWalk) decoder(t *testing.T) *QueryDecoder[acrossCrate, acrossCrateRequest] {
+	t.Helper()
+
+	if w.paging == nil {
+		return crateDecoder(t)
+	}
+
+	return acrossDecoder[acrossCrate, acrossCrateRequest](t, *w.paging)
 }
 
 // The walks both databases run. differingRoles reads: every crate of north;
@@ -600,6 +614,54 @@ func acrossWalks() []acrossWalk {
 				{{"e2", east, "350"}},
 			},
 			total: 4,
+		},
+		{
+			// south's weights are hidden: NULL to the declared order, first
+			// ascending on Spanner and last on PostgreSQL, in key order and not by
+			// the weights (20, 40, 60) that would set them among north's.
+			name:   "the declared order's field hidden in one tenant",
+			target: "/crates?columns=id,label&count=true",
+			perms:  weightRoles([]accesstypes.Domain{north, south}, map[accesstypes.Domain]accesstypes.Decision{south: accesstypes.Denied()}),
+			pages: [][]acrossAnswer{
+				{{"s1", south, ""}, {"s2", south, ""}, {"s3", south, ""}},
+				{{"n1", north, ""}, {"n2", north, ""}, {"n3", north, ""}},
+			},
+			postgresPages: [][]acrossAnswer{
+				{{"n1", north, ""}, {"n2", north, ""}, {"n3", north, ""}},
+				{{"s1", south, ""}, {"s2", south, ""}, {"s3", south, ""}},
+			},
+			total: 6,
+		},
+		{
+			// By weight descending south's crates would come s3, s2, s1.
+			name:   "a set of one tenant in a declared order by a field hidden there",
+			target: "/crates?columns=id,label&count=true&limit=2",
+			perms:  weightRoles([]accesstypes.Domain{south}, map[accesstypes.Domain]accesstypes.Decision{south: accesstypes.Denied()}),
+			paging: &Paging{Order: []SortField{{Field: "Weight", Direction: SortDescending}}, DefaultLimit: 3},
+			pages: [][]acrossAnswer{
+				{{"s1", south, ""}, {"s2", south, ""}},
+				{{"s3", south, ""}},
+			},
+			total: 3,
+		},
+		{
+			// erin owns s1 (20) and s3 (60); s2's weight (40) is masked to her,
+			// NULL to the declared order: first ascending on Spanner, last on
+			// PostgreSQL.
+			name:   "a set of one tenant in a declared order by a field held under a condition",
+			target: "/crates?columns=id,label&count=true&limit=2",
+			perms: weightRoles([]accesstypes.Domain{south}, map[accesstypes.Domain]accesstypes.Decision{
+				south: conditionalOn(acrossCrates+".weight", "owner = subject"),
+			}),
+			pages: [][]acrossAnswer{
+				{{"s2", south, ""}, {"s1", south, ""}},
+				{{"s3", south, ""}},
+			},
+			postgresPages: [][]acrossAnswer{
+				{{"s1", south, ""}, {"s3", south, ""}},
+				{{"s2", south, ""}},
+			},
+			total: 3,
 		},
 	}
 }

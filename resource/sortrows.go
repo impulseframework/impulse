@@ -21,11 +21,27 @@ import (
 // sort (QuerySet.TakeSort) orders its own query instead, and a plain ORDER BY
 // there produces the same placement. An unsupported dbType is an error.
 func SortRows[T any](rows []*T, order []SortField, dbType DBType) error {
+	return sortRowsBlanking(rows, order, dbType, nil)
+}
+
+// sortRowsBlanking is SortRows, where a row's field for which blank reports true
+// sorts as the field's NULL: Collect's sort of a computed list, where the caller
+// holds a field of the declared order under a condition a row does not meet. A
+// nil blank sorts every row by its real values.
+func sortRowsBlanking[T any](rows []*T, order []SortField, dbType DBType, blank func(row *T, field string) bool) error {
 	if !slices.Contains(dbTypes(), dbType) {
 		return errors.Newf("resource.SortRows: unsupported dbType %q", dbType)
 	}
 	if len(order) == 0 {
 		return nil
+	}
+	cell := func(row *T, value reflect.Value, field string) reflect.Value {
+		cell := fieldValue(value, field)
+		if cell.IsValid() && blank != nil && blank(row, field) {
+			return reflect.Zero(reflect.PointerTo(cell.Type()))
+		}
+
+		return cell
 	}
 	var sortErr error
 	slices.SortStableFunc(rows, func(a, b *T) int {
@@ -34,7 +50,7 @@ func SortRows[T any](rows []*T, order []SortField, dbType DBType) error {
 		}
 		va, vb := reflect.ValueOf(a).Elem(), reflect.ValueOf(b).Elem()
 		for _, sf := range order {
-			fa, fb := fieldValue(va, sf.Field), fieldValue(vb, sf.Field)
+			fa, fb := cell(a, va, sf.Field), cell(b, vb, sf.Field)
 			if !fa.IsValid() {
 				sortErr = errors.Newf("resource.SortRows: %s is not a field of %s", sf.Field, va.Type())
 

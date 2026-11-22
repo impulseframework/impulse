@@ -67,9 +67,10 @@ func TestResource_ResourceAndTag(t *testing.T) {
 			wantTag:      Tag("firstName"),
 		},
 		{
-			name:      "more than one dot panics",
-			resource:  Resource("Persons.first.name"),
-			wantPanic: true,
+			name:         "more than one dot splits at the last",
+			resource:     Resource("Persons.first.name"),
+			wantResource: Resource("Persons.first"),
+			wantTag:      Tag("name"),
 		},
 	}
 

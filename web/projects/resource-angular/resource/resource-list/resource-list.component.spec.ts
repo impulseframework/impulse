@@ -1492,6 +1492,89 @@ describe('ResourceListComponent', () => {
       );
     });
 
+    describe('over a computed resource, offers no box the server would refuse', () => {
+      // The server searches a computed resource over its real values, so it refuses the
+      // whole search when the caller does not list a searched field. A field listed under a
+      // condition keeps the box: the server may settle the condition from the request.
+      const refused = (): string | undefined =>
+        (fixture.nativeElement as HTMLElement)
+          .querySelector('.impulse-resource-list-search-refused')
+          ?.textContent?.trim();
+      const listing = (name: 'granted' | 'conditional' | 'absent'): PermissionDigest => ({
+        [clients]: { List: 'granted' },
+        [`${clients}.id`]: { List: 'granted' },
+        ...(name === 'absent' ? {} : { [`${clients}.name`]: { List: name } }),
+        [`${clients}.contactEmail`]: { List: 'granted' },
+        [`${clients}.notes`]: { List: 'granted' },
+        [contacts]: { List: 'granted' },
+        [`${contacts}.id`]: { List: 'granted' },
+        [`${contacts}.displayName`]: { List: 'granted' },
+      });
+      const createUnder = async (digest: PermissionDigest, computedClients: boolean): Promise<void> => {
+        const config = listViewConfig({
+          elements: [],
+          primaryResource: clients,
+          listColumns: [{ id: 'name' as FieldName }],
+        });
+        transport = scriptedTransport((request: TransportRequest): TransportResponse =>
+          request.url.startsWith('/api/permission-digest')
+            ? { status: 200, body: digest }
+            : { status: 200, body: [], headers: { 'total-count': '0' } },
+        );
+        await TestBed.configureTestingModule({
+          imports: [ResourceListComponent],
+          providers: [
+            provideResourceTesting({
+              transport,
+              client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+            }),
+            {
+              provide: RESOURCE_META,
+              useValue: (resource: Resource): ResourceMeta =>
+                computedClients && resource === clients ? { ...metas[clients], computed: true } : metas[resource],
+            },
+            {
+              provide: ActivatedRoute,
+              useValue: {
+                snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+              },
+            },
+          ],
+        }).compileComponents();
+        await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+        fixture = TestBed.createComponent(ResourceListComponent);
+        fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+        fixture.componentRef.setInput('resourceConfig', config);
+        fixture.detectChanges();
+        await settle();
+      };
+
+      it('a searched field the digest does not list: no box, and the page says which field', async () => {
+        await createUnder(listing('absent'), true);
+        expect(box()).toBeNull();
+        expect(fixture.componentInstance.searchFields()).toEqual([]);
+        expect(refused()).toBe('You cannot search this list: your role does not see Name.');
+      });
+
+      it('a searched field listed under a condition: the box, and no sentence', async () => {
+        await createUnder(listing('conditional'), true);
+        expect(box()).not.toBeNull();
+        expect(refused()).toBeUndefined();
+      });
+
+      it('every searched field listed with no condition: the box, and no sentence', async () => {
+        await createUnder(listing('granted'), true);
+        expect(box()).not.toBeNull();
+        expect(refused()).toBeUndefined();
+      });
+
+      it('a table with a searched field the digest does not list draws the box as before', async () => {
+        await createUnder(listing('absent'), false);
+        expect(box()).not.toBeNull();
+        expect(refused()).toBeUndefined();
+      });
+    });
+
     it('draws no box over a resource without search fields', async () => {
       await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }] });
       fixture.detectChanges();

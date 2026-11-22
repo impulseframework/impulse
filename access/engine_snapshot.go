@@ -378,6 +378,9 @@ func (s *snapshotEngine) watch(ctx context.Context) {
 }
 
 func (s *snapshotEngine) checkUser(_ context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
+	if scope.IsZero() {
+		return resourceDecision{}, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.checkUser()")
+	}
 	snap, err := s.snapshotAt(s.instant(env))
 	if err != nil {
 		return resourceDecision{}, err
@@ -389,6 +392,9 @@ func (s *snapshotEngine) checkUser(_ context.Context, env accesstypes.Environmen
 func (s *snapshotEngine) checkUserResources(
 	_ context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) ([]resourceDecision, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.checkUserResources()")
+	}
 	snap, err := s.snapshotAt(s.instant(env))
 	if err != nil {
 		return nil, err
@@ -398,6 +404,9 @@ func (s *snapshotEngine) checkUserResources(
 }
 
 func (s *snapshotEngine) userDigest(_ context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.userDigest()")
+	}
 	snap, err := s.snapshotAt(s.clock())
 	if err != nil {
 		return nil, err
@@ -407,6 +416,9 @@ func (s *snapshotEngine) userDigest(_ context.Context, user accesstypes.User, sc
 }
 
 func (s *snapshotEngine) userHasGrants(_ context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
+	if scope.IsZero() {
+		return false, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.userHasGrants()")
+	}
 	snap, err := s.snapshotAt(s.clock())
 	if err != nil {
 		return false, err
@@ -425,6 +437,9 @@ func (s *snapshotEngine) userIsSuperAdministrator(_ context.Context, user access
 }
 
 func (s *snapshotEngine) userPermissions(_ context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.UserScopePermissions, error) {
+	if scope.IsZero() {
+		return accesstypes.UserScopePermissions{}, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.userPermissions()")
+	}
 	snap, err := s.snapshotAt(s.clock())
 	if err != nil {
 		return accesstypes.UserScopePermissions{}, err
@@ -434,6 +449,9 @@ func (s *snapshotEngine) userPermissions(_ context.Context, user accesstypes.Use
 }
 
 func (s *snapshotEngine) checkRole(_ context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
+	if scope.IsZero() {
+		return resourceDecision{}, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.checkRole()")
+	}
 	snap, err := s.currentSnapshot()
 	if err != nil {
 		return resourceDecision{}, err
@@ -443,6 +461,9 @@ func (s *snapshotEngine) checkRole(_ context.Context, role accesstypes.Role, sco
 }
 
 func (s *snapshotEngine) checkRoleResources(_ context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]resourceDecision, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.checkRoleResources()")
+	}
 	snap, err := s.currentSnapshot()
 	if err != nil {
 		return nil, err
@@ -452,6 +473,9 @@ func (s *snapshotEngine) checkRoleResources(_ context.Context, role accesstypes.
 }
 
 func (s *snapshotEngine) roleDigest(_ context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.roleDigest()")
+	}
 	snap, err := s.currentSnapshot()
 	if err != nil {
 		return nil, err
@@ -461,6 +485,9 @@ func (s *snapshotEngine) roleDigest(_ context.Context, role accesstypes.Role, sc
 }
 
 func (s *snapshotEngine) roleHasGrants(_ context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
+	if scope.IsZero() {
+		return false, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.roleHasGrants()")
+	}
 	snap, err := s.currentSnapshot()
 	if err != nil {
 		return false, err
@@ -470,6 +497,9 @@ func (s *snapshotEngine) roleHasGrants(_ context.Context, role accesstypes.Role,
 }
 
 func (s *snapshotEngine) rolePermissions(_ context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.RolePermissionCollection, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "snapshotEngine.rolePermissions()")
+	}
 	snap, err := s.currentSnapshot()
 	if err != nil {
 		return nil, err
