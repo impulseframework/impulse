@@ -610,6 +610,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
 		{name: "an address is verified only while the user still holds what it held", run: testVerifyUserEmailIfHeld},
+		{name: "the address a sign-in code confirms is written in the sign-in's transaction only while the user still holds what it held and no other user holds it, and a write not made leaves the transaction to commit", run: testVerifyUserEmailIfHeldIn},
 		{name: "an address is matched by the case of its ASCII letters alone", run: testAddressFold},
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},

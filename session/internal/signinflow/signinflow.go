@@ -72,6 +72,15 @@ type Driver[Tx any] interface {
 	// user holds no verified address yet and no other user holds email, and reports
 	// whether it wrote.
 	ClaimVerifiedEmailIn(ctx context.Context, tx Tx, userID impulse.UUID, email string) (bool, error)
+	// VerifyUserEmailIfHeldIn writes email on the user as their address, confirmed at
+	// the transaction's time, inside tx, only while the user's row still holds held byte
+	// for byte (nil: no address) and no other user holds email, and reports whether it
+	// wrote: the address a mailed sign-in code confirms, written with the session. When
+	// it reports false nothing is written and no statement has failed, so tx goes on and
+	// can commit. On a store whose usernames are the addresses it writes the confirmed
+	// time alone, and only where the row holds held and email is the user's username;
+	// held nil writes nothing there.
+	VerifyUserEmailIfHeldIn(ctx context.Context, tx Tx, userID impulse.UUID, held *string, email string) (bool, error)
 	// ClaimUserNameIn writes name on the user inside tx when the user holds none, and
 	// reports whether it wrote. A user inserted earlier in tx is not claimed for: its
 	// insert carries the name.

@@ -280,6 +280,30 @@ func (d *memDriver) ClaimVerifiedEmailIn(_ context.Context, tx *memTx, userID im
 	return true, nil
 }
 
+// VerifyUserEmailIfHeldIn writes email on the user, confirmed, while the user holds held
+// exactly (nil: none) and no other user holds email; where the usernames are the
+// addresses it confirms the address alone, and only where email is the username.
+func (d *memDriver) VerifyUserEmailIfHeldIn(_ context.Context, tx *memTx, userID impulse.UUID, held *string, email string) (bool, error) {
+	user, ok := d.store.users[userID]
+	switch {
+	case !ok, held == nil && user.email != "", held != nil && user.email != *held:
+		return false, nil
+	case d.usernamesAreAddresses && (held == nil || !util.EqualASCIIFold(user.username, email)):
+		return false, nil
+	}
+	for id, other := range d.store.users {
+		if id != userID && other.email != "" && util.EqualASCIIFold(other.email, email) {
+			return false, nil
+		}
+	}
+	if d.usernamesAreAddresses {
+		email = user.email
+	}
+	tx.buffer(func() { user.email, user.confirmed = email, true })
+
+	return true, nil
+}
+
 func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse.UUID, name string) (bool, error) {
 	if d.store.users[userID].name != "" {
 		return false, nil

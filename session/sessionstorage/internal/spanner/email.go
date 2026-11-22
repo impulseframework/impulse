@@ -323,6 +323,58 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx *spa
 	return true, nil
 }
 
+// VerifyUserEmailIfHeldIn writes email on the user as their address, verified at the
+// commit time, inside tx, only while the user's row still holds held byte for byte
+// (nil: no address) and no other user holds email, and reports whether it wrote: the
+// address a mailed sign-in code confirms, written in the transaction that inserts the
+// session. The checks are reads in the transaction and the write a buffered mutation,
+// as in ClaimVerifiedEmailIn, and the serializable transaction keeps read and write
+// together, so a change of the address that commits before it is never written over;
+// a write it does not make buffers nothing, and tx goes on and can commit. On a store
+// whose usernames are the addresses only the verified time is written, and only where
+// the row holds held and email is the user's username; held nil writes nothing there.
+func (s *SessionStorageDriver) VerifyUserEmailIfHeldIn(
+	ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, held *string, email string,
+) (bool, error) {
+	if s.usernameIsEmail && held == nil {
+		return false, nil
+	}
+	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{emailColumn})
+	if err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+	}
+	var stored spanner.NullString
+	if err := row.Column(0, &stored); err != nil {
+		return false, errors.Wrap(err, "spanner.Row.Column()")
+	}
+	if !(&stillHolds{email: held}).met(stored) {
+		return false, nil
+	}
+	holder, err := s.UserByEmailIn(ctx, tx, email)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case holder != nil && holder.ID != userID:
+		return false, nil
+	case s.usernameIsEmail && holder == nil:
+		return false, nil
+	}
+	update := map[string]any{idColumn: userID, emailVerifiedAtColumn: spanner.CommitTimestamp}
+	if !s.usernameIsEmail {
+		update[emailColumn] = email
+	}
+	if err := tx.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, update)}); err != nil {
+		return false, errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+	}
+
+	return true, nil
+}
+
 // UserByEmailIn reads the user holding email inside tx, verified or not, matched
 // without regard to the case of its ASCII letters, or nil when there is none.
 func (s *SessionStorageDriver) UserByEmailIn(ctx context.Context, tx *spanner.ReadWriteTransaction, email string) (*dbtype.User, error) {

@@ -254,6 +254,38 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 	return tag.RowsAffected() > 0, nil
 }
 
+// VerifyUserEmailIfHeldIn writes email on the user as their address, verified at the
+// transaction's time, inside tx, only while the user's row still holds held byte for
+// byte (nil: no address) and no other user holds email, and reports whether it wrote:
+// the address a mailed sign-in code confirms, written in the transaction that inserts
+// the session. The conditions are in the one statement that writes the row, so a
+// change of the address that commits before it is never written over, and a write it
+// does not make fails no statement: tx goes on and can commit. On a store whose
+// usernames are the addresses only the verified time is written, and only where the
+// row holds held and email is the user's username; held nil writes nothing there.
+func (s *SessionStorageDriver) VerifyUserEmailIfHeldIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID, held *string, email string) (bool, error) {
+	var query string
+	if s.usernameIsEmail {
+		if held == nil {
+			return false, nil
+		}
+		query = fmt.Sprintf(`
+			UPDATE %s SET "EmailVerifiedAt" = now()
+			WHERE "Id" = $1 AND "Email" IS NOT DISTINCT FROM $3 AND "NormalizedEmail" = %s`, s.userTable(), addressFold("$2"))
+	} else {
+		query = fmt.Sprintf(`
+			UPDATE %s u SET "Email" = $2, "EmailVerifiedAt" = now()
+			WHERE u."Id" = $1 AND u."Email" IS NOT DISTINCT FROM $3
+			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = %s AND other."Id" <> $1)`, s.userTable(), s.userTable(), addressFold("$2"))
+	}
+	tag, err := tx.Exec(ctx, query, userID, email, held)
+	if err != nil {
+		return false, errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	return tag.RowsAffected() > 0, nil
+}
+
 // UserByEmailIn reads the user holding email inside tx, verified or not, matched
 // without regard to the case of its ASCII letters, or nil when there is none.
 func (s *SessionStorageDriver) UserByEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
