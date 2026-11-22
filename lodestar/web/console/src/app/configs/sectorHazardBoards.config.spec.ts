@@ -33,7 +33,9 @@ import {
 // draws no way into a row; the board declares no create, and the page offers none; the
 // readings' header is words, since the server orders by no nested field; and so is the
 // header of every field the analyst holds under the board's condition, since the server
-// refuses a sort by such a field on a computed resource.
+// refuses a sort by such a field on a computed resource. For the same reason the page
+// offers the analyst no search box, and says which field their role does not see on
+// every row.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 const kingfisher = '70000000-0000-4000-8000-000000000001';
@@ -172,6 +174,17 @@ describe('the hazard board', () => {
     // when it was recorded under the board's condition, which the server orders by the
     // rows' real values: only the subsystem, a key field that takes no grant, sorts.
     expect(pressable).toEqual(['Subsystem']);
+  });
+
+  it('offers the analyst no search box, and says which field the role does not see on every row', async () => {
+    await create(board);
+
+    // The server searches the board over its rows' real values and refuses the whole
+    // search to a role holding a searched field under a condition: here the ship's name.
+    expect(element().querySelector('impulse-search-box')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-search-refused')?.textContent?.trim()).toBe(
+      'You cannot search this list: your role does not see Ship on every row.',
+    );
   });
 
   it('says so when no droid has reported in the sector', async () => {

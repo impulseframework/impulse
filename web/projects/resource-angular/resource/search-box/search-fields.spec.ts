@@ -1,13 +1,15 @@
-import { Resource, ResourceMeta } from '@impulseframework/resource';
+import { PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
 
 import {
   deniedSearchFields,
   filterReachesPII,
+  refusedSearchFields,
   searchDeniedHint,
   searchedFields,
   searchFieldLabel,
   searchPlaceholder,
   searchReachesPII,
+  searchRefusedNotice,
 } from './search-fields';
 
 // What a box over a resource searches for a caller, how it says so, and when its request
@@ -156,6 +158,62 @@ describe('searchedFields', () => {
     expect(deniedSearchFields(ships, own, digest({ [registries]: [] }), metaOf)).toEqual(['registry.code']);
     // Without the child's metadata the branch is judged as any other field.
     expect(searchedFields(ships, own, digest({ [registries]: ['port'] }))).toEqual(['name']);
+  });
+});
+
+describe('refusedSearchFields', () => {
+  // The board's ship name as the digest says it, beside a column the role reads outright.
+  const cases: {
+    name: string;
+    listable: string[] | undefined;
+    states: Record<string, PermissionDigestState>;
+    want: string[];
+  }[] = [
+    {
+      name: 'the ship name listed outright',
+      listable: ['shipName', 'worstReading'],
+      states: { shipName: 'granted', worstReading: 'granted' },
+      want: [],
+    },
+    {
+      name: 'the ship name listed under a condition',
+      listable: ['shipName', 'worstReading'],
+      states: { shipName: 'conditional', worstReading: 'granted' },
+      want: ['shipName'],
+    },
+    {
+      name: 'the ship name not listed, the digest naming another field',
+      listable: ['worstReading'],
+      states: { worstReading: 'granted' },
+      want: ['shipName'],
+    },
+    { name: 'nothing known of the fields', listable: undefined, states: {}, want: [] },
+    { name: 'no List on the board at all', listable: [], states: {}, want: [] },
+  ];
+
+  for (const tt of cases) {
+    const listable = tt.listable ? new Set(tt.listable) : undefined;
+    it(`over a computed board, ${tt.name}: ${JSON.stringify(tt.want)}; the key is never named`, () => {
+      expect(refusedSearchFields({ ...board, computed: true }, listable, tt.states)).toEqual(tt.want);
+    });
+    it(`over a board that is not computed, ${tt.name}: nothing`, () => {
+      expect(refusedSearchFields(board, listable, tt.states)).toEqual([]);
+    });
+  }
+});
+
+describe('searchRefusedNotice', () => {
+  it('says nothing for no field, and names one, two or three as a person would', () => {
+    expect(searchRefusedNotice([])).toBe('');
+    expect(searchRefusedNotice(['Ship Name'])).toBe(
+      'You cannot search this list: your role does not see Ship Name on every row.',
+    );
+    expect(searchRefusedNotice(['Ship Name', 'Subsystem'])).toBe(
+      'You cannot search this list: your role does not see Ship Name or Subsystem on every row.',
+    );
+    expect(searchRefusedNotice(['Ship Name', 'Subsystem', 'Worst Reading'])).toBe(
+      'You cannot search this list: your role does not see Ship Name, Subsystem or Worst Reading on every row.',
+    );
   });
 });
 

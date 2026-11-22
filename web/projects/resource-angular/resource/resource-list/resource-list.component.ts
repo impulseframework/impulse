@@ -87,10 +87,12 @@ import {
   deniedSearchFields,
   searchDeniedHint,
   listableFieldsOf,
+  refusedSearchFields,
   searchedFields,
   searchFieldLabel,
   searchPlaceholder,
   searchReachesPII,
+  searchRefusedNotice,
 } from '../search-box/search-fields';
 import {
   filterChoiceLists,
@@ -624,13 +626,36 @@ export class ResourceListComponent implements OnInit {
   filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns()));
 
   /**
+   * The search fields for which the server would refuse this caller's whole search of a
+   * computed list (refusedSearchFields): the fields the digest does not list, or lists
+   * only under a condition. Across tenants no one digest speaks for the rows, so nothing
+   * is refused here.
+   */
+  searchRefused = computed<string[]>(() => {
+    const resource = this.config().primaryResource;
+    if (this.across() || !resource) {
+      return [];
+    }
+    return refusedSearchFields(
+      this.meta(),
+      this.listableFields(),
+      this.auth.fieldPermissionStates({ resource, permission: ListPermission }),
+    );
+  });
+
+  /**
    * The fields the search box searches for this caller: the listed resource's search
    * fields less those the digest denies for List, a branch judged by the child field's
    * grant on the child resource, a key field searched by whoever lists its resource. The
    * resource decides the set, never the page; a page that should search fewer fields
-   * lists a view projecting fewer.
+   * lists a view projecting fewer. None while the server would refuse the search
+   * (searchRefused), so the box is not offered.
    */
-  searchFields = computed(() => searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta));
+  searchFields = computed(() =>
+    this.searchRefused().length > 0
+      ? []
+      : searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta),
+  );
 
   /** Whether the box reaches a PII field, its own or a branch's: the request then travels in the body. */
   searchPII = computed(() => searchReachesPII(this.meta(), this.searchFields()));
@@ -660,6 +685,17 @@ export class ResourceListComponent implements OnInit {
         searchFieldLabel(field, this.columnHeaders()),
       ),
     ),
+  );
+
+  /**
+   * What the page says where it offers no box because the server would refuse the
+   * search: the fields the caller's role does not see on every row, by the labels the box
+   * gives them. Nothing when the config hides the box.
+   */
+  searchNotice = computed(() =>
+    this.config().showSearchBox === false
+      ? ''
+      : searchRefusedNotice(this.searchRefused().map((field) => searchFieldLabel(field, this.columnHeaders()))),
   );
 
   /** Whether the box is in the request: it counts as the indexed touch a companion-only column waits for. */

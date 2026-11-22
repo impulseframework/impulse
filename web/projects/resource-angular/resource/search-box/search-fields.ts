@@ -1,4 +1,10 @@
-import { ListPermission, Resource, ResourceMeta, SearchBranchMeta } from '@impulseframework/resource';
+import {
+  ListPermission,
+  PermissionDigestState,
+  Resource,
+  ResourceMeta,
+  SearchBranchMeta,
+} from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { filterFields } from '@impulseframework/resource-angular/grid';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
@@ -9,7 +15,10 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 // the same fields as the list page of the same resource, and a page that should search
 // fewer fields lists a view projecting fewer. A field of the resource's key takes no
 // grant of its own, so no role's digest names it: whoever lists the resource searches
-// it, as the server does, and the box never says a role leaves it out.
+// it, as the server does, and the box never says a role leaves it out. A computed
+// resource is searched over its real values, so the server refuses the whole search
+// unless the caller lists every searched field with no condition; the box is then not
+// offered, and the page says which fields the caller's role does not see on every row.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -128,6 +137,29 @@ export function deniedSearchFields(
 }
 
 /**
+ * The search fields for which the server refuses a computed list's whole search: each of
+ * the resource's own search fields, other than a key field, that the digest does not
+ * list or lists only under a condition (`listStates`, the digest's List state by field).
+ * None on a table or a view, and none where the digest holds no List on the resource at
+ * all, since the page lists nothing.
+ */
+export function refusedSearchFields(
+  meta: ResourceMeta | undefined,
+  listable: ReadonlySet<string> | undefined,
+  listStates: Readonly<Record<string, PermissionDigestState>>,
+): string[] {
+  if (meta?.computed !== true || listable?.size === 0) {
+    return [];
+  }
+  return (meta.searchFields ?? []).filter(
+    (field) =>
+      !field.includes('.') &&
+      !keyField(meta, field) &&
+      ((listable !== undefined && !listable.has(field)) || listStates[field] === 'conditional'),
+  );
+}
+
+/**
  * Whether a box over these fields reaches a field the metadata marks PII, its own or a
  * branch's: the request then travels in the body, as the server requires.
  */
@@ -173,4 +205,16 @@ export function searchPlaceholder(labels: readonly string[]): string {
 /** What the box says under itself about the fields the caller's role leaves out; nothing when none. */
 export function searchDeniedHint(labels: readonly string[]): string {
   return labels.length === 0 ? '' : `Not searched for your role: ${labels.join(', ')}`;
+}
+
+/**
+ * What the page says where it offers no box because the server would refuse the search:
+ * the fields the caller's role does not see on every row, by label; nothing when none.
+ */
+export function searchRefusedNotice(labels: readonly string[]): string {
+  if (labels.length === 0) {
+    return '';
+  }
+  const fields = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
+  return `You cannot search this list: your role does not see ${fields} on every row.`;
 }
