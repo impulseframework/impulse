@@ -50,7 +50,7 @@ const (
 	adminUser     = "admin"
 	memberUser    = "member"
 	clientUser    = "client"
-	adminPassword = "password"
+	adminPassword = "open-the-console-first"
 )
 
 // servedConfigurer implements both sites' Configurer over the real dependencies: the

@@ -2,7 +2,7 @@
   "users": [
     {
       "user": "admin",
-      "password": "password",
+      "password": "open-the-console-first",
       "roles": {
         "global": [
           "SuperAdministrator",

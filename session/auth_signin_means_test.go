@@ -51,9 +51,10 @@ func signInMeansList(path, fleet, lakeside string) *MethodList {
 			{Name: "river-entra", Label: "Riverside", Path: "/api/user/river-entra/login"},
 			{Name: "workos", Label: "Single sign-on", Path: "/api/user/workos/login"},
 		},
-		ChangePassword: "/api/user/password/change",
-		RemovePassword: "/api/user/password/remove",
-		SignInMeans:    path,
+		ChangePassword:   "/api/user/password/change",
+		PasswordStrength: "/api/user/password/strength",
+		RemovePassword:   "/api/user/password/remove",
+		SignInMeans:      path,
 	}
 }
 
@@ -460,7 +461,7 @@ func TestAuth_Methods_signInMeans(t *testing.T) {
 
 	t.Run("the list names the route, and the answer carries it", func(t *testing.T) {
 		t.Parallel()
-		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", SignInMeans: "/api/user/sign-in-means"})
+		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength", SignInMeans: "/api/user/sign-in-means"})
 		if got["signInMeans"] != "/api/user/sign-in-means" {
 			t.Errorf("Methods() answered signInMeans = %v, want the route", got["signInMeans"])
 		}
@@ -468,7 +469,7 @@ func TestAuth_Methods_signInMeans(t *testing.T) {
 
 	t.Run("a list that names no route answers none", func(t *testing.T) {
 		t.Parallel()
-		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change"}); got["signInMeans"] != nil {
+		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength"}); got["signInMeans"] != nil {
 			t.Errorf("Methods() answered signInMeans = %v, want none", got["signInMeans"])
 		}
 	})
@@ -478,7 +479,7 @@ func TestAuth_Methods_signInMeans(t *testing.T) {
 		a := registerThree(t)
 
 		recovered := registrationPanic(func() {
-			a.Methods(&MethodList{Methods: password, ChangePassword: "/password", SignInMeans: "https://evil.example/means"})
+			a.Methods(&MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", SignInMeans: "https://evil.example/means"})
 		})
 		if msg, _ := recovered.(string); !strings.Contains(msg, "sign-in means route") {
 			t.Errorf("Methods() panic = %v, want it to name the sign-in means route", recovered)

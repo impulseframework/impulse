@@ -402,7 +402,7 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
 				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil)
 				createSession(f.store, sessionID, nil)
-				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "a new password"}); err != nil {
+				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "a new password, chosen with care"}); err != nil {
 					t.Fatalf("ChangeSessionUserPassword() error = %v", err)
 				}
 				// The old password's match reset the name, as a login's match does, and the

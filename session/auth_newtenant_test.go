@@ -307,7 +307,7 @@ func authNewTenantSignUpRefused(t *testing.T) {
 	cookies, _ := tenantInvitation(t, f, recorder, links, true)
 
 	// The mocked store expects no CreateUser and no SignIn: either call fails the test.
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse battery staple", "username": "patl"}, cookies)
 
 	body := decoded(t, rr)
 	if rr.Code != http.StatusUnauthorized || body["code"] != string(sessioninfo.RefusedOrganizationAccountRequired) || body["message"] != signinflow.OrganizationAccountMessage {
@@ -329,7 +329,7 @@ func authNewTenantSignUp(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
@@ -353,7 +353,7 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)

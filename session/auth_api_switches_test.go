@@ -3,7 +3,9 @@ package session
 import (
 	"bytes"
 	"context"
+	"io"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,32 +18,69 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// switchLog is the output of the standard logger while a test reads it, written to by
-// every test of the package that logs.
-type switchLog struct {
-	mu  sync.Mutex
+// processLog copies what the standard logger writes into each capture open at the time,
+// and on to where the logger wrote before. The standard logger is the process's: a test
+// that set its output to a buffer of its own would take it from every test running beside
+// it, so each test that reads it opens a capture (captureLog), which holds what every test
+// of the package logged while it was open.
+var processLog = &logTee{}
+
+// logTee is the standard logger's output while the package's tests read it.
+type logTee struct {
+	once sync.Once
+	mu   sync.Mutex
+	open []*logCapture
+}
+
+// logCapture holds what the standard logger wrote while it was open.
+type logCapture struct {
 	buf bytes.Buffer
 }
 
-// Write appends to the log.
-func (l *switchLog) Write(p []byte) (int, error) {
+// Write copies one write of the standard logger into every open capture.
+func (l *logTee) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	n, err := l.buf.Write(p)
-	if err != nil {
-		return n, errors.Wrap(err, "bytes.Buffer.Write()")
+	for _, c := range l.open {
+		if _, err := c.buf.Write(p); err != nil {
+			return 0, errors.Wrap(err, "bytes.Buffer.Write()")
+		}
 	}
 
-	return n, nil
+	return len(p), nil
 }
 
-// String is the log so far.
-func (l *switchLog) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+// captureLog opens a capture of what the standard logger writes from here to the end of
+// the test.
+func captureLog(t *testing.T) *logCapture {
+	t.Helper()
 
-	return l.buf.String()
+	processLog.once.Do(func() {
+		log.SetOutput(io.MultiWriter(log.Writer(), processLog))
+	})
+	c := &logCapture{}
+	processLog.mu.Lock()
+	processLog.open = append(processLog.open, c)
+	processLog.mu.Unlock()
+	t.Cleanup(func() {
+		processLog.mu.Lock()
+		defer processLog.mu.Unlock()
+
+		processLog.open = slices.DeleteFunc(processLog.open, func(open *logCapture) bool {
+			return open == c
+		})
+	})
+
+	return c
+}
+
+// String is what the capture holds so far.
+func (c *logCapture) String() string {
+	processLog.mu.Lock()
+	defer processLog.mu.Unlock()
+
+	return c.buf.String()
 }
 
 // startedBy is the context of a call made in a session that acts as someone else, as
@@ -73,10 +112,7 @@ func startedBy(actor *impulse.UUID) context.Context {
 func TestAuthAPI_accountSwitches_refuseTheImpersonatorsOwnAccount(t *testing.T) {
 	t.Parallel()
 
-	var output switchLog
-	previous := log.Writer()
-	log.SetOutput(&output)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	output := captureLog(t)
 
 	pat := impulse.Must(impulse.UUIDFromString("0190b000-0000-7000-8000-0000000005b2"))
 	other := impulse.Must(impulse.UUIDFromString("0190b000-0000-7000-8000-0000000005b3"))

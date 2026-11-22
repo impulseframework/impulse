@@ -53,7 +53,7 @@ const (
 	adminUser     = "admin"
 	memberUser    = "member"
 	clientUser    = "client"
-	adminPassword = "password"
+	adminPassword = "open-the-console-first"
 
 	// The browser outlets' API prefixes.
 	consoleAPI = "/console/api"

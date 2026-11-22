@@ -96,6 +96,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/console/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
 		{url: "/console/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
+		{url: "/console/api/user/password/strength", suffix: "/user/password/strength", method: http.MethodPost, handler: "PasswordStrength", xsrf: true},
 		{url: "/console/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PendingConfirmWithPassword", xsrf: true},
 		{url: "/console/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PendingCancel", xsrf: true},
 		{url: "/console/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
@@ -1668,6 +1669,10 @@ func (s *routerDefaultSessionStub) PasswordChange() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordRemove")
+}
+
+func (s *routerDefaultSessionStub) PasswordStrength() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordStrength")
 }
 
 func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {

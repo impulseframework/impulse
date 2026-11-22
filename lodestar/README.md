@@ -1141,7 +1141,7 @@ tenancy.creator-seat, auth.super-administrator.
 
 ## The personas
 
-All crew passwords are `lodestar`; the login is the job word. The login page is the crew
+All crew passwords are `follow-the-lodestar-home`; the login is the job word. The login page is the crew
 manifest: pick a card, sign in, switch, never more than two clicks. The login is the
 persona's username; the id of its account is in `cmd/bootstrap/users.json`, and it is
 the id, not the login, that a role method, a view-as session and the rows of the demo

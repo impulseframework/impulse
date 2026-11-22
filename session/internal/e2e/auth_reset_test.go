@@ -27,6 +27,14 @@ import (
 // chosenPassword is the password a person chooses at a reset link.
 const chosenPassword = "a new password of my own"
 
+// weakPassword is a password the judgment refuses for its strength alone: too easy to
+// guess under the default minimum, longer than eight characters and on no list, and
+// tooEasyToGuess is the sentence it is refused with.
+const (
+	weakPassword   = "kestrelvaughn"
+	tooEasyToGuess = "This password is too easy to guess. Make it longer, or use several words that do not go together."
+)
+
 // resetApp is an application with the password method and mail: the password reset and
 // email routes are mounted, as they are in every such application, and the login page's
 // list names them.
@@ -60,10 +68,11 @@ func newResetApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *res
 		r.With(auth.ValidateXSRFToken, auth.ValidateSession).Post("/email", auth.Email().Add())
 		r.With(auth.ValidateXSRFToken, auth.ValidateSession).Post("/email/verify", auth.Email().Verify())
 		r.Get("/methods", auth.Methods(&session.MethodList{
-			Methods:        []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
-			ChangePassword: "/password",
-			PasswordReset:  session.PasswordResetRoutes{Request: "/reset", Open: "/reset/open", Complete: "/reset/complete"},
-			Email:          session.EmailRoutes{Add: "/email", Verify: "/email/verify", Confirm: "/email/confirm"},
+			Methods:          []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
+			ChangePassword:   "/password",
+			PasswordStrength: "/password/strength",
+			PasswordReset:    session.PasswordResetRoutes{Request: "/reset", Open: "/reset/open", Complete: "/reset/complete"},
+			Email:            session.EmailRoutes{Add: "/email", Verify: "/email/verify", Confirm: "/email/confirm"},
 		}))
 	})
 	server := httptest.NewTLSServer(r)
@@ -170,6 +179,10 @@ func runResetSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a reset link changes nothing until it is used, works once, then refuses the old password and ends the open sessions; a person asks for their own only while an administrator has that on, and an address with no account is answered the same and mailed nothing",
 			run:  seamResetLink[Tx],
+		},
+		{
+			name: "a password the judgment refuses at a reset link is 400 with the sentence that says why and spends nothing: the link still opens and the old password signs in, until a password strong enough ends the link",
+			run:  seamResetWeakPassword[Tx],
 		},
 		{
 			name: "a sixth mail to one address within fifteen minutes is refused whoever asks, and a link that is used resets the count",
@@ -292,6 +305,45 @@ func seamResetLink[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 		t.Error("the login page is offered a person's own reset after it was turned off, want none")
 	}
 	b.expect(ctx, http.StatusNotFound, http.MethodPost, "/reset", map[string]string{"email": "pat@lakeside.edu"})
+}
+
+func seamResetWeakPassword[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	t.Helper()
+
+	a := newResetApp(ctx, t, be)
+	pat := a.seedConfirmed(ctx, t, "pat", "pat@lakeside.edu")
+	if err := a.api.SendPasswordReset(ctx, pat, session.AskedByApplication()); err != nil {
+		t.Fatalf("SendPasswordReset() error = %v", err)
+	}
+	_, token := a.lastLink(t, "pat@lakeside.edu", "reset")
+
+	// A password the judgment refuses is answered with the sentence that says why, and
+	// spends nothing: the link still opens, and the old password still signs in.
+	b := a.browser(t).primed(ctx)
+	body := b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": weakPassword})
+	var refusal struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &refusal); err != nil || refusal.Message != tooEasyToGuess {
+		t.Errorf("the refusal of a weak password = %s, want the message %q", body, tooEasyToGuess)
+	}
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/reset/open", map[string]string{"token": token}); !strings.Contains(string(body), `"username":"pat"`) {
+		t.Errorf("the link after a refused password answers %s, want it to open to the username", body)
+	}
+	if status, _, body := a.browser(t).primed(ctx).postLogin(ctx, "pat", seedPassword); status != http.StatusOK {
+		t.Fatalf("login with the old password after a refused one = %d %s, want 200: the refusal changed nothing", status, body)
+	}
+
+	// A password strong enough then ends the link: the old password is refused from
+	// then on, and the new one signs in.
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword})
+	if status, _, _ := a.browser(t).primed(ctx).postLogin(ctx, "pat", seedPassword); status != http.StatusUnauthorized {
+		t.Errorf("login with the old password after the link was used = %d, want 401", status)
+	}
+	if status, _, body := a.browser(t).primed(ctx).postLogin(ctx, "pat", chosenPassword); status != http.StatusOK {
+		t.Errorf("login with the new password = %d %s, want 200", status, body)
+	}
+	b.expect(ctx, http.StatusNotFound, http.MethodPost, "/reset/open", map[string]string{"token": token})
 }
 
 func seamResetLimit[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {

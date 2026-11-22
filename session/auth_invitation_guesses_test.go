@@ -90,7 +90,7 @@ func invitationSpentByWrongCodes(t *testing.T) {
 	t.Parallel()
 	f, recorder, links, opened := invitedPat(t)
 	codes := expectFactorCodes(f)
-	pendingID, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	inv := invitationOf(links.rows[0])
 
 	// Five codes, the most that are mailed within fifteen minutes, and five wrong
@@ -133,7 +133,7 @@ func invitationSpentByWrongCodes(t *testing.T) {
 	}
 
 	// Another sign-in that carries the invitation meets the same count.
-	_, again := signUpInvited(t, f, opened, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	_, again := signUpInvited(t, f, opened, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	assertInvitationSpent(t, f, recorder, again, "in another sign-in that carries the invitation")
 }
 
@@ -147,7 +147,7 @@ func invitationGuessesAcrossSignIns(t *testing.T) {
 	// guesses, waits out the count of the codes mailed and starts again.
 	var first *sessionstorage.SignInAttempts
 	for signIn := 1; signIn <= 5; signIn++ {
-		_, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+		_, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 		wrong := notCode(invitationCode(t, f, recorder, cookies))
 		for guess := 1; guess <= 5; guess++ {
 			want := sessioninfo.RefusedInvalidCode
@@ -175,7 +175,7 @@ func invitationGuessesAcrossSignIns(t *testing.T) {
 		f.advance(30 * time.Minute)
 	}
 
-	_, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	_, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	assertInvitationSpent(t, f, recorder, cookies, "in a sixth sign-in")
 }
 
@@ -184,7 +184,7 @@ func invitationRightCodeWithinBudget(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, recorder, links, opened := invitedPat(t)
 	expectFactorCodes(f)
-	pendingID, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
 	inv := invitationOf(links.rows[0])
 
 	// Four codes ended by five wrong guesses each, and four wrong guesses at the fifth:

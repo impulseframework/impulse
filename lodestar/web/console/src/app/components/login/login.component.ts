@@ -16,7 +16,7 @@ interface Persona {
 }
 
 /** The demo password every persona shares (seeded by cmd/bootstrap, committed deliberately). */
-export const DEMO_PASSWORD = 'lodestar';
+export const DEMO_PASSWORD = 'follow-the-lodestar-home';
 
 /**
  * The crew manifest, grouped by deck. Every persona in design plan §4 except the

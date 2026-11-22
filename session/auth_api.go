@@ -139,9 +139,10 @@ func (p *AuthAPI[S, U, Tx]) Logout(ctx context.Context) error {
 
 // CreateSessionUser creates a user. A nil req.Password creates a password-less
 // user. req.Password is the seam for a seed or an import, which creates an account
-// that already holds a password: it is held to the rule every password is, and the
-// user is created under no password change mark, which is the application's to write
-// when an administrator requires a new password of a person. req.Email, when given,
+// that already holds a password: it is held to the judgment every password is, against
+// the request's username, name and address (a password the judgment refuses is 400),
+// and the user is created under no password change mark, which is the application's to
+// write when an administrator requires a new password of a person. req.Email, when given,
 // is written unverified and reserves the address; one another user holds is a
 // Conflict. req.Name, when given, is the person's name, kept without the space around
 // it; one too long to keep is a BadRequest.
@@ -159,7 +160,7 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 	var hash *securehash.Hash
 	if req.Password != nil {
 		var err error
-		if hash, err = p.auth.hashToSet(*req.Password); err != nil {
+		if hash, err = p.auth.hashToSet(*req.Password, req.details()); err != nil {
 			return impulse.NilUUID, err
 		}
 	}
@@ -247,7 +248,8 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // (ReasonRegeneration) that carries the auth events of the session the change was made
 // in, its establishment and its factors (continuedAuthEvents); a call with no session
 // of the user's own in the context starts one that records a password event. The new
-// password is held to the rule every password is (acceptedPassword).
+// password is held to the judgment every password is (strongEnough), against the
+// user's username, name and address; one the judgment refuses is 400.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -270,7 +272,7 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		return httpio.NewBadRequestMessage("The new password must differ from the old one")
 	}
 
-	hash, err := a.hashToSet(req.NewPassword)
+	hash, err := a.hashToSet(req.NewPassword, detailsOf(user))
 	if err != nil {
 		return err
 	}

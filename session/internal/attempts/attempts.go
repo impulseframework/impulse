@@ -344,6 +344,19 @@ func (l *Limiter) countClient(client Client, now time.Time) time.Duration {
 	return max(wait, 0)
 }
 
+// Count counts one request by client that is an attempt on no name, as a sign-in attempt
+// counts against the client's keys, and returns how long the client is then held, zero
+// while it is not: the request that reaches the client's limit (ClientMultiple times the
+// limit's failures within its window) holds the client for the lock period, and one during
+// the hold extends it. It asks the store nothing, and a client with no address and no cookie
+// is never held.
+func (l *Limiter) Count(client Client) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.countClient(client, l.now())
+}
+
 // takeClient counts taken against the client's keys before its password is compared,
 // and keeps in it the window each key counted it in, for giveBackClient. It is called in
 // the step that found none of the keys locked, so of attempts made at once as many as

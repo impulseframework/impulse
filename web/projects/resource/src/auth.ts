@@ -560,7 +560,7 @@ const linkRefusals: readonly number[] = [400, 404];
 const resetRefusals: readonly number[] = [...linkRefusals, 409];
 /** An acceptance by a signed-in person: 404 when the browser carries no live invitation. */
 const acceptRefusals: readonly number[] = [401, 403, 404, 409];
-/** An account created from a link: the sign-in's refusals, 400 for a short password or no username, 404 for a dead link, 409 for a taken name or address. */
+/** An account created from a link: the sign-in's refusals, 400 for a password the judgment refuses or no username, 404 for a dead link, 409 for a taken name or address. */
 const accountRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 /** A request for a mailed link: 400 for what is not an address, 404 where the step is not offered, 429 for a mailbox sent too many. */
 const mailRefusals: readonly number[] = [400, 404, 429];
@@ -1218,7 +1218,7 @@ export class AuthClient {
    * accepts the invitation. The account's address is the one the invitation was sent to,
    * verified by the code; its username is that address when the list says `usernameIsEmail`
    * (none is posted), and the one given otherwise. A refusal is a taken username or address
-   * (409), a password under eight characters or no username (400), or no live invitation
+   * (409), a password the judgment refuses or no username (400), or no live invitation
    * (404). A server whose list names no sign-up route for invitations offers no password
    * method, and the call throws saying so.
    */
@@ -1338,8 +1338,8 @@ export class AuthClient {
    * Completes a password reset: reads the methods list again, then posts the token and the
    * new password to the complete route. The link is spent, the old password is refused
    * from then on, and every session of the person ends, this browser's with them: the
-   * person signs in with the new password. The refusal is a password under eight
-   * characters (400, which spends nothing), a dead link (404), or a password that changed
+   * person signs in with the new password. The refusal is a password the judgment
+   * refuses (400, which spends nothing), a dead link (404), or a password that changed
    * while the reader was choosing (409, which leaves that password as it is: the server's
    * sentence says to sign in with it or ask for a new link).
    */
@@ -1394,7 +1394,7 @@ export class AuthClient {
    * to the sign-up complete route, which creates the account with the address verified and
    * signs the person in. The username is the address when the list says `usernameIsEmail`,
    * and the one given otherwise. The result is the sign-in's: the session, a pending step,
-   * or the refusal: a taken username or address (409), a password under eight characters or
+   * or the refusal: a taken username or address (409), a password the judgment refuses or
    * no username (400), a dead link (404).
    */
   async completeSignUp(token: string, account: NewAccount): Promise<SignInResult> {
