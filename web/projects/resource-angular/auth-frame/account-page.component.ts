@@ -72,14 +72,6 @@ interface UsernameAnswer {
 /** How the page writes a moment of a session: "Nov 3, 2026, 9:05 AM". */
 const momentFormat = 'MMM d, y, h:mm a';
 
-/** What a change of the password says of the other browsers it signed out. */
-function othersSignedOut(count: number): string {
-  if (count === 0) {
-    return '';
-  }
-  return count === 1 ? ' 1 other browser was signed out.' : ` ${count} other browsers were signed out.`;
-}
-
 /** What a change on a line came to, said on that line once it closes. */
 interface Said {
   readonly line: Line;
@@ -418,9 +410,8 @@ export class AccountPageComponent {
         this.refusal.set(result.message);
         return;
       }
-      // The change signs the person out of every other browser: as many as the list held.
-      const others = this.signedIn.hasValue() ? this.otherSessions() : 0;
-      this.done('password', `Your password is changed.${othersSignedOut(others)}`);
+      // The change signs the person out of every other browser.
+      this.done('password', 'Your password is changed. Every other browser is signed out.');
       // The server regenerated the session: read it again, and the list.
       await firstValueFrom(this.auth.checkUserSession());
       this.signedIn.reload();

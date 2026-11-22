@@ -914,7 +914,7 @@ describe('AccountPageComponent', () => {
       ]);
       expect(sessionReads()).toBe(reads + 1);
       expect(line('password')?.querySelector('.impulse-account-page-form')).toBeNull();
-      expect(inLine('password', 'said')).toBe('Your password is changed.');
+      expect(inLine('password', 'said')).toBe('Your password is changed. Every other browser is signed out.');
     });
 
     it("shows the server's words when it refuses the change, and keeps the line open", async () => {
@@ -1353,17 +1353,10 @@ describe('AccountPageComponent', () => {
       expect(sectionButton('forget-all')).toBeNull();
     });
 
-    for (const tt of [
-      { name: 'none', sessions: [here], want: 'Your password is changed.' },
-      { name: 'one', sessions: [here, laptop], want: 'Your password is changed. 1 other browser was signed out.' },
-      {
-        name: 'two',
-        sessions: [here, laptop, phone],
-        want: 'Your password is changed. 2 other browsers were signed out.',
-      },
-    ]) {
-      it(`says how many other browsers a change of the password signed out, and reads the list again: ${tt.name}`, async () => {
-        await open({ sessions: tt.sessions });
+    it('says a change of the password signed out every other browser, counting none, and reads the list again', async () => {
+      for (const sessions of [[here, laptop, phone], [here]]) {
+        TestBed.resetTestingModule();
+        await open({ sessions });
         await openLine('password');
         type('oldPassword', 'old harbor');
         type('newPassword', 'a harbor of my own');
@@ -1371,11 +1364,11 @@ describe('AccountPageComponent', () => {
         const reads = listReads();
         await page().changePassword();
         await settle();
-        expect(inLine('password', 'said')).toBe(tt.want);
+        expect(inLine('password', 'said')).toBe('Your password is changed. Every other browser is signed out.');
         expect(listReads()).toBe(reads + 1);
         expect(sessionNames()).toEqual(['Firefox on Linux This browser']);
-      });
-    }
+      }
+    });
 
     it('draws no part "This browser" of its own: the list carries it', async () => {
       await open({ session: { ...gale, browserRemembered: true }, rememberedBrowsers: 1 });
