@@ -23,6 +23,12 @@ func (Ship) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Ship) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "HangarID", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // DeleteTree describes what keeps a Ship from being deleted: the kinds with a
 // row directly under a Ship that the database does not remove with it, each
 // with the columns that name the Ship. A delete of a Ship with

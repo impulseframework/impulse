@@ -22,6 +22,12 @@ func (Squadron) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Squadron) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "WingID", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // DeleteTree describes what keeps a Squadron from being deleted: the kinds with a
 // row directly under a Squadron that the database does not remove with it, each
 // with the columns that name the Squadron. A delete of a Squadron with

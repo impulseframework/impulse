@@ -154,8 +154,8 @@ func TestChangeHistoryMigration(t *testing.T) {
 		t.Fatalf("os.ReadFile() error = %v", err)
 	}
 	statements := resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))
-	if len(statements) != 2 {
-		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) declares %d statements, want 2", len(statements))
+	if len(statements) != 3 {
+		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) declares %d statements, want 3", len(statements))
 	}
 	for _, stmt := range statements {
 		if !strings.Contains(string(migration), stmt+";") {

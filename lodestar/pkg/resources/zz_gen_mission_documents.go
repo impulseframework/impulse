@@ -33,6 +33,12 @@ func (MissionDocument) FileKeys() []resource.FileKey {
 	}
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (MissionDocument) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "MissionID", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // missionDocumentRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionDocumentReadSets holds one Set per read operation.
