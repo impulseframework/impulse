@@ -618,6 +618,33 @@ where a directory would have given an address.
 <impulse-email-address />
 ```
 
+## A new password
+
+`<impulse-new-password>` (`@impulseframework/resource-angular/auth-new-password`) is the one box
+a person chooses a password in, on every page that sets one: the account page, and the login
+page's password change, account form and reset link. It asks the server how strong the
+password is while the person types (`api.auth.passwordStrength`) and draws the answer: a bar
+that fills to where the password stands, a mark where the application's minimum sits, and
+under them the server's sentence while the password falls short. It calculates nothing itself.
+A control in the box shows what was typed, so there is no second box to type it again.
+`strongEnough()` is true only while the server's last answer is about the text now in the box
+and calls it strong enough: a page keeps its button disabled until then, and the server judges
+the password again when it is set. One question is in flight at a time. Where the server holds
+a browser that asked too often (429 with the wait), the component shows the server's sentence
+and asks nothing until the wait has passed.
+
+`username`, `personName` and `email` are what the page knows of the person. The server counts
+them against the password, as it will when the password is set.
+
+```html
+<impulse-new-password
+  label="New password"
+  [username]="username"
+  [personName]="name"
+  [email]="email"
+  [(password)]="newPassword" />
+```
+
 ## The release
 
 `<impulse-release>` (`@impulseframework/resource-angular/ui-release`) is the release the application runs, for
