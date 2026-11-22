@@ -1,8 +1,12 @@
 package app
 
 import (
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // TestScan_hiddenCalls pins that the scan refuses the two forms of Go that would hide a
@@ -227,5 +231,135 @@ func engine(store Store, collection PermissionCollection) (*Client, error) {
 				t.Fatalf("Discover() error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestScan_callsInParentheses pins that the scan reads a call whose function is written in
+// parentheses, or with a comment before its parenthesis, as the call it is: the engine, the
+// role file handed to it, the validation of a role file, the retirement of secret versions
+// and the construction of an Auth.
+func TestScan_callsInParentheses(t *testing.T) {
+	t.Parallel()
+
+	const staff = `package staff
+
+import (
+	_ "embed"
+
+	"github.com/impulseframework/impulse/access"
+)
+
+//go:embed roles.json
+var roleFile access.RoleFile
+
+// Name is the auth's name.
+const Name = "staff"
+
+func Roles() access.RoleFile {
+	return roleFile
+}
+
+func engine(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
+	return (access.New)(store, collection, (access.WithDefaultRoles)(Roles(), Name))
+}
+`
+	const members = `package staff
+
+import (
+	"github.com/impulseframework/impulse/access"
+
+	"example.com/harbor/pkg/auth/members"
+)
+
+func membersEngine(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
+	return access.New(store, collection, access.WithDefaultRoles /* the roles */ (members.Roles(), members.Name))
+}
+`
+	const validation = `package staff_test
+
+import (
+	"testing"
+
+	"github.com/impulseframework/impulse/access"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func TestRoles(t *testing.T) {
+	if err := access.ValidateRoles /* here */ (staff.Roles(), staff.Name, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+`
+	const retirement = `package deploy
+
+import (
+	"context"
+
+	"github.com/impulseframework/impulse/resource"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func retire(ctx context.Context, client resource.Client) error {
+	_, err := (resource.RetireSecretVersion)(ctx, client, "SESSION_KEY", staff.SecretHolders()...)
+
+	return err
+}
+`
+	const auth = `package staff
+
+import "github.com/impulseframework/impulse/session"
+
+func New() {
+	_, _ = (session.NewAuth)(nil)
+}
+`
+
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"go.mod":                       "module example.com/harbor\n\ngo 1.26\n",
+		"pkg/auth/staff/staff.go":      staff,
+		"pkg/auth/staff/members.go":    members,
+		"pkg/auth/staff/roles_test.go": validation,
+		"pkg/auth/staff/auth.go":       auth,
+		"pkg/deploy/deploy.go":         retirement,
+	})
+	a, err := Discover(root)
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	var engines []string
+	for _, e := range a.Engines {
+		engines = append(engines, e.File+":"+strconv.Itoa(e.Line))
+	}
+	slices.Sort(engines)
+	if diff := cmp.Diff([]string{"pkg/auth/staff/members.go:10", "pkg/auth/staff/staff.go:20"}, engines); diff != "" {
+		t.Errorf("Engines mismatch (-want +got):\n%s", diff)
+	}
+	wantRoles := []DefaultRoles{
+		{File: "pkg/auth/staff/members.go", Line: 10, RolesPackage: "example.com/harbor/pkg/auth/members", NamePackage: "example.com/harbor/pkg/auth/members", NameText: "members.Name", InEngine: true},
+		{File: "pkg/auth/staff/staff.go", Line: 20, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/staff", NameText: "Name", InEngine: true},
+	}
+	roles := slices.Clone(a.DefaultRoles)
+	slices.SortFunc(roles, func(x, y DefaultRoles) int { return strings.Compare(x.File, y.File) })
+	if diff := cmp.Diff(wantRoles, roles); diff != "" {
+		t.Errorf("DefaultRoles mismatch (-want +got):\n%s", diff)
+	}
+	wantValidations := []RoleValidation{{File: "pkg/auth/staff/roles_test.go", Line: 12, RolesPackages: []string{"example.com/harbor/pkg/auth/staff"}}}
+	if diff := cmp.Diff(wantValidations, a.RoleValidations); diff != "" {
+		t.Errorf("RoleValidations mismatch (-want +got):\n%s", diff)
+	}
+	wantRetirements := []SecretRetirement{{File: "pkg/deploy/deploy.go", Line: 12, Packages: []string{"example.com/harbor/pkg/auth/staff"}}}
+	if diff := cmp.Diff(wantRetirements, a.SecretRetirements); diff != "" {
+		t.Errorf("SecretRetirements mismatch (-want +got):\n%s", diff)
+	}
+	var auths []string
+	for _, au := range a.Auths {
+		auths = append(auths, au.File+":"+strconv.Itoa(au.Line))
+	}
+	if diff := cmp.Diff([]string{"pkg/auth/staff/auth.go:6"}, auths); diff != "" {
+		t.Errorf("Auths mismatch (-want +got):\n%s", diff)
 	}
 }

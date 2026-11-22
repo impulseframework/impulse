@@ -314,10 +314,12 @@ func (a *App) attachPackageMethods() {
 	a.UnattachedMethods = left
 }
 
-// selectorOf returns the pkg.Name selector a call is made through, looking through a
-// generic instantiation such as pkg.Name[T, U].
+// selectorOf returns the pkg.Name selector a call is made through, looking through
+// parentheses and a generic instantiation such as pkg.Name[T, U].
 func selectorOf(fun ast.Expr) (*ast.SelectorExpr, bool) {
 	switch e := fun.(type) {
+	case *ast.ParenExpr:
+		return selectorOf(e.X)
 	case *ast.IndexExpr:
 		return selectorOf(e.X)
 	case *ast.IndexListExpr:

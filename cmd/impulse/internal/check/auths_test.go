@@ -530,6 +530,21 @@ func TestAuthsWired(t *testing.T) {
 			},
 		},
 		{
+			name: "an auth's engine handed another auth's role file beside its own, with a comment before each option's parenthesis",
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles /* its own */ (Roles(), Name), access.WithDefaultRoles /* the roles */ (members.Roles(), members.Name)"))),
+			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
+				handedOutside("members", "pkg/auth/staff/staff.go", 35),
+				`pkg/auth/members: no outlet declares Auth("example.com/harbor/pkg/auth/members", ...) and no surface takes *members.Auth; nothing binds to the members auth, so its people can sign in nowhere`,
+				"pkg/auth/members, pkg/auth/staff: both issue their XSRF token in the cookie XSRF-TOKEN, so a login to one overwrites the other's token in the browser; name each auth's cookie (session.WithXSRFCookieName) and the same name in the web app that binds to it (withXsrfConfiguration)",
+				"pkg/auth/members, pkg/auth/staff: both remember a browser in the cookie auth-trusted, so a browser one auth remembers after a sign-in code forgets the other's remembered browsers; name each auth's cookie (session.WithTrustedDeviceCookieName, the skeletons' <name>-trusted)",
+				"pkg/auth/members, pkg/auth/staff: both ride their sessions in the cookie auth, so a login to one ends the other's session in the browser; name each auth's cookie (session.WithCookieName)",
+				"pkg/auth/members: no test validates the members auth's role file (access.ValidateRoles over the collection, parsing members.Roles()), so a warning the deploy prints is accepted nowhere in code; add the members row to pkg/deploy/deploy_test.go with its expected warnings empty",
+			},
+		},
+		{
 			name:       "the role file handed over in the auth's package, outside the access.New call",
 			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\toption := access.WithDefaultRoles(Roles(), Name)\n", "option")),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",

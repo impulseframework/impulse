@@ -173,14 +173,14 @@ func (a *App) scanFile(abs, name string) error {
 		a.EmulatorHarnesses = append(a.EmulatorHarnesses, findRefs(rel, data, emulatorHarnessRE)...)
 		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
 		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreHarnessRE)...)
-		if bytes.Contains(data, []byte(validateRolesFunc+"(")) {
+		if bytes.Contains(data, []byte(validateRolesFunc)) {
 			validations, err := parseRoleValidations(rel, data)
 			if err != nil {
 				return err
 			}
 			a.RoleValidations = append(a.RoleValidations, validations...)
 		}
-		if bytes.Contains(data, []byte(ProvesGrantFunc+"(")) {
+		if bytes.Contains(data, []byte(ProvesGrantFunc)) {
 			proofs, err := parseGrantProofs(rel, data)
 			if err != nil {
 				return err
@@ -399,7 +399,7 @@ func (a *App) scanSecretRetirement(rel string, data []byte, generated bool) erro
 	switch {
 	case filepath.Base(rel) == generatedHoldersFile:
 		a.SecretHolders = append(a.SecretHolders, SecretHolders{File: rel, Package: a.packagePath(path.Dir(rel)), Stored: bytes.Contains(data, []byte(secretHolderOfFunc+"["))})
-	case !generated && bytes.Contains(data, []byte(retireSecretFunc+"(")):
+	case !generated && bytes.Contains(data, []byte(retireSecretFunc)):
 		retirements, err := parseSecretRetirements(rel, data, a.packagePath(path.Dir(rel)))
 		if err != nil {
 			return err
@@ -630,7 +630,7 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 		}
 	}
 
-	if bytes.Contains(data, []byte(rosterConstructorSuffix+"(")) {
+	if bytes.Contains(data, []byte(rosterConstructorSuffix)) {
 		rosters, err := parseRosterConstructions(rel, data)
 		if err != nil {
 			return err
@@ -809,14 +809,14 @@ func (a *App) scanAccess(rel string, data []byte) error {
 		}
 		a.Engines = append(a.Engines, engines...)
 	}
-	if bytes.Contains(data, []byte(defaultRolesFunc+"(")) {
+	if bytes.Contains(data, []byte(defaultRolesFunc)) {
 		calls, err := parseDefaultRoles(rel, data, a.packagePath(path.Dir(rel)))
 		if err != nil {
 			return err
 		}
 		a.DefaultRoles = append(a.DefaultRoles, calls...)
 	}
-	if bytes.Contains(data, []byte(checkPolicyFunc+"(")) {
+	if bytes.Contains(data, []byte(checkPolicyFunc)) {
 		checks, err := parsePolicyChecks(rel, data)
 		if err != nil {
 			return err
