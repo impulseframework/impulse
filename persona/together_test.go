@@ -2,19 +2,16 @@ package persona_test
 
 // Requests that arrive at the same moment: two exchanges of one code, two instances that
 // start together on an empty store. A gate in front of the store holds the callers until all
-// have arrived, so they reach the store's decision together. Nothing here prints a code, a token or a key: only statuses, the OAuth error
-// names and counts.
+// have arrived, so they reach the store's decision together. Nothing here prints a code, a
+// token or a key: only statuses, the OAuth error names and counts.
 
 import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
@@ -24,7 +21,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	"github.com/go-chi/chi/v5"
 	"github.com/impulseframework/impulse/persona"
 	"github.com/impulseframework/impulse/persona/spannerstore"
 )
@@ -73,7 +69,7 @@ func (s *gatedStore) DeleteRequest(ctx context.Context, id string) error {
 		g.wait()
 	}
 
-	return s.Store.DeleteRequest(ctx, id)
+	return s.Store.DeleteRequest(ctx, id) //nolint:wrapcheck // the store's own error is what the provider reads
 }
 
 func (s *gatedStore) AddFirstSigningKey(ctx context.Context, key *persona.SigningKey) error {
@@ -81,85 +77,7 @@ func (s *gatedStore) AddFirstSigningKey(ctx context.Context, key *persona.Signin
 		g.wait()
 	}
 
-	return s.Store.AddFirstSigningKey(ctx, key)
-}
-
-// newDatabase makes a database with the persona schema; it goes with the test.
-func newDatabase(ctx context.Context, t *testing.T) *spanner.Client {
-	t.Helper()
-
-	sum := sha256.Sum256([]byte(t.Name()))
-	database, err := container.CreateDatabase(ctx, "t"+hex.EncodeToString(sum[:])[:24])
-	if err != nil {
-		t.Fatalf("SpannerContainer.CreateDatabase() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := database.Close(); err != nil {
-			t.Errorf("SpannerDB.Close() error = %v", err)
-		}
-	})
-	if err := database.MigrateUp("file://schema/spanner/migrations"); err != nil {
-		t.Fatalf("SpannerDB.MigrateUp() error = %v", err)
-	}
-
-	return database.Client
-}
-
-// newHostOn is a host application with the persona sign-in mounted at /persona, over a given
-// store and database: a session cookie naming the person, a login page that sets it, and the
-// service. It may run beside another, so it reports a failure and returns nil rather than
-// stop the test.
-func newHostOn(ctx context.Context, t *testing.T, client *spanner.Client, store persona.Store) *testHost {
-	t.Helper()
-
-	var handler http.Handler
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-
-	host := &fakeHost{
-		apps: map[string]*persona.Application{"lanterns": {ID: "app-1", Tenant: "lakeside", Name: "Lanterns", ClientID: "lanterns", DeployIdentities: []string{deployer}}},
-		deny: map[string]bool{},
-	}
-	clk := &clock{t: time.Now()}
-	th := &testHost{server: server, issuer: server.URL + "/persona", host: host, clock: clk, db: client}
-	svc, err := persona.New(ctx, host, store, &persona.Config{
-		Issuer: th.issuer, Actor: actorFromContext, LoginURL: "/login", Deployers: fakeDeployers{issuer: th.issuer}, AllowInsecureIssuer: true, Now: clk.Now,
-	})
-	if err != nil {
-		t.Errorf("persona.New() error = %v", err)
-
-		return nil
-	}
-	th.svc = svc
-
-	r := chi.NewRouter()
-	r.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if c, err := r.Cookie("actor"); err == nil {
-				if a, ok := people[c.Value]; ok {
-					r = r.WithContext(context.WithValue(r.Context(), actorKey{}, a))
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
-	})
-	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
-		as := r.URL.Query().Get("as")
-		if _, ok := people[as]; !ok {
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = io.WriteString(w, "<h1>Sign in to the host</h1>")
-
-			return
-		}
-		http.SetCookie(w, &http.Cookie{Name: "actor", Value: as, Path: "/"})
-		http.Redirect(w, r, r.URL.Query().Get("returnUrl"), http.StatusFound)
-	})
-	r.Mount("/persona", svc.Handler())
-	handler = r
-
-	return th
+	return s.Store.AddFirstSigningKey(ctx, key) //nolint:wrapcheck // the store's own error is what the service reads
 }
 
 // grant is one code with its verifier.
@@ -252,21 +170,6 @@ func accessTokenOf(ctx context.Context, t *testing.T, th *testHost, g grant) str
 	return token
 }
 
-// userinfoEndpoint is the userinfo endpoint's address in the discovery document.
-func (th *testHost) userinfoEndpoint(ctx context.Context, t *testing.T) string {
-	t.Helper()
-
-	status, answer := th.call(ctx, t, http.MethodGet, th.issuer+"/.well-known/openid-configuration", "", nil)
-	var doc struct {
-		UserinfoEndpoint string `json:"userinfo_endpoint"`
-	}
-	if status != http.StatusOK || json.Unmarshal([]byte(answer), &doc) != nil || doc.UserinfoEndpoint == "" {
-		t.Fatalf("the discovery document = %d %s, want one with a userinfo endpoint", status, answer)
-	}
-
-	return doc.UserinfoEndpoint
-}
-
 // signedKeyID signs in at a host as the persona cadet and returns the key ID its ID token
 // carries.
 func signedKeyID(ctx context.Context, t *testing.T, th *testHost) string {
@@ -280,30 +183,6 @@ func signedKeyID(ctx context.Context, t *testing.T, th *testHost) string {
 	}
 
 	return o.kid
-}
-
-// keyIDs reads the key IDs the key set publishes.
-func (th *testHost) keyIDs(ctx context.Context, t *testing.T) []string {
-	t.Helper()
-
-	status, answer := th.call(ctx, t, http.MethodGet, th.issuer+"/keys", "", nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET keys = %d %s", status, answer)
-	}
-	var set struct {
-		Keys []struct {
-			Kid string `json:"kid"`
-		} `json:"keys"`
-	}
-	if err := json.Unmarshal([]byte(answer), &set); err != nil {
-		t.Fatalf("json.Unmarshal(keys) error = %v", err)
-	}
-	ids := make([]string, 0, len(set.Keys))
-	for _, k := range set.Keys {
-		ids = append(ids, k.Kid)
-	}
-
-	return ids
 }
 
 // keyID is the key ID in a token's header.
@@ -523,9 +402,7 @@ func TestSignIn_tokensReadAcrossARotation(t *testing.T) {
 		t.FailNow()
 	}
 	status, answer := hostB.call(ctx, t, http.MethodGet, hostB.userinfoEndpoint(ctx, t), token, nil)
-	var info struct {
-		Subject string `json:"sub"`
-	}
+	var info claims
 	_ = json.Unmarshal([]byte(answer), &info)
 	if status != http.StatusOK || info.Subject != "cadet" {
 		t.Errorf("instance B's userinfo answered A's access token with %d and subject %q, want 200 and cadet", status, info.Subject)

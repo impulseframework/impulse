@@ -214,7 +214,11 @@ func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migrati
 	case status.Code(err) == codes.AlreadyExists:
 		return nil
 	case !spannerRefused(err):
-		return errors.Wrapf(err, "sending DDL operation %s of %s: the answer does not say whether Spanner took the batch; its name stays on the version row and the next run resolves it", held.Operation, file.File)
+		return errors.Wrapf(
+			err,
+			"sending DDL operation %s of %s: the answer does not say whether Spanner took the batch; its name stays on the version row and the next run resolves it",
+			held.Operation, file.File,
+		)
 	}
 
 	v := *held
