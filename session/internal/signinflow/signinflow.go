@@ -1006,15 +1006,17 @@ func acceptInvitation[Tx any](
 		if stop, byOwnCode, err = acceptedByCode(ctx, d, tx, inv, user, true, unproven(user, inv), claim); err != nil {
 			return err
 		}
-		if stop == nil && byOwnCode {
+		switch {
+		case stop != nil:
+			// The acceptance is stopped before any address is written.
+		case byOwnCode:
 			if wrote, err = d.VerifyUserEmailIfHeldIn(ctx, tx, userID, claim.Held, claim.Email); err != nil {
 				return errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
 			}
 			if !wrote {
 				stop = codeAddressGone(userID, claim)
 			}
-		}
-		if stop == nil && !byOwnCode {
+		default:
 			if stop, err = claimInvitedAddress(ctx, d, tx, user, inv); err != nil {
 				return err
 			}
