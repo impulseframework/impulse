@@ -750,7 +750,7 @@ func seamOwnCodeSpent[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx],
 	// sent is cleared, as the time passing would. Each browser has a code mailed; the
 	// first ends its own with five wrong guesses, and the fifth is the account's
 	// twenty-fifth.
-	if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, attempts.Normalize(address))); err != nil {
+	if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, util.LowerASCII(address))); err != nil {
 		t.Fatalf("ClearSignInAttempts() of the address's sign-in codes error = %v", err)
 	}
 	right := a.sendOwnCode(ctx, t, second, address)
@@ -840,9 +840,10 @@ func seamOwnCodeCountStartsAgain[Tx any](ctx context.Context, t *testing.T, a *a
 // two addresses the users table takes for two and the mail counts' fold for one, both
 // with a password. pat's twenty-five are spent as seamOwnCodeSpent spends them. sam then
 // signs in, is mailed a code at sam's address and is signed in by it: pat's spent count
-// is not sam's, and sam's right code does not start pat's again. The two addresses share
-// the count of codes sent (CODE: under the mail counts' fold), so the seam clears that
-// row between pat's fourth and fifth code, as seamOwnCodeSpent does.
+// is not sam's, and sam's right code does not start pat's again. pat's five codes are
+// asked for within one quarter of an hour and use up none of sam's: the count of codes
+// sent is each address's own too (CODE: and the address as the users table compares
+// addresses).
 func seamOwnCodeCountIsTheAccounts[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
@@ -857,11 +858,6 @@ func seamOwnCodeCountIsTheAccounts[Tx any](ctx context.Context, t *testing.T, a 
 	// Five codes, and five wrong guesses at each: four are wrong, the fifth ends its
 	// code, and the last is pat's twenty-fifth.
 	for sent := 1; sent <= 5; sent++ {
-		if sent == 5 {
-			if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, attempts.Normalize(patAddress))); err != nil {
-				t.Fatalf("ClearSignInAttempts() of the address's sign-in codes error = %v", err)
-			}
-		}
 		wrong := wrongCode(a.sendOwnCode(ctx, t, b, patAddress))
 		for guess := 1; guess <= 4; guess++ {
 			enterWrongCode(ctx, t, b, wrong, "invalid_code", fmt.Sprintf("wrong guess #%d at code #%d", guess, sent))

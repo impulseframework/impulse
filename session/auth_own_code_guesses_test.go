@@ -451,6 +451,13 @@ func ownCodeCountIsTheAccounts(t *testing.T) {
 	if got := ownCodeGuesses(w.f, patID); got != 2 {
 		t.Errorf("pat's count after sam's right code = %d, want 2", got)
 	}
+	// It clears sam's count of codes sent, and pat's still counts pat's one code.
+	if record := w.f.attemptsRecord("CODE:pat@glass.example"); record == nil || record.Failures != 1 {
+		t.Errorf("pat's count of codes sent after sam's right code = %+v, want pat's one code", record)
+	}
+	if record := w.f.attemptsRecord("CODE:pat@glaß.example"); record != nil {
+		t.Errorf("sam's count of codes sent after sam's right code = %+v, want none", record)
+	}
 
 	// pat's count is spent: sam is still mailed a code, and pat is mailed none.
 	for range 23 {

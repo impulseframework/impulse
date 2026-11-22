@@ -21,6 +21,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -451,7 +452,7 @@ func seamResetAfterCodesSpent[Tx any](ctx context.Context, t *testing.T, be back
 	}
 	// Fifteen minutes on, the address may be sent codes again: here its count of codes
 	// sent is cleared, as the time passing would. The codes are spent all the same.
-	if err := a.store.ClearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, attempts.Normalize(address))); err != nil {
+	if err := a.store.ClearSignInAttempts(ctx, attempts.OwnKey(attempts.KindCode, util.LowerASCII(address))); err != nil {
 		t.Fatalf("ClearSignInAttempts() of the address's sign-in codes error = %v", err)
 	}
 	if status, body := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"codes_spent"`) {

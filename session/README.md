@@ -1246,7 +1246,9 @@ the person reaches.
    within fifteen minutes that go unused, and the sixth is refused with
    `too_many_emails` and the wait, as a link is; a code that is used resets the count,
    so a person who signs in with each code sent never meets the limit. The codes sent to
-   the address an account holds are counted by themselves (`CODE:`). The codes that
+   the address an account holds are counted by themselves, under the address as the
+   users table compares addresses (`CODE:`): the codes of an account whose address only
+   reads like another's are counted apart and use up none of the other's. The codes that
    accept an invitation are counted under that invitation (`INVITATION:` and its id) and
    under no address: whoever holds the invitation's link has them sent, and a mailed
    link can be forwarded, so its holder uses up that invitation's codes and nothing
