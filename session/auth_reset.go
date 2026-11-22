@@ -74,10 +74,10 @@ func (h *PasswordResetHandlers) Open() http.HandlerFunc {
 // Complete accepts {"token", "password"}, writes the password as the account's and
 // ends every session of the person, and answers {"username"}. The person is not signed
 // in: they sign in with the new password as they would any day, so every rule of a
-// sign-in is asked of them. The link is spent whether or not the write lands. A
-// password under eight characters is 400 and spends nothing; a token whose link is no
-// longer live is 404; a password that was changed or removed while the person was
-// choosing is 409. Route it beside the password login, behind ValidateXSRFToken.
+// sign-in is asked of them. The link is spent whether or not the write lands. A token
+// whose link is no longer live is 404; a password the judgment refuses (400) spends
+// nothing; a password that was changed or removed while the person was choosing is
+// 409. Route it beside the password login, behind ValidateXSRFToken.
 func (h *PasswordResetHandlers) Complete() http.HandlerFunc {
 	return h.complete
 }
@@ -330,8 +330,9 @@ func (a *Auth[S, U, Tx]) passwordResetComplete() http.HandlerFunc {
 	})
 }
 
-// completeReset writes the password a person chose at a reset link. The password is
-// held to the rule every password is before anything is spent. The link is then
+// completeReset writes the password a person chose at a reset link. The link is read,
+// and the password is held to the judgment every password is, against the link's
+// account, before anything is spent. The link is then
 // consumed by a conditional update, so of two requests with one token one goes on, and
 // the store writes the password, clears the password change mark and ends every session
 // of the person in one transaction, only while the account still holds the password it
@@ -340,14 +341,11 @@ func (a *Auth[S, U, Tx]) passwordResetComplete() http.HandlerFunc {
 // reset links that stand for the account are withdrawn: the person has their new
 // password, so no older link is left to choose another with.
 func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password string) (*sessionstorage.SessionUser, error) {
-	if err := acceptedPassword(password); err != nil {
-		return nil, err
-	}
 	link, user, err := a.resetLink(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	hash, err := a.hashToSet(password)
+	hash, err := a.hashToSet(password, detailsOf(user))
 	if err != nil {
 		return nil, err
 	}

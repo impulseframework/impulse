@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/cookie"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/passwordstrength"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -282,7 +283,7 @@ func (h *InvitationHandlers) Accept() http.HandlerFunc { return h.accept }
 // account, with the invited address as its own, verified, signs the person in and
 // accepts the invitation. username is the address when the password method declares
 // the username as the email address, and chosen otherwise. A taken username or
-// address is 409, a password under eight characters 400, no password method or no
+// address is 409, a password the judgment refuses 400, no password method or no
 // live invitation 404. An invitation that makes a tenant entered through its
 // directory only is refused as a sign-in is (organization_account_required). Route it
 // beside the password login, behind StartSession and ValidateXSRFToken, and route the
@@ -608,7 +609,7 @@ func signsUpInvited(p *pendingState) bool {
 // link only opened the invitation, and whoever holds it may have been forwarded it, so
 // nothing is made on its strength: no account, no address held as verified and no
 // acceptance. The sign-up is checked as the account's creation will be (the password's
-// shape, a username chosen, the address and the username free, 409 otherwise), so the
+// strength, a username chosen, the address and the username free, 409 otherwise), so the
 // person is told before any code is mailed; the creation itself is held to the same
 // again. The wait names nobody, its code goes to the invited address alone
 // (codeDestination), and what the account is made from waits in the pending cookie
@@ -712,7 +713,8 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 // otherwise. name is the person's name as the invitation carried it, "" for none and
 // for a sign-up, which carries none.
 func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
-	if err := acceptedPassword(password); err != nil {
+	who := passwordstrength.Details{Username: username, Name: name, Email: email}
+	if err := a.strongEnough(password, who); err != nil {
 		return nil, err
 	}
 	methods := a.registered()
@@ -722,7 +724,7 @@ func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*se
 	case username == "":
 		return nil, httpio.NewBadRequestMessage("choose a username")
 	}
-	hash, err := a.hashToSet(password)
+	hash, err := a.hashToSet(password, who)
 	if err != nil {
 		return nil, err
 	}

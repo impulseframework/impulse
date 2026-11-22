@@ -10,6 +10,7 @@ require (
 	cloud.google.com/go/spanner v1.96.1
 	cloud.google.com/go/storage v1.70.0
 	firebase.google.com/go/v4 v4.22.0
+	github.com/ccojocar/zxcvbn-go v1.0.4
 	github.com/cloudspannerecosystem/memefish v0.9.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/ettle/strcase v0.2.0

@@ -1717,8 +1717,13 @@ describe('an invitation', () => {
   const accountRefusals: { name: string; answer: TransportResponse }[] = [
     { name: 'a taken username or address (409)', answer: { status: 409, body: { message: 'the username is taken' } } },
     {
-      name: 'a short password (400)',
-      answer: { status: 400, body: { message: 'a password is at least eight characters' } },
+      name: 'a password too easy to guess (400)',
+      answer: {
+        status: 400,
+        body: {
+          message: 'This password is too easy to guess. Make it longer, or use several words that do not go together.',
+        },
+      },
     },
     {
       name: 'no live invitation (404)',
@@ -1924,7 +1929,15 @@ describe('a password reset', () => {
   });
 
   for (const tt of [
-    { name: 'a password too short', answer: { status: 400, body: { message: 'at least eight characters' } } },
+    {
+      name: 'a password too easy to guess',
+      answer: {
+        status: 400,
+        body: {
+          message: 'This password is too easy to guess. Make it longer, or use several words that do not go together.',
+        },
+      },
+    },
     { name: 'a dead link', answer: dead },
     {
       name: 'a password that changed while the reader was choosing',

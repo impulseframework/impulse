@@ -209,8 +209,8 @@ func TestPasswordResetLink(t *testing.T) {
 		t.Fatalf("the cadet's password with a link out: status %d, want 200: %s", status, body)
 	}
 
-	// The link opens to the sign-in name, and takes a password of eight characters or
-	// more.
+	// The link opens to the sign-in name, and takes a password the judgment of its
+	// strength takes.
 	open := func(token string) (int, []byte) {
 		return stranger.do(ctx, http.MethodPost, resetPath+"/open", jsonBody(t, map[string]string{"token": token}))
 	}
@@ -222,8 +222,8 @@ func TestPasswordResetLink(t *testing.T) {
 	if got := cell[string](t, decodeRow(t, body), "username"); got != "cadet" {
 		t.Errorf("the opened link names %q, want cadet", got)
 	}
-	if status, body := complete(token, "short"); status != http.StatusBadRequest {
-		t.Errorf("a password under eight characters: status %d, want 400: %s", status, body)
+	if status, body := complete(token, "kestrelvaughn"); status != http.StatusBadRequest {
+		t.Errorf("a password too easy to guess: status %d, want 400: %s", status, body)
 	}
 	status, body = complete(token, newPassword)
 	assertStatus(t, status, http.StatusOK, body)

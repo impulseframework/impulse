@@ -415,11 +415,12 @@ func TestAuth_Methods_removePassword(t *testing.T) {
 
 	t.Run("the list names the route, and the answer carries it", func(t *testing.T) {
 		t.Parallel()
-		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", RemovePassword: "/api/user/password/remove"})
+		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength", RemovePassword: "/api/user/password/remove"})
 		want := map[string]any{
-			"methods":        []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
-			"changePassword": "/api/user/password/change",
-			"removePassword": "/api/user/password/remove",
+			"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+			"changePassword":   "/api/user/password/change",
+			"passwordStrength": "/api/user/password/strength",
+			"removePassword":   "/api/user/password/remove",
 		}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("Methods() answer mismatch (-want +got):\n%s", diff)
@@ -428,7 +429,7 @@ func TestAuth_Methods_removePassword(t *testing.T) {
 
 	t.Run("a list that names no route answers none", func(t *testing.T) {
 		t.Parallel()
-		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change"}); got["removePassword"] != nil {
+		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength"}); got["removePassword"] != nil {
 			t.Errorf("Methods() answered removePassword = %v, want none", got["removePassword"])
 		}
 	})
@@ -440,7 +441,7 @@ func TestAuth_Methods_removePassword(t *testing.T) {
 	}{
 		{
 			name: "the route off-site",
-			list: &MethodList{Methods: password, ChangePassword: "/password", RemovePassword: "https://evil.example/remove"},
+			list: &MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", RemovePassword: "https://evil.example/remove"},
 			want: "remove-your-password route",
 		},
 		{

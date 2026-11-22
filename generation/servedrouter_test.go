@@ -696,7 +696,7 @@ func Test_servedRouterData(t *testing.T) {
 				for _, route := range data.Outlets[0].Routes {
 					crewRoutes = append(crewRoutes, route.Method+" "+route.Path)
 				}
-				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
+				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/password/strength,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
 					"POST /api/user/pending/code,POST /api/user/pending/code/verify,POST /api/user/pending/email,POST /api/user/browser/forget,POST /api/user/name,POST /api/user/look," +
 					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/email/confirm,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
 					"POST /api/user/password-reset,POST /api/user/password-reset/open,POST /api/user/password-reset/complete," +
@@ -1190,7 +1190,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			wantRouter: []string{
 				"//\tdefault (/api), sessions of the crew auth (password):",
 				"//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means",
-				"//\t  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
+				"//\t  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/password/strength, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
 				"//\tportal (/portal/api), sessions of the members auth (google):",
 				"//\t  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, POST /api/user/first-password/code, POST /api/user/first-password, GET /api/user/tokens, POST /api/user/tokens, POST /api/user/tokens/revoke, GET /api/user/device, POST /api/user/device/approve, POST /api/user/device/deny",
 				"//\tdroids (/droids), bearer tokens of the crew auth:\n//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader: POST /droids/oauth/device/authorize, POST /droids/oauth/token\n//\t  + ValidateToken: hooks.Droids, generatedDroidsRoutes",
@@ -1199,13 +1199,14 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t// Portal returns the portal outlet's session surface: the members auth's.\n\tPortal() PortalSession\n",
 				"type PortalSession interface {",
 				"\t// The google registration's login and callback (google.Method).\n\tGoogleLogin() http.HandlerFunc\n\tGoogleCallback() http.HandlerFunc\n}",
-				"\t// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.\n\tPasswordLogin() http.HandlerFunc\n\tPasswordChange() http.HandlerFunc\n\tPasswordRemove() http.HandlerFunc\n}",
+				"\t// The password method's login, password change, password removal and password strength (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession, and the strength question needs none.\n\tPasswordLogin() http.HandlerFunc\n\tPasswordChange() http.HandlerFunc\n\tPasswordRemove() http.HandlerFunc\n\tPasswordStrength() http.HandlerFunc\n}",
 				"\t\tguarded.Post(\"/api/user/password/login\", h.PasswordLogin())",
 				"\t\tguarded.Post(\"/api/user/password/change\", h.PasswordChange())",
 				// A person removes their own password beside where they change it, and the
 				// account page is told the path.
 				"\t\tguarded.Post(\"/api/user/password/remove\", h.PasswordRemove())",
-				"\t\t\tChangePassword: \"/api/user/password/change\",\n\t\t\tRemovePassword: \"/api/user/password/remove\",",
+				"\t\tguarded.Post(\"/api/user/password/strength\", h.PasswordStrength())",
+				"\t\t\tChangePassword:   \"/api/user/password/change\",\n\t\t\tRemovePassword:   \"/api/user/password/remove\",\n\t\t\tPasswordStrength: \"/api/user/password/strength\",",
 				"\t\t\t\t{Name: \"google\", Label: \"Google\", Path: \"/portal/api/user/google/login\"},",
 				"\tBindAuth(name string) func(http.Handler) http.Handler\n",
 				"\t// Droids returns the droids outlet's token surface: the machine outlet the application\n\t// registers on the crew auth's Auth (session.RegisterMachineOutlet), whose token\n\t// check binds each request to the person its bearer token acts for.\n\tDroids() DroidsTokens\n",
@@ -1217,10 +1218,10 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t// The droids outlet (/droids): machine clients carrying bearer tokens of the crew auth, so the group\n\t// carries no session handling and no XSRF guard. The device flow's endpoints, where a\n\t// command-line client obtains its tokens with a person's approval, sit in front of the\n\t// token check; everything else sits behind it.\n\tr.Group(func(r chi.Router) {\n\t\tr.Use(h.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)\n\t\tr.Use(h.CompressionMiddleware())\n\t\tr.Use(resource.ReleaseHeader(serverVersion))\n\n\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tbounded.Post(\"/droids/oauth/device/authorize\", h.DeviceAuthorize())\n\t\tbounded.Post(\"/droids/oauth/token\", h.DeviceToken())\n\n\t\tr.Group(func(r chi.Router) {\n\t\t\tr.Use(h.Droids().ValidateToken)\n\n\t\t\tregisterGenerated(r, hooks.Droids, \"Droids\", func(r chi.Router) {\n\t\t\t\tgeneratedDroidsRoutes(r, h)\n\t\t\t})\n\t\t})\n\t})",
 				"\t\t\t\tExempt: []string{\n\t\t\t\t\t\"/api/user/invitation/accept\",\n\t\t\t\t\t\"/api/user/email\",\n\t\t\t\t\t\"/api/user/email/verify\",\n\t\t\t\t\t\"/api/user/first-password/code\",\n\t\t\t\t\t\"/api/user/first-password\",\n\t\t\t\t\t\"/api/user/tokens\",\n\t\t\t\t\t\"/api/user/tokens\",\n\t\t\t\t\t\"/api/user/tokens/revoke\",\n\t\t\t\t\t\"/api/user/device\",\n\t\t\t\t\t\"/api/user/device/approve\",\n\t\t\t\t\t\"/api/user/device/deny\",\n\t\t\t\t},",
 				"\t\t\taccount.Post(\"/api/user/email/verify\", h.EmailVerify())\n\t\t\taccount.Post(\"/api/user/first-password/code\", h.FirstPasswordSendCode())\n\t\t\taccount.Post(\"/api/user/first-password\", h.FirstPasswordSet())\n",
-				"\t\t\tFirstPassword:  session.FirstPasswordRoutes{SendCode: \"/api/user/first-password/code\", Set: \"/api/user/first-password\"},\n",
+				"\t\t\tFirstPassword:    session.FirstPasswordRoutes{SendCode: \"/api/user/first-password/code\", Set: \"/api/user/first-password\"},\n",
 				// The reset link is asked for, opened and completed behind the XSRF guard alone, as
 				// the confirmation of an address an administrator set is: neither needs a session.
-				"\t\t\tPasswordReset:  session.PasswordResetRoutes{Request: \"/api/user/password-reset\", Open: \"/api/user/password-reset/open\", Complete: \"/api/user/password-reset/complete\"},\n",
+				"\t\t\tPasswordReset:    session.PasswordResetRoutes{Request: \"/api/user/password-reset\", Open: \"/api/user/password-reset/open\", Complete: \"/api/user/password-reset/complete\"},\n",
 				"guarded.Post(\"/api/user/password-reset\", h.PasswordResetRequest())",
 				"guarded.Post(\"/api/user/password-reset/open\", h.PasswordResetOpen())",
 				"guarded.Post(\"/api/user/password-reset/complete\", h.PasswordResetComplete())",
@@ -1250,6 +1251,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {",
 				"func (s *routerDefaultSessionStub) PasswordChange() http.HandlerFunc {",
 				"func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {",
+				"func (s *routerDefaultSessionStub) PasswordStrength() http.HandlerFunc {",
 				"func (s *routerPortalSessionStub) GoogleCallback() http.HandlerFunc {",
 				"\tportal *routerPortalSessionStub\n",
 				"\t\tportal:                   &routerPortalSessionStub{rec: rec, prefix: \"Portal\"},",
@@ -1258,6 +1260,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t{url: \"/api/user/password/login\", suffix: \"/user/password/login\", method: http.MethodPost, handler: \"PasswordLogin\", xsrf: true},",
 				"\t\t{url: \"/api/user/password/change\", suffix: \"/user/password/change\", method: http.MethodPost, handler: \"PasswordChange\", xsrf: true},",
 				"\t\t{url: \"/api/user/password/remove\", suffix: \"/user/password/remove\", method: http.MethodPost, handler: \"PasswordRemove\", xsrf: true},",
+				"\t\t{url: \"/api/user/password/strength\", suffix: \"/user/password/strength\", method: http.MethodPost, handler: \"PasswordStrength\", xsrf: true},",
 				"// routerDroidsTokensStub records the droids outlet's token check under a name prefix, so a chain\n// says whose tokens a request passed.\ntype routerDroidsTokensStub struct {\n\trec    *routerCallRecorder\n\tprefix string\n}\n\nfunc (s *routerDroidsTokensStub) ValidateToken(next http.Handler) http.Handler {\n\treturn s.rec.Middleware(s.prefix + \"ValidateToken\")(next)\n}",
 				"\tdroids *routerDroidsTokensStub\n",
 				"\t\tdroids:                   &routerDroidsTokensStub{rec: rec, prefix: \"Droids\"},",

@@ -651,6 +651,9 @@ type servedOutlet struct {
 	// RemovePassword is where the account page removes the person's own password, told
 	// to the browser beside the methods; empty without a password method.
 	RemovePassword string
+	// PasswordStrength is where a page that sets a password asks how strong it is, told to
+	// the browser beside the methods; empty without a password method.
+	PasswordStrength string
 	// ForgetBrowser is where the account page forgets the remembered browser, told to
 	// the browser beside the methods.
 	ForgetBrowser string
@@ -1214,15 +1217,17 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		switch m.kind {
 		case methodPassword:
 			sm.LoginPath = prefix + base + "/login"
-			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change", sm.Accessor + "Remove"}
-			sm.Description = "The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession"
+			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change", sm.Accessor + "Remove", sm.Accessor + "Strength"}
+			sm.Description = "The password method's login, password change, password removal and password strength (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession, and the strength question needs none"
 			guarded = append(guarded,
 				route(http.MethodPost, base+"/login", sm.Accessor+"Login", true),
 				route(http.MethodPost, base+"/change", sm.Accessor+"Change", true),
 				route(http.MethodPost, base+"/remove", sm.Accessor+"Remove", true),
+				route(http.MethodPost, base+"/strength", sm.Accessor+"Strength", true),
 			)
 			so.ChangePassword = prefix + base + "/change"
 			so.RemovePassword = prefix + base + "/remove"
+			so.PasswordStrength = prefix + base + "/strength"
 		case methodGoogle, methodWorkOS, methodAzure, methodOIDC:
 			sm.LoginPath = prefix + base + "/login"
 			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Callback"}
@@ -2002,6 +2007,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- end }}
 {{- if $outlet.RemovePassword }}
 			RemovePassword: "{{ $outlet.RemovePassword }}",
+{{- end }}
+{{- if $outlet.PasswordStrength }}
+			PasswordStrength: "{{ $outlet.PasswordStrength }}",
 {{- end }}
 {{- if $outlet.FirstPassword }}
 			FirstPassword: session.FirstPasswordRoutes{SendCode: "{{ $outlet.FirstPassword.SendCode }}", Set: "{{ $outlet.FirstPassword.Set }}"},

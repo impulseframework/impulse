@@ -2,7 +2,7 @@
   "users": [
     {
       "user": "admin",
-      "password": "password",
+      "password": "open-the-console-first",
       "roles": {
         "global": [
           "SuperAdministrator",
@@ -17,7 +17,7 @@
     },
     {
       "user": "member",
-      "password": "password",
+      "password": "open-the-console-first",
       "roles": {
         "global": [],
         "everyDomain": [],
@@ -30,7 +30,7 @@
     },
     {
       "user": "newcomer",
-      "password": "password",
+      "password": "open-the-console-first",
       "roles": {
         "global": [],
         "everyDomain": [],

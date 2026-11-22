@@ -37,7 +37,7 @@ func TestPasswordReset_theWayBackIn(t *testing.T) {
 	const (
 		resetPath   = "/api/user/password-reset"
 		address     = "noor@mail.example"
-		oldPassword = "a-long-password"
+		oldPassword = "a-long-password-of-my-own"
 		newPassword = "a password noor chose"
 	)
 	admin := newBrowser(t, s)
