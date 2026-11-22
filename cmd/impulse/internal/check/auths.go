@@ -11,6 +11,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/impulseframework/impulse/app"
@@ -22,8 +23,11 @@ import (
 // options of access.New), and a surface binds to it, either an outlet declaring it
 // (Auth, under the generated router) with the sign-in methods the package registers, or
 // a hand-written surface taking its type, so a population the application declares can
-// sign in somewhere and holds roles. session-tables holds each Auth to its tables; this
-// holds each auth to the application around it.
+// sign in somewhere and holds roles. A package that hands its role file over declares its
+// Name as a constant written out as a string, equal to its directory's name, since a role
+// file handed over under another auth's name is held to that auth's subject sets.
+// session-tables holds each Auth to its tables; this holds each auth to the application
+// around it.
 type authsWired struct{}
 
 // authsWiredName is the check's name.
@@ -95,6 +99,14 @@ func (authsWired) packageFindings(a *app.App, profile app.Profile, p *app.AuthPa
 		warnings = append(warnings, fmt.Sprintf("%s: no test validates the %s auth's role file (access.ValidateRoles over the collection, parsing %s.%s()), so a warning the deploy prints is accepted nowhere in code; add the %s row to %s with its expected warnings empty", p.Dir, p.Name, p.Name, authRoles, p.Name, ValidationTestFile(a)))
 	}
 	details = append(details, rolesUnderAnotherName(a, p)...)
+	if len(defaultRolesOf(a, p)) > 0 {
+		switch name, written := nameConstant(a, p); {
+		case !written:
+			details = append(details, fmt.Sprintf("%s: the package declares no constant %s written out as a string; it is the name the %s auth's role file is handed over under, and impulse check reads it where it is declared, so declare it: const %s = %q", p.Dir, authName, p.Name, authName, p.Name))
+		case name != p.Name:
+			details = append(details, fmt.Sprintf("%s: the package's %s is %q, and the package is the %s auth; a role file handed over under another auth's name is held to that auth's subject sets, so write %s = %q, the directory's name, which generation knows the auth by, or rename the directory", p.Dir, authName, name, p.Name, authName, p.Name))
+		}
+	}
 	if rolesFile := rolesFileOf(p); exported {
 		if _, err := os.Stat(a.Abs(rolesFile)); err != nil {
 			details = append(details, fmt.Sprintf("%s: %s does not exist; the %s auth embeds its role file from there", p.Dir, rolesFile, p.Name))
@@ -293,6 +305,80 @@ func rolesExport(a *app.App, p *app.AuthPackage) (exported, embedded bool) {
 	}
 
 	return exported, embedded
+}
+
+// nameConstant reads the auth package's source for its Name: the string a top-level const
+// declaration writes out for it, and whether one does. A Name declared any other way (a
+// var, a sum, another constant, a call, or no Name at all) is not written out, and the
+// name the role file is handed over under cannot be read from it.
+func nameConstant(a *app.App, p *app.AuthPackage) (name string, written bool) {
+	entries, err := os.ReadDir(a.Abs(p.Dir))
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !app.GoToolReads(e.Name()) || isTestFile(e.Name()) {
+			continue
+		}
+		rel := path.Join(p.Dir, e.Name())
+		src, err := os.ReadFile(a.Abs(rel))
+		if err != nil {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution)
+		if err != nil {
+			continue
+		}
+		if value, found := declaredName(f); found {
+			return stringLiteral(value)
+		}
+	}
+
+	return "", false
+}
+
+// declaredName finds the top-level declaration of Name in the file: the value a const
+// declaration gives it (nil when it gives none, or when Name is a var), and whether the
+// file declares it.
+func declaredName(f *ast.File) (value ast.Expr, found bool) {
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, n := range vs.Names {
+				if n.Name != authName {
+					continue
+				}
+				if gen.Tok == token.CONST && i < len(vs.Values) {
+					return vs.Values[i], true
+				}
+
+				return nil, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// stringLiteral is the string a single string literal writes out, and whether value is one.
+func stringLiteral(value ast.Expr) (string, bool) {
+	lit, ok := value.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+
+	return s, true
 }
 
 // The session library's cookie names when a construction leaves them unset.
