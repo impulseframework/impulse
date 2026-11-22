@@ -7,6 +7,7 @@ import (
 
 	zxcvbn "github.com/ccojocar/zxcvbn-go"
 	"github.com/ccojocar/zxcvbn-go/matching"
+	"golang.org/x/text/unicode/norm"
 )
 
 // calibration is the table the default minimum is set from: each password with no details,
@@ -104,6 +105,8 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a name with a dotless i, typed with i", password: "yildirimkaya2077", who: Details{Name: "Nur Yıldırımkaya"}},
 		{name: "a name with a ß, in capitals", password: "GROSSKREUTZ2077", who: Details{Name: "Jörg Großkreutz"}},
 		{name: "a name with ss, typed with a ß", password: "Großkreutz2077", who: Details{Name: "Uwe Grosskreutz"}},
+		{name: "a Thai name with its vowel signs and tone mark", password: "กิตติศักดิ์2077", who: Details{Name: "กิตติศักดิ์ ศรีสุวรรณ"}},
+		{name: "a Hindi name with its vowel signs", password: "सुनीता2077!", who: Details{Name: "सुनीता शर्मा"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -323,11 +326,44 @@ func TestReading_of(t *testing.T) {
 		{typed: "Strauß", want: "Strauss"},
 		{typed: "STRAUẞ", want: "STRAUSS"},
 		{typed: "İstanbul", want: "Istanbul"},
+		{typed: "e\u0301", want: "e"},
+		{typed: "x\u0301", want: "x"},
+		{typed: "\u0e01\u0e34", want: standIns[:2]},
+		{typed: "\u0915\u093f", want: standIns[:2]},
 	}
 	for _, tt := range tests {
 		if got := newReading().of(tt.typed); got != tt.want {
 			t.Errorf("of(%+q) = %q, want %q", tt.typed, got, tt.want)
 		}
+	}
+}
+
+func TestJudge_aVowelSignTypedApartCounts(t *testing.T) {
+	t.Parallel()
+
+	// Five Thai consonants, each with a different vowel sign, and the five alone.
+	if got := Judge("กิขีคึงุจู", Details{}, 30); !got.StrongEnough {
+		t.Errorf("Judge(%q, 30) = %+v, want strong enough: each vowel sign is a character typed", "กิขีคึงุจู", got)
+	}
+	if got := Judge("กขคงจ", Details{}, 30); got.StrongEnough {
+		t.Errorf("Judge(%q, 30) = %+v, want it short", "กขคงจ", got)
+	}
+}
+
+func TestJudge_aDetailInNFDIsJudgedAsInNFC(t *testing.T) {
+	t.Parallel()
+
+	const password, composed = "Sarka2077horse", "Šárka Nováková"
+	decomposed := norm.NFD.String(composed)
+	if decomposed == composed {
+		t.Fatalf("NFD(%q) is the same text: the case proves nothing", composed)
+	}
+	got, want := Judge(password, Details{Name: decomposed}, 30), Judge(password, Details{Name: composed}, 30)
+	if got != want {
+		t.Errorf("Judge(%q, the name in NFD) = %+v, want %+v as with the name in NFC", password, got, want)
+	}
+	if want.StrongEnough {
+		t.Errorf("Judge(%q, Name %q) = %+v, want it short: the password is built on the name", password, composed, want)
 	}
 }
 

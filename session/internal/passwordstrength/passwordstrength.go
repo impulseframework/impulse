@@ -27,7 +27,9 @@
 // ASCII alone, one character for each character typed but a ß, which is read as ss: an
 // accented letter is read as its letter, a dotless ı as i, and any other character outside
 // ASCII as one stand-in, the same for the same letter, with or without its marks and in
-// either case, throughout one judgment.
+// either case, throughout one judgment. A vowel sign or tone mark that a script types as a
+// character of its own, as Thai and Hindi do, is a character: it counts toward the password's
+// strength, and a name written with it counts against a password built on it.
 package passwordstrength
 
 import (
@@ -209,14 +211,14 @@ func firstRunes(s string, n int) string {
 }
 
 // inputsOf are the words the person's details give the estimate, in the order Username, Name,
-// Email: each detail trimmed of surrounding space and cut to its first maxDetail characters,
-// whole, then each run of letters and digits in it at least minRun characters long, each word
-// as read reads it and once whatever its case. It is nil when the details give none.
+// Email: each detail put in NFC, trimmed of surrounding space and cut to its first maxDetail
+// characters, whole, then each run of letters, digits and marks in it whose reading is at
+// least minRun characters long, each word as read reads it and once whatever its case. It is
+// nil when the details give none.
 func inputsOf(who Details, read *reading) []string {
 	var inputs []string
 	seen := map[string]bool{}
 	add := func(word string) {
-		word = read.of(word)
 		key := strings.ToLower(word)
 		if word == "" || seen[key] {
 			return
@@ -226,14 +228,15 @@ func inputsOf(who Details, read *reading) []string {
 	}
 
 	for _, detail := range []string{who.Username, who.Name, who.Email} {
-		detail = firstRunes(strings.TrimSpace(detail), maxDetail)
+		detail = firstRunes(strings.TrimSpace(norm.NFC.String(detail)), maxDetail)
 		if detail == "" {
 			continue
 		}
-		add(detail)
-		for _, run := range strings.FieldsFunc(detail, notLetterOrDigit) {
-			if utf8.RuneCountInString(run) >= minRun {
-				add(run)
+		add(read.of(detail))
+		for _, run := range strings.FieldsFunc(detail, notLetterDigitOrMark) {
+			// The reading is in ASCII, so its length in bytes is its length in characters.
+			if word := read.of(run); len(word) >= minRun {
+				add(word)
 			}
 		}
 	}
@@ -323,9 +326,10 @@ func standsFor(c, letter byte) bool {
 	return false
 }
 
-// notLetterOrDigit says whether r ends a run of letters and digits.
-func notLetterOrDigit(r rune) bool {
-	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+// notLetterDigitOrMark says whether r ends a run of letters, digits and marks: a mark, a vowel
+// sign of Thai or Hindi among them, is part of the word it is typed in.
+func notLetterDigitOrMark(r rune) bool {
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r)
 }
 
 // reading makes the text the library is asked about from what a person typed, in ASCII alone
@@ -344,7 +348,10 @@ func newReading() *reading {
 // of is typed in NFC as the library is to read it: a character in ASCII as it is; outside
 // ASCII, an accented letter or digit (é, Å, a full-width p) as its letter or digit, a ß as
 // ss and a capital ẞ as SS, a letter whose capital is in ASCII (the dotless ı) as that
-// letter in lower case, a mark on its own dropped, and any other character as its stand-in.
+// letter in lower case, a mark NFC left on its own dropped when Unicode gives it no script of
+// its own (an accent typed apart from a letter it does not combine with), and any other
+// character as its stand-in, a vowel sign or tone mark that a script types as a character of
+// its own (Thai, Hindi) among them.
 func (r *reading) of(typed string) string {
 	var text strings.Builder
 	for _, c := range norm.NFC.String(typed) {
@@ -368,8 +375,8 @@ func (r *reading) of(typed string) string {
 
 			continue
 		}
-		if unicode.IsMark(c) {
-			// A mark on no letter is not a character a person counts.
+		if unicode.IsMark(c) && unicode.Is(unicode.Inherited, c) {
+			// An accent on no letter it combines with is not a character a person counts.
 			continue
 		}
 		text.WriteByte(r.standInOf(c))

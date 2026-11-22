@@ -1591,8 +1591,9 @@ How hard a password is to guess is an estimate in bits. The password method's
 `MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an
 application that wants longer passwords raises it. The estimate reads a password's first 64
 characters. It counts a character outside ASCII once, whatever its bytes, and reads an accented
-letter as the letter, a dotless ı as i and a ß as ss. A password is judged when it is set: one
-a person already holds still signs them in.
+letter as the letter, a dotless ı as i and a ß as ss. A vowel sign or tone mark that a script
+types as a character of its own, as Thai and Hindi do, counts as a character. A password is
+judged when it is set: one a person already holds still signs them in.
 
 A page asks the same judgment while the person types. `PasswordMethod.Strength()` takes
 `{"password"}` and, when the page has them, the person's `"username"`, `"name"` and
