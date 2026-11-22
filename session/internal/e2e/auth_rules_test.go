@@ -542,6 +542,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesInvitationByCode[Tx],
 		},
 		{
+			name: "an invitation's code entered through a directory that sends no address, under the name of an account made ahead that holds another address, is refused with invitation_address: no session, nothing linked, the account's address as it was and the invitation standing",
+			run:  seamRulesInvitationCodeUnderAnotherAccount[Tx],
+		},
+		{
 			name: "the code mailed for an invitation accepts that invitation and proves nothing else: entered once the invitation was withdrawn, through a method open to sign-up, it signs nobody in and makes no account",
 			run:  seamRulesInvitationCodeWithoutItsInvitation[Tx],
 		},
@@ -988,6 +992,47 @@ func seamRulesInvitationByCode[Tx any](ctx context.Context, t *testing.T, be bac
 	// Her next sign-in is the directory's alone: the account holds a confirmed address.
 	next := a.browser(t)
 	assertRedirect(t, a.entraRoundTrip(ctx, next, claims), "/home", url.Values{})
+}
+
+// seamRulesInvitationCodeUnderAnotherAccount: vera's account was made ahead under
+// vera@lakeside.edu and holds that address, unconfirmed. An invitation is mailed to
+// nell@north.example, and somebody who holds it signs in through Microsoft under vera's
+// name, which sends no address. The code mailed to the invited address shows only that
+// the person reads that mailbox: the invitation is not vera's account's own, so the code
+// links nothing to it.
+func seamRulesInvitationCodeUnderAnotherAccount[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
+	const (
+		invited = "nell@north.example"
+		name    = "vera@lakeside.edu"
+	)
+	vera := a.createUserAt(ctx, t, name, name)
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited, Name: "Nell"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": invitationToken(t, a.mail)}, b.xsrfToken())
+
+	// The sign-in is held for the code mailed to the invited address.
+	claims := azureClaims(azureTenant, "oid-vera", name)
+	delete(claims, "email")
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+
+	// The right code is refused as an acceptance with another address is.
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, invited)}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"invitation_address"`) {
+		t.Errorf("the invitation's code under vera's name = %d %s, want 401 invitation_address", status, body)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, vera.String()); len(links) != 0 {
+		t.Errorf("identity links of vera's account = %d, want none", len(links))
+	}
+	address := name
+	a.holds(ctx, t, vera, &address)
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].Email != invited {
+		t.Errorf("standing invitations after the refusal = %+v, want the invitation to %s still standing", standing, invited)
+	}
 }
 
 // seamRulesInvitationCodeWithoutItsInvitation is the scenario "the code mailed for an

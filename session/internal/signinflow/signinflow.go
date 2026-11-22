@@ -1847,10 +1847,13 @@ func firstLink[Tx any](
 // mailed to (claim, the rules' CodeAddress: Driver.UserByEmailIn answers this same
 // user). An account whose address was changed or taken off since is refused with
 // code_expired, the words of a code that no longer stands, and nothing is linked. A code
-// mailed for an invitation carries no claim, and the sign-in that carries it is linked
-// as the invitation's acceptance. An account that holds no address has nowhere to mail
-// the code, and an address given at the sign-in would show only that the person reads
-// their own mail, so the link is refused (signin.ErrLinkNeedsAddress).
+// mailed for an invitation carries no claim: the sign-in that entered it is linked only
+// where the invitation is the account's own, mailed to its username or to the address it
+// holds (ownInvitation), and is otherwise refused as an acceptance with another address
+// is, with nothing linked. The code's event with neither links nothing (codeEventLink).
+// An account that holds no address has nowhere to mail the code, and an address given at
+// the sign-in would show only that the person reads their own mail, so the link is
+// refused (signin.ErrLinkNeedsAddress).
 func nameAloneHold[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string, claim *dbtype.CodeAddress,
 ) (stop, err error) {
@@ -1867,18 +1870,9 @@ func nameAloneHold[Tx any](
 		}
 	}
 	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
-		if claim == nil {
-			return nil, nil
+		if decided, stop, err := codeEventLink(ctx, d, tx, req.Invitation, user, claim); err != nil || decided {
+			return stop, err
 		}
-		holder, err := d.UserByEmailIn(ctx, tx, claim.Email)
-		if err != nil {
-			return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
-		}
-		if holder == nil || holder.ID != user.ID {
-			return codeAddressGone(user.ID, claim), nil
-		}
-
-		return nil, nil
 	}
 	if !user.EmailHeld {
 		return Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkNeedsAddress, "the account under this sign-in name holds no email address to mail a sign-in code to"), nil
@@ -1888,6 +1882,43 @@ func nameAloneHold[Tx any](
 		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: tenant,
 		Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
 	}, nil
+}
+
+// codeEventLink decides the first link of user, made on a name alone, by a sign-in that
+// carries the mailed code's event: the account's own code (claim) links while the
+// account still holds the address it was mailed to, and is refused as a code that no
+// longer stands otherwise; the code of the invitation the sign-in carries (inv, once
+// Invitation.AddressProven) links only where the invitation is the account's own
+// (ownInvitation), and is refused otherwise as an acceptance with another address is,
+// with nothing linked and the invitation standing. decided is false for an event with
+// neither, which counts for nothing.
+func codeEventLink[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, claim *dbtype.CodeAddress,
+) (decided bool, stop, err error) {
+	switch {
+	case claim != nil:
+		holder, err := d.UserByEmailIn(ctx, tx, claim.Email)
+		if err != nil {
+			return true, nil, errors.Wrap(err, "Driver.UserByEmailIn()")
+		}
+		if holder == nil || holder.ID != user.ID {
+			return true, codeAddressGone(user.ID, claim), nil
+		}
+
+		return true, nil, nil
+	case inv != nil && inv.AddressProven:
+		own, err := ownInvitation(ctx, d, tx, user, inv)
+		if err != nil {
+			return true, nil, err
+		}
+		if !own {
+			return true, Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
+		}
+
+		return true, nil, nil
+	default:
+		return false, nil, nil
+	}
 }
 
 // errCodeAddressGone is the cause of the refusal of a sign-in whose mailed code confirms

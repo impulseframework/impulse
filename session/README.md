@@ -337,9 +337,13 @@ DML what a later rule must read.
   person has confirmed it (`PendingMFA`, the email code its one factor, and no other
   address taken). Nothing is linked while it waits, so a sign-in that never finishes
   leaves the account as it was; the person who enters the code is linked and signed
-  in, and the code confirms the address. An account that holds no address has nowhere
-  to mail the code, and an address given at the sign-in would show only that the
-  person reads their own mail: that sign-in is refused (`identity_rejected`,
+  in, and the code confirms the address. The code mailed for an invitation links such an
+  account only where the invitation is the account's own, mailed to its username or to
+  the address it holds: a person who carries any other invitation and enters its code is
+  refused (`invitation_address`), with nothing linked and the invitation standing. An
+  account that holds no address has nowhere to mail the code, and an address given at
+  the sign-in would show only that the person reads their own mail: that sign-in is
+  refused (`identity_rejected`,
   `signin.ErrLinkNeedsAddress`) and nothing is linked, so an account made ahead of
   its person is made with their address (`CreateUserRequest.Email`). The wait is for
   the account it began with, and its code is good only for the address that account

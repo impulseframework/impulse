@@ -83,6 +83,14 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 			rules: Rules[*memTx]{ConfirmAddress: true, CodeAddress: &dbtype.CodeAddress{Held: addressOf(name), Email: name}},
 		},
 		{
+			name:     "the code's event with no address the code confirms and no invitation it proved links nothing: the sign-in waits for the code mailed to the account's address",
+			identity: outside, address: name, confirmed: true, reason: sessioninfo.ReasonStepUp, events: code, rules: Rules[*memTx]{ConfirmAddress: true}, wantHeld: true,
+		},
+		{
+			name:     "the code's event with neither, to an account that holds no address, is refused the link",
+			identity: outside, reason: sessioninfo.ReasonStepUp, events: code, rules: Rules[*memTx]{ConfirmAddress: true}, wantRefused: signin.ErrLinkNeedsAddress,
+		},
+		{
 			name:     "a name Google vouches for links at once",
 			identity: workspace, address: name, confirmed: true, rules: Rules[*memTx]{ConfirmAddress: true},
 		},
@@ -242,7 +250,9 @@ func TestSignIn_aWaitLinksOnlyTheUserItWaitedOn(t *testing.T) {
 			if tt.moved {
 				store.users[waited].username, store.users[other].username = "alice.old@corp.example", name
 			}
-			rules := Rules[*memTx]{ConfirmAddress: true, WaitedOn: impulse.NullUUIDFromUUID(waited)}
+			// The completion of the wait carries the address the account's own code
+			// confirms, as every completion of that code does.
+			rules := Rules[*memTx]{ConfirmAddress: true, WaitedOn: impulse.NullUUIDFromUUID(waited), CodeAddress: &dbtype.CodeAddress{Held: addressOf(name), Email: name}}
 			if tt.rule != nil {
 				rules.Account = tt.rule(waited, other)
 			}
@@ -273,6 +283,96 @@ func TestSignIn_aWaitLinksOnlyTheUserItWaitedOn(t *testing.T) {
 			}
 			if store.sessions != 0 {
 				t.Errorf("the store holds %d session(s), want none", store.sessions)
+			}
+		})
+	}
+}
+
+// TestSignIn_anInvitationsCodeLinksAnAccountMadeAheadOnlyWhereTheInvitationIsItsOwn pins
+// what the code mailed for an invitation is worth to the first link of an account made
+// ahead, in an application with no tenant directories, where the sign-in's name is all
+// that ties the two. The code proves the person reads the invited mailbox, and nothing
+// else: it links the account under the name only where the invitation is that account's
+// own, mailed to its username or to the address it holds, confirmed or not, and the
+// invitation is then accepted as it always is. An account that holds another address, or
+// none, is refused as an acceptance with another address is: nothing is linked, the
+// account's address is as it was, and the invitation stands for the person it was mailed
+// to.
+func TestSignIn_anInvitationsCodeLinksAnAccountMadeAheadOnlyWhereTheInvitationIsItsOwn(t *testing.T) {
+	t.Parallel()
+
+	const (
+		invited = "nell@north.example"
+		vera    = "vera@lakeside.edu"
+	)
+	tests := []struct {
+		name string
+		// username is the account's username, the name the directory signs in under;
+		// address the address it holds, "" for none, and confirmed whether its person
+		// confirmed it.
+		username  string
+		address   string
+		confirmed bool
+		wantLink  bool
+	}{
+		{name: "an account that holds the invited address unconfirmed is linked, and the invitation accepted", username: vera, address: invited, wantLink: true},
+		{name: "an account that holds the invited address confirmed is linked, and the invitation accepted", username: vera, address: invited, confirmed: true, wantLink: true},
+		{name: "an account under the invited address that holds no address is linked, and the invitation accepted", username: invited, wantLink: true},
+		{name: "an account that holds another address is refused, with nothing linked and the invitation standing", username: vera, address: vera},
+		{name: "an account that holds another address confirmed is refused the same", username: vera, address: vera, confirmed: true},
+		{name: "an account that holds no address is refused the same", username: vera},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			hooks := &roleHooks{store: store}
+			userID := impulse.Must(impulse.NewUUID())
+			store.users[userID] = &memUser{username: tt.username, email: tt.address, confirmed: tt.confirmed}
+			inv := store.invite(invited, "lakeside", "Teacher")
+			inv.AddressProven = true
+			// A Microsoft directory signs the person in under the account's name and
+			// sends no address; the sign-in entered the code mailed to the invited one.
+			identity := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", SignInName: tt.username}
+			req := &sessioninfo.NewSessionRequest{
+				Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: inv,
+				AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}},
+			}
+
+			err := signInWith(t, &memDriver{store: store}, req, Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, ConfirmAddress: true})
+
+			user := store.users[userID]
+			if tt.wantLink {
+				if err != nil {
+					t.Fatalf("SignIn() error = %v, want the account linked and the invitation accepted", err)
+				}
+				if linked, ok := store.links[linkKey(identity.Method, identity.Connection, identity.Subject)]; !ok || linked != userID {
+					t.Errorf("the identity is linked to %v (linked %t), want the account under the name, %s", linked, ok, userID)
+				}
+				if !inv.Accepted || store.invitations[inv.ID] {
+					t.Errorf("Invitation.Accepted = %v, still live = %v, want it accepted and consumed", inv.Accepted, store.invitations[inv.ID])
+				}
+				if user.email != invited || !user.confirmed {
+					t.Errorf("the account holds %q (confirmed %v), want the invited address confirmed", user.email, user.confirmed)
+				}
+				if store.sessions != 1 {
+					t.Errorf("the store holds %d session(s), want one", store.sessions)
+				}
+
+				return
+			}
+			if got := sessioninfo.LoginRefusalCodeOf(err); got != sessioninfo.RefusedInvitationAddress || !errors.Is(err, signin.ErrInvitationAddress) {
+				t.Fatalf("SignIn() error = %v (code %q), want the refusal of an acceptance with another address", err, got)
+			}
+			if len(store.links) != 0 || store.sessions != 0 || len(store.granted) != 0 {
+				t.Errorf("the store holds %d link(s), %d session(s) and grants %v, want nothing", len(store.links), store.sessions, store.granted)
+			}
+			if user.email != tt.address || user.confirmed != tt.confirmed {
+				t.Errorf("the account holds %q (confirmed %v), want %q (confirmed %v) as it was", user.email, user.confirmed, tt.address, tt.confirmed)
+			}
+			if !store.invitations[inv.ID] || inv.Accepted {
+				t.Errorf("the invitation is live = %v, Accepted = %v, want it standing and not accepted", store.invitations[inv.ID], inv.Accepted)
 			}
 		})
 	}
