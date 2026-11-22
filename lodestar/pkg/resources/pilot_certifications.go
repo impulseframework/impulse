@@ -17,7 +17,7 @@ type (
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
 	PilotCertification struct {
-		// @subjectSet(certifications, value: CertificationID)
+		// @subjectSet(certifications, value: CertificationID, auth: crew)
 		UserID          string `spanner:"UserId"`
 		CertificationID string `spanner:"CertificationId"`
 	}

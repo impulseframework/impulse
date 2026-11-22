@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ettle/strcase"
@@ -155,6 +156,7 @@ func (r *resourceGenerator) generateDomainGuard() error {
 		LocalPackageImports: r.localPackageImports(),
 		ApplicationName:     r.applicationName,
 		ReceiverName:        r.receiverName,
+		Word:                strings.ToLower(r.domainWord.One),
 		ConcealedDomains:    r.concealedDomains,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
@@ -519,7 +521,6 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 			ResourcePackage: r.resource.Package(),
 			ReceiverName:    r.receiverName,
 			Clears:          r.tenantClears(res),
-			DirectoryClear:  r.tenantDirectoryClear(res),
 		}
 		switch {
 		case res.IsDomainScoped():
@@ -575,7 +576,6 @@ func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInf
 		ApplicationName:         home.applicationName,
 		ReceiverName:            home.receiverName,
 		Clears:                  r.tenantClears(res),
-		DirectoryClear:          r.tenantDirectoryClear(res),
 		Home:                    home,
 	})
 	if err != nil {

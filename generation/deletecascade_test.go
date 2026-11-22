@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // deleteFixtureResources extracts the deletefixture package over its schema: every
@@ -59,19 +60,19 @@ func Test_deleteCascade_description(t *testing.T) {
 		Taken: []*deleteKind{
 			{
 				Name: "TaskComment", Table: "TaskComments", One: "task comment", Many: "task comments", Key: []string{"Id"},
-				Paths: [][]deleteLink{{link("TaskId", "Tasks"), link("ProjectId", "Projects"), link("ClientId", "Clients")}},
+				Paths: [][]deleteLink{{link("TaskId", "Tasks"), link("ProjectId", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 			},
 			{
 				Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
-				Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}},
+				Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 			},
 			{
 				Name: "Task", Table: "Tasks", One: "task", Many: "tasks", Key: []string{"Id"}, IndexEntries: 1,
-				Paths: [][]deleteLink{{link("ProjectId", "Projects"), link("ClientId", "Clients")}},
+				Paths: [][]deleteLink{{link("ProjectId", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 			},
 			{
 				Name: "Project", Table: "Projects", One: "project", Many: "projects", Key: []string{"Id"},
-				Paths: [][]deleteLink{{link("ClientId", "Clients")}},
+				Paths: [][]deleteLink{{link("ClientId", "Clients")}}, Deletes: true,
 			},
 		},
 		RefusedBy: []*deleteKind{
@@ -140,6 +141,9 @@ func Test_deleteCascade_description(t *testing.T) {
 		`{Columns: []string{"Id"}, Table: "Projects", References: []string{"Id"}},`,
 		"RefusedBy: []resource.DeleteKind{",
 		"Under: []resource.DeleteKind{",
+		"Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Task], caller *resource.Caller) {",
+		"patch := &TaskDeletePatch{patchSet: patchSet}",
+		"func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {",
 	} {
 		if !strings.Contains(rendered, wantLine) {
 			t.Errorf("rendered Client is missing %q", wantLine)
@@ -433,12 +437,46 @@ func Test_deleteCascade_refusals(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		decl      *deleteCascadeDecl
-		tenant    bool
-		wantErr   []string
-		wantTaken []string
+		name   string
+		decl   *deleteCascadeDecl
+		tenant bool
+		// schema changes the fixture's tables before the declaration is held to them.
+		schema        func(c *client)
+		wantErr       []string
+		wantTaken     []string
+		wantRefusedBy []string
 	}{
+		{
+			name:    "the record's own kind is refused where no row of it is under another",
+			decl:    &deleteCascadeDecl{Taken: []string{"Project", "Task", "TaskComment", "ProjectNote", "Client"}, RefusedBy: []string{"Invoice"}},
+			wantErr: []string{"@deleteCascade on Client names Client, but no foreign key puts a Client under a Client. Remove Client from the list."},
+		},
+		{
+			name: "a record with rows under rows of its own kind has to name its kind",
+			decl: &deleteCascadeDecl{Taken: []string{"Project", "Task", "TaskComment", "ProjectNote"}, RefusedBy: []string{"Invoice"}},
+			schema: func(c *client) {
+				underItsOwnKind(c, "Clients", "ParentClientId")
+			},
+			wantErr: []string{"@deleteCascade on Client: a Client is under a Client (Clients.ParentClientId to Clients.Id)", "neither as taken nor under refusedBy", "List Client to delete it with the Client"},
+		},
+		{
+			name: "the record's own kind is taken last, after everything under its rows",
+			decl: &deleteCascadeDecl{Taken: []string{"Client", "Project", "Task", "TaskComment", "ProjectNote"}, RefusedBy: []string{"Invoice"}},
+			schema: func(c *client) {
+				underItsOwnKind(c, "Clients", "ParentClientId")
+			},
+			wantTaken:     []string{"TaskComments", "ProjectNotes", "Tasks", "Projects", "Clients"},
+			wantRefusedBy: []string{"Invoices"},
+		},
+		{
+			name: "the record's own kind may refuse the delete",
+			decl: &deleteCascadeDecl{Taken: []string{"Project", "Task", "TaskComment", "ProjectNote"}, RefusedBy: []string{"Invoice", "Client"}},
+			schema: func(c *client) {
+				underItsOwnKind(c, "Clients", "ParentClientId")
+			},
+			wantTaken:     []string{"TaskComments", "ProjectNotes", "Tasks", "Projects"},
+			wantRefusedBy: []string{"Invoices", "Clients"},
+		},
 		{
 			name:    "a kind under the record in neither list is refused, naming the kind and the record",
 			decl:    &deleteCascadeDecl{Taken: []string{"Project", "Task", "TaskComment"}, RefusedBy: []string{"Invoice"}},
@@ -460,9 +498,10 @@ func Test_deleteCascade_refusals(t *testing.T) {
 			wantErr: []string{"@deleteCascade on Client names Supplier, but no foreign key or interleave puts a Supplier under a Client"},
 		},
 		{
-			name:      "what is under a refusing kind alone needs no place in a list",
-			decl:      &deleteCascadeDecl{Taken: []string{"Invoice"}, RefusedBy: []string{"Project"}},
-			wantTaken: []string{"Invoices"},
+			name:          "what is under a refusing kind alone needs no place in a list",
+			decl:          &deleteCascadeDecl{Taken: []string{"Invoice"}, RefusedBy: []string{"Project"}},
+			wantTaken:     []string{"Invoices"},
+			wantRefusedBy: []string{"Projects"},
 		},
 		{
 			name:    "a taken kind that is only under a refusing kind is refused",
@@ -484,6 +523,9 @@ func Test_deleteCascade_refusals(t *testing.T) {
 			c, byName := deleteFixtureResources(t)
 			client := byName["Client"]
 			client.deleteCascade, client.DeleteTree, client.IsTenant = tt.decl, nil, tt.tenant
+			if tt.schema != nil {
+				tt.schema(c)
+			}
 
 			err := c.resolveDeleteTrees(resourceList(byName))
 			if len(tt.wantErr) == 0 {
@@ -493,12 +535,18 @@ func Test_deleteCascade_refusals(t *testing.T) {
 				if client.DeleteTree == nil {
 					t.Fatal("Client has no description after resolveDeleteTrees()")
 				}
-				var taken []string
+				var taken, refusedBy []string
 				for _, kind := range client.DeleteTree.Taken {
 					taken = append(taken, kind.Table)
 				}
+				for _, kind := range client.DeleteTree.RefusedBy {
+					refusedBy = append(refusedBy, kind.Table)
+				}
 				if diff := cmp.Diff(tt.wantTaken, taken); diff != "" {
 					t.Errorf("taken kinds mismatch (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tt.wantRefusedBy, refusedBy); diff != "" {
+					t.Errorf("refusing kinds mismatch (-want +got):\n%s", diff)
 				}
 
 				return
@@ -512,6 +560,111 @@ func Test_deleteCascade_refusals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// underItsOwnKind puts a row of the table under another row of the same table in the
+// fixture's schema: a foreign key on the column, which may be left empty, to the
+// table's own Id.
+func underItsOwnKind(c *client, table, column string) {
+	meta := c.tableMap[table]
+	meta.Columns[column] = columnMeta{IsForeignKey: true, IsNullable: true, ReferencedTable: table, ReferencedColumn: "Id", DeleteRule: "NO ACTION", OrdinalPosition: 9}
+	meta.ForeignKeys = append(meta.ForeignKeys, foreignKeyMeta{Name: "FK_" + column, Columns: []string{column}, ReferencedTable: table, ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"})
+}
+
+// Test_deleteCascade_rowsUnderRowsOfTheirKind pins what the description says of a row
+// under a row of its own kind, and of how a taken row is deleted. The record's own kind
+// is a taken kind like any other, last in delete order, with one way up for each link
+// of the record to itself. A taken kind with a link to itself carries it (Within), so
+// the delete finds a row under a row of the kind. Every taken kind is written with the
+// delete of one of its rows (Rows): the kind's generated delete patch, with its rule
+// where it declares one, armed against the caller unless the call is trusted.
+func Test_deleteCascade_rowsUnderRowsOfTheirKind(t *testing.T) {
+	t.Parallel()
+
+	c, byName := deleteFixtureResources(t)
+	client := byName["Client"]
+	client.deleteCascade = &deleteCascadeDecl{Taken: []string{"Client", "Project", "Task", "TaskComment", "ProjectNote", "Invoice"}}
+	client.DeleteTree = nil
+	underItsOwnKind(c, "Clients", "ParentClientId")
+	underItsOwnKind(c, "Tasks", "ParentTaskId")
+
+	if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+		t.Fatalf("resolveDeleteTrees() error = %v", err)
+	}
+
+	within := func(column, table string) deleteLink {
+		return deleteLink{Columns: []string{column}, Table: table, References: []string{"Id"}, MayBeEmpty: true}
+	}
+	want := []*deleteKind{
+		{
+			Name: "TaskComment", Table: "TaskComments", One: "task comment", Many: "task comments", Key: []string{"Id"},
+			Paths: [][]deleteLink{{link("TaskId", "Tasks"), link("ProjectId", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
+		},
+		{
+			Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
+			Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
+		},
+		{
+			Name: "Task", Table: "Tasks", One: "task", Many: "tasks", Key: []string{"Id"}, IndexEntries: 1,
+			Paths:  [][]deleteLink{{link("ProjectId", "Projects"), link("ClientId", "Clients")}},
+			Within: []deleteLink{within("ParentTaskId", "Tasks")}, Deletes: true,
+		},
+		{
+			Name: "Invoice", Table: "Invoices", One: "invoice", Many: "invoices", Key: []string{"Id"},
+			Paths: [][]deleteLink{{link("ClientId", "Clients")}}, Deletes: true, Rule: true,
+		},
+		{
+			Name: "Project", Table: "Projects", One: "project", Many: "projects", Key: []string{"Id"},
+			Paths: [][]deleteLink{{link("ClientId", "Clients")}}, Deletes: true,
+		},
+		{
+			Name: "Client", Table: "Clients", One: "client", Many: "clients", Key: []string{"Id"},
+			Paths: [][]deleteLink{{within("ParentClientId", "Clients")}}, Deletes: true,
+		},
+	}
+	if diff := cmp.Diff(want, client.DeleteTree.Taken); diff != "" {
+		t.Fatalf("Client's taken kinds mismatch (-want +got):\n%s", diff)
+	}
+
+	r := &resourceGenerator{client: c}
+	output, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{
+		Source:   "fixture",
+		Package:  "resources",
+		Resource: client,
+	})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	rendered := strings.Join(strings.Fields(string(output)), " ")
+	for _, wantText := range []string{
+		`Within: []resource.DeleteLink{ {Columns: []string{"ParentTaskId"}, Table: "Tasks", References: []string{"Id"}, MayBeEmpty: true}, },`,
+		`Paths: []resource.DeletePath{ { {Columns: []string{"ParentClientId"}, Table: "Clients", References: []string{"Id"}, MayBeEmpty: true}, }, },`,
+		// A kind with no rule: its delete patch, armed against the caller unless the
+		// call is trusted.
+		`Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Task], caller *resource.Caller) { patch := &TaskDeletePatch{patchSet: patchSet} if !caller.IsZero() { patch.Enforce(caller) } }),`,
+		// A kind with a rule registers it first.
+		`Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Invoice], caller *resource.Caller) { patch := &InvoiceDeletePatch{patchSet: patchSet} patch.registerValidateFunc() if !caller.IsZero() { patch.Enforce(caller) } }),`,
+		`Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Client], caller *resource.Caller) {`,
+	} {
+		if !strings.Contains(rendered, wantText) {
+			t.Errorf("rendered Client is missing %q", wantText)
+		}
+	}
+
+	// A record that declares nothing asks no one to take its rows.
+	project, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{
+		Source:   "fixture",
+		Package:  "resources",
+		Resource: byName["Project"],
+	})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	for _, unwanted := range []string{"WithEverythingUnder", "NewTakenRows"} {
+		if strings.Contains(string(project), unwanted) {
+			t.Errorf("rendered Project carries %s, though it declares no @%s", unwanted, deleteCascadeKeyword)
+		}
 	}
 }
 
@@ -547,9 +700,9 @@ func Test_parseDeleteCascade(t *testing.T) {
 			wantErr: "@deleteCascade on Client names Project twice",
 		},
 		{
-			name:    "the record itself is refused",
-			arg:     "Project, Client",
-			wantErr: "@deleteCascade on Client names Client itself",
+			name: "the record's own kind is read like any other: the schema says whether a row of it is under another",
+			arg:  "Project, Client",
+			want: &deleteCascadeDecl{Taken: []string{"Project", "Client"}},
 		},
 	}
 
@@ -579,6 +732,12 @@ func Test_parseDeleteCascade(t *testing.T) {
 // declares: every kind of the application's rows that carry the tenant's key, by a
 // foreign key or as the column a tenant-scoped resource is read by, or lead to a row
 // that does, deepest first, and no kind that refuses.
+//
+// The tenant's delete takes those rows in code: each kind is written with the delete of
+// one of its rows, which asks the kind's delete rule where it declares one and is never
+// armed against the caller, since the grant to delete a tenant answers for every row
+// under it. A kind with a row under a row of its own kind carries that link, and the
+// tenant's delete patch can be told to take everything under.
 func Test_tenantDeleteTree(t *testing.T) {
 	t.Parallel()
 
@@ -586,6 +745,7 @@ func Test_tenantDeleteTree(t *testing.T) {
 	client, ledger := byName["Client"], byName["Ledger"]
 	client.deleteCascade, client.DeleteTree, client.IsTenant = nil, nil, true
 	ledger.DomainBinding = &domainBinding{Anchor: ledger.fieldNamed("ClientID")}
+	underItsOwnKind(c, "Tasks", "ParentTaskId")
 
 	if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
 		t.Fatalf("resolveDeleteTrees() error = %v", err)
@@ -616,6 +776,164 @@ func Test_tenantDeleteTree(t *testing.T) {
 	if len(client.DeleteTree.RefusedBy) != 0 {
 		t.Errorf("the tenant's description lists %d kinds that refuse its delete, want none", len(client.DeleteTree.RefusedBy))
 	}
+
+	type kindDelete struct {
+		Table                  string
+		Deletes, Rule, Trusted bool
+		Within                 []deleteLink
+	}
+	var gotDeletes []kindDelete
+	for _, kind := range client.DeleteTree.Taken {
+		gotDeletes = append(gotDeletes, kindDelete{Table: kind.Table, Deletes: kind.Deletes, Rule: kind.Rule, Trusted: kind.Trusted, Within: kind.Within})
+	}
+	wantDeletes := []kindDelete{
+		{Table: "TaskComments", Deletes: true, Trusted: true},
+		{Table: "ProjectNotes", Deletes: true, Trusted: true},
+		{
+			Table: "Tasks", Deletes: true, Trusted: true,
+			Within: []deleteLink{{Columns: []string{"ParentTaskId"}, Table: "Tasks", References: []string{"Id"}, MayBeEmpty: true}},
+		},
+		{Table: "Invoices", Deletes: true, Rule: true, Trusted: true},
+		{Table: "Ledgers", Deletes: true, Trusted: true},
+		{Table: "Projects", Deletes: true, Trusted: true},
+	}
+	if diff := cmp.Diff(wantDeletes, gotDeletes); diff != "" {
+		t.Errorf("how the tenant's delete takes each kind mismatch (-want +got):\n%s", diff)
+	}
+	if !client.TakesRowsUnder() {
+		t.Error("TakesRowsUnder() = false for the tenant record, want true: its delete patch is told to take what is under the tenant")
+	}
+
+	literal := client.DeleteTreeLiteral()
+	for _, want := range []string{
+		// A kind with a delete rule registers it, and takes no caller.
+		"Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Invoice], _ *resource.Caller) {\npatch := &InvoiceDeletePatch{patchSet: patchSet}\npatch.registerValidateFunc()\n}),",
+		// A kind without one has nothing to arm.
+		"Rows: resource.NewTakenRows(func(*resource.PatchSet[Project], *resource.Caller) {}),",
+		"Within: []resource.DeleteLink{\n{Columns: []string{\"ParentTaskId\"}, Table: \"Tasks\", References: []string{\"Id\"}, MayBeEmpty: true},\n},",
+	} {
+		if !strings.Contains(literal, want) {
+			t.Errorf("the tenant's description as written lacks %q:\n%s", want, literal)
+		}
+	}
+	if strings.Contains(literal, "Enforce(") {
+		t.Errorf("the tenant's description arms a taken row's delete against the caller, want none armed:\n%s", literal)
+	}
+}
+
+// Test_deleteTree_tenant pins how a description says the tenant each row resolves to,
+// so a delete reads no row of another tenant under a record: the tenant record's own
+// row is its tenant, by its key column; a record or a kind with a @domain carries it,
+// with the way through other rows where it has one; and a record or a kind with none
+// carries nothing and writes no line. A kind's line follows its cost, as the record's
+// does.
+func Test_deleteTree_tenant(t *testing.T) {
+	t.Parallel()
+
+	toClient := []bindingHop{{Table: "Projects", JoinColumn: "Id", Column: "ClientId"}}
+	throughProjects := &resource.DomainBindingData{Column: "ProjectId", Path: []resource.BindingHop{{Table: "Projects", JoinColumn: "Id", Column: "ClientId"}}}
+	byClient := &resource.DomainBindingData{Column: "ClientId"}
+
+	t.Run("the tenant record", func(t *testing.T) {
+		t.Parallel()
+
+		c, byName := deleteFixtureResources(t)
+		client := byName["Client"]
+		client.deleteCascade, client.DeleteTree, client.IsTenant = nil, nil, true
+		for _, name := range []string{"Ledger", "Project", "Invoice"} {
+			byName[name].DomainBinding = &domainBinding{Anchor: byName[name].fieldNamed("ClientID")}
+		}
+		task := byName["Task"]
+		task.DomainBinding = &domainBinding{Anchor: task.fieldNamed("ProjectID"), Path: toClient}
+
+		if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+			t.Fatalf("resolveDeleteTrees() error = %v", err)
+		}
+		if diff := cmp.Diff(&resource.DomainBindingData{Column: "Id"}, client.DeleteTree.Record.Tenant); diff != "" {
+			t.Errorf("the tenant record's own tenant mismatch (-want +got):\n%s", diff)
+		}
+		got := make(map[string]*resource.DomainBindingData)
+		for _, kind := range client.DeleteTree.Taken {
+			got[kind.Table] = kind.Tenant
+		}
+		want := map[string]*resource.DomainBindingData{
+			"TaskComments": nil, "ProjectNotes": nil, "Tasks": throughProjects,
+			"Invoices": byClient, "Ledgers": byClient, "Projects": byClient,
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("the tenant of each kind the tenant's delete takes mismatch (-want +got):\n%s", diff)
+		}
+
+		literal := client.DeleteTreeLiteral()
+		for _, want := range []string{
+			"Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTenant: &resource.DomainBindingData{Column: \"Id\"},\nTaken:",
+			"Resource: \"Tasks\",\nWords: resource.DeleteWords{One: \"task\", Many: \"tasks\"},\nKey: []string{\"Id\"},\nCost: resource.DeleteCost{IndexEntries: 1, Files: 0},\n" +
+				"Tenant: &resource.DomainBindingData{Column: \"ProjectId\", Path: []resource.BindingHop{{Table: \"Projects\", JoinColumn: \"Id\", Column: \"ClientId\"}}},\nPaths:",
+			"Resource: \"Ledgers\",\nWords: resource.DeleteWords{One: \"ledger\", Many: \"ledgers\"},\nKey: []string{\"Id\"},\nCost: resource.DeleteCost{IndexEntries: 0, Files: 0},\n" +
+				"Tenant: &resource.DomainBindingData{Column: \"ClientId\"},\nPaths:",
+			// A kind whose rows are no tenant's writes no line.
+			"Resource: \"TaskComments\",\nWords: resource.DeleteWords{One: \"task comment\", Many: \"task comments\"},\nKey: []string{\"Id\"},\nCost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nPaths:",
+		} {
+			if !strings.Contains(literal, want) {
+				t.Errorf("the tenant's description as written lacks %q:\n%s", want, literal)
+			}
+		}
+	})
+
+	t.Run("a record under a tenant, and one that is no tenant's", func(t *testing.T) {
+		t.Parallel()
+
+		c, byName := deleteFixtureResources(t)
+		for _, name := range []string{"Project", "Invoice"} {
+			byName[name].DomainBinding = &domainBinding{Anchor: byName[name].fieldNamed("ClientID")}
+		}
+		task := byName["Task"]
+		task.DomainBinding = &domainBinding{Anchor: task.fieldNamed("ProjectID"), Path: toClient}
+		// The fixture's descriptions were written before the bindings were given.
+		for _, res := range byName {
+			res.DeleteTree = nil
+		}
+
+		if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+			t.Fatalf("resolveDeleteTrees() error = %v", err)
+		}
+
+		client := byName["Client"].DeleteTree
+		if client.Record.Tenant != nil {
+			t.Errorf("a record with no @domain carries the tenant %+v, want none", client.Record.Tenant)
+		}
+		tenants := func(kinds []*deleteKind) map[string]*resource.DomainBindingData {
+			out := make(map[string]*resource.DomainBindingData, len(kinds))
+			for _, kind := range kinds {
+				out[kind.Table] = kind.Tenant
+			}
+
+			return out
+		}
+		if diff := cmp.Diff(map[string]*resource.DomainBindingData{"TaskComments": nil, "ProjectNotes": nil, "Tasks": throughProjects, "Projects": byClient}, tenants(client.Taken)); diff != "" {
+			t.Errorf("the tenant of each kind the client's delete takes mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(map[string]*resource.DomainBindingData{"Invoices": byClient}, tenants(client.RefusedBy)); diff != "" {
+			t.Errorf("the tenant of each kind that refuses the client's delete mismatch (-want +got):\n%s", diff)
+		}
+		if literal := byName["Client"].DeleteTreeLiteral(); !strings.Contains(literal, "Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTaken:") {
+			t.Errorf("the description of a record that is no tenant's writes a tenant:\n%s", literal)
+		}
+
+		project := byName["Project"].DeleteTree
+		if project == nil {
+			t.Fatal("the project has no description after resolveDeleteTrees()")
+		}
+		if diff := cmp.Diff(byClient, project.Record.Tenant); diff != "" {
+			t.Errorf("the project's own tenant mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(map[string]*resource.DomainBindingData{"ProjectNotes": nil, "Tasks": throughProjects}, tenants(project.Under)); diff != "" {
+			t.Errorf("the tenant of each kind under the project mismatch (-want +got):\n%s", diff)
+		}
+		if literal := byName["Project"].DeleteTreeLiteral(); !strings.Contains(literal, "Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTenant: &resource.DomainBindingData{Column: \"ClientId\"},\nUnder:") {
+			t.Errorf("the project's description as written lacks its tenant after its cost:\n%s", literal)
+		}
+	})
 }
 
 // Test_tableMetadata_foreignKeys pins how the schema read keeps a table's foreign keys

@@ -28,8 +28,8 @@ import (
 	"github.com/impulseframework/impulse/access"
 ` + routerImports(routers) + `)
 
-func engine(store access.Store, collection access.PermissionCollection, roles access.RoleFile) (*access.Client, error) {
-	return access.New(store, collection, access.WithDefaultRoles(roles))
+func engine(store access.Store, collection access.PermissionCollection, roles access.RoleFile, auth string) (*access.Client, error) {
+	return access.New(store, collection, access.WithDefaultRoles(roles, auth))
 }
 `
 }

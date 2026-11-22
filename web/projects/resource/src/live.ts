@@ -96,6 +96,15 @@ export interface ChangeEvent {
   write?: string;
 }
 
+/**
+ * Whether `event` is the one a watcher receives for the tab's own write, at the write's
+ * answer: its `at` is the write's id. An event the feed reported carries the change
+ * document's timestamp there, whoever wrote.
+ */
+export function ownWrite(event: ChangeEvent): boolean {
+  return event.write !== undefined && event.at === event.write;
+}
+
 /** A change as a write's answer names it: the row, list, or resource, with no timestamp, since no feed has reported it yet. */
 export type AnsweredChange = Omit<ChangeEvent, 'at' | 'write'>;
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -866,6 +867,9 @@ func TestBaseSessionValidateXSRFToken(t *testing.T) {
 			a.ValidateXSRFToken(tt.args.next).ServeHTTP(w, tt.args.r)
 			if got := w.Code; !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("App.ValidateXSRFToken() = %v, want %v", got, tt.want)
+			}
+			if want := "This page is out of date. Reload it and try again."; w.Code == http.StatusForbidden && !strings.Contains(w.Body.String(), want) {
+				t.Errorf("App.ValidateXSRFToken() said %s, want %q", w.Body.String(), want)
 			}
 		})
 	}

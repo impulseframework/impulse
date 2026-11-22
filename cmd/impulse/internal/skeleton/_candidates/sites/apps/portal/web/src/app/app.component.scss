@@ -6,13 +6,22 @@
   z-index: 2000;
 }
 
+// The notices stack centered under the frame's bar (44px tall), never over it: the bar's
+// menus and its place picker stay in reach while a notice shows. On a phone, where a page's
+// own buttons start right under the bar, they stack at the foot of the screen instead; the
+// frame keeps room for them at the end of a page.
 .alert-container {
   position: fixed;
-  top: 12px;
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1500;
   max-width: min(640px, calc(100vw - 24px));
+
+  @media (max-width: 599.98px) {
+    top: auto;
+    bottom: 16px;
+  }
 
   .alerts {
     display: flex;

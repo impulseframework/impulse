@@ -736,8 +736,8 @@ func TestImpersonations_Request_refusesAnImpersonatedSession(t *testing.T) {
 
 		return true, nil
 	})
-	if req != nil || clientStatus(err) != http.StatusForbidden || httpio.Message(err) != "an impersonated session cannot establish another impersonated session" {
-		t.Errorf("Request() from an impersonated session = %+v, %v, want no request and 403 saying an impersonated session cannot establish another", req, err)
+	if req != nil || clientStatus(err) != http.StatusForbidden || httpio.Message(err) != "You are acting as someone else, and this session cannot start another one. End it first." {
+		t.Errorf("Request() from an impersonated session = %+v, %v, want no request and 403 saying the session cannot start another one", req, err)
 	}
 	if asked {
 		t.Error("the grant was asked about under the impersonated person's permissions")

@@ -29,7 +29,7 @@ go get github.com/impulseframework/impulse/access
 - **User**: Individual with assigned roles
 - **Role**: Named collection of permissions, of one of two kinds. A default role is declared in the release's role file (see Default Roles): a global default is held in the global partition, a domain default in every tenant domain, and the store holds no row for either. A custom role is created at run time through the user manager and held where it was created; its identity is `(policy scope, role)`.
 - **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
-- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet). An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
+- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet), except that `Update` on all fields is not `Update` on a field the release marks immutable. An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
 
 ## Policy Stores
 
@@ -107,7 +107,7 @@ func main() {
     // The collection is what the release declares, here Read on documents and
     // their fields: the application's generated router answers it. An
     // application that ships default roles adds
-    // access.WithDefaultRoles(roles.File); see Default Roles.
+    // access.WithDefaultRoles(staff.Roles(), staff.Name); see Default Roles.
     client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
@@ -202,13 +202,16 @@ tenant, and a thousand tenants share one compiled copy of the defaults.
 ```go
 client, err := access.New(store,
     // What the release declares: the generated router's collection. Every
-    // grant is held to it: a load skips and reports a stored grant naming a
-    // permission, resource or field this release does not have, instead of
-    // carrying it, and a write refuses one. A client is not built without it.
+    // grant's names are held to it, by one rule: a load skips and reports a
+    // stored grant naming a permission, resource or field this release does
+    // not have, instead of carrying it, and a write refuses one. A grant
+    // that names a permission and no resource is held to the permission. A
+    // client is not built without it.
     router.Collection(),
     // The release's default roles: the role file embedded in the binary,
-    // validated against the collection (see Default Roles).
-    access.WithDefaultRoles(roles.File),
+    // validated against the collection, with the name of the auth whose
+    // roles they are (see Default Roles).
+    access.WithDefaultRoles(staff.Roles(), staff.Name),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -231,13 +234,22 @@ defer client.Close()
 ```
 
 A grant the running release cannot use — a condition that does not parse, a
-row-referencing condition on a scope-wide grant, or a permission, resource or
-field the release's collection does not declare — does not stop the load: it is left out of
+row-referencing condition on a scope-wide grant, a permission, resource or
+field the release's collection does not declare, or, on a role's grant on a
+resource, anything else a write of the grant is refused for (below) — does not
+stop the load: it is left out of
 the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
 The permission it would grant is denied, the rest of the policy loads, and the
-instance becomes ready. That is what makes a stored grant safe to outlive the
-release that wrote it: after a rollback, or after a release removes a field,
-the grant is denied and reported, and everything else keeps working.
+instance becomes ready. A scope-wide grant names a permission and nothing else,
+and is held to that: one whose permission the collection does not list is
+skipped and reported like the rest, so it gives nobody the permission, is in no
+listing of what the role holds, and is no foothold in its scope. That is what
+makes a stored grant safe to outlive the release that wrote it: after a
+rollback, or after a release removes a field or a permission, the grant is
+denied and reported, and everything else keeps working. The row stays in the
+store until it is removed (`DeleteRolePermission`, `DeleteRoleGrant`), so a
+later release that declares the name again carries the grant again: the
+report is the notice to remove a grant nobody means any more.
 
 A load reports two more findings the same way. A custom role whose name a
 default role of the running release has, in the same kind of scope, is a
@@ -261,12 +273,44 @@ permission the release does not have, a permission it does not declare on the
 resource or the field, and an action no role is given. The refusal is a bad
 request that says which and why (`List on Ledgers cannot be given to a role:
 this release declares no List on Ledgers. ...`), and nothing of the call is
-written, the rows beside the refused one included. So the grants a load skips
-by name are the ones another release wrote, never ones this release was asked
-for and took. A removal is held to nothing: a grant the release no longer
-declares can always be taken away. No client is without the collection: `New`
-takes it as an argument and refuses a nil one, so there is no client that
-checks no name.
+written, the rows beside the refused one included. The load and the writes go
+by one rule for a grant's names, so the grants a load skips by name are the
+ones another release wrote or that were written straight to the store, never
+ones this release was asked for and took.
+
+A write of a grant on a resource is held to the rest of the rule the role
+file's grants are held to as well, so a role made at run time holds nothing a
+default role could not. The resource is of the role's scope: a global resource
+for a role held globally, a domain's for a role held in one domain or in every
+domain, since a grant of another scope sits in a partition the role's holders
+never look in. `Update` is not given on what the release marks immutable: a
+grant that names such a field is refused, and `Update` on all of a resource's
+fields (`Ledgers.*`) does not reach it. And
+the condition parses and reads only the attributes the resource declares and
+the subject vocabulary the application declares, a field's condition being
+held to its resource's attributes. Each is refused as a bad request in the
+role file's own sentence (`role Auditor is a domain role but grants Execute on
+CloseLedger, a global-scoped resource — a role's grants live at its declared
+scope; move the grant to a global role`, `role Auditor: Read grant on Ledgers:
+condition references "owner", which is not an attribute of Ledgers`), and
+nothing of the call is written. The load holds a role's stored grant on a
+resource to the same rule: one that breaks it, such as a grant of another scope
+or a condition that reads an attribute the release does not declare, is skipped
+and reported as a `*access.SkippedGrant` with the write's reason. So such a
+grant is no foothold where its role is held, no check meets a condition it
+cannot resolve, and its holder's other grants decide as they did. The store
+still holds the row, so `RoleGrants` lists it, marked with the reason
+(`RoleGrant.Skipped`): a page of a role's grants shows it as one the role does
+not hold, with why.
+
+A removal is held to nothing: a grant the release no longer declares can
+always be taken away. No client is without
+the collection: `New` takes it as an argument and refuses a nil one, a nil
+pointer of a collection's type included, so there is no client that checks no
+name. `access.IsNilCollection` is that check, exported for a package that
+takes the collection as a setting and refuses a missing one in its own words,
+naming the setting: the generated auth packages ask it before they open
+anything.
 
 ### Change signal
 
@@ -370,15 +414,26 @@ separate roles. Grouping is the engine's job: within one
 `CheckUserResources` call, a Conditional decision's
 `ConditionGroup.Resources` lists every checked resource sharing that
 covering-grant set, the same group appearing in each member's Decision —
-deduplicate by sorted-Resources equality. Conditions never attach to
-scope-wide grants (there is no row for them to see — rejected at snapshot
-load; interim — this narrows to row-referencing conditions once the
-condition package classifies row-free, with environment/subject-only
-conditions folding at check time), so `CheckUser` never answers
-`Conditional`. Nothing authors
-conditions yet (the expression language is undesigned), so in practice every
-Decision is `Granted` or `Denied` and an empty `Environment` is the normal
-argument.
+deduplicate by sorted-Resources equality.
+
+A scope-wide grant has no row for a condition to see, so the only condition
+one can carry is about the time of the request (`now < '2027-03-01T00:00:00Z'`).
+No write gives a scope-wide grant a condition: `AddRolePermission` takes none,
+and a role file's grant always names a resource. One that has a condition is a
+row put straight in the store. At snapshot load, a scope-wide grant whose
+condition reads a row is left out and reported as a `*access.SkippedGrant`,
+like any other grant the release cannot use; one whose condition reads only the
+time is kept and settled at check time against the `Environment`. So
+`CheckUser` and `CheckRole` answer `Granted` or `Denied`, never `Conditional`.
+A scope-wide check that cannot settle a condition is a check error, never a
+guess: the condition reads `now` and the `Environment` carries no instant, or
+it compares the time to a subject value, which only the database can read.
+
+A role file's grant on a resource carries a condition (`Condition`), so
+`CheckUserResources` and `CheckRoleResources` do answer `Conditional`. A
+condition that reads `now` is settled against the instant the `Environment`
+carries (`accesstypes.EnvironmentAt`, or `WithNow`), sampled once per request;
+without one the check is an error.
 
 The role checks are the same seams evaluated against a role's effective
 grants — its own and, transitively, every role it inherits — with no member
@@ -402,6 +457,23 @@ decision, err := client.CheckUser(ctx, env, user, scope, "ExportReports") // sco
 decisions, err = client.CheckRoleResources(ctx, env, role, scope, "Update", "documents")
 decision, err = client.CheckRole(ctx, env, role, scope, "ExportReports")
 ```
+
+`ExportReports` here is a permission no resource registers: the application
+checks it for the whole of a scope and for nothing else. A release has such a
+permission because the application declares it, with `@manualAddPermission` on
+a constant of type `accesstypes.Permission` in its resources package, and the
+generated collection then lists it with no resource:
+
+```go
+// ExportReports is checked for the whole of a tenant.
+//
+// @manualAddPermission
+const ExportReports accesstypes.Permission = "ExportReports"
+```
+
+A scope-wide grant of a permission the collection does not list is refused
+when it is written and skipped when the policy is loaded, so a check of a
+permission the application never declared answers `Denied` for everyone.
 
 A request binds its principal once: `client.ForUser(user)` returns a
 `*UserChecker` and `client.ForRole(role)` a `*RoleChecker`, each carrying
@@ -675,7 +747,10 @@ mgr.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents", "doc
 mgr.DeleteRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents.*")
 
 // A scope-wide permission (not tied to any resource) is granted through the
-// base-name method — there is no resource value that means it.
+// base-name method — there is no resource value that means it. The
+// permission is one the release has: one its collection lists, because a
+// resource registers it or because the application declares it with
+// @manualAddPermission on a constant of type accesstypes.Permission.
 mgr.AddRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 
@@ -683,7 +758,9 @@ mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 // folded: the file's grants for a default role, the store's for a custom one.
 permissions, err := mgr.RolePermissions(ctx, accesstypes.DomainScope("tenant1"), "Administrator")
 
-// The role's resource grants as held, with the conditions each is granted under.
+// The role's resource grants, each with the condition it is granted under
+// (access.RoleGrant). A stored row this release cannot use is listed too, with
+// why in Skipped: the load left it out, so the role does not hold it.
 grants, err := mgr.RoleGrants(ctx, tenant1, "Administrator")
 ```
 
@@ -774,11 +851,11 @@ the default policy.
 
 ### Usage
 
-Embed the role file in a package of the application:
+Embed the role file in the auth's package, which gives it beside its name:
 
 ```go
-// Package roles holds the release's default roles.
-package roles
+// Package staff is the auth of the application's staff.
+package staff
 
 import (
     _ "embed"
@@ -786,17 +863,23 @@ import (
     "github.com/impulseframework/impulse/access"
 )
 
-// File is the release's role file.
-//
+// Name is the auth's name.
+const Name = "staff"
+
 //go:embed roles.json
-var File access.RoleFile
+var roleFile access.RoleFile
+
+// Roles returns the auth's role file.
+func Roles() access.RoleFile {
+    return roleFile
+}
 ```
 
 Hand it to `New`, which validates it against the collection it is given:
 
 ```go
 client, err := access.New(store, router.Collection(),
-    access.WithDefaultRoles(roles.File),
+    access.WithDefaultRoles(staff.Roles(), staff.Name),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -805,7 +888,14 @@ if err != nil {
 ```
 
 The collection is given once, to `New`: the role file validates against it, and
-every grant the store holds or a write adds is held to it.
+the names of every grant the store holds or a write adds are held to it, a
+grant on a resource or a field and a grant of a permission for the whole of a
+scope alike.
+
+The second argument of `WithDefaultRoles`, `auth`, is the name of the auth whose roles the
+file holds, as the auth's package names it (`Name` in a package `impulse add auth`
+renders). It says whose subject sets the file is held to: see `access.UnreadSetWarning`
+below. `ValidateRoles` takes the same name.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -830,9 +920,68 @@ func checkPolicy(ctx context.Context, client *access.Client) error {
 ```
 
 Every warning prints as one line. A consumer that wants the fields switches on
-the kind: `access.GrantWarning`, `access.RequiredFieldWarning` and
-`access.ConcealingKeyWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
+the kind: `access.GrantWarning`, `access.RequiredFieldWarning`,
+`access.ConcealingKeyWarning` and `access.UnreadSetWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 `*access.OrphanedMembership` from the store.
+
+`access.UnreadSetWarning` names a subject set the application declares
+(`@subjectSet`) that no role reads. A set is read when a grant's condition
+names it (`hangarId IN subject.hangarsOpen`), or when a set that is read builds
+on it in its `who:` part (`GroupID IN subject.crewGroups`). Nobody holds
+anything through an unread set, so the line says to write the grant that reads
+it. It is never a refusal: a set may be declared one change before its first
+grant, and the role-file test accepts the warning until then. The set of a
+person's groups that the generator declares for an auth is not flagged, since
+nobody wrote it.
+
+A set describes the people of one auth: its user column holds that auth's
+people, and the set is looked up by their ids. An engine that is told its auth's
+name takes no grant that reads another auth's set, whether the grant is in its
+role file, written to a custom role, or found in the store. An application with
+more than one auth says whose people each set holds (`auth: staff` in the
+`@subjectSet`, the auth's name as its package names it; generation refuses a set
+that says none). A run knows the auths its own outlets declare and the auth
+packages in the tree of its module (a package directly under a directory named
+`auth` that constructs a session Auth, the rule `impulse check` finds an auth
+package by), so the generate program of one site knows another site's auth in
+the same module with nothing declared for it. Each auth hands its own name with
+its role file:
+
+```go
+access.WithDefaultRoles(staff.Roles(), staff.Name)
+warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
+```
+
+The check of an auth looks at that auth's sets and at the sets that name no
+auth, and never at another auth's, so a set is never flagged as unread in the
+role file of an auth whose roles could not read it. The name is the one
+generation knows the auth by, the name of its package, and, where the
+collection's generation knew any auth, a file handed over under a name it did
+not know is refused with the name given and the names known
+(`PermissionCollection.Auths`; the generated collection lists the application's
+auths as its run read them, and a union every site's). Two sites that say one
+set name describes two different auths' people are refused where the union is
+built (`UnionCollection`), naming the set and both auths: a role file reads a
+set by its name alone, so one of the two sets takes another name, or both name
+the same auth. Where the collections of a union together know several auths, a
+set that does not say whose people it describes is refused there too, naming the
+set: the union is where an application's sites meet, and it holds the rule for
+the auths one site's generation could not see. A grant whose condition reads a
+set that describes another auth's people is refused, naming the grant, the set
+and both auths: in the role file when it is loaded (`New`, `ValidateRoles`), and
+on a custom role when the grant is written. One found in the store is left out
+when the policy is loaded, and reported. The set is looked up by the other
+auth's ids, so it says nothing about the people who hold the role, whichever way
+the condition tests it. A set follows a person through sets of its own auth
+alone: generation refuses a `who:` that tests a set labeled for another auth,
+the set of a person's groups that the generator declares for another auth
+included. That set is named after its auth (`subject.staffGroups` for the auth
+`staff`) and names its auth without being told. An application with one auth
+need not write `auth:`: every set is that auth's. Where the collection knows
+several auths, an engine is told whose roles it holds: `New` refuses an empty
+name and refuses to open with no role file, and `ValidateRoles` refuses an empty
+name. Where it knows one auth or none, an empty name holds no grant to an auth's
+sets, and its check looks at every set.
 
 ### Behavior
 
@@ -1001,11 +1150,11 @@ as `[]access.Warning`, with no store and no client involved, so a project test o
 gets the answer the release's start would:
 
 ```go
-config, err := roles.File.Parse()
+config, err := staff.Roles().Parse()
 if err != nil {
     return err
 }
-warnings, err := access.ValidateRoles(router.Collection(), config)
+warnings, err := access.ValidateRoles(router.Collection(), config, staff.Name)
 if err != nil {
     return err // the refusals that would fail New
 }
@@ -1026,7 +1175,8 @@ in each; `UnionCollection` refuses collections that disagree on a shared resourc
 permissions (fields included), scope, immutability, computed marking, or method target.
 An action one site marks as an action no role is given is no role's in the union, and a
 site that registers the same name for roles is refused: a name is one or the other in
-every site.
+every site. A collection passed as nil is refused with a sentence that says which
+argument it was.
 
 ```go
 collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
@@ -1034,7 +1184,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, collection, access.WithDefaultRoles(roles.File))
+client, err := access.New(store, collection, access.WithDefaultRoles(staff.Roles(), staff.Name))
 ```
 
 ### JSON Configuration
@@ -1075,6 +1225,9 @@ domain-scoped resources and is held in every tenant domain. A job function that 
 both kinds of powers is two roles assigned to one user. Each grant names a base
 `resource`, the `fields` it covers as their wire tags, and an optional `condition`; a role
 may carry several grants on one resource for one permission, each under its own condition.
+`"fields": ["*"]` is all of the resource's fields, the ones a later release adds among
+them: the grant a write to a custom role spells `Documents.*`. `Update` on all the fields
+is not `Update` on a field the release marks immutable.
 
 The file is decoded strictly: a key the shape does not declare is an error, since a
 misspelled key would otherwise silently drop the roles under it. `RoleFile.Parse` decodes

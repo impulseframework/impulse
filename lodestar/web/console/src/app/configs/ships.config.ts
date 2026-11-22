@@ -49,7 +49,6 @@ export const shipsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Ships',
     createTitle: 'Ship',
-    createButtonLabel: 'Add a ship',
     primaryResource: Resources.Ships,
     listColumns: [
       { id: Ships.fieldName.name },

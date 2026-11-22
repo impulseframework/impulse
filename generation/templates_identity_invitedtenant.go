@@ -190,6 +190,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(CreatedAt asc)
+// @rowWord(invitation)
 type {{ .InvitedTenant }} struct {
 	// @primarykey
 	ID    impulse.UUID ` + "`spanner:\"Id\"`" + `

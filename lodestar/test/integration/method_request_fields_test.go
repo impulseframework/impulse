@@ -147,7 +147,7 @@ func TestMethodRequestFieldsValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RoleFile.Parse() error = %v", err)
 			}
-			_, err = access.ValidateRoles(router.Collection(), config)
+			_, err = access.ValidateRoles(router.Collection(), config, crew.Name)
 			t.Logf("access.ValidateRoles() error = %v", err)
 			switch {
 			case tt.wantErr == "" && err != nil:
@@ -381,7 +381,7 @@ func TestMethodRequestFieldsTarget(t *testing.T) {
 		{name: "both fail: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
 		{name: "another sector's pilot is not found, though the request field passes", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},
 		{name: "and is not found where the request field fails: the refusal does not say a row is there", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},
-		{name: "the role is held at Anvil alone: Bastion is no sector of the caller's", user: fieldRater, sector: bastion, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "unknown domain", wantClearance: 2},
+		{name: "the role is held at Anvil alone: Bastion is no sector of the caller's", user: fieldRater, sector: bastion, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "This sector does not exist.", wantClearance: 2},
 		{name: "a request field alone: a shared pilot, the field passes", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 1, wantStatus: http.StatusNoContent, wantClearance: 1},
 		{name: "a request field alone: the field fails, the uniform refusal", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 1},
 		{name: "a request field alone: another sector's pilot is not found", user: fieldCapper, sector: anvil, pilot: pilotCassID, clearance: 4, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},

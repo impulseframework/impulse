@@ -24,6 +24,7 @@ const (
 // such as role migration and bootstrap.
 func Collection() *resource.GeneratedCollection {
 	return resource.MustNewGeneratedCollection(resource.CollectionData{
+		Auths: []string{"staff"},
 		Resources: []resource.CollectionResource{
 			{
 				Name:        "AddStaffGroupMember",
@@ -247,7 +248,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "group", Column: "GroupId", Type: "string"},
 				},
 				SubjectSets: []resource.SubjectBindingData{
-					{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "StaffGroups", JoinColumn: "Id", Column: "DomainId"}}}},
+					{Name: "staffGroups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "StaffGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true, Auth: "staff"},
 				},
 				Order: []accesstypes.Tag{"userId"},
 			},

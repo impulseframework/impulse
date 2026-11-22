@@ -21,6 +21,7 @@ type (
 	// @outlet(portal, default)
 	// @order(OccurredAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in event)
 	MembersSessionAuthEvent struct {
 		SessionID  impulse.UUID `spanner:"SessionId"`
 		Seq        int64        `spanner:"Seq"`

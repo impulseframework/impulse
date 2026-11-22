@@ -176,7 +176,8 @@ type SetCache[Resource Resourcer, Request any] struct {
 	sets sync.Map
 }
 
-// For returns the Set requiring perm on every addressable field. Construction
+// For returns the Set requiring perm on every addressable field. A delete addresses
+// no field, so the Set for Delete asks it of the resource alone. Construction
 // errors are programming errors in generated code and panic.
 func (c *SetCache[Resource, Request]) For(perm accesstypes.Permission) *Set[Resource] {
 	if cached, ok := c.sets.Load(perm); ok {
@@ -184,7 +185,7 @@ func (c *SetCache[Resource, Request]) For(perm accesstypes.Permission) *Set[Reso
 			return set
 		}
 	}
-	set, err := NewSet[Resource, Request](perm)
+	set, err := operationSet[Resource, Request](perm)
 	if err != nil {
 		panic(errors.Wrapf(err, "resource.NewSet[%s](%s)", (*new(Resource)).Resource(), perm))
 	}
@@ -195,4 +196,16 @@ func (c *SetCache[Resource, Request]) For(perm accesstypes.Permission) *Set[Reso
 	}
 
 	return set
+}
+
+// operationSet builds the Set a generated patch or query of one operation is armed
+// with. A delete carries no field: its Set asks Delete of the resource and nothing of a
+// field, which NewSet refuses to build, since a Set a request is decoded against must
+// ask something of every field the request may address.
+func operationSet[Resource Resourcer, Request any](perm accesstypes.Permission) (*Set[Resource], error) {
+	if perm == accesstypes.Delete {
+		return newDeleteSet[Resource](), nil
+	}
+
+	return NewSet[Resource, Request](perm)
 }

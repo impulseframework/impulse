@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -30,9 +31,23 @@ import (
 // create-your-tenant route) is no role's in the union: it is in no List, a role's grant
 // that names it is refused, and a collection that registers the same name for roles is
 // refused here.
+//
+// The subject namespace is one for the whole application: collections that say one set
+// describes two auths' people are refused (refuseSetOfTwoAuths), and so, where the
+// collections together know several auths, is a set a collection lists without saying
+// whose people it describes (refuseUnsaidSet).
+//
+// A collection handed over as nil (the nil interface, or a nil pointer of a collection's
+// type, which a variable nothing was assigned to hands over) is refused with a sentence
+// that says which one, before anything is asked of it.
 func UnionCollection(collections ...PermissionCollection) (PermissionCollection, error) {
 	if len(collections) == 0 {
 		return nil, errors.New("UnionCollection: at least one collection is required")
+	}
+	for i, c := range collections {
+		if IsNilCollection(c) {
+			return nil, errors.Newf("UnionCollection: collection %d (in argument order) is nil: pass each site's permission collection, its generated router's Collection()", i+1)
+		}
 	}
 
 	u := &unionCollection{
@@ -59,6 +74,15 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 			}
 		}
 	}
+	// A permission a collection lists with no resource, one held for the whole of a
+	// scope alone, is one the release has in every site.
+	for _, c := range collections {
+		for perm := range c.List() {
+			if _, listed := u.merged[perm]; !listed {
+				u.merged[perm] = nil
+			}
+		}
+	}
 	for perm := range u.merged {
 		slices.Sort(u.merged[perm])
 	}
@@ -75,8 +99,73 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 			}
 		}
 	}
+	if err := refuseSetOfTwoAuths(collections); err != nil {
+		return nil, err
+	}
+	if err := refuseUnsaidSet(collections, u.Auths()); err != nil {
+		return nil, err
+	}
 
 	return u, nil
+}
+
+// refuseUnsaidSet refuses, where the collections together know several auths, a
+// subject set a collection lists without saying whose people it describes. A set that
+// names no auth is any auth's to read, so a role of every auth could read it, and
+// nothing holds the role to a set its holders' ids find nothing in. The set is refused
+// in each collection that leaves it unsaid, though another labels it, and the first
+// such collection in argument order is named, its sets in name order. Where the
+// collections know one auth or none an unsaid set is taken: every role is that auth's,
+// or is held to no auth's sets.
+func refuseUnsaidSet(collections []PermissionCollection, auths []string) error {
+	if len(auths) < 2 {
+		return nil
+	}
+	for i, c := range collections {
+		for _, name := range slices.Sorted(maps.Keys(c.SubjectSets(""))) {
+			if c.SubjectSetAuth(name) != "" {
+				continue
+			}
+
+			return errors.Newf("UnionCollection: collection %d (in argument order) declares subject set %q and does not say whose people it describes, and the collections together know several auths (%s). A role of any of them could read the set, so say whose people it holds: add auth: and that auth's name to the set's @subjectSet",
+				i+1, name, strings.Join(auths, ", "))
+		}
+	}
+
+	return nil
+}
+
+// refuseSetOfTwoAuths refuses collections that say one subject set describes two
+// different auths' people. subject.<name> is one name to a role file, and a grant is
+// held to the sets of its own auth by that name (SubjectSetAuth), so a name is one
+// auth's in every site. A set one collection labels and another leaves unsaid is taken
+// where the collections know one auth, the label standing for both (where they know
+// several, refuseUnsaidSet refuses it). The sets asked about are the ones some collection lists
+// (SubjectSets). The set of a person's groups that generation declares is not listed and
+// is not compared here: it is named after its auth, so two auths' sets never share a
+// name.
+func refuseSetOfTwoAuths(collections []PermissionCollection) error {
+	names := make(map[string]struct{})
+	for _, c := range collections {
+		for name := range c.SubjectSets("") {
+			names[name] = struct{}{}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(names)) {
+		first, firstAuth := 0, ""
+		for i, c := range collections {
+			auth := c.SubjectSetAuth(name)
+			if auth == "" || auth == firstAuth {
+				continue
+			}
+			if firstAuth != "" {
+				return errors.Newf("UnionCollection: collections %d and %d (in argument order) both declare subject set %q and disagree on whose people it describes: auth %q vs auth %q. A role file reads the set by its name alone, so give one of the two sets another name, or name the same auth on both (auth: in the @subjectSet)", first+1, i+1, name, firstAuth, auth)
+			}
+			first, firstAuth = i, auth
+		}
+	}
+
+	return nil
 }
 
 // registration is what one collection says about a resource it registers: the
@@ -217,6 +306,58 @@ func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.Att
 	}
 
 	return "", false
+}
+
+// SubjectSets merges the subject sets the collections declare for one auth's people:
+// the subject namespace is application-wide, and a set two collections declare builds
+// on what either says.
+func (u *unionCollection) SubjectSets(auth string) map[string][]string {
+	sets := make(map[string][]string)
+	for _, c := range u.collections {
+		for name, builds := range c.SubjectSets(auth) {
+			merged := sets[name]
+			for _, built := range builds {
+				if !slices.Contains(merged, built) {
+					merged = append(merged, built)
+				}
+			}
+			sets[name] = merged
+		}
+	}
+
+	return sets
+}
+
+// Auths lists the auths any collection's generation knew: an application's sites may
+// each declare an auth of their own, and a role file of any of them is checked against
+// the union.
+func (u *unionCollection) Auths() []string {
+	var auths []string
+	for _, c := range u.collections {
+		for _, auth := range c.Auths() {
+			if !slices.Contains(auths, auth) {
+				auths = append(auths, auth)
+			}
+		}
+	}
+	slices.Sort(auths)
+
+	return auths
+}
+
+// SubjectSetAuth names the auth whose people a subject set describes, from the first
+// collection (in argument order) that names one for it: the subject namespace is
+// application-wide, and a collection may leave unsaid what another says. Collections
+// that name two different auths for a set any of them lists are refused where the union
+// is built (UnionCollection), so the first answer is every collection's.
+func (u *unionCollection) SubjectSetAuth(name string) string {
+	for _, c := range u.collections {
+		if auth := c.SubjectSetAuth(name); auth != "" {
+			return auth
+		}
+	}
+
+	return ""
 }
 
 // SubjectValueComparisonType resolves a subject value's comparison type from

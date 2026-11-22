@@ -51,6 +51,7 @@ type (
 	// @outlet(default)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(person, plural: people)
 	StaffTenantUser struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`

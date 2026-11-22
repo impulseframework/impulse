@@ -328,6 +328,12 @@ func (p *PatchSet[Resource]) Resource() accesstypes.Resource {
 	return p.querySet.Resource()
 }
 
+// recordLabel is the record's struct name (labelOf), which the refusal of a commit says
+// the record by (recordLabeler).
+func (p *PatchSet[Resource]) recordLabel() string {
+	return labelOf[Resource]()
+}
+
 // Apply applies the patch within a new read-write transaction.
 //
 // An update or insert-or-update patch with no fields set is a silent no-op:
@@ -523,6 +529,11 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// A group the row names is one its own tenant keeps (checkGroupColumns).
+	if err := p.checkGroupColumns(ctx, txn); err != nil {
+		return err
+	}
+
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
@@ -577,6 +588,11 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// A group the row names is one its own tenant keeps (checkGroupColumns).
+	if err := p.checkGroupColumns(ctx, txn); err != nil {
+		return err
+	}
+
 	// A file key the patch sets releases the object the row held (recordReleasedOnWrite).
 	if err := p.recordReleasedOnWrite(ctx, txn); err != nil {
 		return err
@@ -613,6 +629,11 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 	}
 
 	if err := p.enforceWriteConditions(ctx, txn); err != nil {
+		return err
+	}
+
+	// A group the row names is one its own tenant keeps (checkGroupColumns).
+	if err := p.checkGroupColumns(ctx, txn); err != nil {
 		return err
 	}
 

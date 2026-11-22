@@ -16,22 +16,25 @@ type (
 	// names anyone.
 	//
 	// The table names people, so it declares a subject set as any such table does:
-	// subject.groups is the ids of the groups the caller is in. A grant's
+	// subject.crewGroups is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.groups).
+	// (who: GroupID IN subject.crewGroups). The people are the Crew auth's, and the
+	// set says so (auth: crew): generation refuses a set that describes another
+	// auth's people and follows a person through this one.
 	//
 	// The table is no tenant's, and a group is kept in one tenant or for the whole
 	// application, so the set says where a row's tenant is found (domain:
 	// GroupID.DomainID). In a request that has a tenant the set holds the groups kept in
-	// that tenant alone: a row of the tenant's that names another tenant's group, or a
-	// group kept for the whole application, gives nobody anything through it. In a
-	// request that has no tenant the set holds every group the caller is in.
+	// that tenant alone: a row of the tenant's that named another tenant's group, or a
+	// group kept for the whole application, would give nobody anything through it, and
+	// the library refuses to write one. In a request that has no tenant the set holds
+	// every group the caller is in.
 	//
 	// StartsAt and EndsAt are the place's period: the first instant it counts and the
 	// first it no longer does, each empty for none. Outside its period a place gives the
 	// person none of the group's roles, and the set says so with its where: part, so a
-	// condition that tests subject.groups leaves the group out as the permission
+	// condition that tests subject.crewGroups leaves the group out as the permission
 	// engine does. A row whose period has ended stands until its person next signs in,
 	// which removes it.
 	//
@@ -41,10 +44,11 @@ type (
 	// @outlet(default)
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	CrewGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(groups, value: GroupID, domain: GroupID.DomainID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
+		// @subjectSet(crewGroups, value: GroupID, domain: GroupID.DomainID, auth: crew, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
 		UserID    string     `spanner:"UserId"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

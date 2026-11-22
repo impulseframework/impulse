@@ -92,10 +92,11 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		},
 		"internal/crewresources/crew_group_members.go": {
 			// A grant's condition reads the group of a row (group), and the set the same
-			// table declares is what it is tested against (group IN subject.groups).
+			// table declares is what it is tested against (group IN subject.crewGroups).
 			"// @suppress(readHandler)", "CrewGroupMember struct {", "// @attribute(group)\n\t\tGroupID impulse.UUID `spanner:\"GroupId\"`",
-			// The one auth that keeps groups declares the set under the plain name.
-			"// @subjectSet(groups, value: GroupID, domain: GroupID.DomainID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
+			// The one auth that keeps groups declares the set under its own name, and
+			// the set names the auth whose groups they are.
+			"// @subjectSet(crewGroups, value: GroupID, domain: GroupID.DomainID, auth: crew, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
 		},
 		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "Role      string       `spanner:\"Role\"`"},
 		"internal/crewresources/crew_group_users.go": {
@@ -491,10 +492,9 @@ func Test_identityInstance_groupTables(t *testing.T) {
 	}
 }
 
-// Test_nameGroupSets pins the name of the subject set of a person's groups:
-// subject.<name> is one namespace for the whole application, so the one auth that keeps
-// groups declares "groups", several each declare their own, and an auth that keeps none
-// declares nothing.
+// Test_nameGroupSets pins the name of the subject set of a person's groups: it is named
+// after its auth, in an application where one auth keeps groups as where several do, and
+// an auth that keeps none declares nothing.
 func Test_nameGroupSets(t *testing.T) {
 	t.Parallel()
 
@@ -505,8 +505,14 @@ func Test_nameGroupSets(t *testing.T) {
 
 	one := []*identityInstance{keeping("Crew"), none}
 	nameGroupSets(one)
-	if one[0].groupSet != "groups" || one[1].groupSet != "" {
-		t.Errorf("one auth keeping groups: the sets = %q and %q, want \"groups\" and none", one[0].groupSet, one[1].groupSet)
+	if one[0].groupSet != "crewGroups" || one[1].groupSet != "" {
+		t.Errorf("one auth keeping groups: the sets = %q and %q, want crewGroups and none", one[0].groupSet, one[1].groupSet)
+	}
+
+	staff := []*identityInstance{keeping("staff")}
+	nameGroupSets(staff)
+	if staff[0].groupSet != "staffGroups" {
+		t.Errorf("the one auth staff keeping groups: the set = %q, want staffGroups", staff[0].groupSet)
 	}
 
 	several := []*identityInstance{keeping("Crew"), keeping("FleetStaff")}

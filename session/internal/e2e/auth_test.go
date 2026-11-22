@@ -802,6 +802,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamEmailCodeEnrollment[Tx],
 		},
 		{
+			name: "a code mailed to an address an administrator then takes off the account is dead: nothing is written back, and the code for the address the person then gives at the step writes it",
+			run:  seamEmailCodeAddressTakenOff[Tx],
+		},
+		{
 			name: "five wrong codes kill the code sent, a new one is sent in its place, an address sent five codes it did not use is refused a sixth with too_many_emails, and a code is refused where the policy accepts another factor",
 			run:  seamEmailCodeLimits[Tx],
 		},

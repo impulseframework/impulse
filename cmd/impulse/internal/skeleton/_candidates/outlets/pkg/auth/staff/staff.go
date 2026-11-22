@@ -58,7 +58,12 @@ import (
 )
 
 const (
-	// Name is the auth's name: the cookie its sessions ride in.
+	// Name is the auth's name. It is the name of this package's directory, the name
+	// generation knows the auth by, the name a @subjectSet says in its auth: part,
+	// the name the role file is handed over under (access.WithDefaultRoles(Roles(),
+	// Name)), and the cookie its sessions ride in. It is not a setting: an engine
+	// handed a name generation does not know refuses to open, so renaming the auth
+	// renames the directory and this constant together.
 	Name = "staff"
 	// TablePrefix is the name's PascalCase form, which prefixes every table the auth owns.
 	TablePrefix = "Staff"
@@ -129,14 +134,19 @@ func Roles() access.RoleFile {
 	return roleFile
 }
 
-// Settings are the auth's settings: the collection the role file validates against, the
-// live service the permission engine signals through, and the environment-derived values,
-// the settings of each sign-in method among them.
+// Settings are the auth's settings: the collection the permission engine holds every
+// grant to, the live service it signals through, and the environment-derived values, the
+// settings of each sign-in method among them.
 type Settings struct {
 	// Collection is the generated permission collection: the resources, permissions and
-	// fields the release declares, which the role file validates against when the engine
-	// opens. The package that constructs the auth passes it in; this package imports no
-	// router.
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The package
+	// that constructs the auth passes it in, the generated router's Collection() or, where
+	// the application has several sites, the union of theirs (access.UnionCollection);
+	// this package imports no router. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// Signals is the application's live service: the permission engine signals the policy
 	// kind on it after every policy write and follows the kind from every other instance
@@ -352,6 +362,9 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // for the whole application alone: its holder gives and takes any role of the auth, enters
 // every tenant, and signs in with a second factor whatever the sign-in rule asks.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
+	if access.IsNilCollection(settings.Collection) {
+		return nil, errors.New("staff.Settings.Collection is nil: the permission engine holds every grant to the permission collection the release declares; pass the generated router's Collection(), or where the application has several sites the union of theirs (the configuration's Collection(), over access.UnionCollection)")
+	}
 	if settings.Signals == nil {
 		return nil, errors.New("staff.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
 	}
@@ -373,7 +386,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 	_, tenantAdministrators := AdministratorRoles()
 	accessClient, err := access.New(store, settings.Collection,
-		access.WithDefaultRoles(Roles()),
+		access.WithDefaultRoles(Roles(), Name),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.

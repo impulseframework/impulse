@@ -19,6 +19,7 @@ type (
 	// @outlet(portal)
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role)
 	MembersRole struct {
 		Kind        string    `spanner:"Kind"`
 		Axis        string    `spanner:"Axis"`

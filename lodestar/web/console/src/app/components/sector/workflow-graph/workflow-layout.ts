@@ -168,6 +168,23 @@ function curve(a: Point, toward: Point, b: Point): Line {
 }
 
 /**
+ * Where a line from a state's middle toward a point crosses the edge of the state's box.
+ * A line starts and ends there, never at the middle: the boxes are drawn over the lines,
+ * so a line that ran on to the middle would have its arrowhead under the box.
+ */
+function edgeToward(state: Point, toward: Point): Point {
+  const dx = toward.x - state.x;
+  const dy = toward.y - state.y;
+  if (dx === 0 && dy === 0) return { x: state.x, y: state.y };
+  const share = Math.min(
+    1,
+    dx === 0 ? Infinity : nodeHalfWidth / Math.abs(dx),
+    dy === 0 ? Infinity : nodeHalfHeight / Math.abs(dy),
+  );
+  return { x: state.x + dx * share, y: state.y + dy * share };
+}
+
+/**
  * The room kept clear of other lines around a label: its own room and a little more,
  * since the letters are drawn with the ground's color around them.
  */
@@ -289,9 +306,10 @@ function layoutAcross(workflow: Workflow, words: (method: string) => string): Gr
     if (a.y === b.y) {
       const passed = Math.abs(steps(pair)) - 1;
       const bow = a.x < b.x ? -(bowOver + bowStep * passed) : bowUnder + bowStep * passed;
-      lines.set(pair.i, curve(a, { x: (a.x + b.x) / 2, y: a.y + bow }, b));
+      const toward = { x: (a.x + b.x) / 2, y: a.y + bow };
+      lines.set(pair.i, curve(edgeToward(a, toward), toward, edgeToward(b, toward)));
     } else {
-      lines.set(pair.i, straight([a, b]));
+      lines.set(pair.i, straight([edgeToward(a, b), edgeToward(b, a)]));
     }
   }
 

@@ -99,6 +99,7 @@ const metas: Record<string, ResourceMeta> = {
   } as ResourceMeta,
   [calls]: {
     route: 'distress-calls',
+    rowWords: { one: 'distress call', many: 'distress calls' },
     fields: [
       field('id', { primaryKey: { ordinalPosition: 0 } }),
       field('summary'),
@@ -1428,12 +1429,99 @@ describe('ResourceListComponent', () => {
       expect(ask(kestrel, true).question).toBe('Delete Kestrel from Ships?');
     });
 
+    it("by the word the resource's rows go by where its metadata carries one", async () => {
+      await create({ primaryResource: calls, title: 'Distress calls', listColumns: [{ id: 'summary' as FieldName }] });
+      fixture.detectChanges();
+
+      expect(ask({ id: 'c-1', summary: 'Mayday' }, true).question).toBe('Delete this distress call?');
+    });
+
     it('and deletes nothing when the person cancels or closes the dialog', async () => {
       await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
       fixture.detectChanges();
 
       expect(ask(kestrel, false).deleted).toEqual([]);
       expect(ask(kestrel, undefined).deleted).toEqual([]);
+    });
+
+    it('and says the delete takes everything under the row once the dialog says so', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      let handed: DeleteConfirmation | undefined;
+      component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+        handed = config.data;
+
+        return {};
+      }) as unknown as typeof component.dialog.open;
+      const sent: unknown[] = [];
+      component.store.apply = ((operations: unknown[]) => {
+        sent.push(...(JSON.parse(JSON.stringify(operations)) as unknown[]));
+
+        return Promise.resolve({});
+      }) as unknown as typeof component.store.apply;
+      component.store.reloadPage = (): void => undefined;
+
+      component.confirmDeleteRow(kestrel);
+      await handed?.delete?.();
+      await handed?.delete?.({ everythingUnder: true });
+
+      expect(sent).toEqual([
+        { op: 'remove', path: '/s-1' },
+        { op: 'remove', path: '/s-1', value: { everythingUnder: true } },
+      ]);
+    });
+  });
+
+  describe("names its row by the word the resource's rows go by", () => {
+    const summary = [{ id: 'summary' as FieldName }];
+    /** Deletes a row with the store's write answered here, and says what the person was told. */
+    const deleted = (row: RecordData): string[] => {
+      const component = fixture.componentInstance;
+      const said: string[] = [];
+      component.store.apply = ((_: unknown, message: string) => {
+        said.push(message);
+
+        return Promise.resolve({});
+      }) as unknown as typeof component.store.apply;
+
+      component.deleteRow(row);
+
+      return said;
+    };
+
+    it('on the button that adds one, where the config sets no label', async () => {
+      await create({ primaryResource: calls, title: 'Distress calls', listColumns: summary });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.createButtonLabel()).toBe('Add a distress call');
+    });
+
+    it('and keeps the label the config sets', async () => {
+      await create({
+        primaryResource: calls,
+        title: 'Distress calls',
+        createButtonLabel: 'File a distress call',
+        listColumns: summary,
+      });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.createButtonLabel()).toBe('File a distress call');
+    });
+
+    it('in the message after one is deleted', async () => {
+      await create({ primaryResource: calls, title: 'Distress calls', listColumns: summary });
+      fixture.detectChanges();
+
+      expect(deleted({ id: 'c-1', summary: 'Mayday' })).toEqual(['Distress call deleted.']);
+    });
+
+    it('and says "Create" and names the resource where its metadata carries no word', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.createButtonLabel()).toBe('Create');
+      expect(deleted({ id: 's-1', name: 'Kestrel' })).toEqual(['Ships deleted successfully']);
     });
   });
 

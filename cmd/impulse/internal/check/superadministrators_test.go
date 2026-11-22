@@ -16,8 +16,8 @@ func TestSuperAdministratorsTold(t *testing.T) {
 	t.Parallel()
 
 	const (
-		ownForm  = "pass session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))) over the engine %s.New opens with access.WithDefaultRoles(Roles())"
-		staffOwn = "pass session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))) over the engine staff.New opens with access.WithDefaultRoles(Roles())"
+		ownForm  = "pass session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))) over the engine %s.New opens with access.WithDefaultRoles(Roles(), Name)"
+		staffOwn = "pass session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))) over the engine staff.New opens with access.WithDefaultRoles(Roles(), Name)"
 	)
 	membersOwn := strings.Replace(ownForm, "%s", "members", 1)
 	// The members auth beside the staff auth: the same package under its own name, which
@@ -70,7 +70,7 @@ func TestSuperAdministratorsTold(t *testing.T) {
 		},
 		{
 			name:       "a check over an engine handed another auth's role file",
-			files:      two(strings.Replace(membersAuth, "access.WithDefaultRoles(Roles())", "access.WithDefaultRoles(staff.Roles())", 1)),
+			files:      two(strings.Replace(membersAuth, "access.WithDefaultRoles(Roles(), Name)", "access.WithDefaultRoles(staff.Roles(), staff.Name)", 1)),
 			wantStatus: Fail, wantSummary: "1 Auth(s) not told who their own auth's super administrators are",
 			wantDetails: []string{"pkg/auth/members/members.go:39: the members auth's Auth takes its super administrators from the engine opened at pkg/auth/members/members.go:35, which is handed the staff auth's role file and is that auth's engine, so it holds that auth's holders to the second factor and none of its own; " + membersOwn},
 		},
@@ -88,13 +88,13 @@ func TestSuperAdministratorsTold(t *testing.T) {
 		},
 		{
 			name:       "a check over an engine whose role file does not read is not judged",
-			files:      one(strings.Replace(staffAuth, "access.WithDefaultRoles(Roles())", "options...", 1)),
+			files:      one(strings.Replace(staffAuth, "access.WithDefaultRoles(Roles(), Name)", "options...", 1)),
 			wantStatus: Warn, wantSummary: "1 Auth(s) whose super administrators cannot be followed to an engine",
-			wantDetails: []string{"pkg/auth/staff/staff.go:37: the check the staff auth's Auth is handed is built over the engine opened at pkg/auth/staff/staff.go:33, and the role file that engine is handed does not read there (no access.WithDefaultRoles(Roles()) among its arguments), so whose engine it is is not judged here; " + staffOwn},
+			wantDetails: []string{"pkg/auth/staff/staff.go:37: the check the staff auth's Auth is handed is built over the engine opened at pkg/auth/staff/staff.go:33, and the role file that engine is handed does not read there (no access.WithDefaultRoles(Roles(), Name) among its arguments), so whose engine it is is not judged here; " + staffOwn},
 		},
 		{
 			name:       "a check over an engine handed a role file that is no auth package's is not judged",
-			files:      one(strings.Replace(staffAuth, "access.WithDefaultRoles(Roles())", "access.WithDefaultRoles(signin.Roles())", 1)),
+			files:      one(strings.Replace(staffAuth, "access.WithDefaultRoles(Roles(), Name)", "access.WithDefaultRoles(signin.Roles(), signin.Name)", 1)),
 			wantStatus: Warn, wantSummary: "1 Auth(s) whose super administrators cannot be followed to an engine",
 			wantDetails: []string{"pkg/auth/staff/staff.go:37: the check the staff auth's Auth is handed is built over the engine opened at pkg/auth/staff/staff.go:33, which is handed the Roles() of github.com/impulseframework/impulse/session/signin, no auth package of the application, and not the package's own, so whose engine it is is not judged here; " + staffOwn},
 		},

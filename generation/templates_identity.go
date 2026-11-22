@@ -63,6 +63,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(account)
 	{{ .User }} struct {
 		ID                     impulse.UUID ` + "`spanner:\"Id\"`" + `
 		Username               string       ` + "`spanner:\"Username\"`" + `
@@ -99,6 +100,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(session)
 	{{ .Session }} struct {
 		ID              impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		UserID          *impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -134,6 +136,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	{{ .Identity }} struct {
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
 		UserID      impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -172,6 +175,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(token)
 	{{ .Token }} struct {
 		ID            impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind          string        ` + "`spanner:\"Kind\"`" + `
@@ -217,6 +221,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(mailed link)
 	{{ .MailLink }} struct {
 		ID         impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind       string        ` + "`spanner:\"Kind\"`" + `
@@ -258,6 +263,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UpdatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(failed sign-in)
 	{{ .SignInAttempt }} struct {
 		Name         string     ` + "`spanner:\"Name\"`" + `
 		Failures     int64      ` + "`spanner:\"Failures\"`" + `
@@ -293,6 +299,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(OccurredAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in event)
 	{{ .AuthEvent }} struct {
 		SessionID  impulse.UUID ` + "`spanner:\"SessionId\"`" + `
 		Seq        int64        ` + "`spanner:\"Seq\"`" + `
@@ -340,6 +347,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(StartedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(impersonation)
 	{{ .Impersonation }} struct {
 		SessionID       impulse.UUID  ` + "`spanner:\"SessionId\"`" + `
 		ActorUsername   string        ` + "`spanner:\"ActorUsername\"`" + `
@@ -384,6 +392,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(trusted device)
 	{{ .TrustedDevice }} struct {
 		ID         impulse.UUID ` + "`spanner:\"Id\"`" + `
 		UserID     impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -425,6 +434,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	{{ .Membership }} struct {
 		Kind      string    ` + "`spanner:\"Kind\"`" + `
 		Axis      string    ` + "`spanner:\"Axis\"`" + `
@@ -464,6 +474,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role)
 	{{ .Role }} struct {
 		Kind        string    ` + "`spanner:\"Kind\"`" + `
 		Axis        string    ` + "`spanner:\"Axis\"`" + `
@@ -500,6 +511,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role grant)
 	{{ .RoleGrant }} struct {
 		Kind         string    ` + "`spanner:\"Kind\"`" + `
 		Axis         string    ` + "`spanner:\"Axis\"`" + `
@@ -649,7 +661,8 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 // user is the person as the permission store names them, the id of their account: a
 // request's caller is its resource.UserPermissions.User(). A role is held by an account,
 // so a user that is no account's id (a session that acts for nobody with an account
-// here) is refused, and nothing is written. The call reads no account: a user created
+// here) is refused, in a sentence that names no role by its code name, and nothing is
+// written. The call reads no account: a user created
 // earlier in the same transaction is one the database cannot yet show it, and such a
 // user is what a Go caller often gives a role to. The caller names an account it knows
 // exists, its request's caller or one it created; a role method served to a person who
@@ -657,7 +670,7 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	userID, ok := identity.UserID(user)
 	if !ok {
-		return httpio.NewForbiddenMessagef("the role %s is given to a person with an account, and this session acts for none", role)
+		return httpio.NewForbiddenMessageWithError(errors.Newf("the role %s is given to a person with an account, and %q is no account's id", role, user), "A role is given to a person with an account, and this session acts for none.")
 	}
 	if err := c.manager.AssignRole(ctx, txn, scope, userID, role); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRole()")
@@ -1152,10 +1165,12 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as UserID's is: the table's normalized
 	// address is no field of the declaration, and it is the column the unique index
-	// is over, so the address is compared as the session library compares one. An
-	// address nobody confirmed names no one, as at a sign-in.
+	// is over, so the address is compared as the session library compares one, by the
+	// case of its ASCII letters alone (LOWER over BYTES treats its argument as ASCII and
+	// leaves every byte above 127 as it is). An address nobody confirmed names no one,
+	// as at a sign-in.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL",
 		Params: map[string]any{"email": email},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {

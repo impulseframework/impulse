@@ -69,7 +69,9 @@ import {
  * resource (a field-scope @enumerate, or the schema's foreign key), or `enumeration`
  * carries a fixed value set the picker renders with no request. The configuration
  * narrows and presents those rows — `filter`, `sorts`, the display columns — and never
- * chooses another resource.
+ * chooses another resource. Where the configuration names no display column an option
+ * shows its key, and a role's key in words ("Sector marshal" for `SectorMarshal`) on a
+ * method's request field that names a role.
  *
  * How the resource is read is the generated descriptor's statement alone: its declared
  * maximum page size (readMode). A source with no maximum is read whole in one request,
@@ -314,6 +316,16 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    * empty list is the empty value.
    */
   multiple = computed((): boolean => this.fieldMeta()?.displayType === 'enumerated[]');
+
+  /**
+   * The field holds a role: a method's request field that a grant's condition reads as
+   * the role (`attribute: 'role'` in the generated metadata). Where the page configured
+   * no display field, such a picker shows each role's key in words and stores the key.
+   */
+  private readonly namesRole = computed((): boolean => {
+    const meta = this.fieldMeta();
+    return meta !== undefined && 'attribute' in meta && meta.attribute === 'role';
+  });
 
   /** The picked keys of a field that takes several, in the order they were picked. */
   private readonly chosenKeys = computed((): string[] => {
@@ -774,7 +786,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const key = resource[this.keyField()] ?? '';
     const option: PickerOption = {
       id: key,
-      display: optionDisplay(resource, key, displayFields, concatFunction),
+      display: optionDisplay(resource, key, displayFields, concatFunction, this.namesRole()),
     };
     if (enumeratedConfig.searchable && !this.paged()) {
       option.text = this.ownSearchFields().map((field) => String(resource[field] ?? ''));

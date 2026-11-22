@@ -64,6 +64,9 @@ type resourceGenerator struct {
 	mountedRoutes       []mountedRoutes
 	typescriptTargets   []typescriptTarget
 	manualRegistrations []ManualRegistration
+	// manualPermissions are the permissions declared with no resource
+	// (@manualAddPermission), in the constants' order.
+	manualPermissions []accesstypes.Permission
 	// warnings are the schema findings the last Generate raised (Warnings).
 	warnings []Warning
 	// findings are the advisory findings the last Generate raised (Audit).
@@ -111,6 +114,31 @@ func (r *resourceGenerator) allOutlets() []*routerOutlet {
 	}
 
 	return outlets
+}
+
+// authNames lists the application's auths by name, as their packages name them and in
+// name order: every auth package in the application's tree (treeAuthNames), and each
+// auth an outlet of the run declares. The tree is what tells the run of one site's
+// generate program about another site's auth: a program declares its own outlets alone,
+// and a set is held to the application's auths, whichever program reads it. Nothing is
+// declared for it, so no program can be left out of step with the others.
+func (r *resourceGenerator) authNames() ([]string, error) {
+	tree, err := r.treeAuthNames()
+	if err != nil {
+		return nil, err
+	}
+	names := slices.Clone(tree)
+	for _, outlet := range r.allOutlets() {
+		if outlet.auth == nil {
+			continue
+		}
+		if name := outlet.auth.packageName(); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+
+	return names, nil
 }
 
 // memberOutlets returns the declared outlets the membership joins, in declaration order.
@@ -316,11 +344,9 @@ func (r *resourceGenerator) Generate() error {
 		return err
 	}
 
-	annotatedRegistrations, err := manualRegistrationsFromConstants(resourcesPkg.Constants)
-	if err != nil {
+	if err := r.readManualDeclarations(resourcesPkg.Constants); err != nil {
 		return err
 	}
-	r.manualRegistrations = append(r.manualRegistrations, annotatedRegistrations...)
 
 	if err := r.extractResourcesBesideTheApplications(packageMap, pkg); err != nil {
 		return err
@@ -587,6 +613,13 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	}
 
 	if err := r.resolveRunSubjectSets(r.resources); err != nil {
+		return err
+	}
+	auths, err := r.authNames()
+	if err != nil {
+		return err
+	}
+	if err := resolveSubjectSetAuths(r.resources, auths); err != nil {
 		return err
 	}
 	r.attachSubjectReadThroughs()

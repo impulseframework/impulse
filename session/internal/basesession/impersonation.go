@@ -107,6 +107,36 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 	return id, nil
 }
 
+// What a person reads when a session that acts as someone else is not started for them, or
+// when one refuses them a write. Each is one sentence, or one and the person's own next
+// step, with no session's id and nobody's name in it: what the request named is the
+// refusal's cause, which the server's log prints.
+const (
+	// actorSignedInHereWords answers a call that names an actor another system signed
+	// in while it carries a session of this application.
+	actorSignedInHereWords = "You are signed in to this application, so a session that acts as someone else cannot be started for you from another system."
+
+	// actorNotYouWords answers a call that names another person than its own session's
+	// as the one who starts the session.
+	actorNotYouWords = "You cannot start a session that acts as someone else in another person's name."
+
+	// notOwnSessionWords answers a request that did not arrive as the session it claims:
+	// one validated as another session than its cookie names, or as the session of
+	// another account than the store holds it under.
+	notOwnSessionWords = "This request did not arrive as your own session, so it cannot start a session that acts as someone else. Sign in again."
+
+	// sourceNotOwnWords answers a call that names another session than the one making it
+	// as the actor's own.
+	sourceNotOwnWords = "The session this request names as yours is not the one making it, so it cannot start a session that acts as someone else."
+
+	// sourceNotLiveWords answers an actor whose own session is not here, has ended, acts
+	// as someone itself or is another person's.
+	sourceNotLiveWords = "A session that acts as someone else is started from a live session of your own, and this one is not. Sign in again."
+
+	// readOnlyWords is what the read-only guard answers a write with.
+	readOnlyWords = "You are acting as someone else, and this session cannot change anything."
+)
+
 // bindActorToSession ties an establishing call that arrives on a validated session of
 // this application to that session. The request's own session is proof of who is at
 // the keyboard, so the actor must be its user, and a local actor's SourceSessionID
@@ -127,17 +157,23 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 	}
 
 	if imp.ActorRealm != "" {
-		return httpio.NewForbiddenMessage(
-			"the request carries a session of this application, so the actor is that session's user: " +
-				"an actor another system signed in is named only by a call that carries no session here",
+		return httpio.NewForbiddenMessageWithError(
+			errors.New(
+				"the request carries a session of this application, so the actor is that session's user: "+
+					"an actor another system signed in is named only by a call that carries no session here",
+			),
+			actorSignedInHereWords,
 		)
 	}
 	if imp.Actor != sessData.Username {
-		return httpio.NewForbiddenMessagef("actor %q is not the user of the session making the request", imp.Actor)
+		return httpio.NewForbiddenMessageWithError(errors.Newf("actor %q is not the user of the session making the request", imp.Actor), actorNotYouWords)
 	}
 	own := RequestSessionID(ctx, sessData)
 	if sessData.ID != own {
-		return httpio.NewForbiddenMessage("the session this request was validated as is not the session its cookie names, so it starts no session that acts as someone else")
+		return httpio.NewForbiddenMessageWithError(
+			errors.New("the session this request was validated as is not the session its cookie names, so it starts no session that acts as someone else"),
+			notOwnSessionWords,
+		)
 	}
 	if !imp.SourceSessionID.Valid {
 		imp.SourceSessionID = impulse.NullUUID{UUID: own, Valid: true}
@@ -145,7 +181,7 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 		return nil
 	}
 	if imp.SourceSessionID.UUID != own {
-		return httpio.NewForbiddenMessage("the session named as the actor's own is not the session making the request")
+		return httpio.NewForbiddenMessageWithError(errors.New("the session named as the actor's own is not the session making the request"), sourceNotOwnWords)
 	}
 
 	return nil
@@ -192,15 +228,18 @@ func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Imp
 			return errors.Wrap(err, "sealed.Session()")
 		}
 
-		return httpio.NewForbiddenMessageWithError(err, "the actor's source session is not a session of this application")
+		return httpio.NewForbiddenMessageWithError(errors.Wrap(err, "the actor's source session is not a session of this application"), sourceNotLiveWords)
 	}
 	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
-		return httpio.NewForbiddenMessagef("session %s is not a live session of %q in this application", src.ID, imp.Actor)
+		return httpio.NewForbiddenMessageWithError(errors.Newf("session %s is not a live session of %q in this application", src.ID, imp.Actor), sourceNotLiveWords)
 	}
 	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil && current.UserID != src.UserID {
-		return httpio.NewForbiddenMessagef(
-			"session %s reached this request as the session of another account than the one the session store holds it under, so it starts no session that acts as someone else",
-			src.ID,
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf(
+				"session %s reached this request as the session of another account than the one the session store holds it under, so it starts no session that acts as someone else",
+				src.ID,
+			),
+			notOwnSessionWords,
 		)
 	}
 	imp.ActorID = src.UserID
@@ -516,7 +555,7 @@ func (s *BaseSession) EnforceReadOnlyMask(next http.Handler) http.Handler {
 					logger.FromCtx(ctx).Error(err)
 				}
 
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("this session is read-only"))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage(readOnlyWords))
 			}
 		}
 

@@ -200,13 +200,18 @@ func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (st
 // linked to the account (signInIsTheUsers). The code mailed to the address they gave
 // is good while no other account holds that address. A sign-in that waits to be linked
 // gives the account no address, so once its account holds none its code is dead. The
-// step keeps no record of whose the address was when the code was mailed, so on the
-// account's own person's sign-in a code mailed to an address since taken off the
-// account is read as one mailed to an address the person gave, which that person may
-// give at this step.
+// step keeps no record of whose the address was when the code was mailed, and needs
+// none: the store ends the live codes of the account's pending sign-ins as an address
+// is taken off the account (SetUserEmail), in one transaction, so a code still live on
+// an account that holds no address was mailed after the change, to an address the
+// person gave. A change that commits while the code is being entered is not seen here,
+// and need not be: the account is read before the code is consumed and again after it
+// (completeWithEmailCode, claimCodeAddress), a code whose account holds another address
+// at the second read than at the first is dead, and the write that follows is taken
+// only while the account still holds what the second read held (VerifyUserEmailIfHeld).
 func (a *Auth[S, U, Tx]) codeStands(ctx context.Context, p *pendingState, user *sessionstorage.SessionUser, email string) (bool, error) {
 	if user.Email != nil {
-		return strings.EqualFold(*user.Email, email), nil
+		return sameAddress(*user.Email, email), nil
 	}
 	theirs, err := a.signInIsTheUsers(ctx, p)
 	if err != nil || !theirs {
@@ -476,15 +481,21 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 // address is written on the user verified when it was not, and the session starts with
 // an email-code event. A code mailed to an address the account no longer holds
 // completes nothing (claimCodeAddress). With remember, a session that starts makes the
-// browser a trusted device of the user.
+// browser a trusted device of the user. The account is read before the code is
+// consumed, so a change of its address that lands after the code is consumed is told
+// from one made before the code was mailed (claimCodeAddress).
 func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.ResponseWriter, p *pendingState, code string, remember bool) (*signInOutcome, error) {
+	before, err := a.waitsUser(ctx, p)
+	if err != nil {
+		return nil, err
+	}
 	email, err := a.verifyEmailCode(ctx, p, code)
 	if err != nil {
 		return nil, err
 	}
 	// The code reached the person: the address's mail count is reset.
 	a.clearMailLimit(ctx, email)
-	if err := a.claimCodeAddress(ctx, p, email); err != nil {
+	if err := a.claimCodeAddress(ctx, p, before, email); err != nil {
 		return nil, err
 	}
 	if err := a.consumePending(ctx, p); err != nil {
@@ -515,12 +526,23 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 // another, which goes to the address the account holds now), on every wait, and
 // nothing is written, so an administrator's change of the address stands. An account
 // that holds a confirmed address keeps it: a code proves the person, and a confirmed
-// address is replaced only by the link that confirms a new one. The write is
-// bookkeeping after the proof: a failure of it is logged, and the sign-in goes on.
-func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, email string) error {
+// address is replaced only by the link that confirms a new one. before is the account
+// as it was read before the code was consumed: a code whose account holds another
+// address by now, or none where it held one, is dead. The write is taken only while
+// the account still holds what it held when it was read here (VerifyUserEmailIfHeld):
+// a change of the address that commits in between, or another account that took the
+// address, ends the code as a dead one, and any other failure of the write is the
+// server's error. Either way the completion is refused: nothing is written or linked,
+// and no session starts.
+func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, email string) error {
 	user, err := a.waitsUser(ctx, p)
 	if err != nil {
 		return err
+	}
+	if !sameHeldAddress(before.Email, user.Email) {
+		logger.FromCtx(ctx).Infof("the address of user %s changed while the sign-in code mailed to %s was being entered: the code is dead, and nothing is written", user.ID, email)
+
+		return errCodeExpired()
 	}
 	stands, err := a.codeStands(ctx, p, user, email)
 	if err != nil {
@@ -534,19 +556,42 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, 
 	if user.EmailVerified() {
 		return nil
 	}
-	if err := a.storage.VerifyUserEmail(ctx, user.ID, email); err != nil {
-		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.VerifyUserEmail()"))
-
-		return nil
+	// The address is confirmed as the account spells it. The code proves the mailbox
+	// under either spelling of its ASCII letters, and the spelling on the account is the
+	// last one an administrator or the person gave it.
+	written := email
+	if user.Email != nil {
+		written = *user.Email
 	}
-	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", user.ID, email)
-	if a.registered().usernameIsEmail() && !strings.EqualFold(user.Username, email) && a.userRenamed != nil {
-		if err := a.userRenamed(ctx, user.ID, user.Username, email); err != nil {
-			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, email, err)
+	if err := a.storage.VerifyUserEmailIfHeld(ctx, user.ID, user.Email, written); err != nil {
+		if httpio.HasConflict(err) {
+			logger.FromCtx(ctx).Infof(
+				"the address of user %s changed while the sign-in code mailed to %s was entered, or another account holds it now: the code is dead, and nothing is written",
+				user.ID, email)
+
+			return errCodeExpired()
+		}
+
+		return errors.Wrap(err, "sessionstorage.AuthStore.VerifyUserEmailIfHeld()")
+	}
+	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", user.ID, written)
+	if a.registered().usernameIsEmail() && !sameAddress(user.Username, written) && a.userRenamed != nil {
+		if err := a.userRenamed(ctx, user.ID, user.Username, written); err != nil {
+			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, written, err)
 		}
 	}
 
 	return nil
+}
+
+// sameHeldAddress reports whether two reads of an account hold the same address, byte
+// for byte, or both none: the comparison the write that follows is conditional on.
+func sameHeldAddress(first, second *string) bool {
+	if first == nil || second == nil {
+		return first == nil && second == nil
+	}
+
+	return *first == *second
 }
 
 // The trusted device cookie's value: one entry per user the browser was remembered

@@ -22,14 +22,14 @@ func TestMigrations_listIndexes(t *testing.T) {
 	}{
 		{
 			name:    "an address held apart from the username is a column a person or an operator writes",
-			address: "  Email              STRING(MAX),\n  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,\n",
+			address: "  Email              STRING(MAX),\n  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,\n",
 		},
 		{
 			// The session library reads Email on every user it reads, and so does the
 			// generated management: the column is there in this shape too, derived.
 			name:            "where the username is the address the database derives the address column from it",
 			usernameIsEmail: true,
-			address:         "  Email              STRING(MAX) AS (Username) STORED,\n  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,\n",
+			address:         "  Email              STRING(MAX) AS (Username) STORED,\n  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Username AS BYTES)) AS STRING)) STORED,\n",
 		},
 	}
 	for _, tt := range tests {

@@ -299,8 +299,9 @@ describe('FlightDeckComponent', () => {
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const text = (e: Element | null): string => e?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
   const texts = (selector: string): string[] => Array.from(element().querySelectorAll(selector)).map(text);
-  /** The open mission's sorties as drawn: a document's row is drawn with a sortie's class, and says nothing of a launch. */
-  const sortieRows = (): string[] => texts('.detail-card .sortie').filter((row) => row.includes(' launched '));
+  /** The open mission's sorties as drawn, and its documents: each kind of row has a class of its own. */
+  const sortieRows = (): string[] => texts('.detail-card .sortie');
+  const documentRows = (): string[] => texts('.detail-card .document');
   const inDialog = <E extends HTMLElement>(selector: string): E | null =>
     document.querySelector<E>(`.cdk-overlay-container mat-dialog-container ${selector}`);
   const dialogTexts = (selector: string): string[] =>
@@ -343,6 +344,23 @@ describe('FlightDeckComponent', () => {
     const input = inDialog<HTMLInputElement>(`input[name="${name}"]`)!;
     input.value = value;
     input.dispatchEvent(new Event('input'));
+  };
+  /**
+   * The open dialog's money input: the library's number control, which carries no name of
+   * the deck's. It is the Fee of the call sheet and of the booking form, and the Amount of
+   * the Add expense form.
+   */
+  const feeInput = (): HTMLInputElement | null =>
+    inDialog<HTMLInputElement>('impulse-resource-field impulse-number-field input[type="number"]');
+  /** Types into the open dialog's Fee field, as a person does. */
+  const typeFee = (value: string): void => {
+    const input = feeInput()!;
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  };
+  /** Types into the Add expense form's Amount field, as a person does. */
+  const typeAmount = (value: string): void => {
+    typeFee(value);
   };
   /** Opens one of the dialog's pickers and picks the option that reads `label`, as a person does. */
   const pick = async (name: string, label: string): Promise<void> => {
@@ -469,6 +487,26 @@ describe('FlightDeckComponent', () => {
     expect(new Date(sent).getTime()).toBe(new Date(2031, 0, 2, 9, 30).getTime());
     expect(dialogOpen()).toBe(false);
     expect(reads('missions')).toBe(before + 1);
+  });
+
+  // The booking form's Fee is the library's number control, as the call sheet's is. A fee
+  // is a decimal: what is sent is the text the person typed, where a number would round
+  // it and drop its last zero.
+  it('a booking sends the fee with every digit the person typed, more than a number holds', async () => {
+    await pageFor({ grants: marshal });
+    await press('Book a mission');
+    await fillBooking();
+    typeFee('12345678901234567.50');
+    await send();
+    await settle(() => !dialogOpen(), 50);
+
+    expect(writes()).toEqual([
+      {
+        op: 'add',
+        path: `/sectors/${anvilID}/missions`,
+        value: expect.objectContaining({ title: 'Escort the Wren', fee: '12345678901234567.50' }),
+      },
+    ]);
   });
 
   it("a booking the server refuses is shown in the dialog in the server's words, and the form stays as it was filled", async () => {
@@ -989,8 +1027,88 @@ describe('FlightDeckComponent', () => {
     expect(reads('missions')).toBe(before + 1);
   });
 
+  it("Edit call sheet opens with the mission's fee in the Fee field, and Save sends a fee that was changed as a decimal's string", async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    const before = reads('missions');
+    await press('Edit call sheet');
+
+    expect(feeInput()?.value).toBe('900');
+
+    typeFee('950.5');
+    await send();
+    await settle(() => !dialogOpen() && reads('missions') > before, 50);
+
+    expect(writes()).toEqual([{ op: 'patch', path: `/sectors/${anvilID}/missions/m-1`, value: { fee: '950.5' } }]);
+  });
+
+  // The Fee field is the library's number control, and a fee is a decimal: what is sent is
+  // the text the person typed, not a number made from it. A number keeps about fifteen
+  // digits and drops a closing zero; the text keeps both.
+  it('Save sends a fee with every digit the person typed, more than a number holds', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    const before = reads('missions');
+    await press('Edit call sheet');
+
+    typeFee('12345678901234567.50');
+    await send();
+    await settle(() => !dialogOpen() && reads('missions') > before, 50);
+
+    expect(writes()).toEqual([
+      { op: 'patch', path: `/sectors/${anvilID}/missions/m-1`, value: { fee: '12345678901234567.50' } },
+    ]);
+  });
+
+  it('a Fee field emptied sends no fee', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    await press('Edit call sheet');
+
+    typeFee('');
+    await send();
+    await settle(() => !dialogOpen());
+
+    expect(dialogOpen()).toBe(false);
+    expect(writes()).toEqual([]);
+  });
+
   it('Save with nothing changed closes the form and sends nothing', async () => {
     await pageFor({ grants: marshal });
+    await openMission();
+    await press('Edit call sheet');
+    expect(dialogOpen()).toBe(true);
+    await send();
+    await settle(() => !dialogOpen());
+
+    expect(dialogOpen()).toBe(false);
+    expect(writes()).toEqual([]);
+  });
+
+  it('Save with nothing changed sends nothing for a mission whose deadline carries seconds', async () => {
+    // The form holds a deadline to the minute. A deadline with seconds, left as the form
+    // opened with it, is not a changed deadline. The envelope lets the deadline be edited,
+    // so nothing but the comparison keeps it from being sent.
+    await pageFor({
+      grants: marshal,
+      board: {
+        status: 200,
+        body: [
+          {
+            id: 'm-1',
+            title: 'Tow the Kestrel',
+            kindId: 'rescue',
+            clientId: 'c-1',
+            hazard: 2,
+            fee: '900',
+            deadline: '2031-01-01T08:00:42.500Z',
+            statusId: 'open',
+            notes: 'bring spare couplings',
+            zzCapabilities: { ...everything, Update: ['fee', 'notes', 'deadline'] },
+          },
+        ],
+      },
+    });
     await openMission();
     await press('Edit call sheet');
     expect(dialogOpen()).toBe(true);
@@ -1060,7 +1178,8 @@ describe('FlightDeckComponent', () => {
 
     expect(sortieRows()).toHaveLength(12);
     expect(texts('.detail-card .expenses li')).toEqual(['fuel — 40 cr']);
-    expect(text(element().querySelector('.detail-card'))).toContain('Tow plan');
+    expect(documentRows()).toHaveLength(1);
+    expect(documentRows()[0]).toContain('Tow plan');
     expect(text(element().querySelector('.detail-card'))).not.toContain('Manifest');
     // Each list was asked for by the mission, never as the sector's newest page.
     const asked = (route: string): string[] =>
@@ -1097,6 +1216,37 @@ describe('FlightDeckComponent', () => {
     expect(texts('.detail-card .expenses li')).toEqual(['medical supplies — 75 cr']);
   });
 
+  it('a call sheet writes the fee as the server holds it: every digit, the thousands apart', async () => {
+    const mission = (id: string, fee: string): Record<string, unknown> => ({
+      id,
+      title: `Mission ${id}`,
+      kindId: 'rescue',
+      clientId: 'c-1',
+      hazard: 2,
+      fee,
+      deadline: '2031-01-01T08:00:00Z',
+      statusId: 'open',
+      zzCapabilities: everything,
+    });
+    await pageFor({
+      grants: marshal,
+      board: {
+        status: 200,
+        body: [
+          mission('m-1', '950.50'),
+          mission('m-2', '12345678901234567.25'),
+          mission('m-3', '900'),
+          mission('m-4', '950.5'),
+        ],
+      },
+    });
+
+    // No rounding to whole credits, and no number in between: a number holds neither the
+    // closing zero nor the seventeenth digit. The server hands 950.50 as "950.5", and a
+    // fraction is written to two places at least.
+    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr', '900 cr', '950.50 cr']);
+  });
+
   it('says an expense in the words the Add expense form offers it under, and its amount as a fee is written', async () => {
     await pageFor({
       grants: marshal,
@@ -1114,7 +1264,7 @@ describe('FlightDeckComponent', () => {
     expect(texts('.detail-card .expenses li')).toEqual([
       'tow gear — 1,500 cr (spare line)',
       'medical supplies — 20,000 cr',
-      'dock fees — 12 cr',
+      'dock fees — 12.40 cr',
     ]);
 
     await press('Add expense');
@@ -1126,7 +1276,7 @@ describe('FlightDeckComponent', () => {
       .find((option) => text(option) === 'tow gear')
       ?.click();
     await settle();
-    type('expenseAmount', '300');
+    typeAmount('300');
     await send();
     await settle(() => !dialogOpen(), 50);
 
@@ -1150,7 +1300,7 @@ describe('FlightDeckComponent', () => {
     expect(dialogTexts('mat-label')).toEqual(['Category', 'Amount']);
     expect(dialogTexts('mat-dialog-actions button')).toEqual(['Cancel', 'Add expense']);
 
-    type('expenseAmount', '120');
+    typeAmount('120');
     await send();
     await settle(() => !dialogOpen() && reads('sortie-expenses') > before, 50);
 
@@ -1162,6 +1312,35 @@ describe('FlightDeckComponent', () => {
       },
     ]);
     expect(dialogOpen()).toBe(false);
+  });
+
+  // The Amount field is the library's number control, and an amount is a decimal: what is
+  // sent is the text the person typed, where a number would round it and drop its last zero.
+  it('Add expense sends an amount with every digit the person typed, more than a number holds', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    await press('Add expense');
+    typeAmount('12345678901234567.50');
+    await send();
+    await settle(() => !dialogOpen(), 50);
+
+    expect(writes()).toEqual([
+      {
+        op: 'add',
+        path: `/sectors/${anvilID}/sortie-expenses`,
+        value: { sortieId: 'so-1', category: 'fuel', amount: '12345678901234567.50' },
+      },
+    ]);
+  });
+
+  it('an Add expense form with no amount sends nothing', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    await press('Add expense');
+    await send();
+
+    expect(writes()).toEqual([]);
+    expect(dialogOpen()).toBe(true);
   });
 
   it("Attach document opens its form in a dialog under the button's words, and sends nothing until a file is picked", async () => {

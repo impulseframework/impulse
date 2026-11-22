@@ -23,6 +23,16 @@ func (HangarPass) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// GroupColumns names the columns that name a group of people (GroupID): a row is
+// written only with a group its own tenant keeps, so the library refuses a create or an
+// update that names another tenant's group, or a group kept for the whole application,
+// whoever writes it.
+func (HangarPass) GroupColumns() []resource.GroupColumn {
+	return []resource.GroupColumn{
+		{Field: "GroupID", Name: "groupId", Tenant: "SectorID", Groups: "CrewGroups", Key: "Id", Kept: "DomainId", TenantWord: "sector"},
+	}
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows, sorts and filters by. A name is
 // looked up in the pointed-to table by the id; it is no column of this resource.

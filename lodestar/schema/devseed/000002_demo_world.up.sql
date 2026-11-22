@@ -323,6 +323,12 @@ INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Trans
 INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Transcript, CaseNumber, FiledByUserId, FiledByName) VALUES ('d0000000-0000-4000-8000-000000000012', 'a1111111-1111-4111-8111-111111111111', 'Distress beacon from Spindle Rock', 4, NULL, NULL, 'DC-SEED-0012', 'f0000000-0000-4000-8000-000000000007', 'dispatcher');
 INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Transcript, CaseNumber, FiledByUserId, FiledByName) VALUES ('d0000000-0000-4000-8000-000000000013', 'a1111111-1111-4111-8111-111111111111', 'Unresponsive prospector near the Forge relay', 5, 'cleo@halvard.example', NULL, 'DC-SEED-0013', 'f1000000-0000-4000-8000-000000000001', 'client');
 
+-- The relays on the Spindle Rock call: two messages passed along, and an answer to the
+-- first. Each names the call by its case number; the answer names the relay it answers.
+INSERT INTO DistressRelays (Id, SectorId, CaseNumber, AnswersRelayId, Message, RelayedByName, RelayedAt) VALUES ('d1000000-0000-4000-8000-000000000001', 'a1111111-1111-4111-8111-111111111111', 'DC-SEED-0012', NULL, 'Beacon heard on the emergency band, bearing two-one-zero from Anvil Dock One', 'dispatcher', TIMESTAMP '2026-09-04T08:10:00Z');
+INSERT INTO DistressRelays (Id, SectorId, CaseNumber, AnswersRelayId, Message, RelayedByName, RelayedAt) VALUES ('d1000000-0000-4000-8000-000000000002', 'a1111111-1111-4111-8111-111111111111', 'DC-SEED-0012', 'd1000000-0000-4000-8000-000000000001', 'Tug Bramble is nearest and turning toward the rock', 'marshal', TIMESTAMP '2026-09-04T08:14:00Z');
+INSERT INTO DistressRelays (Id, SectorId, CaseNumber, AnswersRelayId, Message, RelayedByName, RelayedAt) VALUES ('d1000000-0000-4000-8000-000000000003', 'a1111111-1111-4111-8111-111111111111', 'DC-SEED-0012', NULL, 'Second beacon burst, weaker, same bearing', 'dispatcher', TIMESTAMP '2026-09-04T08:31:00Z');
+
 -- Briefing templates are a catalog served from Go (pkg/computedresources), so the column
 -- holds an identifier the schema knows nothing about; three Anvil missions name one.
 UPDATE Missions SET BriefingTemplateId = 'standard' WHERE Id = '80000000-0000-4000-8000-000000000001';

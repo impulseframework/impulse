@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -51,8 +52,9 @@ type Driver[Tx any] interface {
 	// none.
 	UserByUsernameIn(ctx context.Context, tx Tx, username string) (*dbtype.User, error)
 	// UserByVerifiedEmailIn reads the user who holds email as a verified address,
-	// matched without regard to case as the users table's normalized address is, or
-	// nil when there is none; an address a user holds unverified matches no one.
+	// matched without regard to the case of its ASCII letters as the users table's
+	// normalized address is, or nil when there is none; an address a user holds
+	// unverified matches no one.
 	UserByVerifiedEmailIn(ctx context.Context, tx Tx, email string) (*dbtype.User, error)
 	// InsertUserIn writes a new user row and returns its ID. A taken username ends the
 	// transaction with a UsernameConflict.
@@ -75,7 +77,7 @@ type Driver[Tx any] interface {
 	// insert carries the name.
 	ClaimUserNameIn(ctx context.Context, tx Tx, userID impulse.UUID, name string) (bool, error)
 	// UserByEmailIn reads the user holding email inside tx, verified or not, matched
-	// without regard to case, or nil when there is none.
+	// without regard to the case of its ASCII letters, or nil when there is none.
 	UserByEmailIn(ctx context.Context, tx Tx, email string) (*dbtype.User, error)
 	// UsernameIsEmail reports whether the store's usernames are the addresses.
 	UsernameIsEmail() bool
@@ -202,11 +204,12 @@ type Rules[Tx any] struct {
 	Proven dbtype.PasswordProof
 	// ConfirmAddress says a sign-in through a directory that does not vouch for the
 	// person's address is held for the code that confirms one, while the account holds
-	// no confirmed address (addressHold), and that the standard rule's first link to an
-	// account created ahead, on a sign-in name the method does not vouch for, waits for
-	// the code mailed to the address the account holds (nameAloneHold). It is set by an
-	// Auth that sends mail, for a registration that is not the deployment's own
-	// provider of seeded accounts.
+	// no confirmed address (addressHold), and that a sign-in to an account that cannot
+	// take the address the method vouches for, because another account holds it, is
+	// refused (addressTaken). The standard rule's first link to an account created
+	// ahead, on a sign-in name the method does not vouch for, waits for the code
+	// whatever this says (nameAloneHold). It is set by an Auth that sends mail, for a
+	// registration that is not the deployment's own provider of seeded accounts.
 	ConfirmAddress bool
 	// WaitedOn is the user a pending sign-in waited on, for the sign-in that completes
 	// the wait; it is not valid for any other. The rules' answer for an identity that is
@@ -423,12 +426,14 @@ func InvitedAddressMessage(inv *sessioninfo.Invitation) string {
 	return fmt.Sprintf("This invitation is for %s. Sign in with that account.", inv.Email)
 }
 
-// sameAddress reports whether two addresses are one, without regard to case and
-// surrounding space; an empty address is nobody's and matches nothing.
+// sameAddress reports whether two addresses are one, without regard to the case of
+// their ASCII letters and surrounding space; an empty address is nobody's and matches
+// nothing. A letter from outside ASCII equals only itself: Unicode's case folding takes
+// the Kelvin sign (U+212A) for k, and an address written with one is another mailbox.
 func sameAddress(a, b string) bool {
 	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
 
-	return a != "" && strings.EqualFold(a, b)
+	return a != "" && util.EqualASCIIFold(a, b)
 }
 
 // trustedDevice asks check, nil for none, whether the browser is a trusted device of
@@ -1365,6 +1370,13 @@ func linkUser[Tx any](
 			}
 		}
 	}
+	if rules.ConfirmAddress {
+		// An account that could not take the address the method vouches for is not
+		// signed in to, and so is linked nothing.
+		if stop, err = addressTaken(ctx, d, tx, req, user); err != nil || stop != nil {
+			return false, stop, err
+		}
+	}
 	if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
 		return false, nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 	}
@@ -1645,7 +1657,7 @@ func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *ses
 func invitedAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, insert *dbtype.InsertSessionUser) error {
 	inv := req.Invitation
 	if d.UsernameIsEmail() {
-		insert.EmailVerified = strings.EqualFold(strings.TrimSpace(insert.Username), strings.TrimSpace(inv.Email))
+		insert.EmailVerified = util.EqualASCIIFold(strings.TrimSpace(insert.Username), strings.TrimSpace(inv.Email))
 
 		return nil
 	}
@@ -1725,6 +1737,11 @@ func decideAndInsert[Tx any](
 		}
 		if confirmAddress && v.proceeds() {
 			v = addressHold(req, user)
+		}
+		if confirmAddress && v.proceeds() {
+			if v.stop, err = addressTaken(ctx, d, tx, req, user); err != nil {
+				return err
+			}
 		}
 		if v.proceeds() {
 			if err := d.InsertSessionIn(ctx, tx, id, insertSession, req); err != nil {
@@ -1851,6 +1868,46 @@ func addressHold(req *sessioninfo.NewSessionRequest, user *dbtype.User) verdict 
 	}
 
 	return verdict{stop: pending}
+}
+
+// addressTaken refuses a sign-in to an account that could not hold its address. A
+// method that vouches for the address (Identity.EmailVerified) spares the sign-in the
+// wait for the mailed code because the address is written on the account as the
+// session starts (addressHold). Where another user holds that address, confirmed, it
+// is written on nobody, and the person would be signed in to an account with no
+// confirmed address: an account created ahead under the address as its sign-in name is
+// reached so, by the name, beside the account that holds the address. Which of the two
+// is the person's is an administrator's to settle, by removing the duplicate account
+// or its sign-in name, so the sign-in is refused (identity_rejected, with
+// signin.ErrAddressHeldByAnother as its cause, which names both users for the log) and
+// the person is told what any sign-in the rules reject is told, which says nothing of
+// the other account. linkUser asks before it links, so a first sign-in that is refused
+// links nothing, and decideAndInsert asks for an identity linked before.
+//
+// It answers nil for a user who holds a confirmed address, for a session the rules
+// hold for no address (holdsForAddress), for an identity the method does not vouch
+// for, whose address the mailed code answers for, and where no other user holds the
+// address confirmed: an address another user holds unconfirmed was only typed there,
+// and refuses nobody.
+func addressTaken[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User) (stop, err error) {
+	identity := req.Identity
+	if user.EmailConfirmed || !dbtype.IsExternal(identity) || !holdsForAddress(req.Reason) {
+		return nil, nil
+	}
+	if !identity.EmailVerified || identity.Email == "" {
+		return nil, nil
+	}
+	holder, err := d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+	}
+	if holder == nil || holder.ID == user.ID {
+		return nil, nil
+	}
+	cause := fmt.Errorf("%w: user %s (%s) holds the verified address %s, and the sign-in reached user %s (%s)",
+		signin.ErrAddressHeldByAnother, holder.Username, holder.ID, identity.Email, user.Username, user.ID)
+
+	return Refusal("", sessioninfo.RefusedIdentityRejected, cause, "identity rejected"), nil
 }
 
 // holdsForAddress reports whether a session created for reason is one a person signs in

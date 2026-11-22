@@ -82,7 +82,12 @@ import (
 )
 
 const (
-	// Name is the auth's name: the cookie its sessions ride in.
+	// Name is the auth's name. It is the name of this package's directory, the name
+	// generation knows the auth by, the name a @subjectSet says in its auth: part,
+	// the name the role file is handed over under (access.WithDefaultRoles(Roles(),
+	// Name)), and the cookie its sessions ride in. It is not a setting: an engine
+	// handed a name generation does not know refuses to open, so renaming the auth
+	// renames the directory and this constant together.
 	Name = "crew"
 	// TablePrefix is the name's PascalCase form, which prefixes every table the auth owns.
 	TablePrefix = "Crew"
@@ -241,9 +246,14 @@ type Settings struct {
 	// path joined with /device, where the console mounts the library's device approval
 	// page.
 	DevicePage string
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -271,6 +281,8 @@ type Settings struct {
 // saying what the missing piece is for.
 func (s *Settings) required() error {
 	switch {
+	case access.IsNilCollection(s.Collection):
+		return errors.New("crew.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
 	case s.ChangeSignal == nil:
 		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	case s.TenantDeclarations == nil:
@@ -675,7 +687,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// anyone, but for the Super Administrator role she also holds.
 	//
 	// Demonstrates: auth.super-administrator, tenancy.directory-only.
-	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles()), access.WithChangeSignal(settings.ChangeSignal),
+	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles(), Name), access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles()...))
 	if err != nil {

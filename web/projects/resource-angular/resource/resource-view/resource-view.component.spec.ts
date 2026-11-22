@@ -13,6 +13,7 @@ import {
   RecordData,
   RESOURCE_META,
   ResourceMeta,
+  RowWords,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
@@ -135,7 +136,9 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
 
   /** The value of every patch operation sent so far. */
   const patches = (): unknown[] =>
-    transport.requests.filter((request) => request.method === 'PATCH').map((request) => (request.body as { value: unknown }[])[0].value);
+    transport.requests
+      .filter((request) => request.method === 'PATCH')
+      .map((request) => (request.body as { value: unknown }[])[0].value);
 
   /** The visible input of the form field labeled so; null where the label draws no form field (the shapes) or nothing at all. */
   const inputLabeled = (label: string): HTMLInputElement | null => {
@@ -149,10 +152,16 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         provideNoopAnimations(),
         ResourceStore,
-        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => (resource === calls ? meta : undefined) },
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === calls ? meta : undefined),
+        },
       ],
     }).compileComponents();
 
@@ -184,7 +193,9 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     // The row's position is a GeoJSON point, longitude first: a person reads the latitude first, and never the JSON.
     expect(element.querySelector('impulse-object-field .object-place')?.textContent).toBe('2° N, 1° E');
     expect(element.querySelector('impulse-object-field pre')).toBeNull();
-    expect(Array.from(element.querySelectorAll('impulse-array-field mat-chip')).map((chip) => chip.textContent?.trim())).toEqual(['a', 'b']);
+    expect(
+      Array.from(element.querySelectorAll('impulse-array-field mat-chip')).map((chip) => chip.textContent?.trim()),
+    ).toEqual(['a', 'b']);
   });
 
   it('in edit mode the write-only field is a blank input and the two shapes stay read-only', () => {
@@ -336,7 +347,10 @@ describe('ResourceViewComponent over a row with untouched fields this build cann
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         provideNoopAnimations(),
         ResourceStore,
         {
@@ -597,7 +611,11 @@ describe('ResourceViewComponent as one of the unsaved forms the leave-page quest
     ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
   const meta: ResourceMeta = {
     route: 'beacons',
-    fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name'), fieldMeta('keeper')],
+    fields: [
+      fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
+      fieldMeta('name'),
+      fieldMeta('keeper'),
+    ],
   };
 
   let fixture: ComponentFixture<ResourceViewComponent>;
@@ -659,10 +677,16 @@ describe('ResourceViewComponent as one of the unsaved forms the leave-page quest
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         provideNoopAnimations(),
         ResourceStore,
-        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined) },
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined),
+        },
       ],
     }).compileComponents();
 
@@ -675,7 +699,10 @@ describe('ResourceViewComponent as one of the unsaved forms the leave-page quest
       viewConfig({
         primaryResource: beacons,
         showBackButton: false,
-        elements: [field({ name: 'name' as FieldName, label: 'Name' }), field({ name: 'keeper' as FieldName, label: 'Keeper' })],
+        elements: [
+          field({ name: 'name' as FieldName, label: 'Name' }),
+          field({ name: 'keeper' as FieldName, label: 'Keeper' }),
+        ],
       }),
     );
     fixture.detectChanges();
@@ -797,8 +824,11 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
 
   let fixture: ComponentFixture<ResourceViewComponent>;
 
-  /** Draws the row's page under the config's own words and waits until the row is read. */
-  const drawn = async (words: { rowTitle?: (row: RecordData) => string }): Promise<ResourceViewComponent> => {
+  /** Draws the row's page under the config's own words and the resource's word for a row, and waits until the row is read. */
+  const drawn = async (
+    words: { rowTitle?: (row: RecordData) => string },
+    rowWords?: RowWords,
+  ): Promise<ResourceViewComponent> => {
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
@@ -810,7 +840,8 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
         ResourceStore,
         {
           provide: RESOURCE_META,
-          useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined),
+          useValue: (resource: Resource): ResourceMeta | undefined =>
+            resource === beacons ? { ...meta, rowWords } : undefined,
         },
       ],
     }).compileComponents();
@@ -882,11 +913,56 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
     expect(asked.question).toBe('Delete Outer reef from Beacons?');
   });
 
+  it("by the word the resource's rows go by where its metadata carries one", async () => {
+    const asked = ask(await drawn({}, { one: 'beacon', many: 'beacons' }), true);
+
+    expect(asked.question).toBe('Delete this beacon?');
+  });
+
+  it('and says the row is deleted in a sentence that opens with its word', async () => {
+    const component = await drawn({}, { one: 'beacon', many: 'beacons' });
+    const said: string[] = [];
+    component.store.apply = ((_: unknown, message: string) => {
+      said.push(message);
+
+      return Promise.resolve({});
+    }) as unknown as typeof component.store.apply;
+
+    component.deleteResource();
+
+    expect(said).toEqual(['Beacon deleted.']);
+  });
+
   it('and deletes nothing when the person cancels or closes the dialog', async () => {
     const component = await drawn({});
 
     expect(ask(component, false).deleted).toBe(0);
     expect(ask(component, undefined).deleted).toBe(0);
+  });
+
+  it('and says the delete takes everything under the row once the dialog says so', async () => {
+    const component = await drawn({});
+    let handed: DeleteConfirmation | undefined;
+    component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+      handed = config.data;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    const sent: unknown[] = [];
+    component.store.apply = ((operations: unknown[]) => {
+      sent.push(...(JSON.parse(JSON.stringify(operations)) as unknown[]));
+
+      return Promise.reject(new Error('the row stays for the next press'));
+    }) as unknown as typeof component.store.apply;
+
+    component.confirmDeleteResource();
+    await expect(handed?.delete?.()).rejects.toThrow('the row stays');
+    await expect(handed?.delete?.({ everythingUnder: true })).rejects.toThrow('the row stays');
+
+    expect(sent).toEqual([
+      { op: 'remove', path: '/b-1' },
+      { op: 'remove', path: '/b-1', value: { everythingUnder: true } },
+    ]);
   });
 
   it('and opens no second question while one is open', async () => {

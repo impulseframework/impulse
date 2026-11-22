@@ -123,7 +123,7 @@ func (a *App) CreateSector() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if len(held) > 0 {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("the session already holds a sector; a person creates one sector and becomes its administrator"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("You already hold a role in a sector, so you cannot create a sector of your own."))
 		}
 		req, err := decoder.Decode(r)
 		if err != nil {
@@ -148,7 +148,7 @@ func (a *App) CreateSector() http.HandlerFunc {
 				return errors.Wrap(err, "CrewIdentity().HoldsTenant()")
 			}
 			if holds {
-				return httpio.NewForbiddenMessage("the session already holds a sector; a person creates one sector and becomes its administrator")
+				return httpio.NewForbiddenMessage("You already hold a role in a sector, so you cannot create a sector of your own.")
 			}
 			// Who is admitted: a person who signed up, which is a person with no sector
 			// while an administrator has a sign-in method open to sign-up. A person who
@@ -159,7 +159,7 @@ func (a *App) CreateSector() http.HandlerFunc {
 				return errors.Wrap(err, "CrewIdentity().AnySignInMethodOpen()")
 			}
 			if !open {
-				return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a sector of your own: ask an administrator of the application to create one for you, or to invite you to one")
+				return httpio.NewForbiddenMessage("Sign-up is not open, so you cannot create a sector of your own. Ask an administrator of the application to create one for you, or to invite you to one.")
 			}
 			patch, err := resources.NewSectorCreatePatch()
 			if err != nil {

@@ -25,6 +25,7 @@ type (
 	// @outlet(portal)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	MembersGroupUser struct {
 		// @primarykey
 		// @attribute(group)

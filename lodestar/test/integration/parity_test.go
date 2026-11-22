@@ -233,7 +233,7 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
 	built := []access.Option{
-		access.WithDefaultRoles(roles),
+		access.WithDefaultRoles(roles, authName(prefix)),
 		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
 	}
@@ -266,6 +266,16 @@ func superAdministratorMethods(prefix string) []accesstypes.Resource {
 	}
 
 	return crewidentity.SuperAdministratorMethods()
+}
+
+// authName is the name of the auth a store's prefix belongs to: an engine validates its
+// role file as that auth's, against the subject sets that describe its people.
+func authName(prefix string) string {
+	if prefix == members.TablePrefix {
+		return members.Name
+	}
+
+	return crew.Name
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and
@@ -557,11 +567,57 @@ func newAccessClient(t *testing.T, db *initiator.SpannerDB, roles access.RoleFil
 }
 
 // alsoDeclared is the permission collection of a release that declared what this one
-// does and more: the generated collection, with the names in also listed beside its own.
-// Every other answer is the generated collection's.
+// does and more: the generated collection, with the names in also listed beside its own,
+// each as that release held it, a sector's resource a role may be given the permission
+// on, and with the attributes in attributes on the resources that key them, each a text
+// a condition may compare. Every other answer is the generated collection's.
 type alsoDeclared struct {
 	access.PermissionCollection
-	also map[accesstypes.Permission][]accesstypes.Resource
+	also       map[accesstypes.Permission][]accesstypes.Resource
+	attributes map[accesstypes.Resource][]string
+}
+
+// lists reports whether res is one of the names in also.
+func (d alsoDeclared) lists(res accesstypes.Resource) bool {
+	for _, resources := range d.also {
+		if slices.Contains(resources, res) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Scope is the scope of a sector for a name in also, which a write to a custom role
+// holds the role's scope to, and the generated collection's answer for any other name.
+func (d alsoDeclared) Scope(res accesstypes.Resource) accesstypes.PermissionScope {
+	if d.lists(res) {
+		return accesstypes.DomainPermissionScope
+	}
+
+	return d.PermissionCollection.Scope(res)
+}
+
+// IsResourceImmutable is false for a name in also, whatever this release makes of it:
+// the release that declared Update on the name let it be written. It is the generated
+// collection's answer for any other name.
+func (d alsoDeclared) IsResourceImmutable(scope accesstypes.PermissionScope, res accesstypes.Resource) bool {
+	if d.lists(res) {
+		return false
+	}
+
+	return d.PermissionCollection.IsResourceImmutable(scope, res)
+}
+
+// AttributeComparisonType is text for an attribute in attributes, which the release that
+// declared it let a grant's condition read, and the generated collection's answer for
+// any other.
+func (d alsoDeclared) AttributeComparisonType(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
+	if slices.Contains(d.attributes[res], name) {
+		return accesstypes.AttributeTypeString, true
+	}
+
+	return d.PermissionCollection.AttributeComparisonType(scope, res, name)
 }
 
 // List is what the generated collection lists, and the names in also under their
@@ -580,16 +636,37 @@ func (d alsoDeclared) List() map[accesstypes.Permission][]accesstypes.Resource {
 // without what its release declares, and the release's own engine refuses to write a
 // role a grant the release does not declare, so a test that needs one in the store
 // writes it through this engine, as the release that declared the name would have left
-// it there. The engine is handed no role file: it writes a custom role's rows and
-// answers nothing. It is closed when the test ends.
+// it there. The engine is handed a role file that declares no role, under the crew's
+// name: an engine over a collection that knows several auths is told whose roles it
+// holds. It writes a custom role's rows and answers nothing. It is closed when the test
+// ends.
 func engineOfAReleaseThatDeclared(t *testing.T, db *initiator.SpannerDB, also map[accesstypes.Permission][]accesstypes.Resource) *access.Client {
+	t.Helper()
+
+	return engineOfARelease(t, db, alsoDeclared{PermissionCollection: router.Collection(), also: also})
+}
+
+// engineOfAReleaseWithAttributes is engineOfAReleaseThatDeclared for a release whose
+// resources declared attributes this one's do not: the attributes named, each on the
+// resource that keys it. A condition that reads one is refused by the release's own
+// engine, so a test that needs one in the store writes it through this engine.
+func engineOfAReleaseWithAttributes(t *testing.T, db *initiator.SpannerDB, attributes map[accesstypes.Resource][]string) *access.Client {
+	t.Helper()
+
+	return engineOfARelease(t, db, alsoDeclared{PermissionCollection: router.Collection(), attributes: attributes})
+}
+
+// engineOfARelease opens an engine over the crew's store for the release whose
+// collection is given, handed a role file that declares no role under the crew's name,
+// and closes it when the test ends.
+func engineOfARelease(t *testing.T, db *initiator.SpannerDB, collection access.PermissionCollection) *access.Client {
 	t.Helper()
 
 	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(crew.TablePrefix))
 	if err != nil {
 		t.Fatalf("spannerstore.New() error = %v", err)
 	}
-	client, err := access.New(store, alsoDeclared{PermissionCollection: router.Collection(), also: also})
+	client, err := access.New(store, collection, access.WithDefaultRoles(access.RoleFile(`{"roles": {}}`), crew.Name))
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}

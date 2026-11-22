@@ -31,6 +31,7 @@ type (
 	// @outlet(default)
 	// @order(GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	StaffTenantGroupRole struct {
 		// @domain
 		DomainID string `spanner:"DomainId" index:"true"`

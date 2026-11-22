@@ -1,7 +1,9 @@
 package identity
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"strings"
 	"testing"
 
@@ -183,6 +185,87 @@ func TestRefuseImpersonatorAsSetSubject(t *testing.T) {
 	}
 }
 
+// TestRefuseImpersonatorAsSetSubject_setInWords pins how the refusal names the set: the
+// person is told it in words ("crewGroups" is "crew groups"), and the line the refusal
+// is logged with names it as the code writes it, in each of the four acts. A set named
+// in one lower-case word reads the same both ways. It is not parallel: the standard
+// logger, which a context with no logger of its own writes through, is the process's
+// own.
+func TestRefuseImpersonatorAsSetSubject_setInWords(t *testing.T) { //nolint:paralleltest // it reads the standard logger's output, which is the whole process's
+	var logged bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logged)
+	t.Cleanup(func() {
+		log.SetOutput(previous)
+	})
+
+	acting := viewedBy(t.Context(), userID)
+	passKey := resource.KeySet{}.Add("ID", "pass-1")
+	holds := func(value any) func() (any, bool, error) {
+		return func() (any, bool, error) {
+			return value, true, nil
+		}
+	}
+
+	tests := []struct {
+		set       string
+		op        resource.OperationType
+		key       resource.KeySet
+		stored    func() (any, bool, error)
+		fields    map[accesstypes.Field]any
+		wantSaid  string
+		wantShown string
+	}{
+		{
+			set: "crewGroups", op: resource.OperationCreate, fields: map[accesstypes.Field]any{"GroupID": "mine"},
+			wantSaid:  "add a hangar pass record for one of your own crew groups",
+			wantShown: "add a hangar pass record for one of their own crewGroups",
+		},
+		{
+			set: "crewGroups", op: resource.OperationDelete, key: passKey, stored: holds("mine"),
+			wantSaid:  "remove a hangar pass record of one of your own crew groups",
+			wantShown: "remove a hangar pass record of one of their own crewGroups",
+		},
+		{
+			set: "crewGroups", op: resource.OperationUpdate, key: passKey, stored: holds("mine"), fields: map[accesstypes.Field]any{"ExpiresAt": "later"},
+			wantSaid:  "change a hangar pass record of one of your own crew groups",
+			wantShown: "change a hangar pass record of one of their own crewGroups",
+		},
+		{
+			set: "crewGroups", op: resource.OperationUpdate, key: passKey, stored: holds("theirs"), fields: map[accesstypes.Field]any{"GroupID": "mine"},
+			wantSaid:  "move a hangar pass record to one of your own crew groups",
+			wantShown: "move a hangar pass record to one of their own crewGroups",
+		},
+		{
+			set: "squadrons", op: resource.OperationCreate, fields: map[accesstypes.Field]any{"GroupID": "mine"},
+			wantSaid:  "add a hangar pass record for one of your own squadrons",
+			wantShown: "add a hangar pass record for one of their own squadrons",
+		},
+	}
+
+	for _, tt := range tests {
+		logged.Reset()
+		write := &reachWrite{fields: tt.fields, inSet: []any{"mine"}}
+		stored := tt.stored
+		if stored == nil {
+			stored = func() (any, bool, error) {
+				return nil, false, nil
+			}
+		}
+
+		err := refuseImpersonatorAsSetSubject(acting, stubTxn{}, tt.op, tt.key, write, stored, "hangar pass", "GroupID", tt.set)
+		want := "You are acting as someone else, so you cannot " + tt.wantSaid + "."
+		if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != want {
+			t.Errorf("subject.%s: refuseImpersonatorAsSetSubject() error = %v, want Forbidden saying %q", tt.set, err, want)
+		}
+		wantLine := "impersonation: the person who started this impersonated session (" + userID.String() + ") asked to " + tt.wantShown +
+			": refused, since nobody is the subject of what they do while they act as someone else"
+		if got := strings.Count(logged.String(), wantLine); got != 1 {
+			t.Errorf("subject.%s: the log holds the line %q %d times, want once:\n%s", tt.set, wantLine, got, logged.String())
+		}
+	}
+}
+
 // TestRefuseImpersonatorAsReadThroughSubject pins the rule on the row a person's
 // standing is read through: only a change that sets the column asks, the real person
 // is the one asked about, and their own row's column is not theirs to set while they
@@ -205,7 +288,7 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 		{
 			name: "the column set on the row the real person's set is read through is refused", ctx: acting, op: resource.OperationUpdate,
 			fields: map[accesstypes.Field]any{"WingID": "wing-2"}, readFor: true, wantAsked: true,
-			wantAct: "change the wing id of the squadron record that decides your own wings",
+			wantAct: "change the wing id of the squadron record that decides your own home wings",
 		},
 		{
 			name: "the column set on another row goes through", ctx: acting, op: resource.OperationUpdate,
@@ -233,7 +316,7 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 			t.Parallel()
 
 			write := &reachWrite{fields: tt.fields, readFor: tt.readFor}
-			err := refuseImpersonatorAsReadThroughSubject(tt.ctx, stubTxn{}, tt.op, squadronKey, write, "squadron", "WingID", "wings")
+			err := refuseImpersonatorAsReadThroughSubject(tt.ctx, stubTxn{}, tt.op, squadronKey, write, "squadron", "WingID", "homeWings")
 			if tt.wantAct == "" {
 				if err != nil {
 					t.Fatalf("refuseImpersonatorAsReadThroughSubject() error = %v, want nil", err)
@@ -247,8 +330,8 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 			if asked := len(write.askedFacts) == 1; asked != tt.wantAsked {
 				t.Fatalf("the fact was asked about %v, want asked = %t", write.askedFacts, tt.wantAsked)
 			}
-			if tt.wantAsked && (write.askedFacts[0] != "wings" || write.askedOf[0] != User(userID)) {
-				t.Errorf("asked subject.%s of %s, want subject.wings of the real person %s", write.askedFacts[0], write.askedOf[0], User(userID))
+			if tt.wantAsked && (write.askedFacts[0] != "homeWings" || write.askedOf[0] != User(userID)) {
+				t.Errorf("asked subject.%s of %s, want subject.homeWings of the real person %s", write.askedFacts[0], write.askedOf[0], User(userID))
 			}
 		})
 	}

@@ -86,6 +86,11 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 
 			continue
 		}
+		if err := c.declareRowWords(pStruct, annotations, resource.TenantLabel, &resource.rowWordsDecl); err != nil {
+			resourceErrors = append(resourceErrors, err)
+
+			continue
+		}
 
 		resources = append(resources, resource)
 	}
@@ -534,7 +539,11 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 		resource.Fields = fields
-		declareViewDeclarations(annotations, &resource.rowsOfDecl, &resource.publishDecl)
+		if err := c.declareView(pStruct, annotations, &resource.rowsOfDecl, &resource.publishDecl, &resource.rowWordsDecl); err != nil {
+			errs = append(errs, err)
+
+			continue
+		}
 
 		// A view declares the pickers its fields list and its order and page sizes as a
 		// table does, and its list handler and descriptor carry them the same way.
@@ -851,7 +860,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -1105,7 +1114,11 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			Struct: s,
 			Shape:  shape,
 		}
-		declareViewDeclarations(annotations, &res.rowsOfDecl, &res.publishDecl)
+		if err := c.declareView(s, annotations, &res.rowsOfDecl, &res.publishDecl, &res.rowWordsDecl); err != nil {
+			resourceErrors = append(resourceErrors, err)
+
+			continue
+		}
 
 		if annotations.Struct.Has(suppressKeyword) {
 			if err := applyComputedSuppressDirectives(res, annotations.Struct.Get(suppressKeyword).Seq()); err != nil {
@@ -1303,7 +1316,7 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "DeleteTree", "SearchBranches", "NameFields", "SecretContext"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "GroupColumns", "DeleteTree", "SearchBranches", "NameFields", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of

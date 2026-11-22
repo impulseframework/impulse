@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -371,13 +372,266 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 	}
 }
 
+// scopedLists is a caller's checker whose List grant on a resource holds in the scopes
+// it is listed under and in no other, and which notes each scope it is asked in.
+type scopedLists struct {
+	renderStubPermissions
+	lists map[accesstypes.Scope][]accesstypes.Resource
+	asked map[accesstypes.Scope]int
+}
+
+func (s *scopedLists) Check(_ context.Context, _ accesstypes.Environment, scope accesstypes.Scope, _ accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
+	s.asked[scope]++
+	out := make(accesstypes.Decisions, len(resources))
+	for _, res := range resources {
+		if slices.Contains(s.lists[scope], res) {
+			out[res] = accesstypes.Granted()
+		} else {
+			out[res] = accesstypes.Denied()
+		}
+	}
+
+	return out, nil
+}
+
+// scopeTree is the description of a record with two kinds of rows under it, taken by
+// its delete (takes) or in its way: squadrons, a tenant's rows by a column of their own,
+// and notices, rows of no tenant.
+func scopeTree(record accesstypes.Resource, one string, tenant *DomainBindingData, takes bool) *DeleteTree {
+	kind := func(table accesstypes.Resource, one, many string, tenant *DomainBindingData) DeleteKind {
+		return DeleteKind{
+			Resource: table,
+			Words:    DeleteWords{One: one, Many: many},
+			Key:      []string{"Id"},
+			Paths:    []DeletePath{{{Columns: []string{"RecordId"}, Table: string(record), References: []string{"Id"}}}},
+			Tenant:   tenant,
+		}
+	}
+	kinds := []DeleteKind{
+		kind("RefusalNotices", "notice", "notices", nil),
+		kind("RefusalSquadrons", "squadron", "squadrons", &DomainBindingData{Column: "SectorId"}),
+	}
+	tree := &DeleteTree{Record: record, Words: DeleteWords{One: one, Many: one + "s"}, Key: []string{"Id"}, Tenant: tenant}
+	if takes {
+		tree.Taken = kinds
+	} else {
+		tree.Under = kinds
+	}
+
+	return tree
+}
+
+// textTenant is a tenant's key of a type that marshals to text, as a UUID does.
+type textTenant struct{ text string }
+
+func (k textTenant) MarshalText() ([]byte, error) {
+	return []byte(k.text), nil
+}
+
+// namedTenant is a tenant's key of a string-kinded type.
+type namedTenant string
+
+// TestRecordedDelete_seen pins the scope each kind is asked about in, on the question
+// before a delete and on a refusal that counts: a kind of a tenant's rows under a record
+// whose key holds its tenant (the tenant record, or a record keyed by its tenant) in
+// that tenant, whatever scope the delete is asked in, and every other kind in the
+// delete's own scope, with one check for each scope asked. A person who lists a kind in
+// the tenant alone is told its count for the tenant record's delete asked in the global
+// scope; one who lists it in the global scope alone, or in another tenant alone, is not.
+// A key that marshals to text names its tenant by that text, and a trusted call is told
+// every kind.
+func TestRecordedDelete_seen(t *testing.T) {
+	t.Parallel()
+
+	global, anvil, bastion := accesstypes.GlobalScope(), accesstypes.DomainScope("anvil"), accesstypes.DomainScope("bastion")
+	byKey := &DomainBindingData{Column: "Id"}
+	bySector := &DomainBindingData{Column: "SectorId"}
+	byWing := &DomainBindingData{Column: "WingId", Path: []BindingHop{{Table: "RefusalWings", JoinColumn: "Id", Column: "SectorId"}}}
+	found := &takenFound{rows: map[accesstypes.Resource][]map[string]any{
+		"RefusalSquadrons": {{"Id": "q1"}, {"Id": "q2"}},
+		"RefusalNotices":   {{"Id": "n1"}},
+	}}
+	counts := map[string]int64{"RefusalSquadrons": 2, "RefusalNotices": 1}
+
+	tests := []struct {
+		name   string
+		record accesstypes.Resource
+		one    string
+		tenant *DomainBindingData
+		key    map[string]any
+		// trusted is a call with no person; scope is the one the delete is asked in.
+		trusted      bool
+		scope        accesstypes.Scope
+		lists        map[accesstypes.Scope][]accesstypes.Resource
+		wantQuestion string
+		wantRefusal  string
+		// wantAsked is the scopes a check was asked in, once each.
+		wantAsked []accesstypes.Scope
+	}{
+		{
+			name: "a trusted call is told every kind", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": "anvil"},
+			trusted:      true,
+			wantQuestion: "Delete this sector and everything under it: 2 squadrons, 1 notice. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice and 2 squadrons. Delete them first.",
+		},
+		{
+			name: "the tenant record: a tenant's kind in the tenant, and a kind of no tenant in the delete's own scope", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": "anvil"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons"}, global: {"RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 2 squadrons, 1 notice. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice and 2 squadrons. Delete them first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+		{
+			name: "the tenant record: a tenant's kind listed in the global scope alone is not told", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": "anvil"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{global: {"RefusalSquadrons", "RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 1 notice, and records you can't see. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice. Delete it first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+		{
+			name: "the tenant record: a tenant's kind listed in another tenant alone is not told", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": "anvil"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{bastion: {"RefusalSquadrons"}, global: {"RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 1 notice, and records you can't see. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice. Delete it first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+		{
+			name: "the tenant record: a kind of no tenant listed in the tenant alone is not told", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": "anvil"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons", "RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 2 squadrons, and records you can't see. This can't be undone.",
+			wantRefusal:  "This sector has 2 squadrons. Delete them first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+		{
+			name: "a record keyed by its tenant: a tenant's kind in the tenant its key holds", record: "RefusalWings", one: "wing", tenant: bySector, key: map[string]any{"SectorId": "anvil", "Id": "w1"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons", "RefusalNotices"}},
+			wantQuestion: "Delete this wing and everything under it: 2 squadrons, and records you can't see. This can't be undone.",
+			wantRefusal:  "This wing has 2 squadrons. Delete them first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+		{
+			name: "the delete asked in the tenant the key holds is one check", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": "anvil"},
+			scope:        anvil,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons", "RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 2 squadrons, 1 notice. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice and 2 squadrons. Delete them first.",
+			wantAsked:    []accesstypes.Scope{anvil},
+		},
+		{
+			name: "a record whose key does not hold its tenant: every kind in the delete's own scope", record: "RefusalWings", one: "wing", tenant: bySector, key: map[string]any{"Id": "anvil"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons", "RefusalNotices"}},
+			wantQuestion: "Delete this wing and everything under it? This can't be undone.",
+			wantRefusal:  "This wing has records under it that you can't see, so it can't be deleted.",
+			wantAsked:    []accesstypes.Scope{global},
+		},
+		{
+			name: "a record that reaches its tenant through another row: every kind in the delete's own scope", record: "RefusalSquadrons", one: "squadron", tenant: byWing, key: map[string]any{"WingId": "anvil", "Id": "q9"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons", "RefusalNotices"}},
+			wantQuestion: "Delete this squadron and everything under it? This can't be undone.",
+			wantRefusal:  "This squadron has records under it that you can't see, so it can't be deleted.",
+			wantAsked:    []accesstypes.Scope{global},
+		},
+		{
+			name: "a record that is no tenant's: every kind in the delete's own scope", record: "RefusalSectors", one: "sector", key: map[string]any{"Id": "anvil"},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons", "RefusalNotices"}, global: {"RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 1 notice, and records you can't see. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice. Delete it first.",
+			wantAsked:    []accesstypes.Scope{global},
+		},
+		{
+			name: "a key that marshals to text names its tenant by the text", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": textTenant{text: "anvil"}},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons"}, global: {"RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 2 squadrons, 1 notice. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice and 2 squadrons. Delete them first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+		{
+			name: "a key of a string-kinded type names its tenant by its string", record: "RefusalSectors", one: "sector", tenant: byKey, key: map[string]any{"Id": namedTenant("anvil")},
+			scope:        global,
+			lists:        map[accesstypes.Scope][]accesstypes.Resource{anvil: {"RefusalSquadrons"}, global: {"RefusalNotices"}},
+			wantQuestion: "Delete this sector and everything under it: 2 squadrons, 1 notice. This can't be undone.",
+			wantRefusal:  "This sector has 1 notice and 2 squadrons. Delete them first.",
+			wantAsked:    []accesstypes.Scope{anvil, global},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			caller := func() (*Caller, *scopedLists) {
+				if tt.trusted {
+					return nil, &scopedLists{asked: map[accesstypes.Scope]int{}}
+				}
+				checker := &scopedLists{lists: tt.lists, asked: map[accesstypes.Scope]int{}}
+
+				return &Caller{Permissions: checker, Scope: tt.scope}, checker
+			}
+			wantAsked := make(map[accesstypes.Scope]int, len(tt.wantAsked))
+			for _, scope := range tt.wantAsked {
+				wantAsked[scope] = 1
+			}
+
+			asker, checker := caller()
+			asked := &recordedDelete{tree: scopeTree(tt.record, tt.one, tt.tenant, true), key: tt.key, caller: asker}
+			got, err := asked.question(t.Context(), found)
+			if err != nil {
+				t.Fatalf("question() error = %v", err)
+			}
+			if got != tt.wantQuestion {
+				t.Errorf("question() = %q, want %q", got, tt.wantQuestion)
+			}
+			if diff := cmp.Diff(wantAsked, checker.asked, cmp.AllowUnexported(accesstypes.Scope{})); diff != "" {
+				t.Errorf("the question's checks by scope mismatch (-want +got):\n%s", diff)
+			}
+
+			refuser, checker := caller()
+			deletes := newTransactionDeletes()
+			deletes.recordDelete(recordedDelete{tree: scopeTree(tt.record, tt.one, tt.tenant, false), key: tt.key, caller: refuser})
+			err = deletes.refuse(t.Context(), SpannerDBType, (&tableCounts{rows: counts}).count)
+			if got := httpio.Message(err); !httpio.HasConflict(err) || got != tt.wantRefusal {
+				t.Errorf("refuse() = %v (%q), want a conflict saying %q", err, got, tt.wantRefusal)
+			}
+			if diff := cmp.Diff(wantAsked, checker.asked, cmp.AllowUnexported(accesstypes.Scope{})); diff != "" {
+				t.Errorf("the refusal's checks by scope mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("a key that names its tenant neither as a string nor as text is an error", func(t *testing.T) {
+		t.Parallel()
+
+		asked := &recordedDelete{
+			tree:   scopeTree("RefusalSectors", "sector", byKey, true),
+			key:    map[string]any{"Id": 7},
+			caller: &Caller{Permissions: &scopedLists{asked: map[accesstypes.Scope]int{}}, Scope: global},
+		}
+		_, err := asked.question(t.Context(), found)
+		if want := "type int is neither string-kinded nor an encoding.TextMarshaler"; err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("question() error = %v, want one saying %q", err, want)
+		}
+	})
+}
+
 // Test_newRowsUnderStatement pins the count of a kind's rows under a record as each
 // database takes it: the kind's own columns against the record's key, by any of its
 // ways; a way of more than one step through the rows between; and the rows the
-// transaction itself deleted or updated left out, of the kind and of every table on
-// the way. A transaction that wrote more rows of a table than a statement leaves out is
-// not counted over that table, and a way that ends on a column the record's key does
-// not hold is an error.
+// transaction itself deleted left out, of the kind and of every table on the way. A
+// transaction that deleted more rows of a table than a statement leaves out is not
+// counted over that table, and a way that ends on a column the record's key does not
+// hold is an error. Where the kind's rows and the record are a tenant's, the count is of
+// the rows of the record's own tenant: the tenant its key holds, or the one its row
+// resolves to, against the tenant each row resolves to, by its column or through other
+// rows. A record or a kind that is no tenant's counts every row its ways put there.
 func Test_newRowsUnderStatement(t *testing.T) {
 	t.Parallel()
 
@@ -385,10 +639,17 @@ func Test_newRowsUnderStatement(t *testing.T) {
 	for i := range manyWritten {
 		manyWritten[i] = map[string]any{"Id": i}
 	}
+	bySector := &DomainBindingData{Column: "SectorId"}
+	byWing := &DomainBindingData{Column: "WingId", Path: []BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
+	byCaseNumber := DeleteLink{Columns: []string{"CaseNumber"}, Table: "Calls", References: []string{"CaseNumber"}}
+	sectors := &DeleteTree{Record: "Sectors", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+	calls := &DeleteTree{Record: "Calls", Key: []string{"Id"}, Tenant: bySector}
+	wings := &DeleteTree{Record: "Wings", Key: []string{"Id"}, Tenant: bySector}
 
 	tests := []struct {
 		name      string
 		dbType    DBType
+		tree      *DeleteTree
 		kind      DeleteKind
 		recordKey map[string]any
 		written   map[accesstypes.Resource][]map[string]any
@@ -479,13 +740,98 @@ func Test_newRowsUnderStatement(t *testing.T) {
 				" AND w0_r.`Id` = @d1 AND w0_r.`TenantId` = @d2))",
 			wantArgs: []any{"s1", "anvil"},
 		},
+		{
+			name:      "the tenant record: a kind of a tenant's rows, by a way of two steps",
+			dbType:    SpannerDBType,
+			tree:      sectors,
+			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber, {Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
+			recordKey: map[string]any{"Id": "anvil"},
+			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_1" +
+				" WHERE w0_1.`CaseNumber` = t0.`CaseNumber` AND w0_1.`SectorId` = @d1)) AND t0.`SectorId` = @d2",
+			wantArgs: []any{"anvil", "anvil"},
+		},
+		{
+			name:      "a record under a tenant: its tenant read from its row by its key",
+			dbType:    SpannerDBType,
+			tree:      calls,
+			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
+			recordKey: map[string]any{"Id": "c1"},
+			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
+				" AND t0.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)",
+			wantArgs: []any{"c1", "c1"},
+		},
+		{
+			name:      "a kind whose rows reach their tenant through another table",
+			dbType:    SpannerDBType,
+			tree:      wings,
+			kind:      DeleteKind{Resource: "Squadrons", Tenant: byWing, Paths: []DeletePath{{{Columns: []string{"PatrolWingId"}, Table: "Wings", References: []string{"Id"}}}}},
+			recordKey: map[string]any{"Id": "w1"},
+			wantSQL: "SELECT COUNT(*) FROM `Squadrons` AS t0 WHERE ((t0.`PatrolWingId` = @d1))" +
+				" AND (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = t0.`WingId`) = (SELECT tr.`SectorId` FROM `Wings` AS tr WHERE tr.`Id` = @d2)",
+			wantArgs: []any{"w1", "w1"},
+		},
+		{
+			// The key holds the column the record's way to its tenant leaves through,
+			// which is not its tenant: the row is read for it.
+			name:      "a record whose own tenant is through another table, keyed by two columns",
+			dbType:    SpannerDBType,
+			tree:      &DeleteTree{Record: "Squadrons", Key: []string{"WingId", "Id"}, Tenant: byWing},
+			kind:      DeleteKind{Resource: "Missions", Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"WingId", "SquadronId"}, Table: "Squadrons", References: []string{"WingId", "Id"}}}}},
+			recordKey: map[string]any{"WingId": "w1", "Id": "q1"},
+			wantSQL: "SELECT COUNT(*) FROM `Missions` AS t0 WHERE ((t0.`WingId` = @d1 AND t0.`SquadronId` = @d2))" +
+				" AND t0.`SectorId` = (SELECT (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = tr.`WingId`)" +
+				" FROM `Squadrons` AS tr WHERE tr.`Id` = @d3 AND tr.`WingId` = @d4)",
+			wantArgs: []any{"w1", "q1", "q1", "w1"},
+		},
+		{
+			name:      "the values in the order the text names them, with the rows written left out",
+			dbType:    SpannerDBType,
+			tree:      calls,
+			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
+			recordKey: map[string]any{"Id": "c1"},
+			written:   map[accesstypes.Resource][]map[string]any{"Relays": {{"Id": "r9"}}},
+			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
+				" AND t0.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2) AND NOT (t0.`Id` = @d3)",
+			wantArgs: []any{"c1", "c1", "r9"},
+		},
+		{
+			name:      "the tenant record, on PostgreSQL",
+			dbType:    PostgresDBType,
+			tree:      sectors,
+			kind:      DeleteKind{Resource: "Missions", Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"HostSectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
+			recordKey: map[string]any{"Id": "anvil"},
+			wantSQL:   `SELECT COUNT(*) FROM "Missions" AS t0 WHERE ((t0."HostSectorId" = $1)) AND t0."SectorId" = $2`,
+			wantArgs:  []any{"anvil", "anvil"},
+		},
+		{
+			name:      "a record that is no tenant's",
+			dbType:    SpannerDBType,
+			tree:      &DeleteTree{Record: "Calls", Key: []string{"Id"}},
+			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
+			recordKey: map[string]any{"Id": "c1"},
+			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
+			wantArgs: []any{"c1"},
+		},
+		{
+			name:      "a kind whose rows are no tenant's",
+			dbType:    SpannerDBType,
+			tree:      calls,
+			kind:      DeleteKind{Resource: "Relays", Paths: []DeletePath{{byCaseNumber}}},
+			recordKey: map[string]any{"Id": "c1"},
+			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
+			wantArgs: []any{"c1"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := newRowsUnderStatement(tt.dbType, &tt.kind, tt.recordKey, tt.written)
+			got, ok := newRowsUnderStatement(tt.dbType, tt.tree, &tt.kind, tt.recordKey, tt.written)
 			if ok == tt.wantSkip {
 				t.Fatalf("newRowsUnderStatement() ok = %v, want %v", ok, !tt.wantSkip)
 			}
@@ -533,9 +879,10 @@ type countingTxn struct {
 // TestPatchSet_recordsDeletes pins what a patch notes on its transaction for the check
 // before the commit: a delete of a record whose description names kinds under it is
 // noted with the record's key by column and who it is for, and its row as one the
-// transaction deleted; an update's row as one the transaction wrote; a create nothing;
-// and the delete of a record with no description its row alone. The person is the one
-// the patch is armed against, else the caller the request stamped, else nobody.
+// transaction deleted; an update's row as one the transaction changed, which no count
+// leaves out; a create nothing; and the delete of a record with no description its row
+// alone. The person is the one the patch is armed against, else the caller the request
+// stamped, else nobody.
 func TestPatchSet_recordsDeletes(t *testing.T) {
 	t.Parallel()
 
@@ -548,6 +895,8 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 		ctx         func(ctx context.Context) context.Context
 		wantWritten map[accesstypes.Resource][]map[string]any
 		wantDeleted map[accesstypes.Resource]int
+		// wantChanged are the rows noted as changed and not deleted.
+		wantChanged map[accesstypes.Resource][]map[string]any
 		wantCounted bool
 		// wantLists is whether the person the delete is noted for may list missions: the
 		// armed person may, the stamped caller may not.
@@ -613,7 +962,7 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 			wantDeleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1},
 		},
 		{
-			name: "an update's row is one the transaction wrote",
+			name: "an update's row is one the transaction changed",
 			patch: func() bufferer {
 				p := NewPatchSet(NewMetadata[refusalSquadron]()).SetPatchType(UpdatePatchType)
 				p.SetKey("ID", "s1")
@@ -621,8 +970,9 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 
 				return p
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
+			wantWritten: map[accesstypes.Resource][]map[string]any{},
 			wantDeleted: map[accesstypes.Resource]int{},
+			wantChanged: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
 		},
 		{
 			name: "a create notes nothing",
@@ -662,20 +1012,28 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 				t.Fatalf("PatchSet.Buffer() error = %v", err)
 			}
 
-			if diff := cmp.Diff(tt.wantWritten, txn.written); diff != "" {
-				t.Errorf("the rows noted as written mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.wantWritten, txn.gone); diff != "" {
+				t.Errorf("the rows noted as deleted, which a count leaves out, mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantDeleted, txn.deleted); diff != "" {
 				t.Errorf("the deletes noted by table mismatch (-want +got):\n%s", diff)
 			}
 			for table, keys := range tt.wantWritten {
 				for _, key := range keys {
-					if !txn.wrote(table, key) {
-						t.Errorf("the transaction does not answer that it wrote the row %v of %s", key, table)
+					if !txn.deletedRow(table, key) || txn.changedRow(table, key) {
+						t.Errorf("the transaction does not answer that it deleted the row %v of %s", key, table)
 					}
 				}
 			}
-			if txn.wrote("RefusalSquadrons", map[string]any{"Id": "another"}) {
+			for table, keys := range tt.wantChanged {
+				for _, key := range keys {
+					if !txn.changedRow(table, key) || txn.deletedRow(table, key) {
+						t.Errorf("the transaction does not answer that it changed the row %v of %s without deleting it", key, table)
+					}
+				}
+			}
+			another := map[string]any{"Id": "another"}
+			if txn.deletedRow("RefusalSquadrons", another) || txn.changedRow("RefusalSquadrons", another) {
 				t.Error("the transaction answers that it wrote a row it did not")
 			}
 			if !tt.wantCounted {

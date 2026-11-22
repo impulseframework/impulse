@@ -466,7 +466,7 @@ func Test_prepareIdentity(t *testing.T) {
 			// the frames of a tenant's directory ask each auth's client.
 			"func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {",
 		},
-		"crewidentity/store.go":                         {"identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID,", "crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()", "func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
+		"crewidentity/store.go":                         {"identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID,", "crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()", "func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":    {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go": {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
 		"crewidentity/create_crew_user.go":              {"Roles       []string", "Domain      *string", "EveryDomain bool", "client.manager.CreateUser(ctx, txn, account)"},
@@ -476,7 +476,7 @@ func Test_prepareIdentity(t *testing.T) {
 		// the identities that count, read through the identity package's judgment and
 		// named by the words the generator program declares for the auth's sign-ins.
 		"crewidentity/crew_sign_in_ways.go": {
-			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\ntype CrewSignInWay struct {",
+			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\n// @rowWord(way to sign in, plural: ways to sign in)\ntype CrewSignInWay struct {",
 			"// @primarykey\n\tUserID impulse.UUID `spanner:\"UserId\" allow_filter:\"true\"`", "// @primarykey\n\tWay string `spanner:\"Way\"`",
 			"return \"CrewSignInWays\"", "RemoveCrewPassword is refused unless the person holds a password and one identity",
 			"func ListCrewSignInWay(ctx context.Context, qSet *resource.QuerySet[CrewSignInWay], db resource.Client, client *Client) iter.Seq2[*CrewSignInWay, error] {",
@@ -551,6 +551,11 @@ func Test_prepareIdentity(t *testing.T) {
 	// which the database cannot yet show, can be given a role.
 	if strings.Contains(string(members), "c.manager.RequireUser(") {
 		t.Errorf("membersidentity/client.go's AssignRole reads the account, which a user created in the same transaction is not yet:\n%s", members)
+	}
+	// A user that is no account's id is refused in a sentence that names no role by its
+	// code name; the role and the user stay the cause, for the server's log.
+	if refusal := `return httpio.NewForbiddenMessageWithError(errors.Newf("the role %s is given to a person with an account, and %q is no account's id", role, user), "A role is given to a person with an account, and this session acts for none.")`; !strings.Contains(string(members), refusal) {
+		t.Errorf("membersidentity/client.go lacks %q:\n%s", refusal, members)
 	}
 	// And the Go call that reads whether a person holds a role in some tenant, in the
 	// caller's transaction, which the create of a tenant asks where it writes the row. A
@@ -1070,7 +1075,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		// of its own list of people, whose two facts each row carries for the role file's
 		// conditions. The words of the sign-ins are the whole application's file's.
 		"crewidentity/crew_ship_sign_in_ways.go": {
-			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\ntype CrewShipSignInWay struct {",
+			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\n// @rowWord(way to sign in, plural: ways to sign in)\ntype CrewShipSignInWay struct {",
 			"// @attribute(heldElsewhere)\n\tHeldElsewhere bool", "// @attribute(heldGlobally)\n\tHeldGlobally bool", "return \"CrewShipSignInWays\"",
 			"// @attribute(password)\n\tPassword bool", "a grant under \"password = false OR heldElsewhere = false\" lists the",
 			"RemoveCrewShipPassword is refused unless the person holds a password and one identity", "for a row of CrewShipUser, the tenant's own list of the auth's people",

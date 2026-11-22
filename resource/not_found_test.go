@@ -26,6 +26,17 @@ func (goneRow) DefaultConfig() Config {
 	return Config{}
 }
 
+// genericRow is a record whose type takes an argument: the name of an instance of it
+// carries the argument's package path.
+type genericRow[T any] struct {
+	ID    string `spanner:"Id"`
+	Value T      `spanner:"Value"`
+}
+
+func (genericRow[T]) Resource() accesstypes.Resource {
+	return "GenericRows"
+}
+
 // plainAnswer holds one of the package's answers to what a caller may be told. The error
 // is the kind of answer wanted (is); the caller is sent the plain sentence and nothing
 // else; no message carries a mark of a query or any of the words kept from the caller
@@ -98,12 +109,12 @@ func TestAnswers_sayNoQuery(t *testing.T) {
 			t.Run("a record that is not there", func(t *testing.T) {
 				t.Parallel()
 
-				plainAnswer(t, recordNotFound(res.Resource(), where), httpio.HasNotFound, "This record was not found.", where, "GoneRows", "Id", "row-9")
+				plainAnswer(t, recordNotFound[goneRow](where), httpio.HasNotFound, "This gone row does not exist.", where, "GoneRows", "Id", "row-9")
 			})
 			t.Run("a write that names a record that is not there", func(t *testing.T) {
 				t.Parallel()
 
-				plainAnswer(t, referencedNotFound(res.Resource(), "ParentRows"), httpio.HasNotFound, "A record this one refers to was not found.", "ParentRows", "GoneRows")
+				plainAnswer(t, referencedNotFound(res.Resource(), "ParentRows"), httpio.HasNotFound, "A record this one refers to does not exist.", "ParentRows", "GoneRows")
 			})
 			t.Run("a write that changes nothing", func(t *testing.T) {
 				t.Parallel()
@@ -115,6 +126,21 @@ func TestAnswers_sayNoQuery(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestLabelOf pins the name a sentence says a record by: a named struct is its name, and
+// an instantiated generic type, whose name carries its type argument's package path, has
+// none, so its record that is not there reads "This record does not exist.".
+func TestLabelOf(t *testing.T) {
+	t.Parallel()
+
+	if got := labelOf[goneRow](); got != "goneRow" {
+		t.Errorf("labelOf[goneRow]() = %q, want %q", got, "goneRow")
+	}
+	if got := labelOf[genericRow[goneRow]](); got != "" {
+		t.Errorf("labelOf[genericRow[goneRow]]() = %q, want none", got)
+	}
+	plainAnswer(t, recordNotFound[genericRow[goneRow]]("Id = row-9"), httpio.HasNotFound, "This record does not exist.", "GenericRows", "row-9")
 }
 
 // TestRecordNotFound_theLogKeepsTheWhereClause serves the answer for a record that is
@@ -130,10 +156,9 @@ func TestRecordNotFound_theLogKeepsTheWhereClause(t *testing.T) { //nolint:paral
 		log.SetOutput(previous)
 	})
 
-	var res goneRow
 	where := missingRowStatement[goneRow](t, SpannerDBType, "row-9").resolvedWhereClause
 	handler := httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
-		return httpio.NewEncoder(w).ClientMessage(r.Context(), recordNotFound(res.Resource(), where))
+		return httpio.NewEncoder(w).ClientMessage(r.Context(), recordNotFound[goneRow](where))
 	})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/gone-rows/row-9", http.NoBody))
@@ -142,8 +167,8 @@ func TestRecordNotFound_theLogKeepsTheWhereClause(t *testing.T) { //nolint:paral
 		t.Errorf("the answer's status = %d, want %d", recorder.Code, http.StatusNotFound)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "This record was not found.") {
-		t.Errorf("the caller's body is %q, want it to say %q", body, "This record was not found.")
+	if !strings.Contains(body, "This gone row does not exist.") {
+		t.Errorf("the caller's body is %q, want it to say %q", body, "This gone row does not exist.")
 	}
 	for _, word := range []string{"WHERE", "`", "Id", "row-9", "GoneRows"} {
 		if strings.Contains(body, word) {

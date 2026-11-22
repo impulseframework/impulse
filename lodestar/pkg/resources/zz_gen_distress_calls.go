@@ -22,6 +22,59 @@ func (DistressCall) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what a delete of a DistressCall takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the DistressCall and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a DistressCall
+// that the database does not remove with it.
+func (DistressCall) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "DistressCalls",
+		Words:  resource.DeleteWords{One: "distress call", Many: "distress calls"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 4, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
+					},
+				},
+				Within: []resource.DeleteLink{
+					{Columns: []string{"AnswersRelayId"}, Table: "DistressRelays", References: []string{"Id"}, MayBeEmpty: true},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[DistressRelay], caller *resource.Caller) {
+					patch := &DistressRelayDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
+					},
+				},
+				RemovedWith: []string{"Sectors"},
+			},
+		},
+	}
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows, sorts and filters by. A name is
 // looked up in the pointed-to table by the id; it is no column of this resource.
@@ -89,18 +142,6 @@ func (q *DistressCallQuery) SetID(v impulse.UUID) *DistressCallQuery {
 
 func (q *DistressCallQuery) ID() impulse.UUID {
 	v, _ := q.qSet.Key("ID").(impulse.UUID)
-
-	return v
-}
-
-func (q *DistressCallQuery) SetCaseNumber(v string) *DistressCallQuery {
-	q.qSet.SetKey("CaseNumber", v)
-
-	return q
-}
-
-func (q *DistressCallQuery) CaseNumber() string {
-	v, _ := q.qSet.Key("CaseNumber").(string)
 
 	return v
 }
@@ -909,6 +950,17 @@ func NewDistressCallDeletePatch(id impulse.UUID) *DistressCallDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &DistressCallDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the DistressCall with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a DistressCall that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *DistressCallDeletePatch) WithEverythingUnder() *DistressCallDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *DistressCallDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

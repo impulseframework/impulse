@@ -35,6 +35,7 @@ type (
 	// @outlet(default)
 	// @order(Username asc, GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role held through a group, plural: roles held through a group)
 	CrewSectorUserGroupRole struct {
 		// @domain
 		DomainID string `spanner:"DomainId" index:"true"`

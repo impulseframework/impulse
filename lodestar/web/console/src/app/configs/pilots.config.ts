@@ -35,7 +35,6 @@ const registry = (): ReturnType<typeof listViewConfig> =>
   listViewConfig({
     title: 'Pilots',
     createTitle: 'Pilot',
-    createButtonLabel: 'Add a pilot',
     primaryResource: Resources.Pilots,
     listColumns: [
       { id: Pilots.fieldName.displayName },
@@ -81,7 +80,6 @@ export const sectorPilotsConfig = rootConfig({
     listViewConfig({
       title: 'Assignments in this sector',
       createTitle: 'Assignment',
-      createButtonLabel: 'Add an assignment',
       primaryResource: Resources.PilotAssignments,
       parentRelation: { parentKey: Pilots.fieldName.userId, childKey: PilotAssignments.fieldName.userId },
       rowRoute: PilotAssignments.fieldName.squadronId,

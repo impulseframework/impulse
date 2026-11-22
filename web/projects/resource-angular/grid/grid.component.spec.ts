@@ -2732,36 +2732,42 @@ describe('a list and the width of its frame', () => {
     });
 
     describe('when a list scrolls', () => {
-      it("a list that fits at the library's width is drawn as it always was: no column of text is given a width", async () => {
+      it("a list that fits with every value whole is drawn as it always was, no column of text given a width; at the library's width for each, the room left over is the column's that cuts a value", async () => {
         await plain();
         frameIs(wide);
 
         expect(widths()).toEqual(['', '', '64px', '', '66px']);
         expect(held()).toBe(false);
+        // A frame that holds each column of text at the library's width: Description cuts its
+        // longest value there, so what the frame has over the columns at their narrowest is
+        // Description's. Name and Changed By are held at what they need, and Description,
+        // given no width, takes all that they leave.
         frameIs(columnsAtTheirNarrowest);
-        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, '', '64px', `${changedBy}px`, '66px']);
       });
 
-      it('a list that fits once its columns are as narrow as they need does not scroll: a column that needs more than an equal share of the frame keeps what it needs, and the rest share what is left', async () => {
+      it('a list that fits once its columns are as narrow as they need does not scroll: what the frame has over that goes to the column that cuts a value, and the others stay at what they need', async () => {
         await plain();
-        // Ten more than the columns need. A third of what the declared and the button
-        // column leave is under what Description needs, and half of the rest under what
-        // Name needs: both keep theirs, and Changed By takes what is left.
+        // Ten more than the columns need. Description cuts its longest value at its
+        // narrowest: the ten are Description's. Name and Changed By are held at what they
+        // need, and Description is the column given no width, which takes what is left.
+        const descriptionTakesTheRest = [`${name}px`, '', '64px', `${changedBy}px`, '66px'];
         frameIs(narrowest + 10);
         expect(held()).toBe(false);
-        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', '', '66px']);
+        expect(widths()).toEqual(descriptionTakesTheRest);
 
-        // Sixty more: Description still needs more than a third, and Name fits in half of the rest.
+        // Sixty more, where half of what Description leaves at the library's width holds
+        // Name: Description's too, and Name is not let go to share them.
         frameIs(narrowest + 60);
         expect(held()).toBe(false);
-        expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
+        expect(widths()).toEqual(descriptionTakesTheRest);
 
-        // Seventy-eight more: a third is the library's width to the pixel, which every column fits in.
+        // Seventy-eight more, where a third of the frame is the library's width: the value is
+        // still cut there, and the frame's room is still Description's.
         frameIs(narrowest + 78);
         expect(held()).toBe(false);
-        expect(widths()).toEqual(['', '', '64px', '', '66px']);
-        frameIs(narrowest + 77);
-        expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
+        expect(widths()).toEqual(descriptionTakesTheRest);
       });
 
       it('scrolls only in a frame narrower than its columns at their narrowest, to the pixel, and is in the same state at the same width from either side', async () => {
@@ -2770,7 +2776,10 @@ describe('a list and the width of its frame', () => {
           frameIs(width);
           return [held(), widths()];
         };
-        const fits: [boolean, string[]] = [false, [`${name}px`, `${text}px`, '64px', '', '66px']];
+        // Description cuts its longest value at its narrowest. In a frame the columns fit it
+        // is the one given no width, and takes what the others leave: nothing over what it
+        // needs in the frame that holds them to the pixel, and a pixel in the next.
+        const fits: [boolean, string[]] = [false, [`${name}px`, '', '64px', `${changedBy}px`, '66px']];
         const scrolls: [boolean, string[]] = [true, [`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']];
 
         expect(at(narrowest)).toEqual(fits);
@@ -2781,6 +2790,32 @@ describe('a list and the width of its frame', () => {
         expect(at(narrowest - 1)).toEqual(scrolls);
         // What it needs does not move with the frame.
         expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+
+      it('leaves one column of text without a width in every frame its columns fit, so that the table is as wide as the frame and no wider, and gives every one a width only in a frame that scrolls', async () => {
+        // A table whose every column carries a width is drawn as wide as they and its border
+        // add up to: past a frame they fill to the pixel, which would then scroll sideways.
+        const withAWidth = (): number => [0, 1, 3].filter((column) => widths()[column] !== '').length;
+        const everyFrameFrom = (least: number): void => {
+          expect(table().style.minWidth).toBe(`${least}px`);
+          // From the frame the columns fill to the pixel, past the one every value is whole in.
+          for (let width = least; width <= least + 300; width++) {
+            frameIs(width);
+            expect(withAWidth(), `in a frame of ${width}`).toBeLessThan(3);
+          }
+          frameIs(wide);
+          expect(withAWidth()).toBe(0);
+          // A pixel under what the columns need: each at its narrowest, and the frame scrolls.
+          frameIs(least - 1);
+          expect(withAWidth()).toBe(3);
+        };
+
+        // One column that cuts a value at its narrowest, and then two.
+        await plain();
+        frameIs(wide);
+        everyFrameFrom(narrowest);
+        await hand('rowData', [longer, ...rows]);
+        everyFrameFrom(text + text + 64 + changedBy + 66);
       });
 
       it('holds its first column while the widest of the others, as narrow as that one goes, is whole beside it, and lets it go a pixel under that', async () => {
@@ -2800,6 +2835,101 @@ describe('a list and the width of its frame', () => {
         expect(held()).toBe(true);
         frameIs(name + changedBy - 1);
         expect(held()).toBe(false);
+      });
+    });
+
+    describe('the room a frame has left over', () => {
+      // Description's longest value, "Cites a pilot for a sortie flown well.", is thirty-eight
+      // characters: more than the library's width holds, so the column cuts it at its narrowest.
+      const whole = cellOf(38);
+      // "Commendations and citations" is twenty-seven: a Name that is cut at its narrowest too.
+      const longName = cellOf(27);
+
+      it('goes first to the column that cuts a value: in a frame wide enough for every value, every value is whole', async () => {
+        await plain();
+        expect(whole).toBeGreaterThan(text);
+        // An equal share of this frame is more than Name and Changed By need and less than
+        // Description does: shared equally, the one column with a value to cut would cut it.
+        // Description and Name keep what they need, and Changed By, the last to share, is
+        // given no width and takes what is left, which is what it needs to the pixel.
+        frameIs(name + whole + 64 + changedBy + 66);
+
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${whole}px`, '64px', '', '66px']);
+      });
+
+      it('is shared by two columns that cut a value, the least cut made whole first', async () => {
+        await plain([longer, ...rows]);
+        expect(longName).toBeGreaterThan(text);
+        const bothAtTheirNarrowest = text + text + 64 + changedBy + 66;
+
+        // A hundred over: fifty each, and neither is whole. Name is given its fifty, and
+        // Description, the more cut of the two, is given no width and takes what is left.
+        frameIs(bothAtTheirNarrowest + 100);
+        expect(widths()).toEqual([`${text + 50}px`, '', '64px', `${changedBy}px`, '66px']);
+        // Two hundred and fifty over: Name lacks 83 and is whole; Description takes the rest.
+        frameIs(bothAtTheirNarrowest + 250);
+        expect(longName - text).toBe(83);
+        expect(widths()).toEqual([`${longName}px`, '', '64px', `${changedBy}px`, '66px']);
+        expect(held()).toBe(false);
+      });
+
+      it('is shared as it always was once every value is whole: a column that needs more than an equal share keeps what it needs', async () => {
+        await plain();
+        // Ten over what every value needs. A third of what the declared and the button
+        // column leave is under what Description needs, and half of the rest under what
+        // Name needs: both keep theirs, and Changed By takes what is left.
+        frameIs(name + whole + 64 + changedBy + 66 + 10);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${whole}px`, '64px', '', '66px']);
+        // Thirty over: Description still needs more than a third, and Name fits in half of the rest.
+        frameIs(name + whole + 64 + changedBy + 66 + 30);
+        expect(widths()).toEqual(['', `${whole}px`, '64px', '', '66px']);
+        // A third of a wide frame holds Description whole: no column of text is given a width.
+        frameIs(3 * whole + 64 + 66);
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+        frameIs(3 * whole + 64 + 66 - 1);
+        expect(widths()).toEqual(['', `${whole}px`, '64px', '', '66px']);
+      });
+
+      it('gives a column no more than the frame is wide, and reads no value of a column that needs all of it', async () => {
+        const endless = { name: 'Logs', description: 'x'.repeat(400), enabled: false, changedBy: 'ada' };
+        await plain([endless, ...rows]);
+        frameIs(narrowest + 200);
+
+        // Description takes all the frame has over the others, and the frame does not scroll:
+        // the table needs no more than its columns at their narrowest.
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, '', '64px', `${changedBy}px`, '66px']);
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+        // Three headings; Name's four values; Description's first, which needs more than the
+        // whole frame, and none after it; Changed By's two.
+        expect(reads).toBe(3 + 4 + 1 + 2);
+
+        await hand('rowData', [endless, rows[1]]);
+        // Name's heading and its two values; Changed By's heading and its two. Nothing of Description.
+        expect(reads).toBe(10 + 3 + 3);
+      });
+
+      it('reads a column again in a frame wider than the one its value needed all of, and gives it the room it finds there', async () => {
+        const long = { name: 'Logs', description: 'x'.repeat(60), enabled: false, changedBy: 'ada' };
+        await plain([long, ...rows]);
+        // A phone's frame: the value needs more than all of it, and is read no further.
+        expect(cellOf(60)).toBeGreaterThan(phone);
+        frameIs(phone);
+        const narrow = reads;
+
+        // A wide frame holds the value whole, which the list reads again to know: Description
+        // keeps what it needs, more than a third of the frame, and the others share the rest.
+        frameIs(wide);
+        expect(reads).toBeGreaterThan(narrow);
+        expect(widths()).toEqual(['', `${cellOf(60)}px`, '64px', '', '66px']);
+
+        // Every value is read to its end now: a frame that changes width asks nothing more.
+        const whole = reads;
+        frameIs(wide - 100);
+        frameIs(wide + 100);
+        expect(reads).toBe(whole);
       });
     });
 
@@ -2869,17 +2999,17 @@ describe('a list and the width of its frame', () => {
         watch.destroy();
       });
 
-      it("reads a value once for each column it is shown in, no value of a column already at the library's width, and no column with a width of its own", async () => {
+      it("reads a value once for each column it is shown in, past the library's width as far as the frame is wide, and no column with a width of its own", async () => {
         await plain();
         frameIs(phone);
-        // Three headings; Name's three values; Description's first, which takes it to the
-        // library's width; Changed By's two, "ada" twice being one. Nothing of the
-        // declared column and nothing of the button column.
-        expect(reads).toBe(3 + 3 + 1 + 2);
+        // Three headings; Name's three values; Description's three, each past the library's
+        // width and none as wide as the frame; Changed By's two, "ada" twice being one.
+        // Nothing of the declared column and nothing of the button column.
+        expect(reads).toBe(3 + 3 + 3 + 2);
 
         await hand('rowData', [rows[0], rows[0], shorter]);
-        // Name's heading and its two values; Changed By's heading and its two. Description is not read again.
-        expect(reads).toBe(9 + 3 + 3);
+        // Each heading and its column's two values, Description's with them.
+        expect(reads).toBe(11 + 3 + 3 + 3);
       });
 
       it('reads once for a change of the rows, and nothing for a turn in which nothing the list draws has changed', async () => {

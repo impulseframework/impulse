@@ -17,13 +17,14 @@ import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansi
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router } from '@angular/router';
-import { ListViewConfig, RecordData, RootConfig } from '@impulseframework/resource-angular/types';
+import { ListViewConfig, RecordData, RESOURCE_META, RootConfig } from '@impulseframework/resource-angular/types';
 import {
   openCreateDialog,
   ResourceCreateDialogComponent,
 } from '../resource-create-dialog/resource-create-dialog.component';
 import { ResourceListComponent } from '../resource-list/resource-list.component';
 import { ResourceStore } from '../resource-store.service';
+import { addRowLabel, rowWordsOf } from '../row-words';
 
 @Component({
   standalone: true,
@@ -46,6 +47,7 @@ export class ResourceListCreateComponent {
 
   injector = inject(Injector);
   store = inject(ResourceStore);
+  private resourceMeta = inject(RESOURCE_META);
   /**
    * The store of the row page this list sits under: the page's row and the count of the
    * methods that ran under it. Absent for a list that is a page of its own.
@@ -127,6 +129,16 @@ export class ResourceListCreateComponent {
     return this.route.snapshot.data['config'] as RootConfig;
   });
 
+  /**
+   * The add button's label and the heading of the dialog it opens: the config's own,
+   * else "Add a hangar pass" from the word the listed resource's rows go by.
+   */
+  createLabel = computed(() => {
+    const config = this.config();
+
+    return addRowLabel(config.createButtonLabel, rowWordsOf(this.resourceMeta(config.primaryResource)));
+  });
+
   createConfig = computed(() => {
     const config = this.config();
     if (Object.keys(config.createConfig).length !== 0) {
@@ -159,7 +171,7 @@ export class ResourceListCreateComponent {
     const opened = openCreateDialog(
       this.dialog,
       {
-        label: config.createButtonLabel || 'Create',
+        label: this.createLabel(),
         config: this.createConfig(),
         parentData: this.parentData() ?? {},
         loadCreatedResource: config.loadCreatedResource,

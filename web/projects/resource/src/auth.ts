@@ -928,8 +928,9 @@ export class AuthClient {
    * keeps a remembered browser. The result is the session, a further step, or the server's
    * refusal: a wrong code answers 401 with `invalid_code`, and the code stands with one
    * fewer attempt; a code entered while none stands (none sent, or the one sent expired,
-   * was used or took its last attempt) answers 401 with `code_expired`, and the page has a
-   * new one sent; an expired sign-in answers `pending_expired`.
+   * was used, took its last attempt, or was mailed to an address the account no longer
+   * holds) answers 401 with `code_expired`, and the page has a new one sent; an expired
+   * sign-in answers `pending_expired`.
    */
   async verifyCode(code: string, rememberDevice: boolean): Promise<SignInResult> {
     const routes = await this.codeRoutes();

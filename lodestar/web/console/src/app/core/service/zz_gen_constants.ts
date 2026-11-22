@@ -63,6 +63,7 @@ export const Resources = {
   CrewUserGroupRoles: 'CrewUserGroupRoles' as Resource,
   CrewUserRoles: 'CrewUserRoles' as Resource,
   DistressCalls: 'DistressCalls' as Resource,
+  DistressRelays: 'DistressRelays' as Resource,
   ExpenseManifests: 'ExpenseManifests' as Resource,
   FeatureFlags: 'FeatureFlags' as Resource,
   FeeByKinds: 'FeeByKinds' as Resource,
@@ -1269,6 +1270,28 @@ export namespace DistressCalls {
     severity: 'DistressCalls.severity' as Resource,
     summary: 'DistressCalls.summary' as Resource,
     transcript: 'DistressCalls.transcript' as Resource,
+  };
+}
+
+export namespace DistressRelays {
+  export const fieldName = {
+    answersRelayId: 'answersRelayId' as FieldName,
+    caseNumber: 'caseNumber' as FieldName,
+    id: 'id' as FieldName,
+    message: 'message' as FieldName,
+    relayedAt: 'relayedAt' as FieldName,
+    relayedByName: 'relayedByName' as FieldName,
+    sectorId: 'sectorId' as FieldName,
+    sectorName: 'sectorName' as FieldName,
+  };
+  export const resourceName = {
+    answersRelayId: 'DistressRelays.answersRelayId' as Resource,
+    caseNumber: 'DistressRelays.caseNumber' as Resource,
+    id: 'DistressRelays.id' as Resource,
+    message: 'DistressRelays.message' as Resource,
+    relayedAt: 'DistressRelays.relayedAt' as Resource,
+    relayedByName: 'DistressRelays.relayedByName' as Resource,
+    sectorId: 'DistressRelays.sectorId' as Resource,
   };
 }
 

@@ -372,9 +372,10 @@ type foreignKeySchemaResult struct {
 }
 
 // foreignKeyMeta is one foreign key of a table: its columns in constraint order, the
-// table it references and the referenced columns in the same order. A foreign key to
-// columns that are not the referenced table's key reads with no referenced table, and
-// nothing follows it (the per-column facts have the same limit).
+// table it references and the referenced columns in the same order. The referenced
+// columns are the other table's key or any other columns the constraint names: a
+// foreign key to columns that are not the key reads like any other. One the read could
+// not match column by column has no referenced table, and nothing follows it.
 type foreignKeyMeta struct {
 	Name              string
 	Columns           []string
@@ -1012,6 +1013,20 @@ func (r *rpcField) applyEnumeration(src enumerationSource) {
 	r.EnumerationValues = src.Values
 }
 
+// IsDecimal reports whether the request field is a decimal, or a list of decimals: the
+// metadata marks it beside its number display type, so a form sends what was typed as
+// text, which is what the field's JSON is.
+func (r *rpcField) IsDecimal() bool {
+	if r.IsEnumerated() {
+		return false
+	}
+	if r.wire != nil {
+		return r.wire.IsDecimal()
+	}
+
+	return isDecimalRow(r.typescriptType)
+}
+
 func (r *rpcField) TypescriptDisplayType() string {
 	if r.IsEnumerated() {
 		if r.isList() {
@@ -1036,6 +1051,7 @@ type computedResource struct {
 	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
+	rowWordsDecl
 	publishDecl
 	// Shape is the struct's wire shape: the fields as the handlers' local mirrors
 	// declare them, with every struct they reach. A nested field is opaque: one
@@ -1223,6 +1239,19 @@ func (c *computedField) MirrorType() string {
 	return c.wire.MirrorType()
 }
 
+// IsDecimal reports whether the field is a decimal, or a list of decimals: the metadata
+// marks it beside its number display type, as a column's does (resourceField.IsDecimal).
+func (c *computedField) IsDecimal() bool {
+	if c.IsEnumerated {
+		return false
+	}
+	if c.wire != nil {
+		return c.wire.IsDecimal()
+	}
+
+	return isDecimalRow(c.typescriptType)
+}
+
 // TypescriptDisplayType is the field's display type in generated metadata: enumerated
 // for a declared picker, and otherwise the leaf's own display name (uuid, civilDate,
 // bytes), object for a nested field, with [] for a slice, exactly as the column and RPC
@@ -1349,6 +1378,7 @@ type resourceInfo struct {
 	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
+	rowWordsDecl
 	publishDecl
 	Fields []*resourceField
 	// ColumnShapes are the structs the resource's columns hold, leaves first, each
@@ -1396,6 +1426,11 @@ type resourceInfo struct {
 	// subjectReadThroughs are the record's columns that facts about people declared on
 	// other records are read through (attachSubjectReadThroughs).
 	subjectReadThroughs []subjectReadThrough
+
+	// groupColumns are the columns of a tenant's resource that name a group of people
+	// of an auth, found once the generated management's sets are known
+	// (nameGroupColumns).
+	groupColumns []*groupColumn
 
 	// Files are the resource's @file routes, one per field-scope declaration: a
 	// stored file served under the read route, its key column off the wire.
@@ -2035,7 +2070,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 // the NullBoolean value type), with [] for a list, or the final type a derived struct
 // or a declared type carries.
 func (f *resourceField) TypescriptDataType() string {
-	if f.typescriptDisplay != "" && !f.isDecimal() {
+	if f.typescriptDisplay != "" && !f.IsDecimal() {
 		return f.typescriptType
 	}
 	if f.IsNullable && f.typescriptType == booleanStr {
@@ -2063,11 +2098,19 @@ func (f *resourceField) TypescriptDisplayType() string {
 	return f.typescriptType
 }
 
-// isDecimal reports whether the column is the table's decimal row, or a list of it: the
+// IsDecimal reports whether the column is the table's decimal row, or a list of it: the
 // one built-in row that carries a display type of its own (number), where every other
-// field that carries one holds its final interface type already.
-func (f *resourceField) isDecimal() bool {
-	return f.tsImport == nil && strings.TrimSuffix(f.typescriptType, sliceSuffix) == decimalTSType
+// field that carries one holds its final interface type already. The metadata marks such
+// a field beside its display type, so a form sends what was typed as text and no digit
+// is lost to a floating-point number.
+func (f *resourceField) IsDecimal() bool {
+	return f.tsImport == nil && isDecimalRow(f.typescriptType)
+}
+
+// isDecimalRow reports whether a leaf, as the built-in table names it and with or without
+// the [] of a list, is the decimal row.
+func isDecimalRow(leaf string) bool {
+	return strings.TrimSuffix(leaf, sliceSuffix) == decimalTSType
 }
 
 // setColumnType records a column's resolved TypeScript type: the leaf's table type, or
@@ -2512,6 +2555,7 @@ const (
 	validateDeleteTypeKeyword   string = "validateDeleteType"   // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
 	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
 	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
+	manualAddPermissionKeyword  string = "manualAddPermission"  // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
 	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
 	permissionScopeKeyword      string = "permissionScope"      // Declares the permission scope (global or domain) all of a resource's registrations use
 	outletKeyword               string = "outlet"               // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
@@ -2545,6 +2589,7 @@ const (
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
 	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	rowWordKeyword              string = "rowWord"              // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
 	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
 )
 
@@ -2564,6 +2609,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		deleteCascadeKeyword:        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
 		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
+		manualAddPermissionKeyword:  {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
 		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},
 		permissionScopeKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		outletKeyword:               {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
@@ -2597,6 +2643,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
 		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		rowWordKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		classKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
 	}
 }

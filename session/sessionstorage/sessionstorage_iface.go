@@ -304,9 +304,13 @@ type db interface {
 	// UserByEmail returns the user holding the address, verified or not, or NotFound.
 	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
 	// SetUserEmail puts an address on the user by hand, unverified, or takes it off (nil).
+	// Taking it off consumes, in the same transaction, every live factor code of the
+	// user's pending sign-ins.
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
 	// VerifyUserEmail writes the address the person proved they read, verified at the database's time.
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
+	// VerifyUserEmailIfHeld is VerifyUserEmail taken only while the user still holds held (nil: no address); Conflict once the user does not.
+	VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error
 	// ClaimVerifiedEmail writes email on the user as verified when the user holds no verified address and no other user holds it, and reports whether it did.
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
 	// SetUserName writes the person's name on the user, or takes it off (nil).

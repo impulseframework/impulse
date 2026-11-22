@@ -110,7 +110,7 @@ func TestImpersonationOperator(t *testing.T) {
 	t.Run("a forged write on the read-only session is stopped by the middleware", func(t *testing.T) {
 		status, body := maren.do(ctx, http.MethodPost, sectorPath(anvil, "claim-mission"), fmt.Appendf(nil, `{"missionId":%q,"squadronId":%q}`, missionHaulerID, squadronTongsID))
 		assertStatus(t, status, http.StatusForbidden, body)
-		if want := "this session is read-only"; !strings.Contains(string(body), want) {
+		if want := "You are acting as someone else, and this session cannot change anything."; !strings.Contains(string(body), want) {
 			t.Errorf("refusal = %s, want the backstop's %q", body, want)
 		}
 		// The read-only session still reads.

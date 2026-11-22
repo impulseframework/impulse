@@ -35,7 +35,7 @@ import {
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
-import { Domain, TenantProperty } from '@impulseframework/resource';
+import { Domain, RemoveOptions, TenantProperty } from '@impulseframework/resource';
 import {
   AlertType,
   ChildResourceConfig,
@@ -72,6 +72,7 @@ import {
   spaceHyphenConcatWithoutResource,
 } from '../concat-fns';
 import { applyFormatting, formatDateString, formatFieldValue } from '../format-fns';
+import { addRowLabel, rowMessage, rowWordsOf } from '../row-words';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
   DeleteConfirmation,
@@ -312,9 +313,15 @@ export class ResourceListComponent implements OnInit {
     return true;
   });
 
-  createButtonLabel = computed(() => {
-    return this.config().createButtonLabel || 'Create';
-  });
+  /**
+   * The words a row of the list goes by: the listed resource's, as its metadata carries
+   * them. The add button, the delete question and the message after a delete name the
+   * row by them.
+   */
+  rowWords = computed(() => rowWordsOf(this.meta()));
+
+  /** The add button's label: the config's own, else "Add a hangar pass" from the row's word. */
+  createButtonLabel = computed(() => addRowLabel(this.config().createButtonLabel, this.rowWords()));
 
   /** The listed resource's metadata: the rows, columns, and keys the table shows. */
   meta = computed(() => this.resourceMeta(this.config().primaryResource));
@@ -933,17 +940,19 @@ export class ResourceListComponent implements OnInit {
   /**
    * Asks before a row leaves the list, then deletes it through the write resource. The
    * question names the row by its own name where the config reads one off the row
-   * (`rowTitle`), and the list by its title. The dialog is handed the delete and runs it
-   * when the person says so, so a delete the server refuses is answered in the dialog, in
-   * the server's words.
+   * (`rowTitle`) and the list by its title, else by the word the resource's rows go by.
+   * The dialog is handed the delete and runs it when the person says so, so a delete the
+   * server refuses is answered in the dialog, in the server's words, and a row whose
+   * delete takes records with it is asked about a second time, in the server's question.
    */
   confirmDeleteRow(row: RecordData): void {
     const config = this.config();
     const data: DeleteConfirmation = {
       name: config.rowTitle?.(row),
       from: config.title,
+      word: this.rowWords()?.one,
       inList: true,
-      delete: () => this.deleteRow(row),
+      delete: (options) => this.deleteRow(row, options),
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
   }
@@ -952,13 +961,15 @@ export class ResourceListComponent implements OnInit {
    * Deletes one row through the write resource, lifting the key fields the row carries
    * under the table's names — the compound key an association view carries whole. The
    * list's page is read again once the row is gone. A delete the server refuses rejects
-   * with the client's `ApiError`, for whoever asked to show.
+   * with the client's `ApiError`, for whoever asked to show, and so does the delete of a
+   * row with records under it that its delete takes, until the options say it takes them
+   * (`everythingUnder`).
    */
-  deleteRow(row: RecordData): Promise<void> {
+  deleteRow(row: RecordData, options?: RemoveOptions): Promise<void> {
     const handle = this.store.handle();
-    const operation = handle.ops.remove(handle.keyOf(row));
+    const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], `${this.store.resourceName()} deleted successfully`).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
       this.store.reloadPage();
     });
   }

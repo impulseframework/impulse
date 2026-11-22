@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe, formatNumber } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import {
   Component,
   computed,
@@ -10,23 +10,38 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { FormControl, FormGroup, FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
+import { MAT_FORM_FIELD_DEFAULT_OPTIONS, MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { MatTimepickerModule } from '@angular/material/timepicker';
-import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
+import {
+  Methods,
+  Missions as MissionNames,
+  Permissions,
+  Resources,
+  SortieExpenses as SortieExpenseNames,
+} from '@app/service/zz_gen_constants';
 import { MissionKind } from '@app/service/zz_gen_enums';
 import { CompleteMissionResult, methodMeta } from '@app/service/zz_gen_methods';
-import { MissionDocuments, Missions, Sorties, SortieExpenses, Workflows } from '@app/service/zz_gen_resources';
+import {
+  MissionDocuments,
+  Missions,
+  resourceMeta,
+  Sorties,
+  SortieExpenses,
+  Workflows,
+} from '@app/service/zz_gen_resources';
 import { ApiError, Method, MethodHandle, MethodMeta, Page, rowCapabilities } from '@impulseframework/resource';
-import { nameInWords } from '@impulseframework/resource-angular/types';
+import { ResourceFieldComponent } from '@impulseframework/resource-angular/resource';
+import { field, nameInWords } from '@impulseframework/resource-angular/types';
+import { credits } from '../credits';
 import { openFormDialog } from '../form-dialog';
 import { SectorService, serverWords } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
@@ -153,7 +168,6 @@ const sortiesPerRead = 50;
   selector: 'app-flight-deck',
   imports: [
     DatePipe,
-    DecimalPipe,
     FormsModule,
     MatButtonModule,
     MatCardModule,
@@ -165,10 +179,14 @@ const sortiesPerRead = 50;
     MatSelectModule,
     MatTableModule,
     MatTimepickerModule,
+    ResourceFieldComponent,
     WorkflowGraphComponent,
   ],
   templateUrl: './flight-deck.component.html',
   styleUrl: './flight-deck.component.scss',
+  // The deck's own fields are drawn outlined, and the library's control among them
+  // (the call sheet's Fee) is drawn the same way.
+  providers: [{ provide: MAT_FORM_FIELD_DEFAULT_OPTIONS, useValue: { appearance: 'outline' } }],
 })
 export class FlightDeckComponent {
   sectors = inject(SectorService);
@@ -290,7 +308,18 @@ export class FlightDeckComponent {
   editDeadlineDate: Date | null = null;
   editDeadlineTime: Date | null = null;
   editAssignedSquadronId = '';
-  editFee: number | null = null;
+  // The call sheet's Fee is the library's number control, drawn from the Missions
+  // metadata. A fee is a decimal, which the metadata marks: the control writes what the
+  // person typed into this form as text, so the save sends every digit of it. The booking
+  // form's Fee is the same control over a form of its own, and the Add expense form's
+  // Amount is the control drawn from the SortieExpenses metadata.
+  missionsMeta = resourceMeta(Resources.Missions);
+  feeField = field({ name: MissionNames.fieldName.fee, label: 'Fee', cols: 12 });
+  editFeeForm = new FormGroup({ fee: new FormControl<string | null>(null) });
+  bookFeeForm = new FormGroup({ fee: new FormControl<string | null>(null) });
+  expensesMeta = resourceMeta(Resources.SortieExpenses);
+  amountField = field({ name: SortieExpenseNames.fieldName.amount, label: 'Amount', cols: 12 });
+  expenseAmountForm = new FormGroup({ amount: new FormControl<string | null>(null) });
   // The server's refusal of the last call-sheet save, shown under the form.
   editRefusal = signal<string | undefined>(undefined);
   // The editable fields whose Update grant is conditional, named for the hint under the
@@ -315,7 +344,6 @@ export class FlightDeckComponent {
   newKind = '';
   newClientId = '';
   newHazard: number | null = null;
-  newFee: number | null = null;
   newDeadlineDate: Date | null = null;
   newDeadlineTime: Date | null = null;
   newNotes = '';
@@ -329,7 +357,6 @@ export class FlightDeckComponent {
   attachRefusal = signal<string | undefined>(undefined);
   newSortiePilot = '';
   newExpenseCategory = 'fuel';
-  newExpenseAmount: number | null = null;
 
   constructor() {
     const clock = setInterval(() => this.now.set(new Date()), 1000);
@@ -446,7 +473,7 @@ export class FlightDeckComponent {
     this.newKind = '';
     this.newClientId = '';
     this.newHazard = null;
-    this.newFee = null;
+    this.bookFeeForm.reset({ fee: null });
     this.newDeadlineDate = null;
     this.newDeadlineTime = null;
     this.newNotes = '';
@@ -460,7 +487,7 @@ export class FlightDeckComponent {
     this.editDeadlineDate = this.deadlineOf(mission);
     this.editDeadlineTime = this.deadlineOf(mission);
     this.editAssignedSquadronId = mission.assignedSquadronId ?? '';
-    this.editFee = null;
+    this.editFeeForm.reset({ fee: this.feeOf(mission) });
     this.open(form);
   }
 
@@ -483,7 +510,7 @@ export class FlightDeckComponent {
   openExpense(sortie: Sorties, form: TemplateRef<unknown>): void {
     this.expenseSortie.set(sortie);
     this.newExpenseCategory = 'fuel';
-    this.newExpenseAmount = null;
+    this.expenseAmountForm.reset({ amount: null });
     this.open(form);
   }
 
@@ -758,6 +785,11 @@ export class FlightDeckComponent {
     return !('fee' in mission);
   }
 
+  /** The mission's fee as the Fee field holds it: the row's text, or nothing where the row carries no fee. */
+  private feeOf(mission: Missions): string | null {
+    return this.feeMasked(mission) ? null : (mission.fee ?? null);
+  }
+
   overdue(mission: Missions): boolean {
     return !!mission.deadline && new Date(mission.deadline).getTime() < this.now().getTime();
   }
@@ -778,6 +810,9 @@ export class FlightDeckComponent {
     const s = Math.floor(abs % 60);
     return d > 0 ? `${sign}${d}d ${h}h` : `${sign}${h}h ${m}m ${s}s`;
   }
+
+  /** A fee or an expense as the deck writes it: the server's own text, the thousands apart. */
+  readonly credits = credits;
 
   pips(hazard: number | undefined): string {
     const n = hazard ?? 0;
@@ -871,8 +906,12 @@ export class FlightDeckComponent {
     const handle = this.sectors.sectorApi().missions;
     const patch: Record<string, unknown> = {};
     if (this.canEdit(mission, 'notes') && this.editNotes !== (mission.notes ?? '')) patch['notes'] = this.editNotes;
+    // The form holds a deadline to the minute. A deadline is sent only when the day or the
+    // time was changed: the mission's own, read as the form reads it, is what it opened
+    // with, whatever seconds it carries.
     const deadline = combineDateAndTime(this.editDeadlineDate, this.editDeadlineTime);
-    if (this.canEdit(mission, 'deadline') && deadline && deadline.getTime() !== this.deadlineOf(mission)?.getTime()) {
+    const opened = combineDateAndTime(this.deadlineOf(mission), this.deadlineOf(mission));
+    if (this.canEdit(mission, 'deadline') && deadline && deadline.getTime() !== opened?.getTime()) {
       patch['deadline'] = deadline;
     }
     if (
@@ -882,8 +921,13 @@ export class FlightDeckComponent {
     ) {
       patch['assignedSquadronId'] = this.editAssignedSquadronId;
     }
-    // A fee is a decimal, and a decimal travels as a string that keeps every digit.
-    if (this.canEdit(mission, 'fee') && this.editFee !== null) patch['fee'] = String(this.editFee);
+    // A fee is a decimal, and a decimal travels as a string that keeps every digit: the
+    // text the Fee field holds. The field opens with the mission's fee, so a fee is sent
+    // only when it was changed.
+    const fee = this.editFeeForm.controls.fee.value;
+    if (this.canEdit(mission, 'fee') && fee !== null && fee !== this.feeOf(mission)) {
+      patch['fee'] = fee;
+    }
     if (Object.keys(patch).length === 0) {
       // Nothing was changed, so nothing is sent.
       this.close();
@@ -945,7 +989,8 @@ export class FlightDeckComponent {
         title: this.newTitle,
         brief: this.newBrief || undefined,
         hazard: this.newHazard ?? 1,
-        fee: String(this.newFee ?? 0),
+        // The Fee field's text, every digit of it; a booking with no fee typed is free.
+        fee: this.bookFeeForm.controls.fee.value || '0',
         deadline,
         notes: this.newNotes || undefined,
       }),
@@ -971,13 +1016,14 @@ export class FlightDeckComponent {
   }
 
   async addExpense(sortie: Sorties): Promise<void> {
-    if (this.newExpenseAmount === null) return;
-    const amount = this.newExpenseAmount;
+    // The Amount field's text, every digit of it; an expense with no amount is not sent.
+    const amount = this.expenseAmountForm.controls.amount.value;
+    if (!amount) return;
     const added = await this.send(() =>
       this.sectors.sectorApi().sortieExpenses.create({
         sortieId: sortie.id,
         category: this.newExpenseCategory,
-        amount: String(amount),
+        amount,
       }),
     );
     if (added) {
@@ -1013,11 +1059,6 @@ function isSettlement(body: unknown): body is Settlement {
     typeof (body as Settlement).expenses === 'string' &&
     typeof (body as Settlement).fee === 'string'
   );
-}
-
-/** An amount of credits as the deck writes a fee: whole credits, the thousands apart. */
-function credits(amount: string): string {
-  return `${formatNumber(Number(amount), 'en-US', '1.0-0')} cr`;
 }
 
 /** Why a mission cannot be completed, with the server's figures: its sorties cost more than its fee. */

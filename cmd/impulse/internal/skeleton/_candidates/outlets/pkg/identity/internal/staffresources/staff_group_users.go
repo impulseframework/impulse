@@ -25,6 +25,7 @@ type (
 	// @outlet(default)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	StaffGroupUser struct {
 		// @primarykey
 		// @attribute(group)

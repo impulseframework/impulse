@@ -27,8 +27,10 @@ import {
 // that names two holders, or none, is refused by the server in words the dialog shows.
 //
 // Both lists open their create in a dialog, as every list does: the button above the
-// list opens the form over the page under the button's own words (createButtonLabel), a
-// refusal stays in the dialog, and the list reads its rows again once the row is there.
+// list opens the form over the page under the button's own words, a refusal stays in
+// the dialog, and the list reads its rows again once the row is there. Neither list
+// writes a label: the library says "Add a hangar" and "Add a hangar pass" from the word
+// each resource's rows go by, which the generated metadata carries (rowWords).
 //
 // What a person sees here is the role file's: the marshal lists every hangar and writes
 // its passes; an armorer lists only the hangars a pass opens to him, in his own name,
@@ -43,7 +45,6 @@ export const hangarsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Hangars',
     createTitle: 'Hangar',
-    createButtonLabel: 'Add a hangar',
     primaryResource: Resources.Hangars,
     listColumns: [{ id: Hangars.fieldName.name }, { id: Hangars.fieldName.zone }],
     elements: [
@@ -60,7 +61,6 @@ export const hangarsConfig = rootConfig({
     listViewConfig({
       title: 'Passes',
       createTitle: 'Pass',
-      createButtonLabel: 'Add a pass',
       primaryResource: Resources.HangarPasses,
       parentRelation: { parentKey: Hangars.fieldName.id, childKey: HangarPasses.fieldName.hangarId },
       // A pass is read whole in its row: there is no page of its own to open.

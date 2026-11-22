@@ -16,9 +16,11 @@ type clientOptions struct {
 	onReloadError     func(error)
 	// collection is what the running release declares: the argument New takes,
 	// which New sets here for the engine it builds.
-	collection   PermissionCollection
-	roleFile     RoleFile
-	roleFileSet  bool
+	collection  PermissionCollection
+	roleFile    RoleFile
+	roleFileSet bool
+	// auth is the name of the auth the role file is of (WithDefaultRoles).
+	auth         string
 	superMethods []accesstypes.Resource
 	// tenantAdministrators are the roles whose holders administer a tenant
 	// (WithTenantAdministratorRoles).
@@ -101,10 +103,30 @@ func WithReloadErrorHandler(f func(error)) Option {
 // does not start. The shapes the file may carry but probably should not (see
 // Warning) do not fail it; Client.CheckPolicy returns them for the deploy's
 // migrate step to print.
-func WithDefaultRoles(file RoleFile) Option {
+//
+// auth is the name of the auth whose roles the file declares, as its package
+// names it (its Name), which is the name generation knows the auth by: New
+// refuses a name the collection's generation did not know
+// (PermissionCollection.Auths), saying the name given and the names known,
+// since no set is labeled for such a name and the file would be held to none
+// of its auth's sets. An application declares its subject sets once for all of
+// its auths, and each set describes the people of one of them: the role-file
+// check holds this file to the sets of its own auth, so a set that describes
+// another auth's people is never flagged here for a grant only that auth's
+// roles could write (UnreadSetWarning). A grant of the file whose condition
+// reads a set that describes another auth's people fails New, naming the
+// grant, the set and both auths: the set is looked up by the other auth's
+// ids, so it says nothing about the people who hold the role. The engine
+// holds a grant written to a custom role, and one found in the store, to the
+// same rule under the same name. A set that names no auth is any auth's to
+// read. An empty auth is refused where the collection knows several auths.
+// Where it knows one or none, it refuses no grant for whose people its set
+// describes, and looks at every set.
+func WithDefaultRoles(file RoleFile, auth string) Option {
 	return func(o *clientOptions) {
 		o.roleFile = file
 		o.roleFileSet = true
+		o.auth = auth
 	}
 }
 

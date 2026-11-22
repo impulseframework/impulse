@@ -142,10 +142,6 @@ type consolidatedCaseData struct {
 	// record's delete clears the tenant through (tenantClears); empty on every other
 	// case.
 	Clears []string
-	// DirectoryClear is what the tenant record's delete takes the tenant's directory
-	// through (tenantDirectoryClear); nil on every other case, and on a tenant record
-	// that declares no directories.
-	DirectoryClear *tenantDirectoryClear
 }
 
 func (d *consolidatedPatchData) typeImports() []fixerImport {
@@ -167,10 +163,6 @@ type handlerContentData struct {
 	// record's delete clears the tenant through (tenantClears); empty on every other
 	// resource.
 	Clears []string
-	// DirectoryClear is what the tenant record's delete takes the tenant's directory
-	// through (tenantDirectoryClear); nil on every other resource, and on a tenant
-	// record that declares no directories.
-	DirectoryClear *tenantDirectoryClear
 	// Home is where the handler is written, nil for the application's handler package:
 	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
 	Home *handlerHome
@@ -476,6 +468,9 @@ type domainGuardData struct {
 	LocalPackageImports string
 	ApplicationName     string
 	ReceiverName        string
+	// Word is what the guard's 404 calls one tenant: the tenant record's label where it
+	// declares one, else its name in words, in lower case ("sector", "ship class").
+	Word string
 	// ConcealedDomains adds the caller's foothold (HasGrants) to the guard's question
 	// after the roster and the session's reach, collapsing "unauthorized" into
 	// "nonexistent" (WithConcealedDomains).

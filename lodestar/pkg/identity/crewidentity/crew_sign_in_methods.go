@@ -31,6 +31,7 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Label asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type CrewSignInMethod struct {
 	// @primarykey
 	Name                string `spanner:"Name"`

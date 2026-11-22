@@ -19,24 +19,13 @@ import (
 	"github.com/go-playground/errors/v5"
 
 	"github.com/impulseframework/impulse/cloud"
+	"github.com/impulseframework/impulse/internal/apptree"
 )
 
-// skippedDirs are never descended into: they hold dependencies or build output, not the
-// application's own declarations.
-var skippedDirs = map[string]bool{
-	".git":         true,
-	"node_modules": true,
-	"vendor":       true,
-	"dist":         true,
-	".angular":     true,
-}
-
-// The names the Go tool goes by: the directory it keeps for a package's test fixtures,
-// and the file that makes a directory the root of a module.
-const (
-	testdataDir = "testdata"
-	goModFile   = "go.mod"
-)
+// The rules a reading of the application's tree goes by (which directories a walk leaves
+// alone, which Go files the Go tool reads, which packages are its auths) are the apptree
+// package's, where a generation run reads them too; the scan asks them under the names
+// below.
 
 // passedOverByGo reports whether the Go tool passes over a directory or a file of this
 // name: one whose name begins with "_" or ".", and a directory named testdata (go help
@@ -45,7 +34,7 @@ const (
 // test's fixture, a tool's own directory) unless a package the pattern does match imports
 // it by its path, which followImports reads.
 func passedOverByGo(name string, isDir bool) bool {
-	return strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") || (isDir && name == testdataDir)
+	return apptree.PassedOverByGo(name, isDir)
 }
 
 // GoToolReads reports whether a file of this name is a Go file the Go tool reads: its
@@ -61,21 +50,19 @@ func passedOverByGo(name string, isDir bool) bool {
 // themselves still. A test file and a generated file are Go files the Go tool reads; a
 // reader that leaves them out says so itself.
 func GoToolReads(name string) bool {
-	return strings.HasSuffix(name, ".go") && !passedOverByGo(name, false)
+	return apptree.GoToolReads(name)
 }
 
 // skipsDir reports whether a walk of the application leaves a directory of this name
 // alone: one that holds dependencies or build output, and one the Go tool passes over. The
 // application's root is the caller's to exempt, whatever it is called.
 func skipsDir(name string) bool {
-	return skippedDirs[name] || passedOverByGo(name, true)
+	return apptree.SkipsDir(name)
 }
 
 // holdsModule reports whether a directory holds a go.mod of its own.
 func holdsModule(abs string) bool {
-	info, err := os.Stat(filepath.Join(abs, goModFile))
-
-	return err == nil && !info.IsDir()
+	return apptree.HoldsModule(abs)
 }
 
 var (
@@ -835,11 +822,15 @@ const (
 	checkPolicyFunc   = "CheckPolicy"
 	validateRolesFunc = "ValidateRoles"
 	rolesFunc         = "Roles"
+	authNameConst     = "Name"
 )
 
 // parseDefaultRoles returns every access.WithDefaultRoles call in the file, each carrying
 // the package whose Roles() it hands over. ownPkg is the file's package import path, which
-// an unqualified Roles() names.
+// an unqualified Roles() names. The role file is the call's first argument, and the one
+// after it is the auth's name: each call carries the package whose Name it is too, so a
+// file handed over under another package's name can be told, and the argument as the
+// source writes it, so a finding can quote a name that is no package's Name.
 func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
@@ -859,8 +850,12 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 			return true
 		}
 		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line}
-		if len(call.Args) == 1 {
+		if len(call.Args) > 0 {
 			d.RolesPackage = rolesCallPackage(call.Args[0], imports, ownPkg)
+		}
+		if len(call.Args) > 1 {
+			d.NamePackage = authNamePackage(call.Args[1], imports, ownPkg)
+			d.NameText = string(src[fset.Position(call.Args[1].Pos()).Offset:fset.Position(call.Args[1].End()).Offset])
 		}
 		calls = append(calls, d)
 
@@ -884,6 +879,24 @@ func rolesCallPackage(expr ast.Expr, imports map[string]string, ownPkg string) s
 		}
 	case *ast.SelectorExpr:
 		if id, ok := fun.X.(*ast.Ident); ok && fun.Sel.Name == rolesFunc {
+			return imports[id.Name]
+		}
+	}
+
+	return ""
+}
+
+// authNamePackage reads the auth's name a role file is handed over under: the import path
+// of the package whose Name it is, ownPkg for Name unqualified, or empty for anything
+// else (a literal, a variable, a call), which nothing here can tie to a package.
+func authNamePackage(expr ast.Expr, imports map[string]string, ownPkg string) string {
+	switch name := expr.(type) {
+	case *ast.Ident:
+		if name.Name == authNameConst {
+			return ownPkg
+		}
+	case *ast.SelectorExpr:
+		if id, ok := name.X.(*ast.Ident); ok && name.Sel.Name == authNameConst {
 			return imports[id.Name]
 		}
 	}

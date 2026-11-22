@@ -70,6 +70,12 @@ describe('DeleteResourceConfirmationModal', () => {
     expect(textOf(dialog.querySelector('.question'))).toBe('Delete this row from Passes?');
   });
 
+  it("asks about a row with no name by the word the resource's rows go by", async () => {
+    const dialog = await drawn({ from: 'Passes', word: 'hangar pass', inList: true });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this hangar pass?');
+  });
+
   it('names the row where the page knows its name', async () => {
     const dialog = await drawn({ name: 'Night Watch', from: 'Groups' });
 
@@ -179,6 +185,83 @@ describe('DeleteResourceConfirmationModal', () => {
     expect(answers).toEqual([false]);
   });
 
+  it("asks the server's question in the first one's place, and deletes everything under the row at the next press", async () => {
+    const sentence =
+      "Delete this mission and everything under it: 2 sorties, 1 mission document. This can't be undone.";
+    const said: unknown[] = [];
+    const { ref, answers } = opened({
+      from: 'Missions',
+      delete: (options) => {
+        said.push(options);
+
+        return options?.everythingUnder
+          ? Promise.resolve()
+          : Promise.reject(new ApiError('PATCH', '/api/resources', 428, { message: sentence }));
+      },
+    });
+
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(answers).toEqual([]);
+    expect(said).toEqual([undefined]);
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe(sentence);
+    expect(overlay?.querySelector('.refusal')).toBeNull();
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', false],
+      ['Delete', false],
+    ]);
+    expect(ref.disableClose).toBeFalsy();
+
+    await press('Delete');
+
+    expect(said).toEqual([undefined, { everythingUnder: true }]);
+    expect(answers).toEqual([true]);
+  });
+
+  it("deletes nothing when the server's question is answered with Cancel", async () => {
+    let runs = 0;
+    const { answers } = opened({
+      from: 'Missions',
+      delete: () => {
+        runs++;
+
+        return Promise.reject(
+          new ApiError('PATCH', '/api/resources', 428, { message: 'Delete this mission and everything under it?' }),
+        );
+      },
+    });
+
+    await press('Delete');
+    await press('Cancel');
+
+    expect(runs).toBe(1);
+    expect(answers).toEqual([false]);
+  });
+
+  it("keeps a delete refused after the server's question open with the refusal and one button, Close", async () => {
+    const question = "Delete this mission and everything under it: 2 sorties. This can't be undone.";
+    const refusal = "This mission has sorties that you can't delete, so it can't be deleted.";
+    const { answers } = opened({
+      from: 'Missions',
+      delete: (options) =>
+        Promise.reject(
+          options?.everythingUnder
+            ? new ApiError('PATCH', '/api/resources', 403, { message: refusal })
+            : new ApiError('PATCH', '/api/resources', 428, { message: question }),
+        ),
+    });
+
+    await press('Delete');
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe(question);
+    expect(textOf(overlay?.querySelector('.refusal') ?? null)).toBe(refusal);
+    expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
+    expect(answers).toEqual([]);
+  });
+
   it('closes with false on any other failure and leaves it to the page', async () => {
     const closedWith: unknown[] = [];
     await TestBed.configureTestingModule({
@@ -242,7 +325,19 @@ describe('deleteQuestion', () => {
     expect(deleteQuestion({ name: 'Night Watch', from: '  ' })).toBe('Delete Night Watch?');
   });
 
-  it('says "this row" in a list and "this record" on a page for a row with no name', () => {
+  it("says the word the resource's rows go by for a row with no name, in a list and on a page", () => {
+    expect(deleteQuestion({ word: 'hangar pass', from: 'Passes', inList: true })).toBe('Delete this hangar pass?');
+    expect(deleteQuestion({ word: 'hangar pass', from: 'Passes' })).toBe('Delete this hangar pass?');
+    expect(deleteQuestion({ name: ' ', word: ' hangar pass ' })).toBe('Delete this hangar pass?');
+  });
+
+  it('names the row by its own name before the word', () => {
+    expect(deleteQuestion({ name: 'Night Watch', from: 'Groups', word: 'group', inList: true })).toBe(
+      'Delete Night Watch from Groups?',
+    );
+  });
+
+  it('says "this row" in a list and "this record" on a page for a row with no name and a resource with no word', () => {
     expect(deleteQuestion({ inList: true })).toBe('Delete this row?');
     expect(deleteQuestion({ name: ' ', from: 'Passes', inList: true })).toBe('Delete this row from Passes?');
     expect(deleteQuestion({ from: 'Missions' })).toBe('Delete this record from Missions?');

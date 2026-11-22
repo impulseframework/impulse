@@ -28,6 +28,7 @@ type (
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
 	// @outlet(portal)
+	// @rowWord(way to sign in, plural: ways to sign in)
 	MembersSessionSignInMethod struct {
 		Name             string    `spanner:"Name"`
 		OpenSignUp       bool      `spanner:"OpenSignUp"`

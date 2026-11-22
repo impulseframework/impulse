@@ -38,6 +38,7 @@ import (
 // @suppress(readHandler)
 // @outlet(portal)
 // @order(Name asc)
+// @rowWord(role)
 type MembersTenantRole struct {
 	// @primarykey
 	// @attribute(name)

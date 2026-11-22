@@ -1,6 +1,6 @@
 type Brand<K, T> = K & { __brand: T };
 
-/** A permission name (`Create`, `Read`, `Execute`, ...) as the ccc resource package spells it. */
+/** A permission name (`Create`, `Read`, `Execute`, ...) as the impulse resource package spells it. */
 export type Permission = Brand<string, 'Permission'>;
 /** A resource name as registered on the server (plural PascalCase, e.g. `WorkOrders`). */
 export type Resource = Brand<string, 'Resource'>;

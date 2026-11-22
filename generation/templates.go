@@ -62,6 +62,20 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.GroupColumns }}
+
+// GroupColumns names the columns that name a group of people ({{ range $i, $column := .Resource.GroupColumns }}{{ if $i }}, {{ end }}{{ $column.Field.Name }}{{ end }}): a row is
+// written only with a group its own tenant keeps, so the library refuses a create or an
+// update that names another tenant's group, or a group kept for the whole application,
+// whoever writes it.
+func ({{ .Resource.Name }}) GroupColumns() []resource.GroupColumn {
+	return []resource.GroupColumn{
+	{{- range $column := .Resource.GroupColumns }}
+		{{ $column.Literal }},
+	{{- end }}
+	}
+}
+{{- end }}
 {{- if .Resource.HasDeleteTree }}
 {{ if .Resource.IsTenant }}
 // DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library
@@ -834,6 +848,28 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 	})
 }
 {{ end }}
+{{- if .Resource.TakesRowsUnder }}
+{{- if .Resource.IsTenant }}
+// WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
+// every row of the application's that is the {{ .Resource.Name }}'s own or leads to one that
+// is, each deleted through its kind's delete, with its delete rule asked, its change
+// record written and its files released. The grant to delete the {{ .Resource.Name }} answers
+// for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
+// nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+{{- else }}
+// WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a {{ .Resource.Name }} that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+{{- end }}
+func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
@@ -907,7 +943,8 @@ const (
 	// is buffered under its id (id, which the splice's place sets): what each auth holds
 	// for the tenant goes in the same transaction, through the generated identity client
 	// of every auth whose management the program generates (identity.Manager.ClearTenant).
-	// The id's text is the tenant's domain.
+	// The id's text is the tenant's domain. The application's rows under the tenant, its
+	// directory among them, went with the row's removal (the record's DeleteTree).
 	tenantCleared = `// A tenant that goes takes what each auth holds for it, in this transaction:
 					// the roles people hold in it, the custom roles made in it and the
 					// invitations into it that still stand.
@@ -916,20 +953,6 @@ const (
 						return errors.Wrap(err, "{{ $clear }}().ClearTenant()")
 					}
 					{{- end }}`
-
-	// tenantDirectoryCleared is spliced into the tenant record's delete, after the row's
-	// removal is buffered under its id (id, which the splice's place sets) and before the
-	// auths are cleared: the tenant's directory goes with the tenant, in the same
-	// transaction, through the generated Clear<Record>Directory of the record's roster
-	// file, whether the tenant is directory only or not. The row's removal is buffered
-	// first, so the caller's Delete grant on the tenant record has answered by then; the
-	// directories record's own grants and the rule on its removal are for a tenant that
-	// stays, and are not asked. The splice reads what it clears through as its dot.
-	tenantDirectoryCleared = `// A {{ .Word }} that goes takes its directory with it, directory only or
-					// not, in this transaction.
-					if err := {{ .Func }}(ctx, txn, {{ .Tenant }}, eventSource); err != nil {
-						return errors.Wrap(err, "{{ .Func }}()")
-					}`
 
 	// directoryStamped is spliced into the directories record's create, once the create
 	// patch is built and before it is buffered (patchSet, patch and domain, which the
@@ -1552,8 +1575,10 @@ var liveDerivations = live.Merge(
 	// copy, with no read while the copy is inside its backstop and behind no signal), the
 	// session's reach next (UserPermissions.Reaches: whether the tenant admits the way
 	// the session was established) and, under WithConcealedDomains, the caller's
-	// foothold last, answering the same not-found every time. No marker check is
-	// needed: a URL domain is pure data, and accesstypes.DomainScope routes it to a
+	// foothold last, answering the same not-found every time: one sentence that names
+	// the tenant by the application's word and carries nothing of what was asked for,
+	// while what the guard found stays the cause, for the server's log. No marker check
+	// is needed: a URL domain is pure data, and accesstypes.DomainScope routes it to a
 	// tenant partition by construction — no value can address the global partition.
 	domainGuardTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
@@ -1563,6 +1588,7 @@ package {{ .Package }}
 import (
 	"net/http"
 
+	"github.com/go-playground/errors/v5"
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/tracer"
@@ -1580,6 +1606,8 @@ import (
 // no grant in answers exactly like a domain that does not exist, and tenant existence
 // cannot be probed from the rejection shape. A caller with any foothold in the domain
 // passes the guard and receives ordinary 403s for the permissions they lack.
+// Each 404 says the one sentence, "This {{ .Word }} does not exist.", with nothing of what was
+// asked for; what the guard found is the cause, which the server logs.
 {{- else -}}
 // DomainGuard is the middleware generated route registration wraps around every
 // domain-scoped route: it resolves the route's domain and answers 404 before the
@@ -1587,6 +1615,8 @@ import (
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
 // the tenant's declaration does not admit the way the session was established), so a
 // tenant the session may not enter is, for that session, not there.
+// Each 404 says the one sentence, "This {{ .Word }} does not exist.", with nothing of what was
+// asked for; what the guard found is the cause, which the server logs.
 {{- end }}
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) DomainGuard() func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
@@ -1596,19 +1626,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) DomainGuard() func(http.Handl
 
 			domain := httpio.Param[accesstypes.Domain](r, router.Domain)
 			if !{{ .ReceiverName }}.TenantRoster().Has(domain) {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("unknown domain %q", domain))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessageWithError(errors.Newf("unknown domain %q", domain), "This {{ .Word }} does not exist."))
 			}
 			userPermissions := {{ .ReceiverName }}.UserPermissions(r)
 			if reaches, err := userPermissions.Reaches(ctx, domain); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			} else if !reaches {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("unknown domain %q", domain))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessageWithError(errors.Newf("the session does not reach domain %q", domain), "This {{ .Word }} does not exist."))
 			}
 			{{- if .ConcealedDomains }}
 			if ok, err := userPermissions.HasGrants(ctx, accesstypes.DomainScope(domain)); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			} else if !ok {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("unknown domain %q", domain))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessageWithError(errors.Newf("the caller holds no grant in domain %q", domain), "This {{ .Word }} does not exist."))
 			}
 			{{- end }}
 
@@ -1769,7 +1799,9 @@ func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTr
 // {{ .Directories }} write paths ask them: the create stamps the directory the caller is signed in
 // through, which no request types, and the delete asks before it removes. The one
 // removal they are not asked is the delete of the {{ .Word }} itself, which takes its
-// directory with it (Clear{{ .Name }}Directory).
+// directory with it like every other row under the {{ .Word }} ({{ .Name }}.DeleteTree): the
+// rule keeps a {{ .Word }} that stays from being left with no way in, and that {{ .Word }}
+// does not stay.
 func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration, {{ printf "%q" .Word }})
 }
@@ -1801,36 +1833,6 @@ func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransact
 	return nil
 }
 
-// Clear{{ .Name }}Directory buffers the removal of the {{ .Word }}'s directory, in the transaction
-// that deletes the {{ .Word }}'s row: a {{ .Word }} that goes takes its directory with it, as it
-// takes the roles people hold in it. The rule that keeps the directory of a {{ .Word }} that is
-// directory only (New{{ .Name }}DirectoryRules, Remove) is not asked here: it keeps a {{ .Word }}
-// that stays from being left with no way in, and this {{ .Word }} does not stay. The row is
-// removed through the record's delete patch, so its change event is written with it, and
-// the directory is free for another {{ .Word }} once the transaction has committed. The
-// generated delete of the {{ .Name }} record calls it once the caller's grant on that record
-// has answered; code that deletes a {{ .Word }}'s row any other way calls it in the same
-// transaction. A {{ .Word }} that has no directory is no error.
-func Clear{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, eventSource ...string) error {
-	query := {{ .ResourcePackage }}.New{{ .Directories }}Query().
-		AddColumns({{ .ResourcePackage }}.New{{ .Directories }}Columns().{{ .Directory.KeyField }}()).
-		Where({{ .ResourcePackage }}.New{{ .Directories }}QueryClause().{{ .Directory.TenantField }}().Equal({{ .Directory.TenantParam }}))
-	// The rows are read before any removal is buffered. The schema keeps a {{ .Word }} to one.
-	var removals []*{{ .ResourcePackage }}.{{ .Directories }}DeletePatch
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}Query.List()")
-		}
-		removals = append(removals, {{ .ResourcePackage }}.New{{ .Directories }}DeletePatch(row.Data.{{ .Directory.KeyField }}))
-	}
-	for _, removal := range removals {
-		if err := removal.Buffer(ctx, txn, eventSource...); err != nil {
-			return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}DeletePatch.Buffer()")
-		}
-	}
-
-	return nil
-}
 {{- end }}
 {{- with .Maker }}
 
@@ -3630,9 +3632,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
-					{{- with .DirectoryClear }}
-					` + tenantDirectoryCleared + `
-					{{- end }}
 					{{- if .Clears }}
 					` + tenantCleared + `
 					{{- end }}
@@ -3931,9 +3930,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
-							{{- with .DirectoryClear }}
-							` + tenantDirectoryCleared + `
-							{{- end }}
 							{{- if .Clears }}
 							` + tenantCleared + `
 							{{- end }}
@@ -4206,6 +4202,9 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     {{- end }}
     live: {{ $resource.Published }},
+    {{- if $resource.RowWord }}
+    rowWords: {{ $resource.TypescriptRowWords }},
+    {{- end }}
     {{- if $resource.TenantNameField }}
     nameField: '{{ Camel $resource.TenantNameField.Name }}',
     {{- end }}
@@ -4214,7 +4213,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}{{ if $field.YesOrNoDefault }}, schemaDefault: {{ $field.YesOrNoDefault }}{{ end }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}, required: {{ $field.IsRequired }}{{ if $field.YesOrNoDefault }}, schemaDefault: {{ $field.YesOrNoDefault }}{{ end }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -4251,12 +4250,15 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: {{ $resource.Published }},
+    {{- if $resource.RowWord }}
+    rowWords: {{ $resource.TypescriptRowWords }},
+    {{- end }}
     fields: [
       {{- range $field := $resource.Fields }}
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}, required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -4275,6 +4277,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'feature flag', many: 'feature flags' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
@@ -4438,6 +4441,12 @@ export interface {{ $own.Name }} {{ if $own.Fields }}{
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -4548,7 +4557,7 @@ const methodMap: MethodMap = {
     {{- if $rpcMethod.Fields }}
     fields: [
     {{- range $field := $rpcMethod.Fields }}
-      { fieldName: '{{ Camel $field.Name }}', displayType: '{{ DisplayType $field.TypescriptDisplayType }}'
+      { fieldName: '{{ Camel $field.Name }}', displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}
       {{- if $field.Required }}, required: true{{ end }}{{ if $field.Optional }}, optional: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}
@@ -4879,6 +4888,9 @@ const (
 // such as role migration and bootstrap.
 func Collection() *resource.GeneratedCollection {
 	return resource.MustNewGeneratedCollection(resource.CollectionData{
+		{{- with .Data.Auths }}
+		Auths: []string{ {{- range $i, $auth := . }}{{ if $i }}, {{ end }}"{{ $auth }}"{{ end -}} },
+		{{- end }}
 		Resources: []resource.CollectionResource{
 			{{- range .Data.Resources }}
 			{
@@ -4932,7 +4944,7 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .SubjectSets }}
 				SubjectSets: []resource.SubjectBindingData{
 					{{- range . }}
-					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}},
+					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}{{ if .Offered }}, Offered: true{{ end }}{{ with .Auth }}, Auth: "{{ . }}"{{ end }}},
 					{{- end }}
 				},
 				{{- end }}
@@ -4964,6 +4976,9 @@ func Collection() *resource.GeneratedCollection {
 			},
 			{{- end }}
 		},
+		{{- with .Data.Permissions }}
+		Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+		{{- end }}
 	})
 }
 `

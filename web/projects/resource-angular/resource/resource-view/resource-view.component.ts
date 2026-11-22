@@ -46,7 +46,7 @@ import {
   writeResource,
 } from '@impulseframework/resource-angular/types';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
-import { ApiError } from '@impulseframework/resource';
+import { ApiError, RemoveOptions } from '@impulseframework/resource';
 import { tap } from 'rxjs';
 import {
   ActionAccessControlWrapperComponent,
@@ -64,11 +64,14 @@ import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
 import { ResourceStore } from '../resource-store.service';
+import { backFromRowPage } from '../row-page-back';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
+import { rowMessage, rowWordsOf } from '../row-words';
 
 /** What a row view says in place of its form where the record is not there: the server found no row for the key. */
-export const RECORD_NOT_HERE = 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+export const RECORD_NOT_HERE =
+  'This record is not here. It may have been removed, or it may no longer be yours to see.';
 
 /** What a row view says in place of its form where the person may not see the record: the server refused the read as not permitted. */
 export const RECORD_NOT_PERMITTED = 'You do not have permission to see this record.';
@@ -363,6 +366,15 @@ export class ResourceViewComponent implements OnInit {
     this.location.back();
   }
 
+  /**
+   * The Back button of the page's own row: back by the history where the router came to
+   * the page from another page, and to the list by the route where the page was opened by
+   * its address, so the button always leaves the row for a page of the application.
+   */
+  goBack(): void {
+    backFromRowPage(this.router, this.location, this.activatedRoute);
+  }
+
   inlineRpcConfigs = computed(() => {
     const config = this.config();
     if (config === undefined) {
@@ -487,7 +499,6 @@ export class ResourceViewComponent implements OnInit {
       .filter((field) => field.primaryKey)
       .sort((a, b) => a.primaryKey!.ordinalPosition - b.primaryKey!.ordinalPosition);
   });
-
 
   ngOnInit(): void {
     // The view reads and writes the resource whose row it shows: the listed resource,
@@ -639,13 +650,20 @@ export class ResourceViewComponent implements OnInit {
     if (!operation) {
       return;
     }
-    void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+    void this.store.apply([operation], rowMessage(this.rowWords(), 'saved', this.store.resourceName())).then(() => {
       // Saved: nothing in the form is unsaved any more.
       this.form().markAsPristine();
       this.setEditMode('view');
       this.store.reloadViewData();
     });
   }
+
+  /**
+   * The words the page's row goes by: the listed resource's, as its metadata carries
+   * them. The delete question and the messages after a save and a delete name the row
+   * by them.
+   */
+  rowWords = computed(() => rowWordsOf(this.resourceMeta(this.config().primaryResource as Resource)));
 
   resetForm(): void {
     // What was changed is dropped, so nothing in the form is unsaved any more.
@@ -656,10 +674,12 @@ export class ResourceViewComponent implements OnInit {
 
   /**
    * Asks before the page's row is deleted, then deletes it. The question names the row
-   * by its own name where the config reads one off the row (`rowTitle`), and the list
-   * the row is in by the config's title. The dialog is handed the delete and runs it
-   * when the person says so, so a delete the server refuses is answered in the dialog, in
-   * the server's words. While the question is open, asking again opens no second one.
+   * by its own name where the config reads one off the row (`rowTitle`) and the list
+   * the row is in by the config's title, else by the word the resource's rows go by.
+   * The dialog is handed the delete and runs it when the person says so, so a delete
+   * the server refuses is answered in the dialog, in the server's words, and a row
+   * whose delete takes records with it is asked about a second time, in the server's
+   * question. While the question is open, asking again opens no second one.
    */
   confirmDeleteResource(): void {
     const asking = this.dialog.openDialogs.some(
@@ -673,10 +693,11 @@ export class ResourceViewComponent implements OnInit {
     const data: DeleteConfirmation = {
       name: config.rowTitle?.(this.store.viewData()),
       from: config.title,
-      delete: () => {
+      word: this.rowWords()?.one,
+      delete: (options) => {
         console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
 
-        return this.deleteResource();
+        return this.deleteResource(options);
       },
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
@@ -686,16 +707,19 @@ export class ResourceViewComponent implements OnInit {
    * The row's own Delete. Once the server has removed the row the page leaves as it does
    * for any row that was on hand and is gone (leaveGoneRow): the page of a row route goes
    * to its list, and the list says what the config has to say of the row. A live page
-   * reads the row again after the write, and that read may find the row gone before the
-   * write is answered here or after: the page leaves once either way. A row page told not
-   * to leave (`navAfterDelete` false) offers its create form in the row's place. A delete
-   * the server refuses rejects with the client's `ApiError`, for whoever asked to show.
+   * does not read again the row its own write deleted, but a read begun for another
+   * reason may find the row gone before the write is answered here or after: the page
+   * leaves once either way. A row page told not to leave (`navAfterDelete` false) offers
+   * its create form in the row's place. A delete the server refuses rejects with the
+   * client's `ApiError`, for whoever asked to show, and so does the delete of a row with
+   * records under it that its delete takes, until the options say it takes them
+   * (`everythingUnder`).
    */
-  deleteResource(): Promise<void> {
+  deleteResource(options?: RemoveOptions): Promise<void> {
     const handle = this.store.handle();
-    const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
+    const operation = handle.ops.remove(handle.keyOf(this.store.viewData()), options);
 
-    return this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
       this.leaveGoneRow();
       if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);

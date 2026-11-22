@@ -111,23 +111,30 @@ func TestDomainGuard(t *testing.T) {
 
 	fullWings := grants{accesstypes.List: withFields(wingsResource, "sectorId", "name")}
 
+	// notThere is the guard's one sentence, which names the tenant by the application's
+	// word and carries nothing of what was asked for.
+	const notThere = "This sector does not exist."
+
 	tests := []struct {
 		name       string
 		grants     grants
 		target     string
 		wantStatus int
+		wantSays   string
 	}{
 		{
 			name:       "unknown sector is 404",
 			grants:     nil,
 			target:     sectorPath("nowhere", "wings"),
 			wantStatus: http.StatusNotFound,
+			wantSays:   notThere,
 		},
 		{
 			name:       "known sector without a foothold is indistinguishable from unknown",
 			grants:     nil,
 			target:     sectorPath(cinder, "wings"),
 			wantStatus: http.StatusNotFound,
+			wantSays:   notThere,
 		},
 		{
 			name:       "known sector with a grant serves",
@@ -149,6 +156,12 @@ func TestDomainGuard(t *testing.T) {
 			h := newTestApp(db, tt.grants)
 			status, body := doRequest(t, h, http.MethodGet, tt.target, "")
 			assertStatus(t, status, tt.wantStatus, body)
+			if tt.wantSays == "" {
+				return
+			}
+			if got := refusalMessage(t, body); got != tt.wantSays {
+				t.Errorf("the guard said %q, want %q", got, tt.wantSays)
+			}
 		})
 	}
 }

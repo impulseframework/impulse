@@ -23,7 +23,7 @@ import (
 )
 
 func New(ctx context.Context, signals access.ChangeSignal) error {
-	_, err := access.New(nil, nil, access.WithDefaultRoles(nil), access.WithChangeSignal(signals))
+	_, err := access.New(nil, nil, access.WithDefaultRoles(nil, Name), access.WithChangeSignal(signals))
 
 	return err
 }
@@ -37,7 +37,7 @@ import (
 )
 
 func New(ctx context.Context, signals access.ChangeSignal) error {
-	_, err := access.New(nil, nil, access.WithChangeSignal(signals), access.WithDefaultRoles(nil))
+	_, err := access.New(nil, nil, access.WithChangeSignal(signals), access.WithDefaultRoles(nil, Name))
 
 	return err
 }
@@ -51,7 +51,7 @@ import (
 )
 
 func New(ctx context.Context) error {
-	_, err := access.New(nil, nil, access.WithDefaultRoles(nil))
+	_, err := access.New(nil, nil, access.WithDefaultRoles(nil, Name))
 
 	return err
 }

@@ -32,12 +32,14 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 		Words:  resource.DeleteWords{One: "squadron", Many: "squadrons"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		Under: []resource.DeleteKind{
 			{
 				Resource: "Missions",
 				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},

@@ -9,7 +9,7 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
-import { labelFaults } from './graph/testing';
+import { arrowFaults, labelFaults } from './graph/testing';
 import { serverWords } from './server-words';
 import { TrackerComponent } from './tracker.component';
 
@@ -403,6 +403,21 @@ describe('TrackerComponent for a signed-in client', () => {
     expect(element().querySelector('.pager')).toBeNull();
   });
 
+  it('a mission sheet writes the fee as the server holds it: every digit, the thousands apart', async () => {
+    await pageFor({
+      grants: follows,
+      missions: [
+        { ...kestrel, fee: '950.50' },
+        { ...heron, fee: '12345678901234567.25' },
+        // The server hands 950.50 without its closing zero; a fraction is written to two places at least.
+        { ...osprey, fee: '950.5' },
+        { ...kestrel, id: 'm-4', title: 'Tow the Merlin', fee: '12' },
+      ],
+    });
+
+    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr', '950.50 cr', '12 cr']);
+  });
+
   it('counts the missions in plain words: how many are drawn, of how many', async () => {
     await pageFor({ grants: follows, missions: [kestrel, heron], total: 31 });
 
@@ -444,6 +459,7 @@ describe('TrackerComponent for a signed-in client', () => {
     expect(edges.map((edge) => text(edge.querySelector('text')))).toEqual(['Stand down', 'Stand down', 'Stand down']);
     expect(edges.map((edge) => edge.getAttribute('aria-label'))).toEqual(['Stand down', 'Stand down', 'Stand down']);
     expect(labelFaults(graph)).toEqual([]);
+    expect(arrowFaults(graph)).toEqual([]);
     expect(text(element())).not.toMatch(/StandDownMission|state graph|edge|descriptor|manual resource|change log/i);
   });
 
@@ -482,6 +498,7 @@ describe('TrackerComponent for a signed-in client', () => {
         'Stand down',
       ]);
       expect(labelFaults(graph)).toEqual([]);
+      expect(arrowFaults(graph)).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
     }

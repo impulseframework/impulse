@@ -25,6 +25,7 @@ type (
 	// @outlet(default)
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	CrewUserRole struct {
 		Kind      string     `spanner:"Kind"`
 		Axis      string     `spanner:"Axis"`

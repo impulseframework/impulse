@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -144,7 +143,7 @@ func (a *Auth[S, U, Tx]) refuseDirectoryAddress(ctx context.Context, userID impu
 // (holdsAddress) has nobody to tell. A message that could not be sent is logged: the
 // change stands.
 func (a *Auth[S, U, Tx]) noticeAddressChanged(ctx context.Context, old *string, wasConfirmed bool, replacement string) {
-	if !holdsAddress(old, wasConfirmed) || strings.EqualFold(*old, replacement) {
+	if !holdsAddress(old, wasConfirmed) || sameAddress(*old, replacement) {
 		return
 	}
 	m, err := a.mailOf()
@@ -356,7 +355,7 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 	if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, confirmed)); err != nil {
 		return err
 	}
-	if confirmed && strings.EqualFold(*user.Email, bare) {
+	if confirmed && sameAddress(*user.Email, bare) {
 		return nil
 	}
 	if err := a.limitMail(ctx, bare); err != nil {
@@ -465,7 +464,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 	a.noticeAddressChanged(ctx, user.Email, confirmed, link.Email)
 	// Where the username is the address, the confirmation renamed the user: the
 	// application moves what it keys by the old name.
-	if a.registered().usernameIsEmail() && !strings.EqualFold(user.Username, link.Email) && a.userRenamed != nil {
+	if a.registered().usernameIsEmail() && !sameAddress(user.Username, link.Email) && a.userRenamed != nil {
 		if err := a.userRenamed(ctx, user.ID, user.Username, link.Email); err != nil {
 			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by confirming the address, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, link.Email, err)
 
@@ -477,7 +476,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without
-// regard to case, or a NotFound error.
+// regard to the case of its ASCII letters, or a NotFound error.
 func (p *AuthAPI[S, U, Tx]) UserByEmail(ctx context.Context, email string) (*sessionstorage.SessionUser, error) {
 	user, err := p.auth.storage.UserByEmail(ctx, email)
 	if err != nil {

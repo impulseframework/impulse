@@ -16,7 +16,10 @@ import (
 
 // defaultsCollection is the release the default-role tests compile against:
 // Widgets with two fields in the domain scope, Reports and the DoThing method
-// in the global scope, no condition vocabulary.
+// in the global scope, the two permissions a custom role of the tests is given
+// for the whole of a scope, and one attribute a condition may read: the price
+// of a Widget, a number, which the condition of a custom role's stored grant
+// reads.
 type defaultsCollection struct{}
 
 func (defaultsCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -25,6 +28,9 @@ func (defaultsCollection) List() map[accesstypes.Permission][]accesstypes.Resour
 		"List":    {"Widgets", "Widgets.name", "Widgets.price"},
 		"Update":  {"Widgets", "Widgets.name", "Widgets.price"},
 		"Execute": {"DoThing"},
+		// Held for the whole of a scope, attached to no resource.
+		"Approve": nil,
+		"Export":  nil,
 	}
 }
 
@@ -44,7 +50,11 @@ func (defaultsCollection) IsResourceImmutable(accesstypes.PermissionScope, acces
 	return false
 }
 
-func (defaultsCollection) AttributeComparisonType(accesstypes.PermissionScope, accesstypes.Resource, string) (accesstypes.AttributeType, bool) {
+func (defaultsCollection) AttributeComparisonType(_ accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
+	if res == "Widgets" && name == "price" {
+		return accesstypes.AttributeTypeNumber, true
+	}
+
 	return "", false
 }
 
@@ -58,6 +68,18 @@ func (defaultsCollection) AttributeIsList(accesstypes.PermissionScope, accesstyp
 
 func (defaultsCollection) SubjectSetComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
+}
+
+func (defaultsCollection) SubjectSets(string) map[string][]string {
+	return nil
+}
+
+func (defaultsCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
+func (defaultsCollection) Auths() []string {
+	return nil
 }
 
 func (defaultsCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
@@ -102,7 +124,7 @@ func readerRunnerFile() *RoleConfig {
 // compileDefaults compiles a role file against defaultsCollection.
 func compileDefaults(t *testing.T, config *RoleConfig) *defaultRoles {
 	t.Helper()
-	defaults, err := compileDefaultRoles(defaultsCollection{}, config, nil)
+	defaults, err := compileDefaultRoles(defaultsCollection{}, config, nil, fixtureAuth)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}

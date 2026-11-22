@@ -61,7 +61,12 @@ import (
 )
 
 const (
-	// Name is the auth's name: the cookie its sessions ride in.
+	// Name is the auth's name. It is the name of this package's directory, the name
+	// generation knows the auth by, the name a @subjectSet says in its auth: part,
+	// the name the role file is handed over under (access.WithDefaultRoles(Roles(),
+	// Name)), and the cookie its sessions ride in. It is not a setting: an engine
+	// handed a name generation does not know refuses to open, so renaming the auth
+	// renames the directory and this constant together.
 	Name = "members"
 	// TablePrefix is the name's PascalCase form, which prefixes every table the auth owns.
 	TablePrefix = "Members"
@@ -133,9 +138,14 @@ type Settings struct {
 	LoginURL string
 	// Directory identifies the application to the directory that verifies its logins.
 	Directory auth.Directory
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -259,6 +269,9 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
+	if access.IsNilCollection(settings.Collection) {
+		return nil, errors.New("members.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
+	}
 	if settings.ChangeSignal == nil {
 		return nil, errors.New("members.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	}
@@ -279,7 +292,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// administrator of the members, the sync gives the role to a client it names for it
 	// and takes it from one it no longer names, and the bootstrap seeds none.
 	accessClient, err := access.New(store, settings.Collection,
-		access.WithDefaultRoles(Roles()),
+		access.WithDefaultRoles(Roles(), Name),
 		access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(membersidentity.SuperAdministratorMethods()...),
 	)
