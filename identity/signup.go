@@ -369,7 +369,7 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 			names = append(names, registered[j].Name)
 		}
 
-		return nil, httpio.NewNotFoundMessagef("the %s auth has no sign-in method named %q: its methods are %s", m.auth, name, strings.Join(names, ", "))
+		return nil, signInMethodNotFound(m.auth, name, names)
 	}
 	if registered[i].SyncsRoles {
 		return nil, httpio.NewConflictMessagef("the sign-in method %q takes its roles from its directory, which decides who may sign in: it is neither opened to sign-up nor made invite only here", name)

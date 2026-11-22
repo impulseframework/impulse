@@ -664,7 +664,7 @@ func (m *Manager) requireGroup(ctx context.Context, txn resource.ReadWriteTransa
 		return nil, errors.Wrap(err, "identity.Store.Group()")
 	}
 	if !found {
-		return nil, httpio.NewNotFoundMessagef("group id %q does not exist", groupID)
+		return nil, groupNotFound(groupID)
 	}
 
 	return group, nil
@@ -795,7 +795,7 @@ func (t *Tenant) requireTenantGroup(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if kept != t.scope() {
-		return httpio.NewNotFoundMessagef("group id %q does not exist", groupID)
+		return groupNotFound(groupID)
 	}
 
 	return nil
@@ -836,7 +836,7 @@ func (t *Tenant) requireTenantPerson(ctx context.Context, txn resource.ReadWrite
 		return errors.Wrap(err, "identity.Store.TenantPerson()")
 	}
 	if !theirs {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 
 	return nil

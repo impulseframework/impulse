@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
@@ -41,7 +40,7 @@ func (m *Manager) EndSession(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("session %q does not exist", sessionID)
+		return sessionNotFound(sessionID)
 	}
 
 	return nil
@@ -63,7 +62,7 @@ func (m *Manager) EndImpersonation(ctx context.Context, txn resource.ReadWriteTr
 		return errors.Wrap(err, "identity.Store.Impersonation()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("session %q has no impersonation record", sessionID)
+		return impersonationNotFound(sessionID)
 	}
 	if !live {
 		return nil

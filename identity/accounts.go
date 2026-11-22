@@ -41,7 +41,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "renames a super administrator"); err != nil {
 		return err
@@ -122,7 +122,7 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.refuseOwnAccount(ctx, userID, "delete"); err != nil {
 		return err
@@ -203,7 +203,7 @@ func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWr
 	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sends a super administrator a password reset link"); err != nil {
 		return err

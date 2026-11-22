@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
@@ -33,7 +32,7 @@ func (m *Manager) RevokeToken(ctx context.Context, txn resource.ReadWriteTransac
 		return errors.Wrap(err, "identity.Store.Token()")
 	}
 	if !found || token.Revoked || !token.ExpiresAt.After(m.now()) {
-		return httpio.NewNotFoundMessage("no live token")
+		return tokenNotFound(tokenID)
 	}
 	if token.UserID.IsNil() {
 		return errors.Newf("identity.Store.Token() answered the token %s with no owner: a Store's Token fills Token.UserID with the account the token signs in as", tokenID)

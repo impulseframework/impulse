@@ -258,17 +258,17 @@ func (m *Manager) WithdrawInvitation(ctx context.Context, txn resource.ReadWrite
 		return errors.Wrap(err, "identity.Store.MailLink()")
 	}
 	if !found || !link.Invitation {
-		return httpio.NewNotFoundMessagef("invitation %q does not exist", invitationID)
+		return invitationNotFound(invitationID)
 	}
 	if link.Consumed || !m.now().Before(link.ExpiresAt) {
-		return httpio.NewNotFoundMessagef("invitation %q no longer stands: it was accepted, withdrawn or has expired", invitationID)
+		return invitationNoLongerStands(errors.Newf("invitation %q no longer stands: it was accepted, withdrawn or has expired", invitationID))
 	}
 	makesTenant, err := m.makesTenant(ctx, txn, invitationID)
 	if err != nil {
 		return err
 	}
 	if makesTenant {
-		return httpio.NewNotFoundMessagef("invitation %q does not exist", invitationID)
+		return invitationNotFound(invitationID)
 	}
 	if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
 		return errors.Wrap(err, "identity.Store.ConsumeMailLink()")

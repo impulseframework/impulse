@@ -46,7 +46,7 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.IdentityUser()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
+		return signInIdentityNotFound(identityID)
 	}
 	if err := m.refuseImpersonatorAsSubject(ctx, userID, "unlink a sign-in identity of your own"); err != nil {
 		return err
@@ -62,7 +62,7 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if !hasPassword {
 		links, err := m.store.Identities(ctx, txn, userID)
@@ -123,7 +123,7 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "removes a super administrator's password"); err != nil {
 		return err
@@ -136,7 +136,7 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if !hasPassword {
 		return httpio.NewBadRequestMessage("the user has no password to remove")
