@@ -1,11 +1,13 @@
 package signinflow
 
 import (
+	"context"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -253,5 +255,159 @@ func TestInvitedCodeMessage(t *testing.T) {
 	want := "To accept this invitation, sign in again from the invitation's link. A code will be sent to sam@lakeside.edu to confirm the address is yours."
 	if got != want {
 		t.Errorf("InvitedCodeMessage() = %q, want %q", got, want)
+	}
+}
+
+// TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser pins the acceptance a
+// password sign-in makes, before the policy decides, to what the sign-in itself is held
+// to: the password it proved, still the user's, and the user, enabled. A sign-in whose
+// password changed while it waited, or whose user was disabled, accepts nothing: the
+// invitation stands, no role is given and the account's address is as it was. Where the
+// acceptance rests on the account's own code (it holds the invited address and has not
+// confirmed it), the address is written in the account's own spelling, and only while
+// the account still holds it as it held it when the code was checked: otherwise the code
+// no longer stands (code_expired) and the invitation stands. The acceptance is made
+// before the policy decides, so the policy sees what it gave: a sign-in the policy then
+// denies or holds leaves the invitation accepted and the address written.
+func TestSignIn_aSignInsAcceptanceIsHeldToItsPasswordAndItsUser(t *testing.T) {
+	t.Parallel()
+
+	const (
+		invited = "nell@north.example"
+		spelled = "Nell@North.example"
+	)
+	proof := dbtype.ProofOfStored("the password hash the password was compared against")
+	deny := func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+		return signin.Deny(""), nil
+	}
+	anotherFactor := func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+		return signin.RequireMFA(sessioninfo.AuthMethod("totp")), nil
+	}
+	tests := []struct {
+		name string
+		// ownCode says the sign-in completes the account's own code, mailed to the invited
+		// address the account holds as spelled, unconfirmed; it completes the invitation's
+		// code, to an account that holds no address, otherwise. now is the address the
+		// account holds by the time the sign-in runs, where it is not the one it held when
+		// the code was checked.
+		ownCode bool
+		now     string
+		// changed says the password changed while the sign-in waited, and disabled that
+		// the user was disabled; policy is the sign-in rule, nil for one that allows.
+		changed  bool
+		disabled bool
+		policy   signin.Policy[*memTx]
+		// wantErr checks the error, nil for a session; wantAccepted says the invitation
+		// was accepted, and wantAddress and wantConfirmed are what the account holds.
+		wantErr       func(t *testing.T, err error)
+		wantAccepted  bool
+		wantAddress   string
+		wantConfirmed bool
+	}{
+		{
+			name:         "the invitation's code: accepted, the invited address confirmed, and a session",
+			wantAccepted: true, wantAddress: invited, wantConfirmed: true,
+		},
+		{
+			name:    "the invitation's code, the password changed while it waited: nothing accepted, and no session",
+			changed: true, wantErr: wantCause(dbtype.ErrPasswordChanged),
+		},
+		{
+			name:     "the invitation's code, the user disabled: nothing accepted, and refused user_disabled",
+			disabled: true, wantErr: wantRefusal(sessioninfo.RefusedUserDisabled),
+		},
+		{
+			name:   "the invitation's code, the policy denies: accepted and the address written, with no session",
+			policy: deny, wantErr: wantDenied, wantAccepted: true, wantAddress: invited, wantConfirmed: true,
+		},
+		{
+			name:   "the invitation's code, the policy holds for another factor: accepted and the address written, with no session",
+			policy: anotherFactor, wantErr: wantHeldFor(sessioninfo.AuthMethod("totp")), wantAccepted: true, wantAddress: invited, wantConfirmed: true,
+		},
+		{
+			name:    "the account's own code: accepted, the address confirmed in the account's spelling, and a session",
+			ownCode: true, wantAccepted: true, wantAddress: spelled, wantConfirmed: true,
+		},
+		{
+			name:    "the account's own code, the password changed while it waited: nothing accepted, the address unconfirmed",
+			ownCode: true, changed: true, wantErr: wantCause(dbtype.ErrPasswordChanged), wantAddress: spelled,
+		},
+		{
+			name:    "the account's own code, the user disabled: nothing accepted, the address unconfirmed, refused user_disabled",
+			ownCode: true, disabled: true, wantErr: wantRefusal(sessioninfo.RefusedUserDisabled), wantAddress: spelled,
+		},
+		{
+			name:    "the account's own code, the address respelled after the code was checked: refused code_expired, nothing accepted, the address as it is now",
+			ownCode: true, now: "NELL@NORTH.EXAMPLE", wantErr: wantRefusal(sessioninfo.RefusedCodeExpired), wantAddress: "NELL@NORTH.EXAMPLE",
+		},
+		{
+			name:    "the account's own code, the policy denies: accepted and the address confirmed, with no session",
+			ownCode: true, policy: deny, wantErr: wantDenied, wantAccepted: true, wantAddress: spelled, wantConfirmed: true,
+		},
+		{
+			name:    "the account's own code, the policy holds for another factor: accepted and the address confirmed, with no session",
+			ownCode: true, policy: anotherFactor, wantErr: wantHeldFor(sessioninfo.AuthMethod("totp")), wantAccepted: true, wantAddress: spelled, wantConfirmed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			hooks := &roleHooks{store: store}
+			id := impulse.Must(impulse.NewUUID())
+			user := &memUser{username: "nell", proof: proof, disabled: tt.disabled}
+			if tt.changed {
+				user.proof = dbtype.ProofOfStored("the hash of the password set meanwhile")
+			}
+			inv := store.invite(invited, "lakeside", "Coach")
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, ConfirmAddress: true, Proven: proof}
+			if tt.policy != nil {
+				rules.Policy = tt.policy
+			}
+			if tt.ownCode {
+				user.email = spelled
+				rules.CodeAddress = &dbtype.CodeAddress{Held: addressOf(spelled), Email: spelled}
+			} else {
+				inv.AddressProven = true
+			}
+			if tt.now != "" {
+				user.email = tt.now
+			}
+			store.users[id] = user
+			req := &sessioninfo.NewSessionRequest{
+				Reason: sessioninfo.ReasonStepUp, Username: "nell", UserID: id, Invitation: inv,
+				Identity:   &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: user.email},
+				AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: sessioninfo.MethodEmailCode}},
+			}
+
+			err := signInWith(t, &memDriver{store: store}, req, rules)
+
+			wantSessions := 0
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("SignIn() error = %v, want a session", err)
+				}
+				wantSessions = 1
+			} else {
+				tt.wantErr(t, err)
+			}
+			if store.sessions != wantSessions {
+				t.Errorf("the store holds %d session(s), want %d", store.sessions, wantSessions)
+			}
+			if inv.Accepted != tt.wantAccepted || store.invitations[inv.ID] == tt.wantAccepted {
+				t.Errorf("Invitation.Accepted = %t, still live = %t, want accepted %t", inv.Accepted, store.invitations[inv.ID], tt.wantAccepted)
+			}
+			wantGranted := map[string][]string{}
+			if tt.wantAccepted {
+				wantGranted["nell"] = []string{"Coach"}
+			}
+			if diff := cmp.Diff(wantGranted, store.granted); diff != "" {
+				t.Errorf("the roles given (-want +got):\n%s", diff)
+			}
+			if got := store.users[id]; got.email != tt.wantAddress || got.confirmed != tt.wantConfirmed {
+				t.Errorf("the account holds %q (confirmed %t), want %q (confirmed %t)", got.email, got.confirmed, tt.wantAddress, tt.wantConfirmed)
+			}
+		})
 	}
 }

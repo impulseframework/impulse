@@ -1303,7 +1303,11 @@ the person reaches.
    it) leaves the account's address as it was, and so does one held for another factor:
    the person signs in again, and the code is asked for again. A first link that rests
    on the code is made only while the account still holds the address the code was
-   mailed to.
+   mailed to. An invitation's acceptance is apart: it is made before the sign-in policy
+   decides, so that the policy sees what the invitation gave, and the invited address is
+   written with it. A sign-in the policy then denies or holds leaves the invitation
+   accepted and that address on the account; one whose password changed while it waited,
+   or whose user was disabled, accepts nothing.
 
 A code mailed to the mailbox of the account that just signed in adds little against a
 stolen password that opens that mailbox too: for a directory, the attestation is the

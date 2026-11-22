@@ -283,9 +283,11 @@ type Rules[Tx any] struct {
 // which it is handed, so the invitation is spent and its roles given together or
 // neither is. The invitation is consumed only once the resolution has admitted the
 // sign-in: the user found, linked or provisioned, and enabled. A sign-in the account
-// rules refuse or hold for a confirmation, or a disabled user's, leaves the invitation
-// standing, nothing granted, so the person may sign in another way; a sign-in the
-// policy then denies leaves it accepted, and what the acceptance granted stands. An
+// rules refuse or hold for a confirmation, a disabled user's, or a password sign-in
+// whose password changed while it waited (signInHold), leaves the invitation standing,
+// nothing granted, so the person may sign in another way; a sign-in the policy then
+// denies or holds leaves it accepted, and what the acceptance granted stands, the
+// invited address with it. An
 // invitation that is no longer live is skipped and the sign-in goes on, unless the
 // invitation alone admitted the person (a method that is invite only), which is then a
 // refusal (invitation_expired) and provisions nothing; req.Invitation.Accepted reports
@@ -356,8 +358,15 @@ func SignIn[Tx any](
 			// the code mailed for it: that code is the invitation's acceptance and no
 			// account's second factor, so the sign-in ends with the invitation, nobody
 			// signed in and nothing written. An acceptor that fails ends it, the
-			// invitation standing.
-			dead, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait, rules.CodeAddress)
+			// invitation standing. The acceptance is apart from the session: it is made
+			// before the sign-in policy decides, so that the policy sees what the
+			// invitation gave, and the invited address is written with it, so a sign-in
+			// the policy then denies or holds leaves the invitation accepted and that
+			// address on the account. One whose password changed while it waited, or
+			// whose user was disabled, accepts nothing (signInHold): the first ends with
+			// dbtype.ErrPasswordChanged, the second is refused user_disabled below.
+			hold := &signInHold{proven: rules.Proven, claim: rules.CodeAddress}
+			dead, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait, hold)
 			if err != nil {
 				return err
 			}
@@ -565,25 +574,28 @@ func InvitedCodeMessage(inv *sessioninfo.Invitation) string {
 // cannot. An account that holds the invited address unconfirmed is mailed its own code
 // at that address, which proves the mailbox as the invitation's code does: it accepts
 // once the sign-in carries that code's address (claim, the rules' CodeAddress), while it
-// still holds the address. The acceptance writes the address on the account, confirmed.
+// still holds the address. The acceptance writes the address on the account, confirmed:
+// the invited one, or, where it rests on the account's own code (byOwnCode), the code's
+// address in the account's own spelling, and only while the account still holds it as
+// it held it when the code was checked (acceptInvitation).
 func acceptedByCode[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, wait error, claim *dbtype.CodeAddress,
-) (stop, err error) {
+) (stop error, byOwnCode bool, err error) {
 	holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
 	if err != nil {
-		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
+		return nil, false, errors.Wrap(err, "Driver.UserByEmailIn()")
 	}
 	holds := holder != nil && holder.ID == user.ID
 	ownCode := holds && claim != nil && sameAddress(claim.Email, inv.Email)
 	switch {
 	case holds && user.EmailConfirmed:
-		return nil, nil
+		return nil, false, nil
 	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username):
-		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
+		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), false, nil
 	case !inv.AddressProven && !ownCode:
-		return wait, nil
+		return wait, false, nil
 	default:
-		return nil, nil
+		return nil, ownCode, nil
 	}
 }
 
@@ -867,6 +879,19 @@ func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.
 // invitation's consumption is rolled back and nothing is committed.
 var errAcceptanceStopped = errors.New("the acceptance waits for the code mailed to the invited address")
 
+// errAcceptanceSkipped ends the transaction of a sign-in's acceptance whose user is
+// disabled: nothing is committed, and the sign-in goes on to its refusal.
+var errAcceptanceSkipped = errors.New("the user is disabled: the sign-in accepts nothing")
+
+// signInHold is what the acceptance a sign-in makes outside a resolution is held to:
+// the password the sign-in proved (proven, the rules' Proven; the nil proof holds it to
+// nothing), and the address the account's own mailed code confirms (claim, the rules'
+// CodeAddress), nil where the sign-in carries none.
+type signInHold struct {
+	proven dbtype.PasswordProof
+	claim  *dbtype.CodeAddress
+}
+
 // acceptInvitation is the transaction of an acceptance outside a resolution: a password
 // sign-in's, and a signed-in person's (AcceptInvitation). dead reports an invitation
 // that is no longer live, with nothing written and no error. stop is the answer to an
@@ -874,13 +899,30 @@ var errAcceptanceStopped = errors.New("the acceptance waits for the code mailed 
 // in the transaction on the user row it reads, with nothing written and no error: a
 // refusal, or what unproven answers for an account that may still enter the code mailed
 // to the invited address. An error is the driver's or the acceptor's, and nothing is
-// written either. inv.Accepted is set to the outcome. claim is the address the
-// account's own mailed code confirms, for a password sign-in that completes a wait with
-// that code, nil otherwise (acceptedByCode).
+// written either. inv.Accepted is set to the outcome.
+//
+// signIn is what the acceptance a sign-in makes is held to, nil for one by hand. It goes
+// on only while the user, read in its transaction, still holds the password the sign-in
+// proved, and is enabled: a password changed since the proof ends it with
+// dbtype.ErrPasswordChanged, and a disabled user's acceptance is skipped with no error,
+// the sign-in then refused user_disabled; nothing is written either way, and the
+// invitation stands. Where the acceptance rests on the account's own mailed code
+// (acceptedByCode's byOwnCode), the code's address is written in the account's own
+// spelling, and only while the account still holds what it held when the code was
+// checked and no other account holds the address (Driver.VerifyUserEmailIfHeldIn);
+// otherwise the code no longer stands, stop is the code_expired refusal
+// (codeAddressGone), and nothing is written: the invitation stands. The acceptance is
+// made before the sign-in policy decides, so that the policy sees what it gave: a
+// sign-in the policy then denies or holds leaves the invitation accepted and the
+// address written.
 func acceptInvitation[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
-	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error, claim *dbtype.CodeAddress,
+	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error, signIn *signInHold,
 ) (dead bool, stop, err error) {
+	var claim *dbtype.CodeAddress
+	if signIn != nil {
+		claim = signIn.claim
+	}
 	inv.Accepted = false
 	var committed committedWork
 	err = d.Transact(ctx, func(ctx context.Context, tx Tx) error {
@@ -895,15 +937,35 @@ func acceptInvitation[Tx any](
 		if err != nil {
 			return errors.Wrap(err, "Driver.UserIn()")
 		}
-		if stop, err = acceptedByCode(ctx, d, tx, inv, user, unproven(user, inv), claim); err != nil {
+		if signIn != nil {
+			if err := signIn.proven.Check(user.PasswordProof); err != nil {
+				return errors.Wrap(err, "dbtype.PasswordProof.Check()")
+			}
+			if user.Disabled {
+				return errAcceptanceSkipped
+			}
+		}
+		var byOwnCode bool
+		if stop, byOwnCode, err = acceptedByCode(ctx, d, tx, inv, user, unproven(user, inv), claim); err != nil {
 			return err
+		}
+		if stop == nil && byOwnCode {
+			wrote, err := d.VerifyUserEmailIfHeldIn(ctx, tx, userID, claim.Held, claim.Email)
+			if err != nil {
+				return errors.Wrap(err, "Driver.VerifyUserEmailIfHeldIn()")
+			}
+			if !wrote {
+				stop = codeAddressGone(userID, claim)
+			}
 		}
 		if stop != nil {
 			// Nothing of the acceptance is kept: the invitation stands.
 			return errAcceptanceStopped
 		}
-		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, userID, inv.Email); err != nil {
-			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
+		if !byOwnCode {
+			if _, err := d.ClaimVerifiedEmailIn(ctx, tx, userID, inv.Email); err != nil {
+				return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
+			}
 		}
 		if err := claimInvitedName(ctx, d, tx, userID, inv); err != nil {
 			return err
@@ -922,6 +984,9 @@ func acceptInvitation[Tx any](
 		}
 		if stop != nil && errors.Is(err, errAcceptanceStopped) {
 			return false, stop, nil
+		}
+		if errors.Is(err, errAcceptanceSkipped) {
+			return false, nil, nil
 		}
 
 		return false, nil, errors.Wrap(err, "Driver.Transact()")
@@ -1214,7 +1279,7 @@ func resolveLinked[Tx any](
 	}
 	req.UserID, req.Username = link.UserID, user.Username
 	if acceptsByCode(req, confirm) && !user.Disabled {
-		if stop, err := acceptedByCode(ctx, d, tx, req.Invitation, user, invitedCodeWait(), nil); err != nil || stop != nil {
+		if stop, _, err := acceptedByCode(ctx, d, tx, req.Invitation, user, invitedCodeWait(), nil); err != nil || stop != nil {
 			return "", false, stop, err
 		}
 	}
