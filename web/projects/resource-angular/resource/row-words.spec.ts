@@ -20,16 +20,17 @@ describe('the words a list names its row by', () => {
   });
 
   it('says what was done to the row in a sentence that opens with its word', () => {
-    expect(rowMessage(pass, 'deleted', 'HangarPasses')).toBe('Hangar pass deleted.');
-    expect(rowMessage(pass, 'added', 'HangarPasses')).toBe('Hangar pass added.');
-    expect(rowMessage(pass, 'saved', 'HangarPasses')).toBe('Hangar pass saved.');
-    expect(rowMessage({ one: 'HQ unit', many: 'HQ units' }, 'deleted', 'HqUnits')).toBe('HQ unit deleted.');
+    expect(rowMessage(pass, 'deleted')).toBe('Hangar pass deleted.');
+    expect(rowMessage(pass, 'added')).toBe('Hangar pass added.');
+    expect(rowMessage(pass, 'saved')).toBe('Hangar pass saved.');
+    expect(rowMessage({ one: 'HQ unit', many: 'HQ units' }, 'deleted')).toBe('HQ unit deleted.');
   });
 
-  it('names the resource as before where its metadata carries no word', () => {
-    expect(rowMessage(undefined, 'deleted', 'HangarPasses')).toBe('HangarPasses deleted successfully');
-    expect(rowMessage(undefined, 'added', 'HangarPasses')).toBe('HangarPasses created successfully');
-    expect(rowMessage(undefined, 'saved', 'HangarPasses')).toBe('HangarPasses updated successfully');
+  it('says what was done, and no name, where the metadata carries no word', () => {
+    expect(rowMessage(undefined, 'deleted')).toBe('Deleted.');
+    expect(rowMessage(undefined, 'added')).toBe('Added.');
+    expect(rowMessage(undefined, 'saved')).toBe('Saved.');
+    expect(rowMessage({ one: ' ', many: '' }, 'saved')).toBe('Saved.');
   });
 
   it('picks "a" or "an" by how the word is said', () => {

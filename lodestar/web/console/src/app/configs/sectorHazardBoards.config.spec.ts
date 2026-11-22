@@ -30,8 +30,10 @@ import {
 // its worst reading and the readings behind it. The page draws the worst reading with its
 // severity in a word and each reading behind it with its severity and when it was
 // recorded, in the order the server sent them; a row has a compound key, so the page
-// draws no way into a row; the board declares no create, and the page offers none; and
-// the readings' header is words, since the server orders by no nested field.
+// draws no way into a row; the board declares no create, and the page offers none; the
+// readings' header is words, since the server orders by no nested field; and so is the
+// header of every field the analyst holds under the board's condition, since the server
+// refuses a sort by such a field on a computed resource.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 const kingfisher = '70000000-0000-4000-8000-000000000001';
@@ -157,7 +159,7 @@ describe('the hazard board', () => {
     expect(columns).toEqual(['recent', 'recordedAt', 'shipId', 'shipName', 'subsystem', 'worstReading']);
   });
 
-  it('draws no way into a row, offers no create, and gives the readings a header that sorts nothing', async () => {
+  it('draws no way into a row, offers no create, and offers a sort by the subsystem alone', async () => {
     await create(board);
 
     // A row is one ship's one subsystem: no View column, no menu, no button of any kind.
@@ -166,7 +168,10 @@ describe('the hazard board', () => {
     const pressable = Array.from(element().querySelectorAll('th button.header-label .col-header')).map((h) =>
       h.textContent?.trim(),
     );
-    expect(pressable).toEqual(['Ship', 'Subsystem', 'Worst reading', 'Recorded']);
+    // The readings sort by nothing, and the analyst holds the ship, the worst reading and
+    // when it was recorded under the board's condition, which the server orders by the
+    // rows' real values: only the subsystem, a key field that takes no grant, sorts.
+    expect(pressable).toEqual(['Subsystem']);
   });
 
   it('says so when no droid has reported in the sector', async () => {

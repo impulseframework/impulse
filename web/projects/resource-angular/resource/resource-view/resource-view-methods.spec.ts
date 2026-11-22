@@ -542,7 +542,7 @@ describe('ResourceViewComponent row methods', () => {
     expect(wentBack).toBe(0);
     expect(gone).toEqual([true]);
     // What the list says of the row, then what the write said.
-    expect(notices).toEqual(['ada is no longer here.', 'Accounts deleted successfully']);
+    expect(notices).toEqual(['ada is no longer here.', 'Deleted.']);
   });
 
   it("leaves once after the row's own Delete on a live page, where the read after the write finds the row gone after the page has left", async () => {
@@ -563,7 +563,7 @@ describe('ResourceViewComponent row methods', () => {
     expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
     expect(wentBack).toBe(0);
     expect(gone).toEqual([true]);
-    expect(notices).toEqual(['Accounts deleted successfully', 'ada is no longer here.']);
+    expect(notices).toEqual(['Deleted.', 'ada is no longer here.']);
   });
 
   it("says the same after the row's own Delete and goes back to where the page was opened from, where the page is no row route's own", async () => {
@@ -579,7 +579,7 @@ describe('ResourceViewComponent row methods', () => {
 
     expect(wentBack).toBe(1);
     expect(gone).toEqual([true]);
-    expect(notices).toEqual(['Accounts deleted successfully', 'ada is no longer here.']);
+    expect(notices).toEqual(['Deleted.', 'ada is no longer here.']);
   });
 
   it('goes to the list by the route from its Back button where the page was opened by its address, with no page before it', async () => {
@@ -660,7 +660,7 @@ describe('ResourceViewComponent row methods', () => {
     expect(router.url).toBe('/accounts/a-1');
     expect(wentBack).toBe(0);
     expect(gone).toEqual([true]);
-    expect(notices).toEqual(['Accounts deleted successfully']);
+    expect(notices).toEqual(['Deleted.']);
   });
 
   it('stays when the page is handed the key of a row that is not there, though another row was on hand before', async () => {

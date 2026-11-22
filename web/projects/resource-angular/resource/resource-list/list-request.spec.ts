@@ -1,4 +1,4 @@
-import { ApiError, FieldMeta, Resource, ResourceMeta } from '@impulseframework/resource';
+import { ApiError, FieldMeta, PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
 import { PageTurn } from '@impulseframework/resource-angular/grid';
 import { ColumnConfig } from '@impulseframework/resource-angular/types';
 import {
@@ -9,6 +9,7 @@ import {
   pageLabel,
   PagePosition,
   positionAfter,
+  queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
@@ -69,6 +70,62 @@ describe('unorderedFields', () => {
       expect([...unorderedFields(tt.meta)]).toEqual(tt.want);
     });
   }
+});
+
+describe('queryableMeta', () => {
+  const passes: ResourceMeta = {
+    route: 'hangar-passes',
+    computed: true,
+    createDisabled: true,
+    fields: [
+      field('id', { primaryKey: { ordinalPosition: 0 } }),
+      field('holder', { filterable: 'always', search: ['contains', 'startswith'] }),
+      field('budget', { displayType: 'number', filterable: 'always' }),
+      field('bay', { filterable: 'always' }),
+    ],
+    searchFields: ['holder'],
+  };
+  // The same fields over a table: no `computed`.
+  const table: ResourceMeta = { ...passes };
+  delete table.computed;
+  const granted: Record<string, PermissionDigestState> = { holder: 'granted', budget: 'granted', bay: 'granted' };
+  const underCondition: Record<string, PermissionDigestState> = {
+    holder: 'conditional',
+    budget: 'granted',
+    bay: 'conditional',
+  };
+
+  it('no metadata, none', () => {
+    expect(queryableMeta(undefined, underCondition)).toBeUndefined();
+  });
+
+  it('a table or a view comes back as it is, a field listed under a condition and all', () => {
+    expect(queryableMeta(table, underCondition)).toBe(table);
+    expect(queryableMeta(table, granted)).toBe(table);
+  });
+
+  it('a computed resource whose every field is listed with no condition comes back as it is, and so does one the digest names no field of', () => {
+    expect(queryableMeta(passes, granted)).toBe(passes);
+    expect(queryableMeta(passes, {})).toBe(passes);
+  });
+
+  it('a computed resource marks each field listed under a condition unsortable, with no filter and no text match, and leaves the rest', () => {
+    const narrowed = queryableMeta(passes, underCondition);
+
+    expect(narrowed).not.toBe(passes);
+    expect(narrowed?.fields.map((f) => f.fieldName)).toEqual(['id', 'holder', 'budget', 'bay']);
+    expect(narrowed?.fields[1]).toEqual(field('holder', { sortable: false }));
+    expect(narrowed?.fields[3]).toEqual(field('bay', { sortable: false }));
+    // The key, which takes no grant and so is named by no digest, and the field listed with
+    // no condition, are the objects they were.
+    expect(narrowed?.fields[0]).toBe(passes.fields[0]);
+    expect(narrowed?.fields[2]).toBe(passes.fields[2]);
+    // Nothing else of the metadata differs, and the metadata handed in is not changed.
+    expect({ ...narrowed, fields: [] }).toEqual({ ...passes, fields: [] });
+    expect(narrowed?.searchFields).toEqual(['holder']);
+    expect(narrowed?.route).toBe('hangar-passes');
+    expect(passes.fields[1]).toEqual(field('holder', { filterable: 'always', search: ['contains', 'startswith'] }));
+  });
 });
 
 describe('filterInputKinds', () => {

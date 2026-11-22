@@ -705,6 +705,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'briefing template', many: 'briefing templates' },
     fields: [
