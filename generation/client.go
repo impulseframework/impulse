@@ -331,11 +331,12 @@ func (c *client) hasRPCMethods() bool {
 }
 
 // hasRPCMethodWithTarget reports whether a method runs against a row (@target, a
-// transition's target included): its metadata names the row's resource, so the methods
-// file imports the resource names.
+// transition's target included) or, naming no row, is offered on the rows of resources
+// (@callerEnters(Row, ...)): its metadata names the rows' resources, so the methods file
+// imports the resource names.
 func (c *client) hasRPCMethodWithTarget() bool {
 	for _, rpcMethod := range c.rpcMethods {
-		if rpcMethod.Target != nil {
+		if rpcMethod.Target != nil || len(rpcMethod.OfferedOn) != 0 {
 			return true
 		}
 	}

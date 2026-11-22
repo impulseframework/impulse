@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -71,4 +72,11 @@ WHERE m.EndsAt IS NOT NULL AND m.Reason IS NOT NULL AND m.Reason != ''
 // Subquery is the query the rows are read from.
 func (StaffTakenRole) Subquery() (query string, params map[string]any) {
 	return staffTakenRoleQuery, nil
+}
+
+// TenantsToEnter names the tenant the row's role makes its holder an administrator of,
+// where a person holds the role of their own in that tenant itself: a caller whose
+// session does not enter it is not offered the method that takes the role away.
+func (StaffTakenRole) TenantsToEnter() resource.TenantsToEnter {
+	return staffHeldRoleTenantsToEnter()
 }

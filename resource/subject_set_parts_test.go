@@ -589,7 +589,7 @@ func TestNewGeneratedCollection_subjectSetParts(t *testing.T) {
 }
 
 // TestSubjectSetRows_loop pins the backstop where a collection reached the
-// lowering unvalidated (one assembled by the builder): sets that build on each
+// lowering unvalidated (one assembled inside the package): sets that build on each
 // other in a loop are refused, never rendered without end.
 func TestSubjectSetRows_loop(t *testing.T) {
 	t.Parallel()
@@ -602,7 +602,7 @@ func TestSubjectSetRows_loop(t *testing.T) {
 	builder.SetResourceBindings(accesstypes.GlobalPermissionScope, "Bs", &Bindings{SubjectSets: []SubjectBindingData{
 		{Name: "b", UserColumn: "X", Column: "V", Type: AttributeTypeString, Who: []SubjectWhoData{{Column: "X", Set: "a"}}},
 	}})
-	collection := builder.GeneratedCollection()
+	collection := builder.g
 	bindings, _ := collection.Bindings(accesstypes.GlobalPermissionScope, "Parcels")
 
 	expr, err := condition.Parse("label IN subject.a")

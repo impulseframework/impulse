@@ -25,7 +25,13 @@ import (
 // identity links and sessions, in the same transaction: an account nothing admits is
 // not kept.
 //
+// It names no row: a page runs it from a row of the roles people hold, filling the
+// request from the row. Where the role is one of a sector's administrator roles held
+// in that sector itself, such a row offers it only to a caller whose session enters
+// the sector (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters(CrewHeldRole, CrewTakenRole)
 // @outlet(default)
 // @answers(204)
 // @class(access)

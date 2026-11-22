@@ -1010,7 +1010,10 @@ identity unlinked, the account disabled, enabled or deleted), each with a senten
 says who does it:
 one of Bastion's marshals, or a super administrator, as the governor is. Headquarters
 is not shown those actions on the row of a directory-only sector's marshal: the row's
-menu leaves them out, as the server would refuse them. A marshal of Bastion who changes
+menu leaves them out, as the server would refuse them. Nor is it shown the removal of
+the marshal's role there: not from the marshal, on the rows of the roles people hold and
+of Break glass, and not from a group of the sector's own, on the rows of the roles the
+group holds. A marshal of Bastion who changes
 her password goes on in the session that made the change, a
 password and the code still, so the change does not close her out of the sector she
 administers. The data level's roster

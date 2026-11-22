@@ -144,7 +144,7 @@ func {{ GoCamel .User }}TenantsToEnter(column string) resource.TenantsToEnter {
 	return resource.TenantsToEnter{
 		Query:  {{ GoCamel .User }}AdministeredTenantsQuery,
 		Params: map[string]any{ {{- printf "%q" .EnteringAdministratorsParam }}: administrators},
-		Column: column,
+		Match:  map[string]string{"RowKey": column},
 	}
 }
 
@@ -2306,9 +2306,12 @@ import (
 // Administrator role is taken away by a super administrator alone, and never from the
 // last one who can sign in. A person left with no role anywhere is deleted with their
 // identity links and sessions, in the same transaction: an account nothing admits is
-// not kept.
+// not kept.` + identityRoleRemovalEntersNote + `
 //
 // @rpc
+{{- with .RoleRemovalRows }}
+// @callerEnters({{ . }})
+{{- end }}
 // @outlet({{ .Outlets }})
 // @answers(204)` + identityAccessClass + `
 type Remove{{ .Auth }}Role struct {
