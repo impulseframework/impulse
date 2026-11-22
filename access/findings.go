@@ -202,6 +202,9 @@ func unlistedName(listed map[accesstypes.Permission][]accesstypes.Resource, g *p
 	if g.Resource == "" {
 		return nil
 	}
+	if strings.Contains(g.Resource, ".") {
+		return errors.Newf("the row's resource %s holds a dot: a stored grant keeps a field in its own column, and a resource's name holds no dot", g.Resource)
+	}
 	name := grantResourceName(g)
 	if !slices.Contains(resources, name) {
 		return errors.Newf("this release declares no %s on %s", g.Perm, name)

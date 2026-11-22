@@ -464,6 +464,39 @@ func Test_newSnapshot_findings(t *testing.T) {
 	}
 }
 
+// Test_newSnapshot_findings_dottedResource pins that a stored grant whose
+// resource column holds a dot is skipped and reported: a write keeps a field in
+// its own column, so such a row names no resource the collection declares, and
+// it neither reaches the member's digest nor grants the dotted name.
+func Test_newSnapshot_findings_dottedResource(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{"", "*"} {
+		t.Run(fmt.Sprintf("field %q", field), func(t *testing.T) {
+			t.Parallel()
+
+			snap, findings := compileWithDefaults(t, compileDefaults(t, readerRunnerFile()), &policy.Records{
+				Roles: []policy.Role{{Scope: tenant1Policy, Name: "Chief"}},
+				Grants: []policy.Grant{
+					{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: "Widgets.name", Field: field},
+				},
+				Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("dana"), Role: "Chief"}},
+			})
+
+			var skipped *SkippedGrant
+			if len(findings) != 1 || !errors.As(error(findings[0]), &skipped) || !strings.Contains(skipped.Error(), "holds a dot") {
+				t.Errorf("findings = %v, want one skipped grant whose reason holds %q", findings, "holds a dot")
+			}
+			if entry, listed := snap.userDigest(tenant1Scope, "dana")["Widgets.name"]; listed {
+				t.Errorf("digest lists Widgets.name as %v, want no entry", entry)
+			}
+			if got := snap.decideUserResources("dana", tenant1Scope, "Read", "Widgets.name"); decisionText(got[0]) != "denied" {
+				t.Errorf("decide(dana, Read, Widgets.name) = %s, want denied", decisionText(got[0]))
+			}
+		})
+	}
+}
+
 // Test_newSnapshot_findings_defaultRoleGrants pins that a stored grant under a
 // default role's name gives nothing whether or not the store holds a row for
 // the role: the grant is skipped, the role is reported as shadowed once for
