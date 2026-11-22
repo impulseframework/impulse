@@ -51,7 +51,8 @@ type Tone = 'short' | 'near' | 'enough';
  * application's minimum sits, and the server's sentence under them. It calculates nothing
  * itself: `strongEnough()` is the server's word about the text now in the box, and a page
  * keeps its button disabled until it is true. A control in the box shows what was typed,
- * so there is no second box to type it again.
+ * so there is no second box to type it again. The box joins no form of the page's: the page
+ * reads what was typed through `password`.
  *
  * One question is in flight at a time: typing while one is out is only remembered, and the
  * text as it stands is asked about when the answer arrives. A browser the server holds for

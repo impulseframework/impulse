@@ -472,7 +472,10 @@ new password of the person, and
 the server serves nothing but the password change, the session read and the logout until the person
 chooses one, refusing everything else with a 403 and the code
 `password_change_required`. The component renders the change form in the list's place, with the
-sentence the application holds for that code over it, posts the old and the new password through the
+sentence the application holds for that code over it. The form asks for the current password
+and for the new one once, in `<impulse-new-password>` ("A new password", below), and its
+button stays disabled until the current password is given and the server calls the new one
+strong enough. It posts the old and the new password through the
 client (`api.auth.changePassword`) to the change path the methods list names, checks the session
 again and only then emits `signedIn` with the page recorded at the sign-in; a refusal is rendered in
 place, and a cancel ends the session and shows the list again. `AuthService.checkUserSession` loads
@@ -503,8 +506,9 @@ admit the address is a "Continue with <label> as <address>" button, which sends 
 provider as its login hint, so the provider takes that account and skips its chooser; the password
 form shows when an account with a password holds the address ("Sign in with your password to
 accept it."); and where no account holds the address and the server offers a password method, the
-person may create an account with a password: the account form asks for a username (unless the
-username is the address) and the password twice, and the code step follows it: the server mails a
+person may create an account with a password: the account form asks for a username (unless the username is
+the address) and for a password once, in `<impulse-new-password>`, its button disabled until
+the server calls the password strong enough, and the code step follows it: the server mails a
 code to the invited address, and entering it creates the account, signs the person in and accepts
 the invitation. It opens by itself where it is the one way to accept, and stands behind a
 "Create an account with a password" button under the directory buttons where a directory could
@@ -559,8 +563,9 @@ address sent too many reset links is refused with the wait and Send me a link st
 it has passed; the server counts reset links apart from sign-in codes, and so does the page, which
 holds the reset form alone. Where an administrator turned resetting off after the page was drawn,
 the form says so and to ask an administrator for a link. A
-reset link (`#reset=<token>`), the person's own or one an administrator sent, opens a form for the
-new password in the list's place; once it is set the component says the person is signed out
+reset link (`#reset=<token>`), the person's own or one an administrator sent, opens a
+form for the new password in the list's place, one `<impulse-new-password>` whose button stays
+disabled until the server calls the password strong enough; once it is set the component says the person is signed out
 everywhere and shows the list again with the username filled in, and nobody is signed in by it; a
 password that changed while the person was choosing shows the server's sentence, the form staying. A
 link to an address an administrator set (`#address=<token>`) shows a question first and posts
