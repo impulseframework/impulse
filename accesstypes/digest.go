@@ -1,8 +1,14 @@
 package accesstypes
 
-// DigestState is one PermissionDigest entry's answer: granted when at least
-// one unconditional grant covers the target, conditional when only
-// conditional grants do. There is no denied state — a denied target is
+// DigestState is one PermissionDigest entry's answer. Granted: at least one
+// unconditional grant covers the target. Conditional on time: only
+// conditional grants cover it, and every one of their conditions reads the
+// time of the request alone (condition.TimeOnly), so a check settles the
+// target whole from the request, granted while one of the conditions holds
+// and denied while none does. Conditional: only conditional grants cover it,
+// and at least one of their conditions reads more than the time (the row, a
+// fact about the caller, a request field), so a check may leave the target
+// to be judged row by row. There is no denied state: a denied target is
 // absent from the digest entirely, so a consumer that misses a key fails
 // closed.
 type DigestState string
@@ -10,8 +16,9 @@ type DigestState string
 // The digest states. There is deliberately no denied constant: denial is
 // expressed by absence.
 const (
-	DigestGranted     DigestState = "granted"
-	DigestConditional DigestState = "conditional"
+	DigestGranted           DigestState = "granted"
+	DigestConditional       DigestState = "conditional"
+	DigestConditionalOnTime DigestState = "conditionalOnTime"
 )
 
 // PermissionDigest is one user's structural grant enumeration for one scope:
@@ -21,7 +28,9 @@ const (
 //
 // The digest is structural: it reports grant structure and folds nothing —
 // no environment instant, no row data — so a payload is stable for the life
-// of a policy snapshot and caches cleanly per scope. Absence means denied,
+// of a policy snapshot and caches cleanly per scope. Conditional on time is
+// structure too, read from the conditions' text and never from a clock: the
+// digest does not say whether such a condition holds now. Absence means denied,
 // and the payload stays proportional to the user's grants, never to the
 // application's resource collection. Field targets appear under their dotted
 // resource name ("employees.name"), exactly as grants store them.

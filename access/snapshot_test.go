@@ -1945,8 +1945,9 @@ func Test_snapshot_userHasGrants(t *testing.T) {
 
 // Test_snapshot_userDigest pins the digest enumeration: structural (nothing
 // folds), fail-closed by absence (denied targets never appear), granted
-// beating conditional, all-fields grants enumerating the known field
-// vocabulary, and scope-wide grants staying outside the digest.
+// beating conditional, conditional on time where every covering condition
+// reads the time of the request alone, all-fields grants enumerating the
+// known field vocabulary, and scope-wide grants staying outside the digest.
 func Test_snapshot_userDigest(t *testing.T) {
 	t.Parallel()
 
@@ -1968,6 +1969,21 @@ func Test_snapshot_userDigest(t *testing.T) {
 			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
 			// Pinger holds only a scope-wide grant: no resource to enumerate.
 			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Pinger"), Perm: "Ping"},
+			// Shifter: List on the employees endpoint and fields under conditions
+			// that read the time alone, beside a row condition on the status, and
+			// an all-fields Export on a weekday condition, beside a row condition
+			// on the status's own Export.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "name", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "salary", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "salary", Condition: "timeOfDay(now, 'UTC') < '18:00'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "status", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "status", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "title", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "Export", Resource: "employees", Field: "*", Condition: "dayOfWeek(now, 'UTC') IN ('mon', 'tue')"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "Export", Resource: "employees", Field: "status", Condition: "status = 'open'"},
+			// Lister: the title outright, which settles Shifter's time-only cover.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Lister"), Perm: "List", Resource: "employees", Field: "title"},
 		},
 		Memberships: []policy.Membership{
 			{Scope: tenant1.PolicyScope(), Member: userSubject("erin"), Role: "Editor"},
@@ -1975,6 +1991,8 @@ func Test_snapshot_userDigest(t *testing.T) {
 			{Scope: tenant1.PolicyScope(), Member: userSubject("casey"), Role: "Chief"},
 			{Scope: tenant1.PolicyScope(), Member: userSubject("wren"), Role: "Chief"},
 			{Scope: tenant1.PolicyScope(), Member: userSubject("gale"), Role: "Pinger"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("tess"), Role: "Shifter"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("tess"), Role: "Lister"},
 		},
 	})
 
@@ -2017,6 +2035,23 @@ func Test_snapshot_userDigest(t *testing.T) {
 			user:  "gale",
 			scope: tenant1,
 			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			// The endpoint and the name are covered by one condition on the time,
+			// the salary by two; the status also by a row condition, which leaves
+			// it to the rows; the title outright from another role. The
+			// all-fields Export reads the weekday alone, so every known field is
+			// conditional on time but the status, whose own Export reads the row.
+			name:  "conditions that read the time alone answer conditional on time, and one that reads more answers conditional",
+			user:  "tess",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":        {"List": accesstypes.DigestConditionalOnTime},
+				"employees.name":   {"List": accesstypes.DigestConditionalOnTime, "Export": accesstypes.DigestConditionalOnTime},
+				"employees.salary": {"List": accesstypes.DigestConditionalOnTime, "Export": accesstypes.DigestConditionalOnTime},
+				"employees.status": {"List": accesstypes.DigestConditional, "Export": accesstypes.DigestConditional},
+				"employees.title":  {"List": accesstypes.DigestGranted, "Export": accesstypes.DigestConditionalOnTime},
+			},
 		},
 		{
 			name:  "grants in another scope do not carry over",
@@ -2105,6 +2140,7 @@ func Test_snapshot_roleDigest(t *testing.T) {
 			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
 			{Scope: tenant1Policy, Subject: roleSubject("Pinger"), Perm: "Ping"},
 			{Scope: tenant1Policy, Subject: userSubject("erin"), Perm: "Delete", Resource: "employees"},
+			{Scope: tenant1Policy, Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "name", Condition: "now < '2099-01-01T00:00:00Z'"},
 		},
 		Memberships: []policy.Membership{
 			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Editor"},
@@ -2136,6 +2172,14 @@ func Test_snapshot_roleDigest(t *testing.T) {
 				"employees":      {"Read": accesstypes.DigestGranted},
 				"employees.name": {"Update": accesstypes.DigestGranted},
 				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "a role's grant under a condition that reads the time alone answers conditional on time",
+			role:  "Shifter",
+			scope: tenant1Scope,
+			want: accesstypes.PermissionDigest{
+				"employees.name": {"List": accesstypes.DigestConditionalOnTime},
 			},
 		},
 		{

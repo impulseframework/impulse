@@ -443,10 +443,13 @@ func (s *snapshot) roleHasGrants(scope accesstypes.Scope, role accesstypes.Role)
 
 // userDigest returns user's structural grant enumeration within scope: every
 // resource and field the user's grants reach, each mapping permission to
-// granted (an unconditional cover exists) or conditional (only conditional
-// grants cover it). Denied targets are absent — the digest is fail-closed by
-// construction — and nothing folds: no facts are consulted, so the answer is
-// a pure function of the snapshot.
+// granted (an unconditional cover exists), conditional on time (only
+// conditional grants cover it, and every one of their conditions reads the
+// time of the request alone) or conditional (only conditional grants cover
+// it, and one of their conditions reads more). Denied targets are absent —
+// the digest is fail-closed by construction — and nothing folds: no facts are
+// consulted, the conditions' text is classified, so the answer is a pure
+// function of the snapshot.
 //
 // Two grant shapes have no enumerable name and are deliberately outside the
 // digest: scope-wide grants (they attach to no resource) and the coverage an
@@ -486,25 +489,47 @@ func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 		case fs.endpoint:
 			set(accesstypes.Resource(base), perm, accesstypes.DigestGranted)
 		case fs.cond != nil && len(fs.cond.endpoint) > 0:
-			set(accesstypes.Resource(base), perm, accesstypes.DigestConditional)
+			set(accesstypes.Resource(base), perm, s.conditionalState(fs.cond.endpoint))
 		}
 		for field, i := range s.fields[resID] {
 			name := accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field))
 			reached := !s.allFieldsLeaveOut(permID, resID, name)
-			var state accesstypes.DigestState
-			switch {
-			case (reached && fs.all) || fs.bit(i):
-				state = accesstypes.DigestGranted
-			case fs.cond != nil && ((reached && len(fs.cond.all) > 0) || len(fs.cond.fields[i]) > 0):
-				state = accesstypes.DigestConditional
-			default:
+			if (reached && fs.all) || fs.bit(i) {
+				set(name, perm, accesstypes.DigestGranted)
+
 				continue
 			}
-			set(name, perm, state)
+			if fs.cond == nil {
+				continue
+			}
+			// The terms decide hands the fold for the field: the all-fields
+			// grant's where it reaches the field, and the field's own.
+			var terms condTerms
+			if reached {
+				terms = fs.cond.all
+			}
+			terms = terms.union(fs.cond.fields[i])
+			if len(terms) > 0 {
+				set(name, perm, s.conditionalState(terms))
+			}
 		}
 	}
 
 	return digest
+}
+
+// conditionalState answers the digest state of a target only conditional
+// grants cover, from the condition terms that cover it: conditional on time
+// when every one of the conditions reads the time of the request alone, so a
+// check settles the target whole, and conditional when one reads more.
+func (s *snapshot) conditionalState(terms condTerms) accesstypes.DigestState {
+	for _, id := range terms {
+		if !condition.TimeOnly(s.compiled[id]) {
+			return accesstypes.DigestConditional
+		}
+	}
+
+	return accesstypes.DigestConditionalOnTime
 }
 
 // userPermissions enumerates user's effective permissions within scope by

@@ -33,8 +33,8 @@ type evaluator interface {
 	) ([]resourceDecision, error)
 
 	// userDigest returns user's structural grant enumeration within scope:
-	// every resource and field the user's grants reach, permission → granted
-	// or conditional, with denied targets absent. Non-folding by design —
+	// every resource and field the user's grants reach, permission → granted,
+	// conditional on time or conditional, with denied targets absent. Non-folding by design —
 	// the answer is a pure function of the policy snapshot. This and the
 	// three user answers below take no Environment and read the user's
 	// assignments at the engine's own clock.
