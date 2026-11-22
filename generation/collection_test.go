@@ -1184,6 +1184,173 @@ func Test_manualPermissionsFromConstants(t *testing.T) {
 	}
 }
 
+// Test_readManualDeclarations_constantType pins the type a constant's annotation is
+// read on: a constant of an alias of accesstypes.Resource registers, as one of
+// accesstypes.Resource does, and one of an alias of accesstypes.Permission declares; a
+// registration on a constant of any other type, a type declared over
+// accesstypes.Resource and an untyped string among them, is refused with the type to
+// give it. A line that starts with a longer word than the annotation's name, and the
+// name inside a line of prose, are read as nothing.
+func Test_readManualDeclarations_constantType(t *testing.T) {
+	t.Parallel()
+
+	named := permissionFixtureConstants(t)
+
+	read := []struct {
+		name              string
+		constant          string
+		wantRegistrations []ManualRegistration
+		wantPermissions   []accesstypes.Permission
+	}{
+		{
+			name:              "a registration on a constant of an alias of accesstypes.Resource",
+			constant:          "Aliased",
+			wantRegistrations: []ManualRegistration{{Permission: accesstypes.Read, Resource: "Aliased"}},
+		},
+		{
+			name:            "a declaration on a constant of an alias of accesstypes.Permission",
+			constant:        "AliasedExport",
+			wantPermissions: []accesstypes.Permission{"AliasedExport"},
+		},
+		{
+			name:     "a line that starts with a longer word on a constant of another type",
+			constant: "SetWorded",
+		},
+		{
+			name:     "the annotation's name inside a line of prose on a constant of another type",
+			constant: "Prosed",
+		},
+	}
+	for _, tt := range read {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			if err := r.readManualDeclarations(named(tt.constant)); err != nil {
+				t.Fatalf("readManualDeclarations() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantRegistrations, r.manualRegistrations); diff != "" {
+				t.Errorf("the registrations mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantPermissions, r.manualPermissions); diff != "" {
+				t.Errorf("the declared permissions mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	refusal := func(constant, typeName string) string {
+		return fmt.Sprintf("constant %q: @manualAddResource registers a permission on a resource, and the constant's type is %s, so it registers nothing: "+
+			"give the constant the type accesstypes.Resource (a type declared over accesstypes.Resource is another type; an alias of it is read as accesstypes.Resource)",
+			constant, typeName)
+	}
+	refused := []struct {
+		name     string
+		constant string
+		wantErr  string
+	}{
+		{
+			name:     "a registration on a constant of a type declared over accesstypes.Resource",
+			constant: "Declared",
+			wantErr:  refusal("Declared", "github.com/impulseframework/impulse/generation/testdata/permissionfixture.DeclaredResource"),
+		},
+		{
+			name:     "a registration on an untyped constant",
+			constant: "UntypedRegistered",
+			wantErr:  refusal("UntypedRegistered", "untyped string"),
+		},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			if err := r.readManualDeclarations(named(tt.constant)); err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("readManualDeclarations() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_annotationInLooseComment pins that generation refuses an annotation's line in a
+// comment of the resources package that is no constant's (a blank line parts it from the
+// declaration below it, or no declaration follows it), since it would be read by
+// nothing: the comment's position and the line are said, and of several comments, the
+// first. Prose that names the annotation inside a line, and a line that starts with
+// another annotation's name, are taken.
+func Test_annotationInLooseComment(t *testing.T) {
+	t.Parallel()
+
+	loaded, _ := loadFixturePackage(t, "permissionfixture")
+	comments := parser.LooseComments(loaded)
+	starting := func(t *testing.T, prefix string) []*parser.LooseComment {
+		t.Helper()
+
+		for _, c := range comments {
+			if strings.HasPrefix(c.Text(), prefix) {
+				return []*parser.LooseComment{c}
+			}
+		}
+		t.Fatalf("the fixture holds no loose comment starting %q", prefix)
+
+		return nil
+	}
+	refusal := func(position, line string) string {
+		return fmt.Sprintf("%s: the comment holds the line %q and is no constant's: a blank line parts it from the declaration below it, or none follows it. "+
+			"An annotation is read from the comment directly above its constant: close the gap, or, if the line is prose, start it with another word", position, line)
+	}
+
+	tests := []struct {
+		name    string
+		prefix  string
+		wantErr string
+	}{
+		{
+			name:    "a registration a blank line parts from its constant",
+			prefix:  "@manualAddResource(Read)",
+			wantErr: refusal("fixture.go:221", "@manualAddResource(Read)"),
+		},
+		{
+			name:    "a declaration a blank line parts from its constant inside a group",
+			prefix:  "@manualAddPermission",
+			wantErr: refusal("fixture.go:227", "@manualAddPermission"),
+		},
+		{
+			name:    "a declaration in a comment no declaration follows",
+			prefix:  "The fixture ends",
+			wantErr: refusal("fixture.go:254", "@manualAddPermission"),
+		},
+		{
+			name:   "prose that names the registration inside a line",
+			prefix: "This prose",
+		},
+		{
+			name:   "a line that starts with another annotation's name",
+			prefix: "@manualAddResourceSet(",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := annotationInLooseComment(starting(t, tt.prefix))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("annotationInLooseComment() error = %v", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("annotationInLooseComment() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	if err := annotationInLooseComment(comments); err == nil || !strings.HasSuffix(err.Error(), refusal("fixture.go:221", "@manualAddResource(Read)")) {
+		t.Errorf("annotationInLooseComment() over every loose comment error = %v, want the first comment's", err)
+	}
+}
+
 // Test_readManualDeclarations_annotationAboveAConstGroup pins that an annotation in the
 // comment above a const group, which nothing reads, is refused with where to write it:
 // any line that starts with @ above a group of resources' or permissions' constants, and
@@ -1225,6 +1392,11 @@ func Test_readManualDeclarations_annotationAboveAConstGroup(t *testing.T) {
 			name:      "a declaration above a group of two untyped constants",
 			constants: []string{"UntypedFirst", "UntypedSecond"},
 			wantErr:   refusal("UntypedFirst", "@manualAddPermission"),
+		},
+		{
+			name:      "a registration above a group of two untyped constants",
+			constants: []string{"UntypedLedgers", "UntypedJournals"},
+			wantErr:   refusal("UntypedLedgers", "@manualAddResource(Read)"),
 		},
 		{
 			name:      "a declaration above a group of one permission that has a comment of its own",

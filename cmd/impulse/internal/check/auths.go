@@ -11,18 +11,23 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/impulseframework/impulse/app"
 )
 
 // authsWired verifies that every auth package is wired through the application: the data
-// level constructs it, the release hands its embedded role file to the permission engine
-// under the package's own name (access.WithDefaultRoles(Roles(), Name)), and a surface binds to it, either an outlet declaring it
+// level constructs it, the package itself hands its embedded role file to its own
+// permission engine under its own name (access.WithDefaultRoles(Roles(), Name) among the
+// options of access.New), and a surface binds to it, either an outlet declaring it
 // (Auth, under the generated router) with the sign-in methods the package registers, or
 // a hand-written surface taking its type, so a population the application declares can
-// sign in somewhere and holds roles. session-tables holds each Auth to its tables; this
-// holds each auth to the application around it.
+// sign in somewhere and holds roles. A package that hands its role file over declares its
+// Name as a constant written out as a string, equal to its directory's name, since a role
+// file handed over under another auth's name is held to that auth's subject sets.
+// session-tables holds each Auth to its tables; this holds each auth to the application
+// around it.
 type authsWired struct{}
 
 // authsWiredName is the check's name.
@@ -31,7 +36,7 @@ const authsWiredName = "auths-wired"
 func (authsWired) Name() string { return authsWiredName }
 
 func (authsWired) Describe() string {
-	return "every auth package is constructed by the data level, embeds its role file and hands it to the permission engine under its own name (access.WithDefaultRoles(Roles(), Name)), and is bound by a surface (an outlet's Auth declaration naming the methods the package registers, or a hand-written surface taking its type); no two auths share a session, XSRF or trusted-device cookie; an auth with a directory-run method has no role writers in the application; and a role file handed to the engine is validated by a test (WARN)"
+	return "every auth package is constructed by the data level, embeds its role file and hands it to its own permission engine in the package itself, under its own name (access.WithDefaultRoles(Roles(), Name) among the options of access.New), and is bound by a surface (an outlet's Auth declaration naming the methods the package registers, or a hand-written surface taking its type); no two auths share a session, XSRF or trusted-device cookie; an auth with a directory-run method has no role writers in the application; and a role file handed to the engine is validated by a test (WARN)"
 }
 
 // The identifiers an auth package exports that the wiring is read from.
@@ -94,6 +99,14 @@ func (authsWired) packageFindings(a *app.App, profile app.Profile, p *app.AuthPa
 		warnings = append(warnings, fmt.Sprintf("%s: no test validates the %s auth's role file (access.ValidateRoles over the collection, parsing %s.%s()), so a warning the deploy prints is accepted nowhere in code; add the %s row to %s with its expected warnings empty", p.Dir, p.Name, p.Name, authRoles, p.Name, ValidationTestFile(a)))
 	}
 	details = append(details, rolesUnderAnotherName(a, p)...)
+	if len(defaultRolesOf(a, p)) > 0 {
+		switch name, written := nameConstant(a, p); {
+		case !written:
+			details = append(details, fmt.Sprintf("%s: the package declares no constant %s written out as a string; it is the name the %s auth's role file is handed over under, and impulse check reads it where it is declared, so declare it: const %s = %q", p.Dir, authName, p.Name, authName, p.Name))
+		case name != p.Name:
+			details = append(details, fmt.Sprintf("%s: the package's %s is %q, and the package is the %s auth; a role file handed over under another auth's name is held to that auth's subject sets, so write %s = %q, the directory's name, which generation knows the auth by, or rename the directory", p.Dir, authName, name, p.Name, authName, p.Name))
+		}
+	}
 	if rolesFile := rolesFileOf(p); exported {
 		if _, err := os.Stat(a.Abs(rolesFile)); err != nil {
 			details = append(details, fmt.Sprintf("%s: %s does not exist; the %s auth embeds its role file from there", p.Dir, rolesFile, p.Name))
@@ -169,39 +182,71 @@ func defaultRolesOf(a *app.App, p *app.AuthPackage) []app.DefaultRoles {
 }
 
 // rolesUnderAnotherName lists the access.WithDefaultRoles calls that hand the auth
-// package's Roles() over under anything but the package's own Name. The engine holds a
-// role file to the auth it is handed over for (a grant may read that auth's subject sets
-// alone), and another auth's name is one it knows, so nothing at run time can tell the
-// file was handed over under the wrong one. A name written some other way (a literal, a
-// variable, a call) is tied to no package, so nothing here can tell whose it is, and the
-// own Name is the one way to hand the file over: a call under it passes, one under
-// another package's Name fails with that package named, and one under anything else
-// fails with the argument quoted as the source writes it.
+// package's Roles() over anywhere but in the package itself, among the options of the
+// access.New call that opens its engine, under the package's own Name: one finding a
+// call, the first that applies. Where the call is written is judged first
+// (rolesHandedElsewhere), and then the name. The engine holds a role file to the auth it
+// is handed over for (a grant may read that auth's subject sets alone), and another
+// auth's name is one it knows, so nothing at run time can tell the file was handed over
+// under the wrong one. A name written some other way (a literal, a variable, a call) is
+// tied to no package, so nothing here can tell whose it is, and the own Name is the one
+// way to hand the file over: a call under it passes, one under another package's Name
+// fails with that package named, and one under anything else fails with the argument
+// quoted as the source writes it.
 func rolesUnderAnotherName(a *app.App, p *app.AuthPackage) []string {
 	var details []string
 	for _, d := range defaultRolesOf(a, p) {
+		if finding, ok := rolesHandedElsewhere(p, &d); ok {
+			details = append(details, finding)
+
+			continue
+		}
 		switch d.NamePackage {
 		case p.Path:
 			continue
 		case "":
-			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s, and impulse check takes only the package's own %s there; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
-				p.Dir, d.File, d.Line, p.Name, authRoles, d.NameText, authName, p.Name, p.Name, authRoles, p.Name, authName))
+			details = append(details, fmt.Sprintf("%s: %s:%d hands %s() to access.WithDefaultRoles under %s, and impulse check takes only the package's own %s there; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s(), %s)",
+				p.Dir, d.File, d.Line, authRoles, d.NameText, authName, p.Name, authRoles, authName))
 		default:
-			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s.%s; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
-				p.Dir, d.File, d.Line, p.Name, authRoles, path.Base(d.NamePackage), authName, p.Name, p.Name, authRoles, p.Name, authName))
+			details = append(details, fmt.Sprintf("%s: %s:%d hands %s() to access.WithDefaultRoles under %s.%s; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s(), %s)",
+				p.Dir, d.File, d.Line, authRoles, path.Base(d.NamePackage), authName, p.Name, authRoles, authName))
 		}
 	}
 
 	return details
 }
 
+// rolesHandedElsewhere is the finding for a call handing the auth package's Roles() over
+// where nothing ties the file to the engine the package opens, or false for one written
+// in the package itself among the options of an access.New call. An engine holds the
+// roles of one auth, and the auth's own package opens it: a hand-over written in another
+// package (the data level, another auth's package) can give the file to any engine, one
+// outside an access.New call goes wherever the option is passed on, and a Name the
+// function declares for itself hides the package's, whatever it holds.
+func rolesHandedElsewhere(p *app.AuthPackage, d *app.DefaultRoles) (string, bool) {
+	switch {
+	case path.Dir(d.File) != p.Dir:
+		return fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles outside the %s auth's own package, where nothing ties the call to the engine it opens; an auth's role file is handed over in the auth's own package, among the options of the access.New call that opens its engine, so no other auth's engine can be given it: write access.WithDefaultRoles(%s(), %s) there and take this call out",
+			p.Dir, d.File, d.Line, p.Name, authRoles, p.Name, authRoles, authName), true
+	case !d.InEngine:
+		return fmt.Sprintf("%s: %s:%d hands %s() to access.WithDefaultRoles outside an access.New call, so impulse check cannot tell which engine is given the %s auth's role file; write the option among the arguments of the access.New call that opens the auth's engine: access.New(store, collection, access.WithDefaultRoles(%s(), %s))",
+			p.Dir, d.File, d.Line, authRoles, p.Name, authRoles, authName), true
+	case d.NamePackage == "" && d.NameText == authName:
+		return fmt.Sprintf("%s: %s:%d hands %s() to access.WithDefaultRoles under a %s the function declares for itself, which hides the package's own; rename the function's, and hand the %s auth's file over under the package's: access.WithDefaultRoles(%s(), %s)",
+			p.Dir, d.File, d.Line, authRoles, authName, p.Name, authRoles, authName), true
+	default:
+		return "", false
+	}
+}
+
 // rolesOfNoAuthPackage lists the access.WithDefaultRoles calls outside tests that hand the
 // engine a role file other than an auth package's own Roles() call: a variable, a
-// parameter, a field, another call, or the Roles() of a package that is no auth package.
-// The engine holds a role file to the auth it is handed over for, and nothing at run time
-// can tell whose file such an argument holds, so nothing here can tell either: the auth
-// package's own Roles() is the one way to hand its file over, and rolesUnderAnotherName
-// judges the name such a call hands it over under.
+// parameter, a field, another call, a Roles the function declares for itself, or the
+// Roles() of a package that is no auth package. The engine holds a role file to the auth
+// it is handed over for, and nothing at run time can tell whose file such an argument
+// holds, so nothing here can tell either: the auth package's own Roles() is the one way
+// to hand its file over, and rolesUnderAnotherName judges where such a call is written
+// and the name it hands the file over under.
 func rolesOfNoAuthPackage(a *app.App) []string {
 	auths := make(map[string]bool, len(a.AuthPackages))
 	for i := range a.AuthPackages {
@@ -212,7 +257,7 @@ func rolesOfNoAuthPackage(a *app.App) []string {
 		if auths[d.RolesPackage] {
 			continue
 		}
-		details = append(details, fmt.Sprintf("%s:%d hands access.WithDefaultRoles a role file that is not an auth package's own %s() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over as its package gives it, under the package's own name: access.WithDefaultRoles(<name>.%s(), <name>.%s)",
+		details = append(details, fmt.Sprintf("%s:%d hands access.WithDefaultRoles a role file that is not an auth package's own %s() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over in the auth's own package, as the package gives it and under its own name: access.WithDefaultRoles(%s(), %s)",
 			d.File, d.Line, authRoles, authRoles, authName))
 	}
 
@@ -260,6 +305,80 @@ func rolesExport(a *app.App, p *app.AuthPackage) (exported, embedded bool) {
 	}
 
 	return exported, embedded
+}
+
+// nameConstant reads the auth package's source for its Name: the string a top-level const
+// declaration writes out for it, and whether one does. A Name declared any other way (a
+// var, a sum, another constant, a call, or no Name at all) is not written out, and the
+// name the role file is handed over under cannot be read from it.
+func nameConstant(a *app.App, p *app.AuthPackage) (name string, written bool) {
+	entries, err := os.ReadDir(a.Abs(p.Dir))
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !app.GoToolReads(e.Name()) || isTestFile(e.Name()) {
+			continue
+		}
+		rel := path.Join(p.Dir, e.Name())
+		src, err := os.ReadFile(a.Abs(rel))
+		if err != nil {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution)
+		if err != nil {
+			continue
+		}
+		if value, found := declaredName(f); found {
+			return stringLiteral(value)
+		}
+	}
+
+	return "", false
+}
+
+// declaredName finds the top-level declaration of Name in the file: the value a const
+// declaration gives it (nil when it gives none, or when Name is a var), and whether the
+// file declares it.
+func declaredName(f *ast.File) (value ast.Expr, found bool) {
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, n := range vs.Names {
+				if n.Name != authName {
+					continue
+				}
+				if gen.Tok == token.CONST && i < len(vs.Values) {
+					return vs.Values[i], true
+				}
+
+				return nil, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// stringLiteral is the string a single string literal writes out, and whether value is one.
+func stringLiteral(value ast.Expr) (string, bool) {
+	lit, ok := value.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+
+	return s, true
 }
 
 // The session library's cookie names when a construction leaves them unset.

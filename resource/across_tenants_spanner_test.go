@@ -139,7 +139,7 @@ func TestAcrossTenants_onSpanner(t *testing.T) {
 		t.Run(walk.name, func(t *testing.T) {
 			t.Parallel()
 
-			decoder := crateDecoder(t)
+			decoder := walk.decoder(t)
 			var forward [][]acrossAnswer
 			var prevs []string
 			target := walk.target

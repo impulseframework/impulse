@@ -150,6 +150,77 @@ func Test_createTableMapUsingQuery_keyOrder(t *testing.T) {
 	}
 }
 
+// Test_createTableMapUsingQuery_sharedColumn reads a schema whose tenant column is in a
+// foreign key of its own and in foreign keys of two columns beside another column, to
+// another table and to the table's own rows, or is carried into a table by keys of two
+// columns alone, and pins that each column reads the table and column its own foreign key
+// names, the tenant column the tenant's. Requires the Spanner emulator (podman/docker).
+func Test_createTableMapUsingQuery_sharedColumn(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("the schema read requires the Spanner emulator")
+	}
+
+	ctx := context.Background()
+	db := keyOrderDatabase(ctx, t, "sharedcolumn")
+
+	tableMap, err := createTableMapUsingQuery(ctx, db)
+	if err != nil {
+		t.Fatalf("createTableMapUsingQuery() error = %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		table string
+		// wantReferences maps a column to the table and column it reads as referencing.
+		wantReferences map[string]string
+	}{
+		{
+			name:           "a tenant column in a key of its own, a key to another table and a key to its own rows",
+			table:          "Zones",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id", "YardId": "Yards.Id", "InsideZoneId": "Zones.Id"},
+		},
+		{
+			name:           "a tenant column in a key of its own and a key of two columns",
+			table:          "Yards",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id", "WharfId": "Wharves.Id"},
+		},
+		{
+			name:           "a tenant column in two keys of two columns and none of its own",
+			table:          "Piers",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id"},
+		},
+		{
+			name:           "a tenant column carried in one key of two columns, to a table that keys it to the tenant",
+			table:          "Sheds",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id", "YardId": "Yards.Id"},
+		},
+		{
+			name:           "a tenant column carried in one key of two columns, through a table that carries it too",
+			table:          "Docks",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id", "ShedId": "Sheds.Id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			table, ok := tableMap[tt.table]
+			if !ok {
+				t.Fatalf("table %s not in the table map", tt.table)
+			}
+			got := make(map[string]string, len(tt.wantReferences))
+			for column := range tt.wantReferences {
+				got[column] = table.Columns[column].ReferencedTable + "." + table.Columns[column].ReferencedColumn
+			}
+			if diff := cmp.Diff(tt.wantReferences, got); diff != "" {
+				t.Errorf("%s references mismatch (-want +got):\n%s", tt.table, diff)
+			}
+		})
+	}
+}
+
 // Test_createTableMapUsingQuery_crossedForeignKey reads a schema with foreign keys that
 // name their columns in another order than the key they reference, and pins both why
 // the generator refuses them and that it does.

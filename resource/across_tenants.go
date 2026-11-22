@@ -104,8 +104,9 @@ type tenantGroup[Resource Resourcer] struct {
 	q *QuerySet[Resource]
 
 	// hidden are the fields the list names that no grant of the person's covers
-	// in these tenants: a projected field, a sort or filter field, a field the
-	// search box searches. Each is masked on every row of them.
+	// in these tenants: a projected field, a sort or filter field, a field of the
+	// declared order in force, a field the search box searches. Each is masked on
+	// every row of them.
 	hidden map[accesstypes.Field]struct{}
 }
 
@@ -160,9 +161,15 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	if !d.collection.ListsAcrossTenants(qSet.Resource()) {
 		return nil, errors.Newf("resource %s cannot be listed across tenants: it is not declared for it; declare @listAcrossTenants on its struct and regenerate", qSet.Resource())
 	}
+	for i := range d.names {
+		if name := &d.names[i]; name.TenantColumn != "" {
+			return nil, errors.Newf("resource %s cannot be listed across tenants with the name field %s: it is the name of a row of %s, which belongs to a tenant, and a list across tenants looks up no tenant's names; take it out of the resource's NameFields() (the generator writes none for a resource declared @listAcrossTenants)", qSet.Resource(), name.Field, name.Resource)
+		}
+	}
 
-	// The zero scope is no tenant's: until the read checks settle the set, nothing
-	// that asks the scope finds a grant in it.
+	// The zero scope is no tenant's. Until the read checks settle the set nothing
+	// may ask a grant in it: a check asked in it is refused
+	// (accesstypes.ErrNoScope).
 	qSet.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, accesstypes.Scope{}, perms[0])
 
 	reached, err := userPermissions.Domains(request.Context())
@@ -383,7 +390,8 @@ func (q *QuerySet[Resource]) decideAcrossTenants(ctx context.Context, dbType DBT
 
 	// A name's own grant is asked once for the list, not once a tenant: it is
 	// held where the pointed-to resource's grants are, and each tenant's copy of
-	// the query carries the decisions.
+	// the query carries the decisions. Every name that reaches here is held in
+	// the global scope: a name of a tenant's row is refused at decode.
 	if err := q.checkNameGrants(ctx); err != nil {
 		return false, err
 	}
@@ -446,14 +454,14 @@ func (q *QuerySet[Resource]) decideTenant(ctx context.Context, dbType DBType, do
 
 	hidden := make(map[accesstypes.Field]struct{})
 
-	// The ids of the names a declared order in force orders by are decided with
-	// the sort's fields: where an id is hidden in the tenant its rows sort as rows
-	// with no name, and nothing is refused (settleAcrossTenants walks the sort's
-	// fields alone).
+	// The fields a declared order in force orders by, and the ids of the names it
+	// orders by, are decided with the sort's fields: where one is hidden in the
+	// tenant its rows sort as rows with no value there, or with no name, and
+	// nothing is refused (settleAcrossTenants walks the sort's fields alone).
 	candidates := alone.queryFields()
-	for _, key := range alone.declaredOrderNameKeys() {
-		if !slices.Contains(candidates, key) {
-			candidates = append(candidates, key)
+	for _, field := range alone.declaredOrderFields() {
+		if !slices.Contains(candidates, field) {
+			candidates = append(candidates, field)
 		}
 	}
 	queried, queryFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, candidates)

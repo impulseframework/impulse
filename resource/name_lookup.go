@@ -123,7 +123,9 @@ func (n *NameField) grantResource() accesstypes.Resource {
 
 // nameGrantScope is the scope a name's grant is asked in, where the pointed-to
 // resource's grants are held: the request's scope where that resource belongs
-// to a tenant, the global scope where it does not.
+// to a tenant, the global scope where it does not. A list across tenants holds
+// no name of a tenant's row (DecodeAcrossTenants), so the request's scope here
+// is always one tenant's.
 func (q *QuerySet[Resource]) nameGrantScope(name *NameField) accesstypes.Scope {
 	if name.TenantColumn == "" {
 		return accesstypes.GlobalScope()
@@ -209,23 +211,29 @@ func (q *QuerySet[Resource]) checkNameGrants(ctx context.Context) error {
 	return nil
 }
 
-// closeOrderedNames decides, where the declared order is in force, the grants
-// on the ids of the names it orders by, as the request's own sort fields are
-// decided (queryFieldDecisions): a name whose id the person may not read is
-// closed (nameGrant), so the statement reads no name for it; an id held under a
-// condition is carried, so its name's lookup sits inside the condition whether
-// or not the request asks for the id. Nothing is refused.
-func (q *QuerySet[Resource]) closeOrderedNames(ctx context.Context) error {
+// closeDeclaredOrder decides, where the declared order is in force, the grants
+// on the fields it orders by, as the request's own sort fields are decided
+// (queryFieldDecisions): each field of the order, and the id field of each name
+// it orders by. A field the person may not read is closed (closedOrder), so the
+// statement reads it as NULL on every row (withClosedOrder), and so is every name
+// of the order that stands beside it (nameGrant), so the statement reads no name
+// for it: the list comes in the order of the order's other terms. A field held
+// under a condition is carried, so the order reads its visible projection, a
+// masked cell being NULL, and a name's lookup sits inside the condition, whether
+// or not the request asks for the field. Nothing is refused: the person asked
+// for no sort.
+func (q *QuerySet[Resource]) closeDeclaredOrder(ctx context.Context) error {
 	q.closedNames = nil
-	keys := q.declaredOrderNameKeys()
-	if len(keys) == 0 {
+	q.closedOrder = nil
+	fields := q.declaredOrderFields()
+	if len(fields) == 0 {
 		return nil
 	}
-	decisions, fields, err := q.queryFieldDecisions(ctx, q.resourceSet, q.userPermissions, keys)
+	decisions, decided, err := q.queryFieldDecisions(ctx, q.resourceSet, q.userPermissions, fields)
 	if err != nil {
 		return err
 	}
-	for _, qf := range fields {
+	for _, qf := range decided {
 		if !decisions[qf.res].IsDenied() {
 			continue
 		}
@@ -237,31 +245,39 @@ func (q *QuerySet[Resource]) closeOrderedNames(ctx context.Context) error {
 				q.closedNames[field] = struct{}{}
 			}
 		}
+		if slices.ContainsFunc(q.defaultOrder, func(sf SortField) bool { return accesstypes.Field(sf.Field) == qf.field }) {
+			if q.closedOrder == nil {
+				q.closedOrder = make(map[accesstypes.Field]struct{})
+			}
+			q.closedOrder[qf.field] = struct{}{}
+		}
 	}
 	q.carryConditionalDecisions(decisions)
 
 	return nil
 }
 
-// declaredOrderNameKeys returns the id fields of the names the declared order
-// orders by, each once, where that order is in force: the request states no
-// sort of its own. It is nil otherwise.
-func (q *QuerySet[Resource]) declaredOrderNameKeys() []accesstypes.Field {
+// declaredOrderFields returns the fields whose grants the declared order is read
+// under, each once and in the order's order, where that order is in force: the
+// request states no sort of its own. A term's field is read under its own grant,
+// and a name's under the grant on the id field it stands beside (grantField). It
+// is nil where the request states a sort.
+func (q *QuerySet[Resource]) declaredOrderFields() []accesstypes.Field {
 	if len(q.sortFields) != 0 {
 		return nil
 	}
-	var keys []accesstypes.Field
-	for _, field := range q.orderedNames() {
-		if name, ok := q.requestName(field); ok && !slices.Contains(keys, name.Key) {
-			keys = append(keys, name.Key)
+	var fields []accesstypes.Field
+	for _, sf := range q.defaultOrder {
+		if field := q.grantField(accesstypes.Field(sf.Field)); !slices.Contains(fields, field) {
+			fields = append(fields, field)
 		}
 	}
 
-	return keys
+	return fields
 }
 
 // nameGrant is the decision on a name's grant: Granted on a set that does not
-// enforce grants, Denied for a name closed by its id (closeOrderedNames), Granted
+// enforce grants, Denied for a name closed by its id (closeDeclaredOrder), Granted
 // for a name that takes no grant of its own, otherwise the decision Check
 // returned. A name that takes a grant and was never asked about is Denied.
 func (q *QuerySet[Resource]) nameGrant(field accesstypes.Field) accesstypes.Decision {
@@ -451,7 +467,7 @@ func (q *QuerySet[Resource]) readNames() []accesstypes.Field {
 // a condition, the lookup sits inside it, so a masked id gives no name either.
 // Where the name's own grant (nameGrant) is held under a condition, the
 // condition on the pointed-to row joins the lookup's WHERE last. Where it is
-// denied, or the name is closed by its id (closeOrderedNames), which only a name
+// denied, or the name is closed by its id (closeDeclaredOrder), which only a name
 // the declared order names reaches, there is no lookup: the name is NULL on
 // every row (noName), so the list comes in the order of the order's other terms.
 func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedReadConditions, registry *paramRegistry) (*renderedReadConditions, error) {

@@ -21,16 +21,18 @@ func (r Resource) ResourceWithTag(tag Tag) Resource {
 	return Resource(fmt.Sprintf("%s.%s", r, tag))
 }
 
-// ResourceAndTag splits the Resource name from the Tag name for a fully qualified field resource name
+// ResourceAndTag splits a field's name, Resource.field, into the resource's
+// name and the field's tag, at the last dot, as the permission engine splits
+// the names it is asked about; a name with no dot is a resource's own and has
+// no tag. It never panics. A name with more than one dot is no resource's
+// field, since a resource's own name holds no dot: the base it answers names
+// nothing, and a check asked about such a name is refused
+// (access.Client.CheckUserResources).
 func (r Resource) ResourceAndTag() (Resource, Tag) {
-	parts := strings.Split(string(r), ".")
-	if len(parts) > 2 {
-		panic("invalid resource name contains more than one '.'")
+	i := strings.LastIndexByte(string(r), '.')
+	if i < 0 {
+		return r, ""
 	}
 
-	if len(parts) == 2 {
-		return Resource(parts[0]), Tag(parts[1])
-	}
-
-	return Resource(parts[0]), ""
+	return r[:i], Tag(r[i+1:])
 }

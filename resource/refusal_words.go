@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // This file holds the words a caller is told when a permission refuses what was asked.
@@ -305,5 +305,5 @@ func eitherOf(things []string) string {
 // inWords spells a resource's name, or a field's, as lower-case words: "HangarPasses" is
 // "hangar passes", "dueDate" is "due date". A resource's name is its plural already.
 func inWords(name string) string {
-	return strcase.ToCase(name, strcase.LowerCase, ' ')
+	return words.InWords(name)
 }

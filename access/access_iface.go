@@ -316,7 +316,10 @@ type UserManager interface {
 	// such roles with no exact match is an error, never a guess. A
 	// directory names roles without regard to case (a Google group is an
 	// email address), so the name it asserts resolves here to the spelling
-	// the role file or AddRole gave the role.
+	// the role file or AddRole gave the role. Case is the case of ASCII
+	// letters alone: a letter from outside ASCII matches only itself, so a
+	// name written with a look-alike letter (the Kelvin sign for k, the long
+	// s for s) is no role's.
 	ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error)
 
 	// Roles returns the roles that exist in scope, sorted by name, each with
@@ -408,8 +411,10 @@ type UserManager interface {
 	DeleteRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// DeleteAllRolePermissions removes all permissions from role, scope-wide
-	// and resource-specific alike. Errors if role is not a custom role held
-	// in scope.
+	// and resource-specific alike. Each row is removed by the columns the
+	// store holds it under, so a row no write could have made, which a load
+	// skips and reports, is removed with the rest. Errors if role is not a
+	// custom role held in scope.
 	DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 
 	// RoleUsers returns the users who hold role in scope now, each once,
@@ -442,4 +447,14 @@ type UserManager interface {
 	// policy leaves it out, so the role does not hold it. Scope-wide grants
 	// are not included. Errors if role doesn't exist in scope.
 	RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error)
+
+	// SkippedStoredGrants answers, for each row of the role grants table given, why a
+	// load of the policy leaves the row out, in the order given: "" for a row its role
+	// holds. A row a load leaves out is one the running release cannot use, said in
+	// the sentence RoleGrants says it in (RoleGrant.Skipped, SkippedGrant), or one
+	// stored under the name of a role the release's role file defines, whose grants
+	// are the release's alone (ShadowedRole). It reads nothing: the caller read the
+	// rows, and the answer is the rule a load holds each row to. A row whose columns
+	// spell no scope a store writes is an error.
+	SkippedStoredGrants(grants []StoredGrant) ([]string, error)
 }

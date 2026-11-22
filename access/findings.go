@@ -98,7 +98,9 @@ func (e *SkippedGrant) Unwrap() error {
 // load, so the custom role's grants are skipped and its members hold the
 // default role's grants. One report per such role reaches the reload-error
 // hook each time a snapshot compiles, and the deploy check lists it as a
-// Warning. Rename or delete the custom role to clear it.
+// Warning. Rename or delete the custom role to clear it. A stored grant under
+// a default role's name is skipped and reported the same way where the store
+// holds no row for the role.
 type ShadowedRole struct {
 	Scope accesstypes.PolicyScope
 	Role  accesstypes.Role
@@ -187,7 +189,10 @@ func grantResourceName(g *policy.Grant) accesstypes.Resource {
 // and requireDeclaredPermission). The rule is the role file's own: the
 // permission is one the release has, and a grant on a resource or a field is
 // listed under it by its dotted name. A scope-wide grant names a permission and
-// nothing else, so the permission is what it is held to.
+// nothing else, so the permission is what it is held to. A row no write could
+// have made is answered with an error whatever the collection lists: a resource
+// column that holds a dot, a field column that holds one, or a field with no
+// resource.
 //
 // The names are the first part of what a role's grant on a resource is held to
 // (grantRule). A load and a write ask the whole of it, so a load skips exactly
@@ -198,7 +203,17 @@ func unlistedName(listed map[accesstypes.Permission][]accesstypes.Resource, g *p
 		return errors.Newf("this release has no permission %s", g.Perm)
 	}
 	if g.Resource == "" {
+		if g.Field != "" {
+			return errors.Newf("the row names the field %s and no resource: a grant on every resource names no field", g.Field)
+		}
+
 		return nil
+	}
+	if strings.Contains(g.Resource, ".") {
+		return errors.Newf("the row's resource %s holds a dot: a stored grant keeps a field in its own column, and a resource's name holds no dot", g.Resource)
+	}
+	if strings.Contains(g.Field, ".") {
+		return errors.Newf("the row's field %s holds a dot: a field's name holds no dot", g.Field)
 	}
 	name := grantResourceName(g)
 	if !slices.Contains(resources, name) {

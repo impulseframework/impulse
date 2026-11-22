@@ -25,7 +25,10 @@ import (
 //   - the roles held for a set time with a reason (<Auth>TakenRole), which the Break
 //     glass page lists, the method a person takes one by (Take<Auth>Role), and the two
 //     lists its form picks from: the roles (<Auth>TakeableRole) and the lengths
-//     (<Auth>TakeLength).
+//     (<Auth>TakeLength);
+//   - the custom roles' grants, each with why the permission engine leaves it out where
+//     it does (<Auth>ListedRoleGrant): a computed list in the methods package over the
+//     role grants table, which no route lists itself.
 //
 // The counts read the present from the database's clock, as every list does. What a
 // group holds is what has not ended, a row whose period has not begun among it, which is
@@ -40,6 +43,7 @@ const (
 	takenRoleSuffix       = "TakenRole"
 	takeableRoleSuffix    = "TakeableRole"
 	takeLengthSuffix      = "TakeLength"
+	listedRoleGrantSuffix = "ListedRoleGrant"
 )
 
 // The keys of the lists and the method of the Break glass page, as the description
@@ -64,8 +68,9 @@ func (i *identityInstance) takesRoles() bool {
 }
 
 // holdingSources are the source files of the whole application's lists of what is held
-// and of the taking of a role: the views in the declarations package, and the method and
-// the two lists its form picks from in the methods package. The groups with what each
+// and of the taking of a role: the views in the declarations package, and in the methods
+// package the list of the custom roles' grants, the method and the two lists its form
+// picks from. The groups with what each
 // holds are written only where the auth keeps groups: each of the two files needs the
 // group tables, and a file is written only where the instance holds every table it needs
 // (writeIdentitySources).
@@ -78,6 +83,7 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 		view(heldRoleSuffix, identityHeldRolesTemplate, identityUsers, identityMemberships),
 		view(listedGroupSuffix, identityListedGroupsTemplate, listed...),
 		view(listedGroupRoleSuffix, identityListedGroupRolesTemplate, listed...),
+		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + listedRoleGrantSuffix)), template: identityListedRoleGrantsTemplate, needs: []identityTable{identityRoleGrants}},
 	}
 	if inst.takesRoles() {
 		needs := []identityTable{identityUsers, identityMemberships}
@@ -95,8 +101,8 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 // holdingNames are the names of the structs declared here, the ones a tenant's list must
 // not take.
 func (i *identityInstance) holdingNames() []string {
-	names := make([]string, 0, 6)
-	for _, suffix := range []string{heldRoleSuffix, listedGroupSuffix, listedGroupRoleSuffix, takenRoleSuffix, takeableRoleSuffix, takeLengthSuffix} {
+	names := make([]string, 0, 7)
+	for _, suffix := range []string{heldRoleSuffix, listedGroupSuffix, listedGroupRoleSuffix, takenRoleSuffix, takeableRoleSuffix, takeLengthSuffix, listedRoleGrantSuffix} {
 		names = append(names, i.auth+suffix)
 	}
 
@@ -122,6 +128,12 @@ func (d *identitySourceData) ListedGroup() string {
 // with who loses it.
 func (d *identitySourceData) ListedGroupRole() string {
 	return d.auth + listedGroupRoleSuffix
+}
+
+// ListedRoleGrant is the struct of the custom roles' grants as a list shows them, each
+// with whether the permission engine leaves it out.
+func (d *identitySourceData) ListedRoleGrant() string {
+	return d.auth + listedRoleGrantSuffix
 }
 
 // TakenRole is the struct of the roles held for a set time with a reason.

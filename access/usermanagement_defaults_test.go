@@ -9,6 +9,7 @@ package access
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,7 @@ func Test_userManager_defaults_ResolveRole(t *testing.T) {
 		{name: "a custom role held in every domain resolves from a mixed-case name in one domain", scope: tenant2Policy, role: "eVERYwhere", want: "Everywhere", wantFound: true},
 		{name: "a custom role held in the global partition resolves from its lowercase name", scope: globalPolicy, role: "gob", want: "Gob", wantFound: true},
 		{name: "a lowercase name of a role held in another domain only does not resolve", scope: tenant2Policy, role: "zed"},
+		{name: "a global default's name written with the long s finds no role", scope: globalPolicy, role: "ſteward"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -233,8 +235,9 @@ func Test_userManager_defaults_Roles(t *testing.T) {
 // a name outside the grammar every role name follows (letters and digits
 // starting with a capital letter), a default's of the scope's kind (a
 // conflict), a name a custom role held in every domain already answers to in
-// one domain, and the empty name — and that a role without a description, or
-// with whitespace for one, is refused.
+// one domain, a name in every domain that differs only in case from a custom
+// role one domain holds, and the empty name — and that a role without a
+// description, or with whitespace for one, is refused.
 func Test_userManager_defaults_AddRole(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +247,7 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		role        accesstypes.Role
 		description string
 		wantErr     func(error) bool
+		wantMessage string // held by the refusal's message when not empty
 	}{
 		{name: "a domain default's name is refused in one domain", scope: tenant1Policy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a domain default's name is refused in every domain", scope: everyDomainPolicy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
@@ -258,10 +262,24 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a role without a description is refused", scope: tenant2Policy, role: "Zed", description: "", wantErr: httpio.HasBadRequest},
 		{name: "a whitespace description is refused", scope: tenant2Policy, role: "Zed", description: " \t\n", wantErr: httpio.HasBadRequest},
 		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed", description: aDescription},
-		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription, wantErr: httpio.HasConflict},
+		{
+			name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("differs only in case from %q, one of the release's default roles", string(domainDefault)),
+		},
+		{
+			name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("the role %q held in scope %s;", "Zed", tenant1Policy),
+		},
+		{
+			name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("the role %q held in scope %s;", "Everywhere", everyDomainPolicy),
+		},
 		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "ZED", description: aDescription},
+		{
+			name: "a name differing only in case from a custom role one domain holds is refused in every domain", scope: everyDomainPolicy, role: "ZED", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: `differs only in case from the role "Zed"`,
+		},
+		{name: "a name one domain holds in the same spelling is free in every domain", scope: everyDomainPolicy, role: "Zed", description: aDescription},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -286,6 +304,9 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 			}
 			if err == nil || !tt.wantErr(err) {
 				t.Fatalf("AddRole() error = %v, want a refusal of the expected kind", err)
+			}
+			if !strings.Contains(httpio.Message(err), tt.wantMessage) {
+				t.Errorf("AddRole() message = %q, want one holding %q", httpio.Message(err), tt.wantMessage)
 			}
 			if len(store.roles) != rolesBefore {
 				t.Errorf("AddRole() wrote a role row on a refused call")
@@ -354,6 +375,43 @@ func Test_userManager_defaults_DeleteRole(t *testing.T) {
 				t.Errorf("ResolveRole() after DeleteRole = %v, want %v", exists, tt.wantExists)
 			}
 		})
+	}
+}
+
+// Test_userManager_defaults_DeleteAllRolePermissions_storedRows pins that
+// removing all of a custom role's permissions removes every row the store
+// holds for it by the row's own columns: the rows a write makes, and the rows
+// no write could have made, which a load skips and reports.
+func Test_userManager_defaults_DeleteAllRolePermissions_storedRows(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	m, store := defaultsManager(t)
+
+	for _, row := range []struct {
+		resource, field, condition string
+	}{
+		{resource: "Widgets", field: "name"},
+		{resource: "Widgets", condition: "true"},
+		{resource: "Widgets.name"},
+		{resource: "Widgets.name", field: "*"},
+		{field: "name"},
+		{resource: "Widgets", field: "name.first"},
+		{},
+	} {
+		if err := store.InsertGrant(ctx, tenant1Policy, "Zed", "Read", row.resource, row.field, row.condition); err != nil {
+			t.Fatalf("InsertGrant(%q, %q, %q) error = %v", row.resource, row.field, row.condition, err)
+		}
+	}
+
+	if err := m.DeleteAllRolePermissions(ctx, tenant1Policy, "Zed"); err != nil {
+		t.Fatalf("DeleteAllRolePermissions() error = %v", err)
+	}
+	left, err := store.ListRoleGrants(ctx, tenant1Policy, "Zed")
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
+	if len(left) != 0 {
+		t.Errorf("ListRoleGrants() after DeleteAllRolePermissions = %v, want none", left)
 	}
 }
 

@@ -1072,17 +1072,141 @@ jobs:
             echo "::error::this job makes the application TestAuthoredApplication names \"$APPLICATION\", and the test made ${made:-nothing}. If the test gives the application another name now, the last job made it: write the new name on this job's line of the matrix and on the same line of the last job's list. If the test no longer makes it, take both lines out"
             exit 1
           fi
+  impulse-made:
+    # The browser specs of an application as impulse new makes it, for the starts no
+    # other job runs them for: one with a second browser application (--outlet) and the
+    # two with no password sign-in. The head legs run the specs of the four rendered
+    # skeletons and of the composed tenancy; the author's path holds a made application to
+    # its Go tests, its lint and its check. Neither runs a made application's browser
+    # specs, so a change to the skeleton's specs that broke one of these starts was found
+    # only by a builder's own proof. Each application is made in a job of its own, side by
+    # side, against the browser packages built from this commit. None of the jobs is a
+    # required check: `impulse solo (head)` below reports what they came to. A start added
+    # to impulse new is a line of the matrix.
+    name: "impulse solo (head): the browser specs of a made application (${{ matrix.application }})"
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The directory each is made in, and the flags of its start beside the auth.
+          - application: a second browser application
+            dir: outlet
+            start: --outlet partners=partners/api
+          - application: roles from one directory, with no password sign-in
+            dir: directory
+            start: --shape directory-roles --method google --organization fleet.example
+          - application: tenants by their directories, with no password sign-in
+            dir: tenants
+            start: --shape tenant-owned-users-by-directory
+    env:
+      # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # The bun that wrote web/bun.lock, which builds the browser packages and installs the
+      # made application's browser apps.
+      BUN_VERSION: 1.4.4
+      # 'true' where the solo head leg does its work, and when the changes job could not say.
+      RUN: ${{ needs.changes.result != 'success' || (needs.changes.outputs.draft != 'true' && needs.changes.outputs.impulse == 'true') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RUN == 'true' }}
+        with:
+          path: impulse
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          go-version-file: impulse/go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The entry a skeleton's head leg saves, by the same keys, as the author's path
+        # restores it: these jobs restore and never save.
+        if: ${{ env.RUN == 'true' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: impulse-head-${{ runner.os }}-${{ hashFiles('impulse/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            impulse-head-${{ runner.os }}-${{ hashFiles('impulse/go.sum') }}-
+            impulse-head-${{ runner.os }}-
+      - name: Build impulse from this commit
+        if: ${{ env.RUN == 'true' }}
+        working-directory: impulse
+        run: go build -o "$RUNNER_TEMP/impulse" ./cmd/impulse
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Build the browser packages at this commit
+        # The made application's browser apps install the three packages built from this
+        # commit, packed, in place of the published versions their package.json pins, as
+        # the skeletons' head legs install them.
+        if: ${{ env.RUN == 'true' }}
+        working-directory: impulse/web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          mkdir -p "$RUNNER_TEMP/packs"
+          for p in resource resource-angular resource-firestore; do
+            (cd "dist/$p" && npm pack --silent --pack-destination "$RUNNER_TEMP/packs")
+          done
+          ls "$RUNNER_TEMP/packs"
+      - name: Make the application, then build, lint and test its browser apps
+        # Every web root of the made application, as the skeletons' head legs run theirs:
+        # its production build, its lint and its specs.
+        if: ${{ env.RUN == 'true' }}
+        env:
+          DIR: ${{ matrix.dir }}
+          START: ${{ matrix.start }}
+          # impulse new makes the application's first commit.
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.com
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.com
+        run: |
+          # START is the start's flags, split on purpose.
+          # shellcheck disable=SC2086
+          "$RUNNER_TEMP/impulse" new "$DIR" --module "example.com/ci/$DIR" --auth staff $START --dev-root "$GITHUB_WORKSPACE/impulse"
+          roots=$(find "$DIR" -path '*/node_modules' -prune -o -path '*web/package.json' -printf '%h\n' | sort)
+          if [ -z "$roots" ]; then
+            echo "::error::$DIR has no browser app"
+            exit 1
+          fi
+          for root in $roots; do
+            echo "::group::$root"
+            (
+              cd "$root"
+              # The pins become the packs; a lockfile would hold the published versions.
+              for p in resource resource-angular resource-firestore; do
+                tgz=$(ls "$RUNNER_TEMP"/packs/impulseframework-"$p"-[0-9]*.tgz)
+                jq --arg n "@impulseframework/$p" --arg v "file:$tgz" \
+                  '(if .dependencies[$n] then .dependencies[$n] = $v else . end) | (if (.overrides // {})[$n] then .overrides[$n] = $v else . end)' \
+                  package.json > package.json.next
+                mv package.json.next package.json
+              done
+              rm -f bun.lock
+              bun install
+              bun run build
+              bun run lint
+              bun run test
+            ) || { echo "::error::$root: the browser app failed to install, build, lint or test"; exit 1; }
+            echo "::endgroup::"
+          done
   impulse-skeletons-head:
     # The required check of a skeleton's head leg: it passes when the leg's two jobs each
     # passed or had nothing to do (a pull request that touches nothing of theirs, or a
     # draft), and fails when either failed or was canceled. It runs whatever became of
     # them, so a run canceled by hand never reads as a pass. The solo leg's check also
-    # holds the author's path (impulse-authored): its jobs belong to this one check, so
-    # the job's one result says what they came to, success when every one of them passed
-    # or skipped its steps, and anything else fails the check. The other three legs'
-    # checks wait for those jobs and do not read them.
+    # holds the author's path (impulse-authored) and the browser specs of the made
+    # applications (impulse-made): its jobs belong to this one check, so the job's one
+    # result says what they came to, success when every one of them passed or skipped its
+    # steps, and anything else fails the check. The other three legs' checks wait for those
+    # jobs and do not read them.
     name: impulse ${{ matrix.candidate }} (head)
-    needs: [impulse-skeletons, impulse-authored]
+    needs: [impulse-skeletons, impulse-authored, impulse-made]
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     strategy:
@@ -1096,11 +1220,14 @@ jobs:
           GO: ${{ needs.impulse-skeletons.outputs[format('{0}-go', matrix.candidate)] }}
           BROWSER: ${{ needs.impulse-skeletons.outputs[format('{0}-browser', matrix.candidate)] }}
           AUTHORED: ${{ needs.impulse-authored.result }}
+          MADE: ${{ needs.impulse-made.result }}
         run: |
           echo "go: ${GO:-failed or canceled}"
           echo "browser: ${BROWSER:-failed or canceled}"
           if [ "$CANDIDATE" = solo ]; then
             echo "the author's path, every application: $AUTHORED"
             if [ "$AUTHORED" != success ]; then exit 1; fi
+            echo "the browser specs of made applications, every one: $MADE"
+            if [ "$MADE" != success ]; then exit 1; fi
           fi
           [ "$GO" = ok ] && [ "$BROWSER" = ok ]

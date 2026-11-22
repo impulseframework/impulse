@@ -376,9 +376,10 @@ func concealingKeyWarnings(store PermissionCollection, role *Role, scope accesst
 
 			conditions := keyConditions(set, res, key.tag)
 			if len(conditions) == 0 {
-				// Not granted to this role (a sort on it is refused), or granted
-				// with no condition, by its name or with all the fields: nothing
-				// masks.
+				// Not granted to this role (a sort on it is refused, and a declared
+				// order by it orders the role's pages as if no row had a value
+				// there), or granted with no condition, by its name or with all the
+				// fields: nothing masks.
 				continue
 			}
 			own, err := disjunctsOf(conditions)

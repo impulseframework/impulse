@@ -34,7 +34,7 @@ func TestIngestDroidReports(t *testing.T) {
 
 	h := newTestApp(db, grants{
 		accesstypes.Execute: {accesstypes.Resource("IngestDroidReports")},
-		accesstypes.List:    append(withFields("SectorHazardBoards", "worstReading", "recent"), withFields("DroidReports", "shipId", "subsystem", "reading", "frame")...),
+		accesstypes.List:    append(withFields("SectorHazardBoards", "worstReading", "recent"), withFields("DroidReports", "shipId", "subsystem", "reading", "recordedAt", "frame")...),
 		accesstypes.Read:    withFields("SectorHazardBoards", "worstReading", "recent"),
 	})
 	ingest := "/droids/sectors/" + anvil + "/ingest-droid-reports"

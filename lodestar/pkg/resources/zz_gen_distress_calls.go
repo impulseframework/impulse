@@ -39,7 +39,7 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 				Resource: "DistressRelays",
 				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 6, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
@@ -47,7 +47,7 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 					},
 				},
 				Within: []resource.DeleteLink{
-					{Columns: []string{"AnswersRelayId"}, Table: "DistressRelays", References: []string{"Id"}, MayBeEmpty: true},
+					{Columns: []string{"AnswersRelayId", "SectorId"}, Table: "DistressRelays", References: []string{"Id", "SectorId"}, MayBeEmpty: true},
 				},
 				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[DistressRelay], caller *resource.Caller) {
 					patch := &DistressRelayDeletePatch{patchSet: patchSet}
@@ -62,7 +62,7 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 				Resource: "DistressRelays",
 				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 6, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{

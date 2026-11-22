@@ -2,6 +2,7 @@
 package parser
 
 import (
+	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"golang.org/x/tools/go/packages"
+
+	"github.com/impulseframework/impulse/internal/gocomments"
 )
 
 // LoadPackages loads and type checks a list of packages. Returns package names mapped to a *packages.Package.
@@ -275,6 +278,28 @@ func TypeDocs(pkg *packages.Package) map[string]string {
 	return docs
 }
 
+// LooseComments returns, in file and then source order, every comment of the package's
+// files that belongs to no declaration (LooseComment), as gocomments.Loose defines one:
+// neither the doc nor the line comment of the file, a declaration, a spec or a field, and
+// in no function's body. A comment a blank line parts from the declaration below it is
+// one, inside a const ( ... ) group or outside it, and so is a comment no declaration
+// follows. An annotation written in one would be read by nothing, so the Resource
+// Generator refuses the annotations it reads off constants there.
+func LooseComments(pkg *packages.Package) []*LooseComment {
+	var loose []*LooseComment
+	for _, file := range pkg.Syntax {
+		for _, group := range gocomments.Loose(file) {
+			position := pkg.Fset.Position(group.Pos())
+			loose = append(loose, &LooseComment{
+				position: fmt.Sprintf("%s:%d", filepath.Base(position.Filename), position.Line),
+				text:     group.Text(),
+			})
+		}
+	}
+
+	return loose
+}
+
 // TypeSpecOf returns the package's declaration of the named type, nil when the package
 // declares none. A declaration's right-hand side (`type Position json.RawMessage`) is
 // read off it: go/types keeps a defined type's underlying type alone, and the type it
@@ -338,7 +363,7 @@ func packageConstants(pkg *packages.Package) []*Constant {
 
 					constants = append(constants, &Constant{
 						name:          name.Name,
-						typeName:      obj.Type().String(),
+						typeName:      types.Unalias(obj.Type()).String(),
 						value:         value,
 						comments:      comments,
 						groupComments: groupComments,

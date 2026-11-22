@@ -53,6 +53,16 @@ type App struct {
 	// TenantRecords are the structs the application's own code annotates @tenant: each
 	// resource package's tenant record, the global resource whose rows are the tenants.
 	TenantRecords []TenantRecord
+	// ConstantAnnotations are the package-level constants of the application's own code
+	// whose comment starts a line with @manualAddResource or @manualAddPermission, one for
+	// each constant and keyword: generation reads the two on the resources package's
+	// constants alone, so one anywhere else is read by nothing.
+	ConstantAnnotations []ConstantAnnotation
+	// LooseAnnotations are the lines that start with @manualAddResource or
+	// @manualAddPermission in a comment of the application's own code that belongs to no
+	// declaration (gocomments.Loose), one for each line: an annotation is read from the
+	// comment of what it stands above, so one there is read by nothing.
+	LooseAnnotations []LooseAnnotation
 	// TenantDirectories are the structs the application's own code annotates
 	// @tenantDirectory: each resource package's directories record, the tenant-scoped
 	// resource whose rows are the directories a tenant admits its people through.
@@ -375,6 +385,29 @@ type TenantRecord struct {
 	Name string
 }
 
+// ConstantAnnotation is one package-level constant whose comment (the one above it, the
+// one at the end of its line, or the one above its const declaration) starts a line with
+// one of the annotations generation reads off a resources package's constants: the
+// file, the line of the constant's name, the constant, and the keyword,
+// manualAddResource or manualAddPermission.
+type ConstantAnnotation struct {
+	File     string
+	Line     int
+	Constant string
+	Keyword  string
+}
+
+// LooseAnnotation is one line that starts with @manualAddResource or @manualAddPermission
+// in a comment that belongs to no declaration (one a blank line parts from the constant
+// below it, or one no declaration follows): the file, the line the comment starts on, the
+// keyword, manualAddResource or manualAddPermission, and the line, trimmed.
+type LooseAnnotation struct {
+	File    string
+	Line    int
+	Keyword string
+	Text    string
+}
+
 // DirectoryRecord is one struct annotated @tenantDirectory: the directories record, the
 // tenant-scoped resource whose rows are the directories a tenant admits its people
 // through, one row per declaration, with the column naming a stranger's default seat
@@ -419,16 +452,22 @@ type DefaultRoles struct {
 	Line int
 	// RolesPackage is the import path of the package whose Roles() the call hands over:
 	// the file's own package when the argument is Roles() unqualified, the imported
-	// package when it is <auth>.Roles(), or empty when the argument reads some other way.
+	// package when it is <auth>.Roles(), or empty when the argument reads some other way
+	// (a Roles the function declares for itself among them).
 	RolesPackage string
 	// NamePackage is the import path of the package whose Name the call hands the file
 	// over under, the auth's name: the file's own package when the second argument is
 	// Name unqualified, the imported package when it is <auth>.Name, or empty when the
-	// argument reads some other way (a literal, a variable) or is not there.
+	// argument reads some other way (a literal, a variable, a Name the function declares
+	// for itself) or is not there.
 	NamePackage string
 	// NameText is the call's second argument as the source writes it, for a finding that
 	// has to quote it.
 	NameText string
+	// InEngine reports the call written among the arguments of an access.New call: the
+	// option goes to the engine that call opens, where an option held in a variable,
+	// appended to a slice or returned from a function goes wherever it is passed on.
+	InEngine bool
 }
 
 // PolicyCheck is one call to CheckPolicy outside tests: the deploy step printing what

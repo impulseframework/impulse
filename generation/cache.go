@@ -201,6 +201,7 @@ func (c *client) loadAllCachedData() (bool, error) {
 	for _, table := range c.tableMap {
 		table.deriveIndexFlags()
 	}
+	deriveColumnReferences(c.tableMap)
 
 	c.enumValues = make(map[string][]*enumData)
 	if ok, err := c.genCache.Load(spannerCachePath, enumValueCache, &c.enumValues); err != nil {
