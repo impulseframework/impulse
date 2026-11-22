@@ -464,3 +464,44 @@ func TestAuth_ownSessionHandlers_refuse(t *testing.T) {
 		})
 	}
 }
+
+// TestAuth_ownAccountHandlers_refuseAToken proves none of the six handlers of a person's
+// own sessions and username serves a request a token authenticated: such a request has
+// no session of its own to keep, so "every other" would end every session the person
+// has. Each is a 403 in words, and the store is asked nothing more.
+func TestAuth_ownAccountHandlers_refuseAToken(t *testing.T) {
+	t.Parallel()
+
+	handlers := []struct {
+		name    string
+		handler func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.HandlerFunc
+		method  string
+		body    string
+	}{
+		{name: "OwnSessions", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).OwnSessions, method: http.MethodGet},
+		{name: "EndOwnSession", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).EndOwnSession, method: http.MethodPost, body: `{"sessionId":"` + impulse.Must(impulse.NewUUID()).String() + `"}`},
+		{name: "EndOtherSessions", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).EndOtherSessions, method: http.MethodPost},
+		{name: "ForgetBrowsers", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ForgetBrowsers, method: http.MethodPost},
+		{name: "ChangeUsername", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ChangeUsername, method: http.MethodPost, body: `{"username":"patricia"}`},
+		{name: "UsernameFree", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).UsernameFree, method: http.MethodPost, body: `{"username":"patricia"}`},
+	}
+	for _, h := range handlers {
+		t.Run(h.name, func(t *testing.T) {
+			t.Parallel()
+			c := newOwnSessionsCase(t)
+			// A token's request as validateToken leaves it: the token's id as the session
+			// id, the token on the session data, and the person validated.
+			ctx := context.WithValue(c.ctx(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+				SessionInfo: &sessioninfo.SessionInfo{ID: c.sessionID, Username: "pat", UpdatedAt: time.Now()},
+				UserID:      impulse.NullUUIDFromUUID(c.userID),
+				Token:       &sessioninfo.TokenInfo{ID: c.sessionID, Kind: sessioninfo.TokenKindApplication, Name: "backup script"},
+			})
+			ctx = context.WithValue(ctx, sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: c.userID, Username: "pat"})
+
+			rr := c.serve(h.handler(c.f.auth), ctx, h.method, h.body)
+			if rr.Code != http.StatusForbidden || messageOf(t, rr) != "This is done from your own signed-in browser, not with a token." {
+				t.Errorf("%s() = %d %s, want 403 saying it is done from the person's own browser", h.name, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}

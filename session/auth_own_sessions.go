@@ -188,13 +188,18 @@ func (a *Auth[S, U, Tx]) ForgetBrowsers() http.HandlerFunc {
 
 // ownSessionRequest validates the request's session where the middleware has not, as
 // the name change does, and refuses an impersonated session for operation: what it
-// serves (the person's sessions, remembered browsers or username) is theirs alone.
+// serves (the person's sessions, remembered browsers or username) is theirs alone. A
+// request a token authenticated is refused too: it has no session of its own to keep,
+// so "every other" would end every session the person has.
 func (a *Auth[S, U, Tx]) ownSessionRequest(ctx context.Context, operation string) (context.Context, error) {
 	if _, validated := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo); !validated {
 		var err error
 		if ctx, err = a.validateRequest(ctx); err != nil {
 			return ctx, err
 		}
+	}
+	if data, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && data != nil && data.Token != nil {
+		return ctx, httpio.NewForbiddenMessage("This is done from your own signed-in browser, not with a token.")
 	}
 	if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, operation, true); err != nil {
 		return ctx, err

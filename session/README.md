@@ -2044,7 +2044,8 @@ person's that has timed out and is no longer listed, so nothing can bring it bac
 `Auth.ForgetBrowsers()` forgets every browser the second factor remembered for them,
 this one included, and ends no session. A session someone else established acting as the person is not
 theirs: it is not listed and not ended here. All four validate the session themselves
-and refuse an impersonated session.
+and refuse an impersonated session. These four, and the two of the username, also refuse
+a request a token authenticated.
 
 ### The look a person chose
 
