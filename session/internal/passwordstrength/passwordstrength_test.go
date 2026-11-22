@@ -605,6 +605,8 @@ func TestReading_as(t *testing.T) {
 		{typed: "ßẞ", how: spelledOnce, want: standIns[:1] + standIns[:1]},
 		{typed: "æœþ", how: spelledOnce, want: standIns[:3]},
 		{typed: "Łukasz Søren", how: spelledOnce, want: "Lukasz Soren"},
+		{typed: "αłβ", how: spelledOnce, want: standIns[:1] + "l" + standIns[2:3]},
+		{typed: "αıβ", how: spelledOnce, want: standIns[:1] + "i" + standIns[2:3]},
 		{typed: "Strauß", how: spelledPlain, want: "Strauss"},
 		{typed: "Müller", how: spelledSecond, want: "Mueller"},
 		{typed: "Hägerström", how: spelledSecond, want: "Haegerstroem"},

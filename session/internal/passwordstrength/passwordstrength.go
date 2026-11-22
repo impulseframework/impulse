@@ -714,9 +714,12 @@ func (r *reading) spell(typed string, how spelling, second func(n int) bool) str
 			continue
 		}
 		if spelled, ok := spelledInASCII[c]; ok {
+			// The letter takes its stand-in however it is written, so the stand-in a later
+			// character is given does not turn on how this one is spelled.
+			standIn := r.standInOf(c)
 			if how == spelledOnce && len(spelled) > 1 {
 				// A letter read as two counts once toward the strength.
-				text.WriteByte(r.standInOf(c))
+				text.WriteByte(standIn)
 			} else {
 				text.WriteString(inCase(spelled, chars, i))
 			}
@@ -724,6 +727,8 @@ func (r *reading) spell(typed string, how spelling, second func(n int) bool) str
 			continue
 		}
 		if upper := unicode.ToUpper(c); upper < utf8.RuneSelf && unicode.IsLetter(upper) {
+			// The dotless ı takes its stand-in too, and is written as i.
+			r.standInOf(c)
 			text.WriteRune(unicode.ToLower(upper))
 
 			continue
