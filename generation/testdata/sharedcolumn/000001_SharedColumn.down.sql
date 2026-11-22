@@ -1,3 +1,5 @@
+DROP TABLE Docks;
+DROP TABLE Sheds;
 DROP TABLE Piers;
 DROP TABLE Zones;
 DROP TABLE Yards;

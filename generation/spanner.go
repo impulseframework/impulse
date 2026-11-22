@@ -151,7 +151,7 @@ func createTableMapUsingQuery(ctx context.Context, database *initiator.SpannerDB
 	if err := refuseCrossedForeignKeys(schemaMetadata, declaredForeignKeys(ddl)); err != nil {
 		return nil, err
 	}
-	deriveSharedColumnReferences(schemaMetadata)
+	deriveColumnReferences(schemaMetadata)
 
 	return schemaMetadata, nil
 }
@@ -187,11 +187,13 @@ func valueOrEmpty(s *string) string {
 // that position otherwise, and a foreign key it would so pair crossed is refused
 // (refuseCrossedForeignKeys). Where the referenced column is itself part of a foreign
 // key, the read goes one step on, to what that column references, paired by that
-// column's position in the same way. A column in two or more foreign keys reads here the
-// largest table and the largest column among all they lead to, each on its own; the read
-// then sets such a column's reference from its own foreign key, the one with the fewest
-// columns (deriveSharedColumnReferences), so a tenant column in a key of its own and in
-// keys of two columns still references the tenant.
+// column's position in the same way. A column in two or more foreign keys, or in one to a
+// column in two or more, reads here the largest table and the largest column among all
+// they lead to, each on its own; the read then sets every foreign key column's reference
+// from its own foreign key, the one with the fewest columns, following a column carried
+// along in keys of several columns on to its own key (deriveColumnReferences), so a tenant
+// column in a key of its own and in keys of two columns, or carried into a table by keys
+// of two columns alone, still references the tenant.
 const tableMapQuery string = `WITH DEPENDENCIES AS (
 		SELECT
 			kcu1.TABLE_NAME, 

@@ -152,9 +152,9 @@ func Test_createTableMapUsingQuery_keyOrder(t *testing.T) {
 
 // Test_createTableMapUsingQuery_sharedColumn reads a schema whose tenant column is in a
 // foreign key of its own and in foreign keys of two columns beside another column, to
-// another table and to the table's own rows, and pins that each column reads the table and
-// column its own foreign key names, the tenant column the tenant's. Requires the Spanner
-// emulator (podman/docker).
+// another table and to the table's own rows, or is carried into a table by keys of two
+// columns alone, and pins that each column reads the table and column its own foreign key
+// names, the tenant column the tenant's. Requires the Spanner emulator (podman/docker).
 func Test_createTableMapUsingQuery_sharedColumn(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -189,6 +189,16 @@ func Test_createTableMapUsingQuery_sharedColumn(t *testing.T) {
 			name:           "a tenant column in two keys of two columns and none of its own",
 			table:          "Piers",
 			wantReferences: map[string]string{"HarborId": "Harbors.Id"},
+		},
+		{
+			name:           "a tenant column carried in one key of two columns, to a table that keys it to the tenant",
+			table:          "Sheds",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id", "YardId": "Yards.Id"},
+		},
+		{
+			name:           "a tenant column carried in one key of two columns, through a table that carries it too",
+			table:          "Docks",
+			wantReferences: map[string]string{"HarborId": "Harbors.Id", "ShedId": "Sheds.Id"},
 		},
 	}
 

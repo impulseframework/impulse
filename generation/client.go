@@ -578,38 +578,79 @@ func (t *tableMetadata) deriveIndexFlags() {
 	}
 }
 
-// deriveSharedColumnReferences sets the table and column a column references where two
-// or more foreign keys of its table hold it. The column query answers, for each column, the
+// deriveColumnReferences sets the table and column a column references, for every column
+// that a foreign key of its table holds. The column query answers, for each column, the
 // largest table name and the largest column name among everything the column leads to,
-// each taken on its own: exact for a column in one foreign key, but for a tenant column
-// that has a foreign key of its own to the tenant record and is also part of foreign keys
-// of two columns, a table and a column that may not belong together. Such a column reads
-// its own foreign key (ownReference); then, where the column that key names is itself held
-// by a foreign key of its table, one step on, as the query goes, and never two. Only
-// foreign keys the read matched column by column count. Every answer is read from the
-// whole foreign keys alone, never from another column's reference, so the order the
-// tables are visited in changes nothing. Like the index flags, it runs on every read and
-// every cache load, so a cache an earlier generator wrote cannot carry the query's answer.
-func deriveSharedColumnReferences(tableMap map[string]*tableMetadata) {
+// each taken on its own, and one step on: exact where a column leads to one table and
+// column, but for a tenant column in a key of its own and in keys of two columns, or
+// carried in a key of two columns to such a column, a table and a column that may not
+// belong together. Each column is read from the whole foreign keys alone
+// (columnReference), never from another column's reference, so the order the tables are
+// visited in changes nothing. Only foreign keys the read matched column by column count:
+// a column no such key holds keeps what the query read. Like the index flags, it runs on
+// every read and every cache load, so a cache an earlier generator wrote cannot carry the
+// query's answer.
+func deriveColumnReferences(tableMap map[string]*tableMetadata) {
 	for name, table := range tableMap {
 		for column, meta := range table.Columns {
-			if len(table.resolvedKeysHolding(column)) < 2 {
+			if len(table.resolvedKeysHolding(column)) == 0 {
 				continue
 			}
-			referencedTable, referencedColumn := table.ownReference(name, column)
-			if next, ok := tableMap[referencedTable]; ok && len(next.resolvedKeysHolding(referencedColumn)) > 0 {
-				referencedTable, referencedColumn = next.ownReference(referencedTable, referencedColumn)
-			}
-			meta.ReferencedTable, meta.ReferencedColumn = referencedTable, referencedColumn
+			meta.ReferencedTable, meta.ReferencedColumn = columnReference(tableMap, name, column)
 			table.Columns[column] = meta
 		}
 	}
+}
+
+// tableColumn is one column of one table.
+type tableColumn struct {
+	table, column string
+}
+
+// columnReference is the table and column that a column of the named table references,
+// read from its foreign keys. The column reads its own foreign key (ownReference). Where
+// the column that key names is only carried along in foreign keys of several columns, the
+// read goes on through that column's own key, however many tables it is carried through,
+// and stops where a table and column come round again. Then, where the column it has
+// reached is held by a foreign key of its table, one step on, as the query goes, and never
+// two. A column whose every foreign key pairs it with itself references nothing. The
+// column is held by at least one resolved foreign key.
+func columnReference(tableMap map[string]*tableMetadata, name, column string) (referencedTable, referencedColumn string) {
+	if tableMap[name].pairsOnlyWithItself(name, column) {
+		return "", ""
+	}
+	referencedTable, referencedColumn = tableMap[name].ownReference(name, column)
+	seen := map[tableColumn]bool{{name, column}: true}
+	for {
+		next, ok := tableMap[referencedTable]
+		if !ok || !next.onlyCarried(referencedColumn) {
+			break
+		}
+		seen[tableColumn{referencedTable, referencedColumn}] = true
+		carriedTable, carriedColumn := next.ownReference(referencedTable, referencedColumn)
+		if seen[tableColumn{carriedTable, carriedColumn}] {
+			return referencedTable, referencedColumn
+		}
+		referencedTable, referencedColumn = carriedTable, carriedColumn
+	}
+	if next, ok := tableMap[referencedTable]; ok && len(next.resolvedKeysHolding(referencedColumn)) > 0 {
+		referencedTable, referencedColumn = next.ownReference(referencedTable, referencedColumn)
+	}
+
+	return referencedTable, referencedColumn
 }
 
 // heldColumn is one foreign key that holds a column, with the column's position in it.
 type heldColumn struct {
 	key      *foreignKeyMeta
 	position int
+}
+
+// pairsWithItself reports whether the foreign key, one of the named table's, pairs the
+// column it holds with that same column: a key to the table's own rows that leads back to
+// the column.
+func (h heldColumn) pairsWithItself(table string) bool {
+	return h.key.ReferencedTable == table && h.key.ReferencedColumns[h.position] == h.key.Columns[h.position]
 }
 
 // resolvedKeysHolding is the table's foreign keys that hold the column and that the read
@@ -630,15 +671,34 @@ func (t *tableMetadata) resolvedKeysHolding(column string) []heldColumn {
 	return held
 }
 
+// pairsOnlyWithItself reports whether every resolved foreign key of the named table that
+// holds the column pairs it with itself.
+func (t *tableMetadata) pairsOnlyWithItself(name, column string) bool {
+	return !slices.ContainsFunc(t.resolvedKeysHolding(column), func(h heldColumn) bool {
+		return !h.pairsWithItself(name)
+	})
+}
+
+// onlyCarried reports whether the column is held by resolved foreign keys of the table and
+// every one of them has several columns: the column is carried along beside others, with
+// no foreign key of its own.
+func (t *tableMetadata) onlyCarried(column string) bool {
+	held := t.resolvedKeysHolding(column)
+
+	return len(held) > 0 && !slices.ContainsFunc(held, func(h heldColumn) bool {
+		return len(h.key.Columns) == 1
+	})
+}
+
 // ownReference is the table and column that a column of the named table references by
 // its own foreign key: among the table's resolved foreign keys that hold it, the one with
-// the fewest columns, the first by name among equals. A key to the table's own rows that
-// pairs the column with itself is passed over when another holds the column, since it
-// leads back to the column. The column is held by at least one resolved foreign key.
+// the fewest columns, the first by name among equals. A key that pairs the column with
+// itself is passed over when another holds the column, since it leads back to the column.
+// The column is held by at least one resolved foreign key.
 func (t *tableMetadata) ownReference(name, column string) (referencedTable, referencedColumn string) {
 	held := t.resolvedKeysHolding(column)
 	others := slices.DeleteFunc(slices.Clone(held), func(h heldColumn) bool {
-		return h.key.ReferencedTable == name && h.key.ReferencedColumns[h.position] == column
+		return h.pairsWithItself(name)
 	})
 	if len(others) > 0 {
 		held = others
