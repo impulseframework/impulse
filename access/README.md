@@ -107,7 +107,7 @@ func main() {
     // The collection is what the release declares, here Read on documents and
     // their fields: the application's generated router answers it. An
     // application that ships default roles adds
-    // access.WithDefaultRoles(staff.Roles(), staff.Name); see Default Roles.
+    // access.WithDefaultRoles(Roles(), Name); see Default Roles.
     client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
@@ -211,7 +211,7 @@ client, err := access.New(store,
     // The release's default roles: the role file embedded in the binary,
     // validated against the collection, with the name of the auth whose
     // roles they are (see Default Roles).
-    access.WithDefaultRoles(staff.Roles(), staff.Name),
+    access.WithDefaultRoles(Roles(), Name),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -840,11 +840,13 @@ read as the scope of a request, for default and custom roles alike.
 Default roles are policy that travels with the release. They are authored as a
 role file, JSON in the `RoleConfig` shape (see JSON Configuration), embedded in
 the application binary and handed to `New` through `WithDefaultRoles`. `New`
-parses the file and validates it against the collection the release declares:
-a file that does not parse, names a role outside the grammar, leaves a role
-without a description, declares a role twice or at both scopes, grants what
-the collection does not declare, or carries a condition the vocabulary refuses
-fails `New`, so a release whose default roles are wrong does not start.
+takes one role file: a second `WithDefaultRoles` among its options is refused,
+since an engine holds the roles of one auth. `New` parses the file and
+validates it against the collection the release declares: a file that does not
+parse, names a role outside the grammar, leaves a role without a description,
+declares a role twice or at both scopes, grants what the collection does not
+declare, or carries a condition the vocabulary refuses fails `New`, so a
+release whose default roles are wrong does not start.
 
 A collection may mark an action as one no role is given, as the generator marks the
 action of the create-your-tenant route (`NoRole: true` in the generated collection).
@@ -905,7 +907,7 @@ Hand it to `New`, which validates it against the collection it is given:
 
 ```go
 client, err := access.New(store, router.Collection(),
-    access.WithDefaultRoles(staff.Roles(), staff.Name),
+    access.WithDefaultRoles(Roles(), Name),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -922,6 +924,11 @@ The second argument of `WithDefaultRoles`, `auth`, is the name of the auth whose
 file holds, as the auth's package names it (`Name` in a package `impulse add auth`
 renders). It says whose subject sets the file is held to: see `access.UnreadSetWarning`
 below. `ValidateRoles` takes the same name.
+
+An application hands a role file over in the auth's own package, among the options of the
+`access.New` call that opens the auth's engine, where `Roles()` and `Name` are the package's own
+(`access.WithDefaultRoles(Roles(), Name)`): `impulse check` takes a hand-over written anywhere
+else for a finding, since nothing there ties the file to the engine it opens.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -974,7 +981,7 @@ the same module with nothing declared for it. Each auth hands its own name with
 its role file:
 
 ```go
-access.WithDefaultRoles(staff.Roles(), staff.Name)
+access.WithDefaultRoles(Roles(), Name)
 warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 ```
 
@@ -1201,8 +1208,12 @@ in each; `UnionCollection` refuses collections that disagree on a shared resourc
 permissions (fields included), scope, immutability, computed marking, or method target.
 An action one site marks as an action no role is given is no role's in the union, and a
 site that registers the same name for roles is refused: a name is one or the other in
-every site. A collection passed as nil is refused with a sentence that says which
-argument it was.
+every site. Collections that declare one subject set in two different ways are refused,
+with both collections and the first thing they differ in named: a role file reads a set
+by its name alone, so the name holds the same people in every site. So are collections
+that know two auths whose names are one name in PascalCase (`crew_ops` and `crewOps`):
+generation names an auth's tables and its set of a person's groups by that form. A
+collection passed as nil is refused with a sentence that says which argument it was.
 
 ```go
 collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
@@ -1210,7 +1221,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, collection, access.WithDefaultRoles(staff.Roles(), staff.Name))
+client, err := access.New(store, collection, access.WithDefaultRoles(Roles(), Name))
 ```
 
 ### JSON Configuration

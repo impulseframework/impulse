@@ -70,6 +70,10 @@ func (concealingCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (concealingCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
 func (concealingCollection) Auths() []string {
 	return nil
 }

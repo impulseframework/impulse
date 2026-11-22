@@ -185,3 +185,101 @@ func TestAcrossTenants_namesDeclaredOrder(t *testing.T) {
 		})
 	}
 }
+
+// shelvedCrate is the graded crates' record with one more id beside a name: the
+// shelf a crate stands on, a row of the shelves, which belong to a tenant. The
+// generator writes no such name for a record declared @listAcrossTenants; a
+// record written by hand may describe one.
+type shelvedCrate struct {
+	ID      string `spanner:"Id"      postgres:"Id"`
+	Yard    string `spanner:"Yard"    postgres:"Yard"`
+	Label   string `spanner:"Label"   postgres:"Label"`
+	GradeID string `spanner:"GradeId" postgres:"GradeId"`
+	MakerID string `spanner:"MakerId" postgres:"MakerId"`
+	ShelfID string `spanner:"ShelfId" postgres:"ShelfId"`
+}
+
+// Resource names the resource in grants and routes.
+func (shelvedCrate) Resource() accesstypes.Resource {
+	return acrossCrates
+}
+
+// DefaultConfig is the resource's configuration.
+func (shelvedCrate) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the grade's name and the maker's as gradedCrate does, and
+// the shelf's name, held to the request's tenant by the shelves' Yard.
+func (shelvedCrate) NameFields() []NameField {
+	return append(gradedCrate{}.NameFields(),
+		NameField{Field: "ShelfName", Key: "ShelfID", Resource: acrossShelves, Tag: "name", Table: "Shelves", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "Yard"},
+	)
+}
+
+// shelvedCrateRequest is shelvedCrate's list request type.
+type shelvedCrateRequest struct {
+	ID        string  `json:"id"        index:"true"     perm:"-"`
+	Yard      string  `json:"-"`
+	Label     string  `json:"label"     index:"true"`
+	GradeID   string  `json:"gradeId"   index:"true"`
+	GradeName *string `json:"gradeName" nameof:"GradeID"`
+	MakerID   string  `json:"makerId"   index:"true"`
+	MakerName *string `json:"makerName" nameof:"MakerID"`
+	ShelfID   string  `json:"shelfId"   index:"true"`
+	ShelfName *string `json:"shelfName" nameof:"ShelfID"`
+}
+
+// TestAcrossTenants_nameOfATenantsRow pins a record that describes the name of a
+// tenant's row: its list across tenants is refused at decode, naming the name
+// field and the resource it names a row of, whatever the request asks for; the
+// tenant's own list of the same record is not.
+func TestAcrossTenants_nameOfATenantsRow(t *testing.T) {
+	t.Parallel()
+
+	const want = "resource Crates cannot be listed across tenants with the name field ShelfName: it is the name of a row of Shelves, which belongs to a tenant, and a list across tenants looks up no tenant's names; take it out of the resource's NameFields() (the generator writes none for a resource declared @listAcrossTenants)"
+	paging := Paging{Order: []SortField{{Field: "Label", Direction: SortAscending}}, DefaultLimit: 3}
+	for _, target := range []string{"/crates", "/crates?columns=id,label"} {
+		decoder := acrossDecoder[shelvedCrate, shelvedCrateRequest](t, paging)
+		_, err := decoder.DecodeAcrossTenants(acrossRequest(t, target), sameRoles())
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("DecodeAcrossTenants(%s) error = %v, want %q", target, err, want)
+		}
+		if _, err := decoder.Decode(acrossRequest(t, target), sameRoles(), accesstypes.DomainScope("north")); err != nil {
+			t.Errorf("Decode(%s) in north error = %v, want none", target, err)
+		}
+	}
+}
+
+// TestAcrossTenants_Permitted pins Permitted on a list across tenants, which no
+// one scope gates: it answers false and says to ask TenantsListed, even of a
+// person whose grants the zero scope would find; the tenant's own list is
+// permitted as it was.
+func TestAcrossTenants_Permitted(t *testing.T) {
+	t.Parallel()
+
+	const want = "resource.QuerySet.Permitted(): the Crates query is a list across tenants, which no one scope gates; QuerySet.TenantsListed answers the tenants it reads"
+	// A person whose grants a check asked in the zero scope finds: the empty
+	// tenant stands for the grants held in every tenant.
+	everywhere := &acrossPermissions{
+		reach:  []accesstypes.Domain{"north"},
+		grants: map[accesstypes.Domain]accesstypes.Decisions{"": everyGrant(), "north": everyGrant()},
+	}
+
+	across, err := crateDecoder(t).DecodeAcrossTenants(acrossRequest(t, "/crates"), everywhere)
+	if err != nil {
+		t.Fatalf("DecodeAcrossTenants() error = %v", err)
+	}
+	permitted, err := across.Permitted(t.Context())
+	if permitted || err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Permitted() across tenants = %v, %v; want false, %q", permitted, err, want)
+	}
+
+	own, err := crateDecoder(t).Decode(acrossRequest(t, "/crates"), everywhere, accesstypes.DomainScope("north"))
+	if err != nil {
+		t.Fatalf("Decode() in north error = %v", err)
+	}
+	if permitted, err := own.Permitted(t.Context()); !permitted || err != nil {
+		t.Errorf("Permitted() in north = %v, %v; want true, nil", permitted, err)
+	}
+}

@@ -296,6 +296,74 @@ func (g *GeneratedCollection) SubjectSetAuth(name string) string {
 	return anchor.Binding.Auth
 }
 
+// SubjectSetDefinition says how a declared subject set is declared, as the parts a
+// union of collections compares two sites' sets by (access.UnionCollection): where it is
+// declared, the column that holds its person, the value it yields with each hop it
+// takes, its type, its who: and where: parts, and the way its rows reach a tenant (the
+// anchor's own, or the set's), seven parts in that order, each in words that read the
+// same whichever collection says them. The auth the set names is in no part
+// (SubjectSetAuth says it), and neither is the generator's mark on a set it declares. It
+// is nil for a name no set declares.
+func (g *GeneratedCollection) SubjectSetDefinition(name string) []string {
+	anchor, ok := g.SubjectSet(name)
+	if !ok {
+		return nil
+	}
+	set := &anchor.Binding
+
+	who := "who: (none)"
+	if len(set.Who) > 0 {
+		tests := make([]string, 0, len(set.Who))
+		for _, test := range set.Who {
+			if test.Set == "" {
+				tests = append(tests, test.Column)
+			} else {
+				tests = append(tests, test.Column+" IN subject."+test.Set)
+			}
+		}
+		who = "who: " + strings.Join(tests, ", ")
+	}
+
+	where := "where: (none)"
+	if set.Where != nil {
+		where = "where: " + set.Where.Condition
+		if len(set.Where.Columns) > 0 {
+			columns := make([]string, 0, len(set.Where.Columns))
+			for _, column := range set.Where.Columns {
+				columns = append(columns, column.Name+"="+column.Column+" ("+string(column.Type)+")")
+			}
+			where += " [" + strings.Join(columns, ", ") + "]"
+		}
+	}
+
+	tenant := "tenant: (none)"
+	if anchor.Domain != nil {
+		tenant = "tenant: " + anchor.Domain.Column + hopsInWords(anchor.Domain.Path)
+	}
+
+	return []string{
+		"declared on " + string(anchor.Resource) + " (" + string(anchor.Scope) + ")",
+		"person: " + set.UserColumn,
+		"value: " + set.Column + hopsInWords(set.Path),
+		"type: " + string(set.Type),
+		who,
+		where,
+		tenant,
+	}
+}
+
+// hopsInWords says the hops of a binding's path as a subject set's definition says them
+// (SubjectSetDefinition): each hop the table it reaches, its column and the column it
+// joins by, after the column the path leaves through.
+func hopsInWords(path []BindingHop) string {
+	var words strings.Builder
+	for _, hop := range path {
+		words.WriteString(" > " + hop.Table + "." + hop.Column + " by " + hop.JoinColumn)
+	}
+
+	return words.String()
+}
+
 // SubjectSets lists the subject sets the application declares (@subjectSet)
 // that describe the people of one auth, by name, each with the names of the
 // sets its who: part builds on (Column IN subject.<set>). auth is the auth's

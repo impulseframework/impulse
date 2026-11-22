@@ -418,6 +418,9 @@ func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bo
 func (a *admittedPermissions) Check(
 	ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.admittedPermissions.Check()")
+	}
 	if domain, ok := scope.Domain(); ok {
 		reaches, err := a.Reaches(ctx, domain)
 		if err != nil {
@@ -441,6 +444,9 @@ func (a *admittedPermissions) Check(
 // PermissionDigest is empty in a tenant the session does not reach, so the
 // frontend's digest agrees with what Check will enforce; otherwise it delegates.
 func (a *admittedPermissions) PermissionDigest(ctx context.Context, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.admittedPermissions.PermissionDigest()")
+	}
 	if domain, ok := scope.Domain(); ok {
 		reaches, err := a.Reaches(ctx, domain)
 		if err != nil {
@@ -668,10 +674,14 @@ func (m *maskedPermissions) registers(name accesstypes.Resource) bool {
 // Check answers Denied, without consulting policy, for every resource the mask
 // refuses perm on: all of them when the mask does not keep the kind, and otherwise
 // each one whose class or whose name the mask refuses. The others are delegated, and
-// answered as policy answers them.
+// answered as policy answers them. A scope that names nothing is refused with
+// accesstypes.ErrNoScope before the mask is asked anything.
 func (m *maskedPermissions) Check(
 	ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.maskedPermissions.Check()")
+	}
 	if !m.mask.Allows(perm) {
 		logMaskKindDenied(ctx, perm, m.mask, m.User(), resources...)
 
@@ -878,25 +888,38 @@ func logMaskRefusal(ctx context.Context, perm accesstypes.Permission, mask acces
 
 // unsupportedRolePermissions is the fail-closed checker for a role principal
 // when no role checker is configured. User() is still the session's effective
-// identity, so evidence names the real person even while nothing is granted.
+// identity, so evidence names the real person even while nothing is granted. A
+// check, a digest or a question of grants asked in a scope that names nothing is
+// refused with accesstypes.ErrNoScope, as every checker refuses it.
 type unsupportedRolePermissions struct {
 	user accesstypes.User
 	role accesstypes.Role
 }
 
 func (u unsupportedRolePermissions) Check(
-	ctx context.Context, _ accesstypes.Environment, _ accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	ctx context.Context, _ accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.unsupportedRolePermissions.Check()")
+	}
 	logger.FromCtx(ctx).Warnf("impersonation: role principal %s has no role-bound checker; %s denied on %v", u.role, perm, resources)
 
 	return deniedDecisions(resources), nil
 }
 
-func (unsupportedRolePermissions) PermissionDigest(context.Context, accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+func (unsupportedRolePermissions) PermissionDigest(_ context.Context, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "resource.unsupportedRolePermissions.PermissionDigest()")
+	}
+
 	return accesstypes.PermissionDigest{}, nil
 }
 
-func (unsupportedRolePermissions) HasGrants(context.Context, accesstypes.Scope) (bool, error) {
+func (unsupportedRolePermissions) HasGrants(_ context.Context, scope accesstypes.Scope) (bool, error) {
+	if scope.IsZero() {
+		return false, errors.Wrap(accesstypes.ErrNoScope, "resource.unsupportedRolePermissions.HasGrants()")
+	}
+
 	return false, nil
 }
 

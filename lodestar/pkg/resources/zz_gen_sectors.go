@@ -157,7 +157,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 					{
-						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"HangarId", "SectorId"}, Table: "Hangars", References: []string{"Id", "SectorId"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 					{
@@ -220,7 +220,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				Resource: "DistressRelays",
 				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 6, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
@@ -232,7 +232,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 					},
 				},
 				Within: []resource.DeleteLink{
-					{Columns: []string{"AnswersRelayId"}, Table: "DistressRelays", References: []string{"Id"}, MayBeEmpty: true},
+					{Columns: []string{"AnswersRelayId", "SectorId"}, Table: "DistressRelays", References: []string{"Id", "SectorId"}, MayBeEmpty: true},
 				},
 				Rows: resource.NewTakenRows(func(*resource.PatchSet[DistressRelay], *resource.Caller) {}),
 			},
@@ -294,7 +294,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				Resource: "Hangars",
 				Words:    resource.DeleteWords{One: "hangar", Many: "hangars"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
