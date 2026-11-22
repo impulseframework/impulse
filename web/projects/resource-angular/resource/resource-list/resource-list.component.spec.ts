@@ -73,6 +73,8 @@ const metas: Record<string, ResourceMeta> = {
       field('id', { primaryKey: { ordinalPosition: 0 } }),
       field('name'),
       field('cargoBays', { displayType: 'number[]', sortable: false }),
+      // A list of roles' names: the metadata lists the roles it may hold.
+      field('crewRoles', { displayType: 'string[]', sortable: false, roles: ['NightShiftLead', 'Reader'] }),
       field('digest', { displayType: 'bytes', sortable: false }),
       field('lastRefitAt', { displayType: 'date' }),
       field('decommissioned', { displayType: 'boolean' }),
@@ -572,6 +574,28 @@ describe('ResourceListComponent', () => {
           .flat()
           .some((cell) => cell.querySelector('.cell-yes, .cell-no')),
       ).toBe(false);
+    });
+  });
+
+  describe('hands a list drawn a line each to the table as a list', () => {
+    it("writing each item as its text, and a role's name in words where the field holds one", async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'crewRoles' as FieldName, lines: true },
+            { id: 'cargoBays' as FieldName, lines: true },
+          ],
+        },
+        [{ id: 's-1', name: 'Kestrel', crewRoles: ['NightShiftLead', 'DockMaster'], cargoBays: [1, 2] }],
+      );
+      fixture.detectChanges();
+      await settle();
+      const [row] = fixture.componentInstance.processedRowData();
+      // A role the metadata does not list is in words all the same.
+      expect(row['crewRoles']).toEqual(['Night shift lead', 'Dock master']);
+      expect(row['cargoBays']).toEqual(['1', '2']);
     });
   });
 

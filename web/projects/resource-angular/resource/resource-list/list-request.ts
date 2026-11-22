@@ -6,7 +6,7 @@ import {
   ColumnSearches,
   PageTurn,
 } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig, keyFields, ListViewConfig } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, keyFields, ListViewConfig, roleInWords } from '@impulseframework/resource-angular/types';
 
 // The list page's pure parts around the server's page: which columns the server filters,
 // where the page sits after a turn, what an empty table says, and what a page refuses: a
@@ -170,17 +170,21 @@ export function filterInputKinds(meta: ResourceMeta | undefined, columns: readon
  * set: the generated metadata's `enumeration` for the field each column shows, each value
  * beside the name the list writes for it, by column id, in the metadata's order, which is
  * the order a sort by the column puts the rows in. The column's menu offers the names and
- * the filter carries the values. A column whose field lists none (a key into another
- * resource's rows among them), or whose id is not a field of the listed resource, is
- * absent.
+ * the filter carries the values. A field that holds a role's name and takes no fixed set
+ * offers the roles the metadata lists for it (`roles`), each by its words (roleInWords),
+ * in the metadata's order. A column whose field lists none (a key into another resource's
+ * rows among them), or whose id is not a field of the listed resource, is absent.
  */
 export function filterChoiceLists(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnFilterChoices {
-  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.enumeration]));
+  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field]));
   const choices: Record<string, ColumnFilterChoices[string]> = {};
   for (const column of columns) {
-    const enumeration = byField.get(column.id);
+    const field = byField.get(column.id);
+    const enumeration = field?.enumeration;
     if (enumeration !== undefined && enumeration.length > 0) {
       choices[column.id] = enumeration.map((option) => ({ value: option.id, label: option.display }));
+    } else if (enumeration === undefined && field?.roles !== undefined && field.roles.length > 0) {
+      choices[column.id] = field.roles.map((role) => ({ value: role, label: roleInWords(role) }));
     }
   }
   return choices;

@@ -1,4 +1,4 @@
-import { EnumeratedConfig, nameInWords } from '@impulseframework/resource-angular/types';
+import { EnumeratedConfig, roleInWords } from '@impulseframework/resource-angular/types';
 import {
   ApiError,
   matchesSearch,
@@ -34,21 +34,32 @@ export function optionColumns(
 
 /**
  * What an option shows: the display fields the page configured, concatenated, or the
- * key where the page configured none (a form drawn from the metadata alone). The key
- * of a role is then shown in words, "Sector marshal" for `SectorMarshal`, as the
- * server's sentences name a role; any other key is shown as it is stored.
+ * key where the page configured none (a form drawn from the metadata alone). A field
+ * that holds a role's name (`roleFields`, the source's fields whose metadata lists
+ * `roles`) is written in words, "Night shift lead" for `NightShiftLead`, as the server's
+ * sentences name a role: a display field among them before the fields are joined, the
+ * row handed in left as it is, and the key where the source's key field (`keyField`) is
+ * one. Any other text is shown as it is stored.
  */
 export function optionDisplay(
   row: Record<string, string>,
   key: string,
   displayFields: readonly string[],
   concat: (row: Record<string, string>, ...fields: string[]) => string,
-  role = false,
+  roleFields: ReadonlySet<string> = new Set(),
+  keyField = 'id',
 ): string {
   if (displayFields.length > 0) {
-    return concat(row, ...displayFields);
+    const written = { ...row };
+    for (const field of displayFields) {
+      const value = written[field];
+      if (roleFields.has(field) && typeof value === 'string') {
+        written[field] = roleInWords(value);
+      }
+    }
+    return concat(written, ...displayFields);
   }
-  return role ? nameInWords(key) : key;
+  return roleFields.has(keyField) ? roleInWords(key) : key;
 }
 
 /**

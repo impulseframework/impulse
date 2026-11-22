@@ -76,27 +76,37 @@ describe('optionDisplay', () => {
   it('shows the key where the page configured no display field', () => {
     expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', [], concat)).toBe('Pilot');
     // A key that is no role's name is shown as it is stored, whatever its letters.
-    expect(optionDisplay({ name: 'SectorMarshal' }, 'SectorMarshal', [], concat)).toBe('SectorMarshal');
+    expect(optionDisplay({ name: 'NightShiftLead' }, 'NightShiftLead', [], concat)).toBe('NightShiftLead');
   });
 
-  it("shows a role's key in words where the page configured no display field, as the server's sentences name it", () => {
-    expect(optionDisplay({ name: 'SectorMarshal' }, 'SectorMarshal', [], concat, true)).toBe('Sector marshal');
-    expect(optionDisplay({ name: 'SuperAdministrator' }, 'SuperAdministrator', [], concat, true)).toBe(
+  it("shows the key in words where the source's key field holds a role's name, as the server's sentences name it", () => {
+    const roleFields = new Set(['name']);
+    expect(optionDisplay({ name: 'NightShiftLead' }, 'NightShiftLead', [], concat, roleFields, 'name')).toBe(
+      'Night shift lead',
+    );
+    expect(optionDisplay({ name: 'SuperAdministrator' }, 'SuperAdministrator', [], concat, roleFields, 'name')).toBe(
       'Super administrator',
     );
-    expect(optionDisplay({ name: 'Reader' }, 'Reader', [], concat, true)).toBe('Reader');
+    expect(optionDisplay({ name: 'Reader' }, 'Reader', [], concat, roleFields, 'name')).toBe('Reader');
   });
 
-  it("shows the configured display fields of a role's row as they are", () => {
-    expect(
-      optionDisplay(
-        { name: 'SectorMarshal', description: 'Runs a sector' },
-        'SectorMarshal',
-        ['name', 'description'],
-        concat,
-        true,
-      ),
-    ).toBe('SectorMarshal - Runs a sector');
+  it("shows the key as it is stored where the source's key field is not among its role fields", () => {
+    // The role fields name another field: the key, under `id`, is no role's name.
+    expect(optionDisplay({ id: 'NightShiftLead' }, 'NightShiftLead', [], concat, new Set(['name']))).toBe(
+      'NightShiftLead',
+    );
+    expect(optionDisplay({ name: 'NightShiftLead' }, 'NightShiftLead', [], concat, new Set(['id']), 'name')).toBe(
+      'NightShiftLead',
+    );
+  });
+
+  it("writes a display field that holds a role's name in words, and the others as they are", () => {
+    const row = { name: 'NightShiftLead', description: 'RunsTheNight' };
+    expect(optionDisplay(row, 'NightShiftLead', ['name', 'description'], concat, new Set(['name']), 'name')).toBe(
+      'Night shift lead - RunsTheNight',
+    );
+    // The row handed in is left as it is.
+    expect(row).toEqual({ name: 'NightShiftLead', description: 'RunsTheNight' });
   });
 });
 

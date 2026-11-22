@@ -172,9 +172,30 @@ describe('filterChoiceLists', () => {
         ],
       }),
       field('pilotId', { displayType: 'enumerated', filterable: 'always', enumeratedResource: 'Pilots' as never }),
+      // A field that holds a role's name: the metadata lists the roles it may hold.
+      field('role', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
+      field('backupRole', { isIndex: true, filterable: 'always', roles: [] }),
     ],
   };
   const cases: { name: string; meta: ResourceMeta | undefined; columns: string[]; want: Record<string, unknown> }[] = [
+    {
+      name: "a field that holds a role's name offers each role the metadata lists, in words, in its order",
+      meta: missions,
+      columns: ['title', 'role'],
+      want: {
+        role: [
+          { value: 'NightShiftLead', label: 'Night shift lead' },
+          { value: 'Reader', label: 'Reader' },
+        ],
+      },
+    },
+    {
+      name: 'a role field whose metadata lists no role offers none',
+      meta: missions,
+      columns: ['backupRole'],
+      want: {},
+    },
+    { name: 'a field with neither fixed values nor roles offers none', meta: missions, columns: ['title'], want: {} },
     {
       name: "a field that takes fixed values offers each value beside its name, in the metadata's order",
       meta: missions,

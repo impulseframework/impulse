@@ -58,6 +58,7 @@ import {
   rowActionsKey,
   rowAnswerKey,
   rowButtonKey,
+  roleInWords,
   rowRouteTarget,
   writeResource,
 } from '@impulseframework/resource-angular/types';
@@ -873,9 +874,10 @@ export class ResourceListComponent implements OnInit {
         });
       } else {
         // A cell without a configured format is written by the field: the name of the
-        // value where the field takes one of a fixed set, and otherwise by the display
-        // type: a size for bytes, the elements for an array, a place in words or one-line
-        // JSON for an object, a calendar date for a date, the value's text for the rest.
+        // value where the field takes one of a fixed set, a role's name in words where it
+        // holds one, and otherwise by the display type: a size for bytes, the elements for
+        // an array, a place in words or one-line JSON for an object, a calendar date for a
+        // date, the value's text for the rest.
         // A yes-or-no value is not written at all: the table draws it as a mark
         // (processedRowData).
         const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
@@ -1061,6 +1063,9 @@ export class ResourceListComponent implements OnInit {
     const target = this.across() ? this.rowTarget() : undefined;
     const rowRoute = this.acrossRowRoute();
     const tenantParam = this.store.client.descriptor.domainRoute?.param;
+    const roleFields = new Set(
+      (this.meta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
+    );
 
     return data.map((row) => {
       const updatedRow = { ...row };
@@ -1088,10 +1093,14 @@ export class ResourceListComponent implements OnInit {
         // format is written by that format, as its author asked.
         const mark = typeof updatedRow[col.id] === 'boolean' && !col.formatType;
         // A list drawn a line each stays a list, each item written as text, so the
-        // table draws the items one under another.
+        // table draws the items one under another: a role's name in words where the
+        // column's field holds one.
         const listed = col.lines && Array.isArray(updatedRow[col.id]);
         if (listed) {
-          updatedRow[col.id] = (updatedRow[col.id] as unknown[]).map((item) => String(item ?? ''));
+          const roles = roleFields.has(col.id);
+          updatedRow[col.id] = (updatedRow[col.id] as unknown[]).map((item) =>
+            roles ? roleInWords(String(item ?? '')) : String(item ?? ''),
+          );
         } else if (typeof col.valueFormatter === 'function' && !mark) {
           updatedRow[col.id] = col.valueFormatter(updatedRow[col.id]);
         }

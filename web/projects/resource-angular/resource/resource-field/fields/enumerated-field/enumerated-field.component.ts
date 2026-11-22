@@ -318,14 +318,17 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   multiple = computed((): boolean => this.fieldMeta()?.displayType === 'enumerated[]');
 
   /**
-   * The field holds a role: a method's request field that a grant's condition reads as
-   * the role (`attribute: 'role'` in the generated metadata). Where the page configured
-   * no display field, such a picker shows each role's key in words and stores the key.
+   * The source's fields that hold a role's name: those whose metadata lists the roles they
+   * may hold (`roles`). The picker writes a role in words where it shows one of them, a
+   * display field or the key, and stores the key as it is. None for a fixed enumeration or
+   * a source with no metadata.
    */
-  private readonly namesRole = computed((): boolean => {
-    const meta = this.fieldMeta();
-    return meta !== undefined && 'attribute' in meta && meta.attribute === 'role';
-  });
+  private readonly roleFields = computed(
+    (): ReadonlySet<string> =>
+      new Set(
+        (this.sourceMeta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
+      ),
+  );
 
   /** The picked keys of a field that takes several, in the order they were picked. */
   private readonly chosenKeys = computed((): string[] => {
@@ -786,7 +789,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const key = resource[this.keyField()] ?? '';
     const option: PickerOption = {
       id: key,
-      display: optionDisplay(resource, key, displayFields, concatFunction, this.namesRole()),
+      display: optionDisplay(resource, key, displayFields, concatFunction, this.roleFields(), this.keyField()),
     };
     if (enumeratedConfig.searchable && !this.paged()) {
       option.text = this.ownSearchFields().map((field) => String(resource[field] ?? ''));
