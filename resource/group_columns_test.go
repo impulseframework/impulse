@@ -2,11 +2,15 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"cloud.google.com/go/spanner"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // The fixture of the group column tests: two yards (the tenants), a group kept in each
@@ -131,92 +135,96 @@ func (c *groupCase) judge(t *testing.T, err error) {
 func Test_pointTextStatement(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		dbType DBType
-		want   string
-	}{
-		{name: "Spanner", dbType: SpannerDBType, want: "SELECT CAST(`DomainId` AS STRING) FROM `CastGroups` WHERE `Id` = @value"},
-		{name: "PostgreSQL", dbType: PostgresDBType, want: `SELECT CAST("DomainId" AS text) FROM "CastGroups" WHERE "Id" = @value`},
+	stmt := pointTextStatement("CastGroups", "Id", "DomainId", groupOfNorth)
+	if want := `SELECT CAST("DomainId" AS text) FROM "CastGroups" WHERE "Id" = @value`; stmt.SQL != want {
+		t.Errorf("SQL = %s, want %s", stmt.SQL, want)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			stmt := pointTextStatement(tt.dbType, "CastGroups", "Id", "DomainId", groupOfNorth)
-			if stmt.SQL != tt.want {
-				t.Errorf("SQL = %s, want %s", stmt.SQL, tt.want)
-			}
-			if got := stmt.Params["value"]; got != groupOfNorth {
-				t.Errorf("the value bound = %v, want %s", got, groupOfNorth)
-			}
-		})
+	if got := stmt.Params["value"]; got != groupOfNorth {
+		t.Errorf("the value bound = %v, want %s", got, groupOfNorth)
 	}
 }
 
 // TestGroupColumn_check pins the rule's decision over a reader that holds the fixture
-// in memory, in both dialects' statements: the group's tenant against the row's, read
-// on the row or through its parent.
+// in memory: the group's tenant against the row's, read on the row or through its
+// parent, and each value handed to the reader as it is held, so a parent keyed by a
+// number is read by the number.
 func TestGroupColumn_check(t *testing.T) {
 	t.Parallel()
 
-	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
-		held := map[string]string{}
-		hold := func(table, key, column, value, text string) {
-			stmt := pointTextStatement(dbType, table, key, column, value)
-			held[stmt.SQL+" "+value] = text
+	// A read is found by its table, column, key column and the value with its Go type.
+	readKey := func(table, keyColumn string, value any, column string) string {
+		return fmt.Sprintf("%s.%s where %s = %T %v", table, column, keyColumn, value, value)
+	}
+	held := map[string]any{}
+	hold := func(table, keyColumn string, value any, column string, answer any) {
+		held[readKey(table, keyColumn, value, column)] = answer
+	}
+	hold("CastGroups", "Id", groupOfNorth, "DomainId", groupYardNorth)
+	hold("CastGroups", "Id", groupOfSouth, "DomainId", groupYardSouth)
+	hold("CastGroups", "Id", groupOfEveryone, "DomainId", "")
+	hold("GroupShares", "Id", "north-share", "Yard", groupYardNorth)
+	hold("NumberedShares", "Number", int64(7), "Yard", groupYardNorth)
+	errRead := errors.New("the database did not answer")
+	read := func(_ context.Context, table, keyColumn string, value any, column string) (any, bool, error) {
+		if value == groupUnread {
+			return nil, false, errRead
 		}
-		hold("CastGroups", "Id", "DomainId", groupOfNorth, groupYardNorth)
-		hold("CastGroups", "Id", "DomainId", groupOfSouth, groupYardSouth)
-		hold("CastGroups", "Id", "DomainId", groupOfEveryone, "")
-		hold("GroupShares", "Id", "Yard", "north-share", groupYardNorth)
-		errRead := errors.New("the database did not answer")
-		read := func(_ context.Context, table, keyColumn, value, column string) (string, bool, error) {
-			stmt := pointTextStatement(dbType, table, keyColumn, column, value)
-			if value == groupUnread {
-				return "", false, errRead
-			}
-			text, found := held[stmt.SQL+" "+value]
+		answer, found := held[readKey(table, keyColumn, value, column)]
 
-			return text, found, nil
-		}
+		return answer, found, nil
+	}
 
-		onRow := groupShare{}.GroupColumns()[0]
-		cases := groupShareCases()
-		cases = append(cases, groupCase{name: "a row with no yard names no group", anchor: "", group: groupOfEveryone, refused: true})
-		for _, tt := range cases {
-			t.Run(string(dbType)+", yard on the row: "+tt.name, func(t *testing.T) {
-				t.Parallel()
-
-				tt.judge(t, onRow.check(context.Background(), read, tt.anchor, tt.group))
-			})
-		}
-
-		t.Run(string(dbType)+", yard on the row: a read that fails is returned and refuses nothing", func(t *testing.T) {
+	onRow := groupShare{}.GroupColumns()[0]
+	cases := groupShareCases()
+	cases = append(cases, groupCase{name: "a row with no yard names no group", anchor: "", group: groupOfEveryone, refused: true})
+	for _, tt := range cases {
+		t.Run("yard on the row: "+tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := onRow.check(context.Background(), read, groupYardNorth, groupUnread)
-			if !errors.Is(err, errRead) {
-				t.Fatalf("error = %v, want the read's own error", err)
-			}
-			if httpio.HasBadRequest(err) {
-				t.Errorf("error = %v, want no bad request: a read that failed says nothing about the group", err)
-			}
+			tt.judge(t, onRow.check(context.Background(), read, tt.anchor, tt.group))
 		})
+	}
 
-		throughParent := groupSeal{}.GroupColumns()[0]
-		for _, tt := range []groupCase{
-			{name: "a group kept in the parent's yard is written", anchor: "north-share", group: groupOfNorth},
-			{name: "a group kept in another yard is refused", anchor: "north-share", group: groupOfSouth, refused: true},
-			{name: "a group kept for the whole application is refused", anchor: "north-share", group: groupOfEveryone, refused: true},
-			{name: "a parent that is not there is left to the foreign key", anchor: "no-share", group: groupOfSouth},
-		} {
-			t.Run(string(dbType)+", yard through a parent: "+tt.name, func(t *testing.T) {
-				t.Parallel()
+	t.Run("yard on the row: a read that fails is returned and refuses nothing", func(t *testing.T) {
+		t.Parallel()
 
-				tt.judge(t, throughParent.check(context.Background(), read, tt.anchor, tt.group))
-			})
+		err := onRow.check(context.Background(), read, groupYardNorth, groupUnread)
+		if !errors.Is(err, errRead) {
+			t.Fatalf("error = %v, want the read's own error", err)
 		}
+		if httpio.HasBadRequest(err) {
+			t.Errorf("error = %v, want no bad request: a read that failed says nothing about the group", err)
+		}
+	})
+
+	throughParent := groupSeal{}.GroupColumns()[0]
+	for _, tt := range []groupCase{
+		{name: "a group kept in the parent's yard is written", anchor: "north-share", group: groupOfNorth},
+		{name: "a group kept in another yard is refused", anchor: "north-share", group: groupOfSouth, refused: true},
+		{name: "a group kept for the whole application is refused", anchor: "north-share", group: groupOfEveryone, refused: true},
+		{name: "a parent that is not there is left to the foreign key", anchor: "no-share", group: groupOfSouth},
+		{name: "a row with no parent names no group", anchor: "", group: groupOfNorth, refused: true},
+	} {
+		t.Run("yard through a parent: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.judge(t, throughParent.check(context.Background(), read, tt.anchor, tt.group))
+		})
+	}
+
+	// The same way through a parent keyed by a number: the row's anchor is an int64.
+	throughNumber := throughParent
+	throughNumber.Tenant = "ShareNumber"
+	throughNumber.Path = []BindingHop{{Table: "NumberedShares", JoinColumn: "Number", Column: "Yard"}}
+	for _, tt := range []groupCase{
+		{name: "a group kept in the parent's yard is written", group: groupOfNorth},
+		{name: "a group kept in another yard is refused", group: groupOfSouth, refused: true},
+	} {
+		t.Run("yard through a parent keyed by a number: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.judge(t, throughNumber.check(context.Background(), read, int64(7), tt.group))
+		})
 	}
 }
 
@@ -253,6 +261,11 @@ func Test_columnText(t *testing.T) {
 
 	text := "north"
 	var none *string
+	number := int64(7)
+	var noNumber *int64
+	returned := func(code sppb.TypeCode, value *structpb.Value) spanner.GenericColumnValue {
+		return spanner.GenericColumnValue{Type: &sppb.Type{Code: code}, Value: value}
+	}
 	tests := []struct {
 		name    string
 		value   any
@@ -264,7 +277,23 @@ func Test_columnText(t *testing.T) {
 		{name: "a pointer to a string", value: &text, want: "north"},
 		{name: "a nil pointer", value: none, want: ""},
 		{name: "a domain", value: accesstypes.Domain("north"), want: "north"},
-		{name: "a number", value: 7, wantErr: true},
+		{name: "an int64", value: int64(7), want: "7"},
+		{name: "a pointer to an int64", value: &number, want: "7"},
+		{name: "a nil pointer to an int64", value: noNumber, want: ""},
+		{name: "an int", value: 7, want: "7"},
+		{name: "a uint32", value: uint32(7), want: "7"},
+		{name: "a NullInt64 with a value", value: spanner.NullInt64{Int64: 7, Valid: true}, want: "7"},
+		{name: "a NullInt64 with none", value: spanner.NullInt64{}, want: ""},
+		{name: "a NullString with a value", value: spanner.NullString{StringVal: "north", Valid: true}, want: "north"},
+		{name: "a NullString with none", value: spanner.NullString{}, want: ""},
+		{name: "a STRING Spanner returned", value: returned(sppb.TypeCode_STRING, structpb.NewStringValue("north")), want: "north"},
+		{name: "an INT64 Spanner returned", value: returned(sppb.TypeCode_INT64, structpb.NewStringValue("7")), want: "7"},
+		{name: "a BOOL Spanner returned", value: returned(sppb.TypeCode_BOOL, structpb.NewBoolValue(true)), want: "true"},
+		{name: "a NULL Spanner returned", value: returned(sppb.TypeCode_STRING, structpb.NewNullValue()), want: ""},
+		{name: "a float, as the Spanner client encodes it", value: float64(1.5), want: "1.5"},
+		{name: "bytes, as the Spanner client encodes them", value: []byte{1, 2}, want: "AQI="},
+		{name: "a boolean, as the Spanner client encodes it", value: true, want: "true"},
+		{name: "a list", value: []string{"north", "south"}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

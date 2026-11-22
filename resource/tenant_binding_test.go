@@ -115,10 +115,83 @@ func (changeNotice) Config() Config {
 	return Config{}.SetTrackChanges(true)
 }
 
+// changeBay is a row keyed by number that carries its yard.
+type changeBay struct {
+	Number int64  `spanner:"Number"`
+	YardID string `spanner:"YardId"`
+	Name   string `spanner:"Name"`
+}
+
+func (changeBay) Resource() accesstypes.Resource {
+	return "Bays"
+}
+
+func (changeBay) Config() Config {
+	return Config{}.SetTrackChanges(true)
+}
+
+func (changeBay) TenantBinding() TenantBinding {
+	return TenantBinding{Field: "YardID"}
+}
+
+// changeCrate is a row keyed by number that reaches its yard through a bay, by the bay's
+// number, which it may leave empty.
+type changeCrate struct {
+	Number    int64  `spanner:"Number"`
+	BayNumber *int64 `spanner:"BayNumber"`
+	Name      string `spanner:"Name"`
+}
+
+func (changeCrate) Resource() accesstypes.Resource {
+	return "Crates"
+}
+
+func (changeCrate) Config() Config {
+	return Config{}.SetTrackChanges(true)
+}
+
+func (changeCrate) TenantBinding() TenantBinding {
+	return TenantBinding{Field: "BayNumber", Path: []BindingHop{{Table: "Bays", JoinColumn: "Number", Column: "YardId"}}}
+}
+
+// changeLabel is a row that reaches its yard through a crate and the crate's bay, both by
+// number.
+type changeLabel struct {
+	ID          string `spanner:"Id"`
+	CrateNumber int64  `spanner:"CrateNumber"`
+	Name        string `spanner:"Name"`
+}
+
+func (changeLabel) Resource() accesstypes.Resource {
+	return "Labels"
+}
+
+func (changeLabel) Config() Config {
+	return Config{}.SetTrackChanges(true)
+}
+
+func (changeLabel) TenantBinding() TenantBinding {
+	return TenantBinding{Field: "CrateNumber", Path: []BindingHop{
+		{Table: "Crates", JoinColumn: "Number", Column: "BayNumber"},
+		{Table: "Bays", JoinColumn: "Number", Column: "YardId"},
+	}}
+}
+
 // changePatch builds a patch of one fixture row, as a method's own code builds one.
 func changePatch[R Resourcer](patchType PatchType, id string, fields map[accesstypes.Field]any) *PatchSet[R] {
 	p := NewPatchSet(NewMetadata[R]()).SetPatchType(patchType)
 	p.SetKey("ID", id)
+	for field, value := range fields {
+		p.Set(field, value)
+	}
+
+	return p
+}
+
+// numberPatch builds a patch of one fixture row keyed by number.
+func numberPatch[R Resourcer](patchType PatchType, number int64, fields map[accesstypes.Field]any) *PatchSet[R] {
+	p := NewPatchSet(NewMetadata[R]()).SetPatchType(patchType)
+	p.SetKey("Number", number)
 	for field, value := range fields {
 		p.Set(field, value)
 	}
@@ -146,19 +219,19 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 		{
 			name:      "a create that set the column answers its value",
 			writes:    []write{{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1", "Name": "first"}}},
-			want:      pointAnswer{text: "yard-1", found: true},
+			want:      pointAnswer{value: "yard-1", found: true},
 			wantKnown: true,
 		},
 		{
-			name:      "a create that left the column out answers the empty string",
+			name:      "a create that left the column out answers nil",
 			writes:    []write{{CreatePatchType, map[string]any{"Id": "dock-1", "Name": "first"}}},
-			want:      pointAnswer{text: "", found: true},
+			want:      pointAnswer{value: nil, found: true},
 			wantKnown: true,
 		},
 		{
-			name:      "a column set to NULL is the empty string",
+			name:      "a column set to NULL answers nil",
 			writes:    []write{{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": nil}}},
-			want:      pointAnswer{text: "", found: true},
+			want:      pointAnswer{value: nil, found: true},
 			wantKnown: true,
 		},
 		{
@@ -167,7 +240,7 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 				{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1"}},
 				{UpdatePatchType, map[string]any{"Id": "dock-1", "Name": "renamed"}},
 			},
-			want:      pointAnswer{text: "yard-1", found: true},
+			want:      pointAnswer{value: "yard-1", found: true},
 			wantKnown: true,
 		},
 		{
@@ -176,7 +249,7 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 				{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1"}},
 				{UpdatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-2"}},
 			},
-			want:      pointAnswer{text: "yard-2", found: true},
+			want:      pointAnswer{value: "yard-2", found: true},
 			wantKnown: true,
 		},
 		{
@@ -188,8 +261,8 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 			writes: []write{{CreatePatchType, map[string]any{"Id": "dock-2", "YardId": "yard-2"}}},
 		},
 		{
-			name:   "a write whose key is not text says nothing",
-			writes: []write{{CreatePatchType, map[string]any{"Id": 7, "YardId": "yard-2"}}},
+			name:   "a write whose key cannot be spelled says nothing",
+			writes: []write{{CreatePatchType, map[string]any{"Id": []string{"dock-1"}, "YardId": "yard-2"}}},
 		},
 		{
 			name:   "a delete is not noted",
@@ -206,10 +279,7 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 			}
 			rows.note("Berths", CreatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1", "YardId": "another table's"})
 
-			got, known, err := rows.buffered(read)
-			if err != nil {
-				t.Fatalf("buffered() error = %v", err)
-			}
+			got, known := rows.buffered(read)
 			if known != tt.wantKnown || got != tt.want {
 				t.Errorf("buffered() = %+v, known %t, want %+v, known %t", got, known, tt.want, tt.wantKnown)
 			}
@@ -337,6 +407,30 @@ func TestChangeRecordTenant_mock(t *testing.T) {
 	}
 }
 
+// TestChangeRecordTenant_mockNumberKey pins that a mocked transaction, which holds no
+// tables to ask, buffers a tracked create of a row that reaches its tenant through a key
+// that is a number, with an empty tenant and no error.
+func TestChangeRecordTenant_mockNumberKey(t *testing.T) {
+	t.Parallel()
+
+	bay := int64(7)
+	buffered := &bufferingTxn{}
+	p := numberPatch[changeCrate](CreatePatchType, 70, map[accesstypes.Field]any{"BayNumber": &bay, "Name": "Seventieth"})
+	if err := p.Buffer(context.Background(), NewMockReadWriteTransaction(buffered), "test"); err != nil {
+		t.Fatalf("Buffer() error = %v", err)
+	}
+	if len(buffered.buffered) != 2 {
+		t.Fatalf("the transaction buffered %d writes, want the create and its change record", len(buffered.buffered))
+	}
+	record, ok := buffered.buffered[1].(*DataChangeEvent)
+	if !ok {
+		t.Fatalf("the second write is a %T, want the change record", buffered.buffered[1])
+	}
+	if record.TenantID != "" {
+		t.Errorf("the change record's tenant = %q, want empty", record.TenantID)
+	}
+}
+
 // TestChangeRecordTenant_armed pins that a write armed in a tenant's request
 // takes the request's tenant, which the tenancy check has held the row to, and reads
 // nothing for it: the mocked transaction has no row to read, and the berth's dock is
@@ -423,21 +517,21 @@ func TestChangeRecordTenant_pointReader(t *testing.T) {
 			txn: func() ReadWriteTransaction {
 				rows := newTransactionRows()
 				rows.note("Docks", UpdatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1", "YardId": "yard-buffered"})
-				rows.remember(read, pointAnswer{text: "yard-read", found: true})
+				rows.remember(read, pointAnswer{value: "yard-read", found: true})
 
 				return &rowsRecordingTxn{rows: rows}
 			},
-			want: pointAnswer{text: "yard-buffered", found: true},
+			want: pointAnswer{value: "yard-buffered", found: true},
 		},
 		{
 			name: "what the transaction read before answers with nothing buffered",
 			txn: func() ReadWriteTransaction {
 				rows := newTransactionRows()
-				rows.remember(read, pointAnswer{text: "yard-read", found: true})
+				rows.remember(read, pointAnswer{value: "yard-read", found: true})
 
 				return &rowsRecordingTxn{rows: rows}
 			},
-			want: pointAnswer{text: "yard-read", found: true},
+			want: pointAnswer{value: "yard-read", found: true},
 		},
 		{
 			name: "a transaction with no tables to ask answers that there is no row",
@@ -458,7 +552,7 @@ func TestChangeRecordTenant_pointReader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			text, found, err := transactionPointReader(tt.txn(), changeRecordTenantNotImplemented)(context.Background(), read.table, read.keyColumn, read.value, read.column)
+			value, found, err := transactionPointReader(tt.txn(), changeRecordTenantNotImplemented)(context.Background(), read.table, read.keyColumn, read.value, read.column)
 			if tt.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 					t.Fatalf("read error = %v, want one containing %q", err, tt.wantError)
@@ -469,7 +563,7 @@ func TestChangeRecordTenant_pointReader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read error = %v", err)
 			}
-			if got := (pointAnswer{text: text, found: found}); got != tt.want {
+			if got := (pointAnswer{value: value, found: found}); got != tt.want {
 				t.Errorf("read = %+v, want %+v", got, tt.want)
 			}
 		})

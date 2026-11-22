@@ -277,6 +277,79 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 		}
 	})
 
+	t.Run("a crate under a stored bay, created, updated without the bay, deleted: the bay's yard", func(t *testing.T) {
+		t.Parallel()
+
+		bay := int64(1)
+		seedChangeRows(t, db, spanner.InsertMap("Bays", map[string]any{"Number": bay, "YardId": north, "Name": "First"}))
+		applyEach(t, client,
+			numberPatch[changeCrate](CreatePatchType, 101, map[accesstypes.Field]any{"BayNumber": &bay, "Name": "First"}),
+			numberPatch[changeCrate](UpdatePatchType, 101, map[accesstypes.Field]any{"Name": "Renamed"}),
+			numberPatch[changeCrate](DeletePatchType, 101, nil),
+		)
+		if diff := cmp.Diff([]string{north, north, north}, changeTenants(t, db, "Crates", "101")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a label created under a stored crate: the yard, through two number keys", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db,
+			spanner.InsertMap("Bays", map[string]any{"Number": int64(2), "YardId": north, "Name": "Second"}),
+			spanner.InsertMap("Crates", map[string]any{"Number": int64(102), "BayNumber": int64(2), "Name": "Second"}),
+		)
+		applyEach(t, client, changePatch[changeLabel](CreatePatchType, "label-2", map[accesstypes.Field]any{"CrateNumber": int64(102), "Name": "Second"}))
+		if diff := cmp.Diff([]string{north}, changeTenants(t, db, "Labels", "label-2")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a bay, a crate and a label created in one transaction: each carries the yard", func(t *testing.T) {
+		t.Parallel()
+
+		bay := int64(3)
+		applyTogether(t, client,
+			numberPatch[changeBay](CreatePatchType, bay, map[accesstypes.Field]any{"YardID": south, "Name": "Third"}),
+			numberPatch[changeCrate](CreatePatchType, 103, map[accesstypes.Field]any{"BayNumber": &bay, "Name": "Third"}),
+			changePatch[changeLabel](CreatePatchType, "label-3", map[accesstypes.Field]any{"CrateNumber": int64(103), "Name": "Third"}),
+		)
+		for _, row := range []struct{ table, id string }{{"Bays", "3"}, {"Crates", "103"}, {"Labels", "label-3"}} {
+			if diff := cmp.Diff([]string{south}, changeTenants(t, db, row.table, row.id)); diff != "" {
+				t.Errorf("tenants of %s %s mismatch (-want +got):\n%s", row.table, row.id, diff)
+			}
+		}
+	})
+
+	t.Run("a label renamed after its crate's bay moved yard in the same transaction: the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db,
+			spanner.InsertMap("Bays", map[string]any{"Number": int64(4), "YardId": north, "Name": "Fourth"}),
+			spanner.InsertMap("Crates", map[string]any{"Number": int64(104), "BayNumber": int64(4), "Name": "Fourth"}),
+			spanner.InsertMap("Labels", map[string]any{"Id": "label-4", "CrateNumber": int64(104), "Name": "Fourth"}),
+		)
+		applyTogether(t, client,
+			numberPatch[changeBay](UpdatePatchType, 4, map[accesstypes.Field]any{"YardID": south}),
+			changePatch[changeLabel](UpdatePatchType, "label-4", map[accesstypes.Field]any{"Name": "Renamed"}),
+		)
+		if diff := cmp.Diff([]string{south}, changeTenants(t, db, "Labels", "label-4")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a crate with no bay: empty, and the write succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		applyEach(t, client,
+			numberPatch[changeCrate](CreatePatchType, 105, map[accesstypes.Field]any{"Name": "Fifth"}),
+			numberPatch[changeCrate](UpdatePatchType, 105, map[accesstypes.Field]any{"Name": "Renamed"}),
+		)
+		if diff := cmp.Diff([]string{"", ""}, changeTenants(t, db, "Crates", "105")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("a berth with no dock: empty, and the write succeeds", func(t *testing.T) {
 		t.Parallel()
 
@@ -319,11 +392,20 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 				t.Errorf("tenants of %s mismatch (-want +got):\n%s", id, diff)
 			}
 		}
-		want := map[pointRead]pointAnswer{
-			{table: "Berths", keyColumn: "Id", value: "berth-9", column: "DockId"}: {text: dockNorth, found: true},
-			{table: "Docks", keyColumn: "Id", value: dockNorth, column: "YardId"}:  {text: north, found: true},
+		// Each answer is held as Spanner returned it; the test reads it by its spelling.
+		got := map[pointRead]string{}
+		for read, answer := range reads {
+			text, err := columnText(answer.value)
+			if err != nil || !answer.found {
+				t.Fatalf("the remembered read %+v answered %+v, %v; want a row", read, answer, err)
+			}
+			got[read] = text
 		}
-		if diff := cmp.Diff(want, reads, cmp.AllowUnexported(pointRead{}, pointAnswer{})); diff != "" {
+		want := map[pointRead]string{
+			{table: "Berths", keyColumn: "Id", value: "berth-9", column: "DockId"}: dockNorth,
+			{table: "Docks", keyColumn: "Id", value: dockNorth, column: "YardId"}:  north,
+		}
+		if diff := cmp.Diff(want, got, cmp.AllowUnexported(pointRead{})); diff != "" {
 			t.Errorf("the reads the transaction remembers mismatch (-want +got):\n%s", diff)
 		}
 	})

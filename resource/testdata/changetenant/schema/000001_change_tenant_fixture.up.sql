@@ -2,8 +2,11 @@
 -- change history table as an application's first migration carries it, a tenant's table
 -- (Yards), a table whose rows carry their yard (Docks), a table whose rows reach it
 -- through a dock they may leave empty (Berths), a table whose rows reach it through a
--- berth and its dock (Moorings), and a table of no tenant (Notices). Every resource of the
--- fixture tracks its changes. Names are the fixture's own.
+-- berth and its dock (Moorings), and a table of no tenant (Notices); then the same ways
+-- through keys that are numbers: a table keyed by number whose rows carry their yard
+-- (Bays), a table keyed by number whose rows reach it through a bay they may leave empty
+-- (Crates), and a table whose rows reach it through a crate and its bay (Labels). Every
+-- resource of the fixture tracks its changes. Names are the fixture's own.
 
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
@@ -49,4 +52,25 @@ CREATE TABLE Moorings (
 CREATE TABLE Notices (
   Id STRING(36) NOT NULL,
   Body STRING(MAX) NOT NULL,
+) PRIMARY KEY (Id);
+
+CREATE TABLE Bays (
+  Number INT64 NOT NULL,
+  YardId STRING(36) NOT NULL,
+  Name STRING(MAX) NOT NULL,
+  CONSTRAINT FK_Bays_YardId FOREIGN KEY (YardId) REFERENCES Yards (Id),
+) PRIMARY KEY (Number);
+
+CREATE TABLE Crates (
+  Number INT64 NOT NULL,
+  BayNumber INT64,
+  Name STRING(MAX) NOT NULL,
+  CONSTRAINT FK_Crates_BayNumber FOREIGN KEY (BayNumber) REFERENCES Bays (Number),
+) PRIMARY KEY (Number);
+
+CREATE TABLE Labels (
+  Id STRING(36) NOT NULL,
+  CrateNumber INT64 NOT NULL,
+  Name STRING(MAX) NOT NULL,
+  CONSTRAINT FK_Labels_CrateNumber FOREIGN KEY (CrateNumber) REFERENCES Crates (Number),
 ) PRIMARY KEY (Id);

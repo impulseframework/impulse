@@ -42,12 +42,14 @@ type tenantBinder interface {
 	TenantBinding() TenantBinding
 }
 
-// pointReader answers the text of column of the row of table whose keyColumn holds
-// value, and whether there is such a row.
-type pointReader func(ctx context.Context, table, keyColumn, value, column string) (text string, found bool, err error)
+// pointReader answers column of the row of table whose keyColumn holds value, and whether
+// there is such a row. The value and the answer are carried as they are held (a patch's
+// Go value, or the column as Spanner returned it), so a path through a key that is no
+// text is followed in the key's own type.
+type pointReader func(ctx context.Context, table, keyColumn string, value any, column string) (next any, found bool, err error)
 
-// pointRead names one point read: column of the row of table whose keyColumn holds
-// value.
+// pointRead names one point read: column of the row of table whose keyColumn holds the
+// value spelled value (columnText).
 type pointRead struct {
 	table     string
 	keyColumn string
@@ -55,9 +57,10 @@ type pointRead struct {
 	column    string
 }
 
-// pointAnswer is what one point read answered.
+// pointAnswer is what one point read answered: the column's value as held, and whether
+// there is such a row.
 type pointAnswer struct {
-	text  string
+	value any
 	found bool
 }
 
@@ -99,9 +102,9 @@ func (t *transactionRows) note(table accesstypes.Resource, patchType PatchType, 
 
 // ownColumn answers a column of one row, which row is its key as rowMatchKey spells it,
 // from what the transaction's patches buffered for that row, newest first: a write that
-// set the column answers its value, a create that did not answers nil, and an update or
-// an insert-or-update that did not is passed over. known is false when no buffered write
-// of the row says.
+// set the column answers its value as held, a create that did not answers nil, and an
+// update or an insert-or-update that did not is passed over. known is false when no
+// buffered write of the row says.
 func (t *transactionRows) ownColumn(table, row, column string) (value any, known bool) {
 	writes := t.writes[table]
 	for i := len(writes) - 1; i >= 0; i-- {
@@ -136,10 +139,12 @@ func (p *PatchSet[Resource]) bufferedOwnColumn(txn ReadWriteTransaction, field a
 }
 
 // buffered answers a point read from what the transaction's patches buffered, newest
-// first. known is false when no buffered write says: no write of the row, or only
-// updates that did not set the column. A create of the row that did not set the column
-// answers the empty string.
-func (t *transactionRows) buffered(read pointRead) (answer pointAnswer, known bool, err error) {
+// first: a write whose key column is spelled as the read's value (columnText) is a write
+// of the row, and a write whose key cannot be spelled is passed over. The answer is the
+// buffered value as held. known is false when no buffered write says: no write of the
+// row, or only updates that did not set the column. A create of the row that did not set
+// the column answers nil.
+func (t *transactionRows) buffered(read pointRead) (answer pointAnswer, known bool) {
 	writes := t.writes[read.table]
 	for i := len(writes) - 1; i >= 0; i-- {
 		key, ok := writes[i].columns[read.keyColumn]
@@ -151,19 +156,14 @@ func (t *transactionRows) buffered(read pointRead) (answer pointAnswer, known bo
 			continue
 		}
 		if value, ok := writes[i].columns[read.column]; ok {
-			text, err := columnText(value)
-			if err != nil {
-				return pointAnswer{}, false, errors.Wrapf(err, "%s.%s", read.table, read.column)
-			}
-
-			return pointAnswer{text: text, found: true}, true, nil
+			return pointAnswer{value: value, found: true}, true
 		}
 		if writes[i].patchType == CreatePatchType {
-			return pointAnswer{text: "", found: true}, true, nil
+			return pointAnswer{value: nil, found: true}, true
 		}
 	}
 
-	return pointAnswer{}, false, nil
+	return pointAnswer{}, false
 }
 
 // remembered answers a point read the transaction made before.
@@ -192,69 +192,75 @@ func (c *SpannerReadWriteTransaction) transactionRows() *transactionRows {
 }
 
 // transactionPointReader returns the transaction's point reader: what its own patches
-// buffered, then what it read before, then the database, whose answer it remembers.
-// Reads are on Spanner alone: on another database the first read the database would
-// answer is refused with notImplemented. A transaction with no tables to ask (the
-// Mock's) is asked nothing, and answers that there is no such row.
+// buffered, then what it read before, then the database, whose answer it remembers by
+// the value's spelling (columnText). Reads are on Spanner alone: on another database
+// the first read the database would answer is refused with notImplemented. A
+// transaction with no tables to ask (the Mock's) is asked nothing, and answers that
+// there is no such row.
 func transactionPointReader(txn ReadWriteTransaction, notImplemented string) pointReader {
 	var rows *transactionRows
 	if recorder, ok := txn.(rowsRecorder); ok {
 		rows = recorder.transactionRows()
 	}
 
-	return func(ctx context.Context, table, keyColumn, value, column string) (string, bool, error) {
-		read := pointRead{table: table, keyColumn: keyColumn, value: value, column: column}
+	return func(ctx context.Context, table, keyColumn string, value any, column string) (any, bool, error) {
+		spelled, err := columnText(value)
+		if err != nil {
+			return nil, false, errors.Wrapf(err, "%s.%s", table, keyColumn)
+		}
+		read := pointRead{table: table, keyColumn: keyColumn, value: spelled, column: column}
 		if rows != nil {
-			answer, known, err := rows.buffered(read)
-			if err != nil {
-				return "", false, err
-			}
-			if known {
-				return answer.text, answer.found, nil
+			if answer, known := rows.buffered(read); known {
+				return answer.value, answer.found, nil
 			}
 			if answer, ok := rows.remembered(read); ok {
-				return answer.text, answer.found, nil
+				return answer.value, answer.found, nil
 			}
 		}
 		if txn.DBType() != SpannerDBType {
-			return "", false, errors.Newf("%s is not implemented for %s", notImplemented, txn.DBType())
+			return nil, false, errors.Newf("%s is not implemented for %s", notImplemented, txn.DBType())
 		}
 		querier := txn.SpannerReadOnlyTransaction()
 		if querier == nil {
-			return "", false, nil
+			return nil, false, nil
 		}
-		text, found, err := spannerPointText(ctx, querier, pointTextStatement(SpannerDBType, table, keyColumn, column, value))
+		next, found, err := spannerPointRead(ctx, querier, table, keyColumn, value, column)
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
 		if rows != nil {
-			rows.remember(read, pointAnswer{text: text, found: found})
+			rows.remember(read, pointAnswer{value: next, found: found})
 		}
 
-		return text, found, nil
+		return next, found, nil
 	}
 }
 
-// spannerPointText runs a statement that yields one text value, and says whether it
-// yielded a row at all.
-func spannerPointText(ctx context.Context, querier spxapi.Querier, stmt *Statement) (text string, found bool, err error) {
-	it := querier.Query(ctx, stmt.SpannerStatement())
+// spannerPointRead reads column of the row of table whose keyColumn holds value, the
+// value bound in its own type, and answers the column as Spanner returned it (a
+// spanner.GenericColumnValue), and whether there is such a row.
+func spannerPointRead(ctx context.Context, querier spxapi.Querier, table, keyColumn string, value any, column string) (next any, found bool, err error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT `" + column + "` FROM `" + table + "` WHERE `" + keyColumn + "` = @value",
+		Params: map[string]any{"value": value},
+	}
+	it := querier.Query(ctx, stmt)
 	defer it.Stop()
 
 	row, err := it.Next()
 	if err != nil {
 		if errors.Is(err, iterator.Done) {
-			return "", false, nil
+			return nil, false, nil
 		}
 
-		return "", false, errors.Wrap(err, "spanner.RowIterator.Next()")
+		return nil, false, errors.Wrap(err, "spanner.RowIterator.Next()")
 	}
-	var value spanner.NullString
-	if err := row.Column(0, &value); err != nil {
-		return "", false, errors.Wrap(err, "spanner.Row.Column()")
+	var answer spanner.GenericColumnValue
+	if err := row.Column(0, &answer); err != nil {
+		return nil, false, errors.Wrap(err, "spanner.Row.Column()")
 	}
 
-	return value.StringVal, true, nil
+	return answer, true, nil
 }
 
 // changeRecordTenantNotImplemented is the refusal of a read a change record's tenant
@@ -286,73 +292,83 @@ func (p *PatchSet[Resource]) changeRecordTenant(ctx context.Context, txn ReadWri
 	if err != nil {
 		return "", err
 	}
-	if len(binding.Path) == 0 || anchor == "" {
-		return anchor, nil
-	}
-
-	read := transactionPointReader(txn, changeRecordTenantNotImplemented)
-	tenant := anchor
-	for _, hop := range binding.Path {
-		next, found, err := read(ctx, hop.Table, hop.JoinColumn, tenant, hop.Column)
-		if err != nil {
-			return "", errors.Wrapf(err, "reading %s.%s", hop.Table, hop.Column)
-		}
-		if !found {
-			// The row names a parent that is not there: the commit fails on its foreign
-			// key, and the record is never written.
-			return "", nil
-		}
-		tenant = next
+	// A row that names a parent that is not there carries no tenant: the commit fails on
+	// its foreign key, and the record is never written.
+	tenant, _, err := followTenantPath(ctx, transactionPointReader(txn, changeRecordTenantNotImplemented), binding.Field, anchor, binding.Path)
+	if err != nil {
+		return "", err
 	}
 
 	return tenant, nil
 }
 
+// followTenantPath follows a row's way to its tenant from anchor, the row's value of
+// field as held: each step is one point read by the value the step before answered, as
+// held. It answers the tenant's key, spelled (columnText). An anchor, or a step's answer,
+// whose spelling is empty ends the way with no tenant, the empty string; missing is true
+// when a step names a row that is not there.
+func followTenantPath(ctx context.Context, read pointReader, field accesstypes.Field, anchor any, path []BindingHop) (tenant string, missing bool, err error) {
+	value := anchor
+	for _, hop := range path {
+		spelled, err := columnText(value)
+		if err != nil {
+			return "", false, errors.Wrapf(err, "the way to the tenant of field %s", field)
+		}
+		if spelled == "" {
+			return "", false, nil
+		}
+		next, found, err := read(ctx, hop.Table, hop.JoinColumn, value, hop.Column)
+		if err != nil {
+			return "", false, errors.Wrapf(err, "reading %s.%s", hop.Table, hop.Column)
+		}
+		if !found {
+			return "", true, nil
+		}
+		value = next
+	}
+	tenant, err = columnText(value)
+	if err != nil {
+		return "", false, errors.Wrapf(err, "the tenant of field %s", field)
+	}
+
+	return tenant, false, nil
+}
+
 // tenantAnchor reads the row's value of the field its way to its tenant leaves through,
-// as text: the patch's own value, the patch's key, nothing for a create that does not
+// as held: the patch's own value, the patch's key, nothing for a create that does not
 // set it, what the transaction's patches buffered for the row before, a deleted row's
 // value as the delete read it, and otherwise the stored row's, one point read on the
 // primary key. A row that is not stored, and a transaction with no tables to ask (the
-// Mock's), answer the empty string.
-func (p *PatchSet[Resource]) tenantAnchor(ctx context.Context, txn ReadWriteTransaction, field accesstypes.Field, deleted map[accesstypes.Field]DiffElem) (string, error) {
+// Mock's), answer nil.
+func (p *PatchSet[Resource]) tenantAnchor(ctx context.Context, txn ReadWriteTransaction, field accesstypes.Field, deleted map[accesstypes.Field]DiffElem) (any, error) {
 	switch {
 	case p.IsSet(field):
-		return fieldText(field, p.Get(field))
+		return p.Get(field), nil
 	case p.Key(field) != nil:
-		return fieldText(field, p.Key(field))
+		return p.Key(field), nil
 	case p.patchType == CreatePatchType:
-		return "", nil
+		return nil, nil
 	}
 	if value, known := p.bufferedOwnColumn(txn, field); known {
-		return fieldText(field, value)
+		return value, nil
 	}
 	if p.patchType == DeletePatchType {
-		return fieldText(field, deleted[field].Old)
+		return deleted[field].Old, nil
 	}
 
 	if txn.DBType() != SpannerDBType {
-		return "", errors.Newf("%s is not implemented for %s", changeRecordTenantNotImplemented, txn.DBType())
+		return nil, errors.Newf("%s is not implemented for %s", changeRecordTenantNotImplemented, txn.DBType())
 	}
 	if txn.SpannerReadOnlyTransaction() == nil {
-		return "", nil
+		return nil, nil
 	}
-	text, found, err := p.storedRowText(ctx, txn, field)
+	value, found, err := p.storedRowValue(ctx, txn, field)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !found {
-		return "", nil
+		return nil, nil
 	}
 
-	return text, nil
-}
-
-// fieldText spells a field's value as text (columnText), naming the field in the error.
-func fieldText(field accesstypes.Field, value any) (string, error) {
-	text, err := columnText(value)
-	if err != nil {
-		return "", errors.Wrapf(err, "field %s", field)
-	}
-
-	return text, nil
+	return value, nil
 }

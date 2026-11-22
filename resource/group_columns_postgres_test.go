@@ -63,15 +63,19 @@ func TestGroupColumn_check_onPostgres(t *testing.T) {
 		t.Skip("requires a PostgreSQL container")
 	}
 	db := groupPostgres(t)
-	read := func(ctx context.Context, table, keyColumn, value, column string) (string, bool, error) {
-		stmt := pointTextStatement(PostgresDBType, table, keyColumn, column, value)
+	read := func(ctx context.Context, table, keyColumn string, value any, column string) (any, bool, error) {
+		spelled, err := columnText(value)
+		if err != nil {
+			return nil, false, err
+		}
+		stmt := pointTextStatement(table, keyColumn, column, spelled)
 		var text *string
 		if err := db.QueryRow(ctx, stmt.SQL, pgx.NamedArgs(stmt.Params)).Scan(&text); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return "", false, nil
+				return nil, false, nil
 			}
 
-			return "", false, errors.Wrap(err, "pgx.Row.Scan()")
+			return nil, false, errors.Wrap(err, "pgx.Row.Scan()")
 		}
 		if text == nil {
 			return "", true, nil
