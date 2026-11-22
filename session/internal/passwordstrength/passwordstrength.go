@@ -771,12 +771,14 @@ func (r *reading) mixed(text string) []string {
 // inCase is spelling, the plain letters the letter chars[i] is written as, in the case of the
 // word it stands in. For a capital, the word's case is the case of the letter after it, or of
 // the letter before it when no letter comes after; with no letter beside it, the spelling is as
-// the table has it. A capital in a word not typed in capitals keeps one capital (Ü is Ue in Übel
-// and UE in ÜBEL): two capitals where a person typed one would cost the estimate a capital
-// nobody typed. A ß has no capital on a keyboard, so in a word typed in capitals it is SS. A ß
-// never begins a word, so its word is in capitals when the letter before it is a capital and no
-// small letter follows it: SS in GROßKREUTZ and STRAUß, ss in FußBall, whose capital begins the
-// next word, and in Aßmann, whose capital is the word's first.
+// the table has it. A ß after the capital is passed over, since it has no capital to tell by:
+// the Ü of SÜßMILCH is UE by the M after the ß, and the Ä of GEFÄß is AE by the F before it. A
+// capital in a word not typed in capitals keeps one capital (Ü is Ue in Übel and UE in ÜBEL):
+// two capitals where a person typed one would cost the estimate a capital nobody typed. A ß has
+// no capital on a keyboard, so in a word typed in capitals it is SS. A ß never begins a word, so
+// its word is in capitals when the letter before it is a capital and no small letter follows it:
+// SS in GROßKREUTZ and STRAUß, ss in FußBall, whose capital begins the next word, and in Aßmann,
+// whose capital is the word's first.
 func inCase(spelling string, chars []rune, i int) string {
 	c := chars[i]
 	if c == 'ß' {
@@ -788,10 +790,15 @@ func inCase(spelling string, chars []rune, i int) string {
 
 		return spelling
 	}
+	// A ß has no capital to tell the word's case by, so the letter after it is asked.
+	after := i + 1
+	for after < len(chars) && chars[after] == 'ß' {
+		after++
+	}
 	var beside rune
 	switch {
-	case i+1 < len(chars) && unicode.IsLetter(chars[i+1]):
-		beside = chars[i+1]
+	case after < len(chars) && unicode.IsLetter(chars[after]):
+		beside = chars[after]
 	case i > 0 && unicode.IsLetter(chars[i-1]):
 		beside = chars[i-1]
 	default:

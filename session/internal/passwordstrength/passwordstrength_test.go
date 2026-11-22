@@ -617,6 +617,8 @@ func TestReading_as(t *testing.T) {
 		{typed: "Ü", how: spelledSecond, want: "UE"},
 		{typed: "Ångström", how: spelledSecond, want: "Aangstroem"},
 		{typed: "ÅNGSTRÖM", how: spelledSecond, want: "AANGSTROEM"},
+		{typed: "SÜßMILCH", how: spelledSecond, want: "SUESSMILCH"},
+		{typed: "GEFÄß", how: spelledSecond, want: "GEFAESS"},
 		{typed: "Þór", how: spelledPlain, want: "Thor"},
 		{typed: "Ægir", how: spelledPlain, want: "Aegir"},
 		{typed: "Œuvre", how: spelledPlain, want: "Oeuvre"},
