@@ -709,7 +709,8 @@ the row's key) is kept for the log and never sent. A write whose record names an
 that is not there for the caller is answered "A record this one refers to does not
 exist." A record that reads its tenant through other rows (`@domain(via: ...)`) is
 answered so on both writes: when it is created under a row of another tenant, and when
-an update moves it under one.
+an update moves it under one. The answer is given before any condition of a grant is
+judged, so a row of another tenant is answered exactly as no row is.
 
 A method can also be held to where its caller's session may go. `@callerEnters` on the method
 says a row offers it only to a caller whose session enters every tenant the row names, and the

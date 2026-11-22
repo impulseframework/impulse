@@ -17,6 +17,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"google.golang.org/grpc/codes"
 )
 
@@ -177,6 +178,75 @@ func TestWriteTenancy_moveUnderAnotherSector(t *testing.T) {
 			t.Errorf("SortieId = %s, want %s", got, sortieCourierID)
 		}
 	})
+}
+
+// TestWriteTenancy_notThereBeforeTheCondition pins the order of the answers of a create
+// under a grant's condition that reads through the row the record names: an expense's
+// `state = 'underway'` reads its sortie's mission. An expense created under a sortie of
+// another sector is answered as one created under a sortie that is not there, before the
+// condition is judged, so the answer cannot tell the two apart. Under a sortie of its own
+// sector, the condition is judged as before.
+func TestWriteTenancy_notThereBeforeTheCondition(t *testing.T) {
+	t.Parallel()
+
+	ctx, db, h := demoWorld(t)
+
+	// The grant this suite proves, pinned to the roles file (conditions-proven).
+	provesGrant(t, crew.Roles(), "Quartermaster", "Create", "SortieExpenses", "state = 'underway'")
+
+	// A sortie of Bastion, on Bastion's open mission.
+	const bastionSortieID = "9b000000-0000-4000-8000-000000000002"
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.Insert("Sorties",
+		[]string{"Id", "MissionId", "ShipId", "PilotUserId", "LaunchedAt"},
+		[]any{bastionSortieID, missionBeaconID, shipBastionWatchID, "f0000000-0000-4000-8000-000000000004", time.Now().UTC()},
+	)}); err != nil {
+		t.Fatalf("spanner.Apply(Sorties): %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		sortie     string
+		wantStatus int
+		wantText   string
+	}{
+		{
+			name:       "under a sortie of Bastion, whose mission is not underway, it is answered as under no sortie",
+			sortie:     bastionSortieID,
+			wantStatus: http.StatusNotFound,
+			wantText:   "A record this one refers to does not exist.",
+		},
+		{
+			name:       "under an id that names no sortie, it is answered so",
+			sortie:     "9b000000-0000-4000-8000-0000000000fe",
+			wantStatus: http.StatusNotFound,
+			wantText:   "A record this one refers to does not exist.",
+		},
+		{
+			name:       "under a sortie of Anvil whose mission is on hold, the condition refuses it",
+			sortie:     sortieCourierID,
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "under a sortie of Anvil whose mission is underway, it is created",
+			sortie:     sortieConvoyID,
+			wantStatus: http.StatusOK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			status, body := doRequestAs(t, h, "quartermaster", http.MethodPatch, "/console/api/resources",
+				fmt.Sprintf(`[{"op":"add","path":%q,"value":{"sortieId":%q,"category":"fuel","amount":7}}]`, opPath(anvil, "sortie-expenses"), tt.sortie))
+			assertStatus(t, status, tt.wantStatus, body)
+			if tt.wantText == "" {
+				return
+			}
+			if got := refusalMessage(t, body); got != tt.wantText {
+				t.Errorf("message = %q, want %q", got, tt.wantText)
+			}
+		})
+	}
 }
 
 // TestWriteTenancy_keyNamesARowOfItsOwnSector pins the two keys between tables that keep

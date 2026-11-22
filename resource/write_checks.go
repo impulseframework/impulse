@@ -124,7 +124,8 @@ func (p *PatchSet[Resource]) writeConditionGroups() ([]writeCheckGroup, error) {
 // (design plan §06): a partitioned update or delete locates its row within
 // the tenant predicate (a cross-tenant key is NotFound), and a partitioned
 // insert, or an update that moves its row along a join path, proves its image
-// belongs to the partition. Any failing conditional
+// belongs to the partition. An image that does not is answered NotFound
+// before any conditional group is read; then any failing conditional
 // group aborts the mutation as Forbidden; nothing commits. No carried
 // conditions and no partition — no query.
 func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn ReadWriteTransaction) error {
@@ -162,17 +163,9 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 		return errors.Wrap(err, "spanner.RowIterator.Next()")
 	}
 
-	q := p.querySet
-	for i, group := range groups {
-		var passed spanner.NullBool
-		if err := row.Column(i, &passed); err != nil {
-			return errors.Wrap(err, "spanner.Row.Column()")
-		}
-		if !passed.Valid || !passed.Bool {
-			return q.conditionRefused(group.resources)
-		}
-	}
-
+	// The tenancy term is read before any group: a row the write names that is
+	// not in the request's partition is answered as no row, whatever a
+	// condition of a grant reads through it.
 	if tenancy.pathTerm() {
 		var inPartition spanner.NullBool
 		if err := row.Column(len(groups), &inPartition); err != nil {
@@ -183,6 +176,17 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 			// partition: the referenced row does not exist in this
 			// partition's world.
 			return referencedNotFound(p.Resource(), tenancy.hopTable())
+		}
+	}
+
+	q := p.querySet
+	for i, group := range groups {
+		var passed spanner.NullBool
+		if err := row.Column(i, &passed); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+		if !passed.Valid || !passed.Bool {
+			return q.conditionRefused(group.resources)
 		}
 	}
 
