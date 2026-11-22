@@ -26,6 +26,9 @@ func TestReading_judgeTenants(t *testing.T) {
 		anyWorkspace = app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Workspaces: app.WorkspacesAny}
 		anyTenant    = app.Method{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Tenants: app.TenantsAny}
 		anyAccount   = app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Workspaces: app.WorkspacesAny, GoogleAccounts: true}
+		// Two widths narrower than the shape typically is: one organization, and a list.
+		oneWorkspace  = app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Workspaces: app.WorkspacesOne}
+		listedTenants = app.Method{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Tenants: app.TenantsListed}
 	)
 	const (
 		none     = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
@@ -95,6 +98,16 @@ func TestReading_judgeTenants(t *testing.T) {
 			name: "directories, one tenant, a method as wide as any Google account works and is not typical", directories: true, oneTenant: true, methods: []app.Method{anyAccount, anyTenant},
 			wantShape: "tenant-owned-users-by-directory",
 			wantSays:  "A tenant's people can come through its organization's directory (the google and azure methods)." + takes + " The google method admits any Google account" + notTypical,
+		},
+		{
+			name: "directories, one tenant, a method of one Google Workspace works and is not typical", directories: true, oneTenant: true, methods: []app.Method{oneWorkspace, anyTenant},
+			wantShape: "tenant-owned-users-by-directory",
+			wantSays:  "A tenant's people can come through its organization's directory (the google and azure methods)." + takes + " The google method admits the accounts of one Google Workspace" + notTypical,
+		},
+		{
+			name: "directories, one tenant, a method of the Microsoft Entra tenants it lists works and is not typical", directories: true, oneTenant: true, methods: []app.Method{anyWorkspace, listedTenants},
+			wantShape: "tenant-owned-users-by-directory",
+			wantSays:  "A tenant's people can come through its organization's directory (the google and azure methods)." + takes + " The azure method admits the accounts of the Microsoft Entra tenants it lists" + notTypical,
 		},
 		{
 			name: "directories, one tenant, another identity provider works and is not typical", directories: true, oneTenant: true, methods: []app.Method{okta},
