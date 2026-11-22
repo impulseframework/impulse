@@ -5,6 +5,7 @@ package membershandlers
 
 import (
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -19,5 +20,5 @@ type Resourcer interface {
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersUserRole
+		membersresources.MembersUserRole | membersidentity.MembersListedRoleGrant
 }

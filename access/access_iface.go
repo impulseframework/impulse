@@ -442,4 +442,14 @@ type UserManager interface {
 	// policy leaves it out, so the role does not hold it. Scope-wide grants
 	// are not included. Errors if role doesn't exist in scope.
 	RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error)
+
+	// SkippedStoredGrants answers, for each row of the role grants table given, why a
+	// load of the policy leaves the row out, in the order given: "" for a row its role
+	// holds. A row a load leaves out is one the running release cannot use, said in
+	// the sentence RoleGrants says it in (RoleGrant.Skipped, SkippedGrant), or one
+	// stored under the name of a role the release's role file defines, whose grants
+	// are the release's alone (ShadowedRole). It reads nothing: the caller read the
+	// rows, and the answer is the rule a load holds each row to. A row whose columns
+	// spell no scope a store writes is an error.
+	SkippedStoredGrants(grants []StoredGrant) ([]string, error)
 }

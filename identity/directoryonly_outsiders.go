@@ -40,13 +40,17 @@ import (
 //     holds such a role there (AddGroupMemberFor, RemoveGroupMember);
 //   - an invitation that carries such a role there (Invite);
 //   - for a person who holds such a role there, of their own or through a group of
-//     the tenant's own: setting or removing their password, requiring a change of it,
-//     renaming them, changing their address, unlinking a sign-in identity, disabling
-//     or enabling the account, and deleting it (requireEnteringFor).
+//     the tenant's own: removing their password, requiring a change of it, renaming
+//     them, changing their address, unlinking a sign-in identity, disabling or
+//     enabling the account, and deleting it (requireEnteringFor).
 //
-// The generated lists hold what they offer to the same judgment: a method this refuses
-// for a person is left out of that person's row for the caller (@callerEnters on the
-// method, TenantsToEnter on the list), so a page offers what the method will do.
+// The generated lists hold what they offer to the same judgment where a method names
+// its row: a method this refuses for a person is left out of that person's row for the
+// caller, and the methods that put a person in a group and take one out are left out
+// of the row of a group they are refused for (@callerEnters on the method,
+// TenantsToEnter on the list), so a page offers what the method will do. The whole
+// application's methods that take a role away from a person and from a group name no
+// row, and are offered wherever their grant is held.
 //
 // What makes a person a tenant's administrator is the permission engine's to say, and
 // the judgment asks the engine's own statement of it (access.AdministersTenant, over
