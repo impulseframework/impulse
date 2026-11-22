@@ -432,7 +432,9 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 // to that address's count of such mail (limitMail), never to the count of its own
 // sign-in codes. A wait that accepts an invitation takes no address: its code goes to
 // the invited one (codeDestination), whatever is typed. A sign-in that is not yet the
-// account's gives none (identityIsTheUsers).
+// account's gives none (identityIsTheUsers). An address for which twenty-five wrong
+// codes were entered at this step takes no more (addressGuessLimit): it is refused with
+// address_spent before anything is asked of it, and nothing is mailed or counted.
 func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
 	m := a.settings.mail
 	bare, err := address(email)
@@ -450,6 +452,9 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 		return nil, httpio.NewConflictMessage("the user already holds an email address: the code goes there")
 	}
 	if err := a.identityIsTheUsers(ctx, p); err != nil {
+		return nil, err
+	}
+	if err := a.addressSpent(ctx, bare); err != nil {
 		return nil, err
 	}
 	holder, err := a.storage.UserByEmail(ctx, bare)
@@ -552,13 +557,23 @@ func errCodeExpired() error {
 // wrong one that took the last place is answered, as every code after it is, with
 // invitation_spent.
 //
+// A code mailed to an address the person typed at this step, the account holding none
+// when it was read before the code (before, nil where the wait names no account), takes
+// its place in that address's count of codes entered before it is judged
+// (countAddressGuess), in whichever account's sign-in it is entered: twenty-five wrong
+// codes are judged for one typed address, and the wrong one that took the last place is
+// answered, as every code after it is, with address_spent. The right code is accepted
+// whichever place it took.
+//
 // A guess takes its attempt before it is judged: the store counts it on the code's row
 // in one statement and answers which attempt it was, and a guess past the limit is not
 // compared with the code at all, nor does it touch the code. Guesses made at once are
 // each counted, so no more than the limit are ever judged, however many arrive
 // together; the right code spends an attempt like any other, on a code it then
 // consumes, and of several right guesses within the limit one is accepted.
-func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (*sessionstorage.FactorCode, error) {
+func (a *Auth[S, U, Tx]) verifyEmailCode(
+	ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, code string,
+) (*sessionstorage.FactorCode, error) {
 	standing, err := a.storage.FactorCode(ctx, p.ID)
 	if err != nil {
 		if !httpio.HasNotFound(err) {
@@ -566,19 +581,38 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 		}
 		standing = nil
 	}
-	last, err := a.takeInvitationGuess(ctx, p, standing)
+	lastOfInvitation, err := a.takeInvitationGuess(ctx, p, standing)
 	if err != nil {
 		return nil, err
 	}
+	var lastOfAddress bool
+	if typedAddressCode(before, standing) {
+		if lastOfAddress, err = a.countAddressGuess(ctx, standing.Email); err != nil {
+			return nil, err
+		}
+	}
 	if err := a.judgeEmailCode(ctx, p, standing, code); err != nil {
-		if refused := sessioninfo.LoginRefusalCodeOf(err); last && (refused == sessioninfo.RefusedInvalidCode || refused == sessioninfo.RefusedCodeExpired) {
-			return nil, errInvitationSpent()
+		if refused := sessioninfo.LoginRefusalCodeOf(err); refused == sessioninfo.RefusedInvalidCode || refused == sessioninfo.RefusedCodeExpired {
+			switch {
+			case lastOfInvitation:
+				return nil, errInvitationSpent()
+			case lastOfAddress:
+				return nil, errAddressSpent()
+			}
 		}
 
 		return nil, err
 	}
 
 	return standing, nil
+}
+
+// typedAddressCode reports whether code was mailed to an address a person typed at the
+// step: it names no invitation, and the account of the wait, as it was read before the
+// code was judged (before), holds no address. A wait that names no account (before is
+// nil) types none.
+func typedAddressCode(before *sessionstorage.SessionUser, code *sessionstorage.FactorCode) bool {
+	return before != nil && before.Email == nil && code != nil && !code.InvitationID.Valid
 }
 
 // judgeEmailCode compares code with standing, the code standing for p (nil for none),
@@ -648,15 +682,19 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 		}
 		before = user
 	}
-	entered, err := a.verifyEmailCode(ctx, p, code)
+	entered, err := a.verifyEmailCode(ctx, p, before, code)
 	if err != nil {
 		return nil, err
 	}
 	email := entered.Email
-	// The code reached the person: the counts it was sent under are reset.
+	// The code reached the person: the counts it was sent under are reset, and so is
+	// the count of the codes entered for an address they typed.
 	a.clearCodeLimit(ctx, email)
 	a.clearMailLimit(ctx, email)
 	a.clearInvitationCodeOf(ctx, email)
+	if typedAddressCode(before, entered) {
+		a.clearAddressGuesses(ctx, email)
+	}
 
 	at, holder, err := a.attemptWithCode(ctx, p, before, entered)
 	if err != nil {
@@ -1121,7 +1159,9 @@ func (p *AuthAPI[S, U, Tx]) SendEmailCode(ctx context.Context) (codeEmail string
 // another account holds is told so by mail, and the call returns as if sent. An
 // address that an invitation which stands was mailed to is mailed no code either: its
 // mailbox is sent a message that says to open the invitation's link, and the call
-// returns as if sent. See SendEmailCode.
+// returns as if sent. An address for which twenty-five wrong codes were entered at
+// this step is refused with a *sessioninfo.LoginRefusal carrying RefusedAddressSpent,
+// and nothing is mailed. See SendEmailCode.
 func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -1148,7 +1188,9 @@ func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error
 // carries RefusedInvitationSpent once twenty-five codes were entered for that
 // invitation, RefusedInvitationNotOpen in a browser that carries no invitation or
 // another one, and RefusedInvitationExpired where the invitation was used, withdrawn
-// or ran out. If the sign-in must wait again, the error is a
+// or ran out. A code mailed to an address typed at this step carries
+// RefusedAddressSpent once twenty-five wrong codes were entered for that address,
+// and is then compared with nothing. If the sign-in must wait again, the error is a
 // *signin.PendingSignInError.
 func (p *AuthAPI[S, U, Tx]) VerifyEmailCode(ctx context.Context, w http.ResponseWriter, code string, rememberDevice bool) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)

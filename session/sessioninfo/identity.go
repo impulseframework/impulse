@@ -365,6 +365,13 @@ const (
 	// the invitation and no code is compared with one. The person asks whoever invited
 	// them for a new invitation.
 	RefusedInvitationSpent LoginRefusalCode = "invitation_spent"
+	// RefusedAddressSpent is the code for a sign-in code asked for or entered for an
+	// address a person typed at the code step, once twenty-five wrong codes were entered
+	// for that address. The count is the address's, across every account and sign-in
+	// that typed it; no time resets it, only the right code does. Nothing more is mailed
+	// to the address from this step and no code is compared. The person asks an
+	// administrator to put the address on their account.
+	RefusedAddressSpent LoginRefusalCode = "address_spent"
 	// RefusedInvitationNotOpen is the code for a sign-in code mailed for an invitation
 	// and entered in a browser that does not have that invitation open: it carries no
 	// invitation, or another one. The code is not compared and nothing is written, and it

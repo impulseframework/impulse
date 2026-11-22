@@ -1257,8 +1257,17 @@ the person reaches.
    invitation and no account's second factor. The wrong code that takes the twenty-fifth place, and every code asked for
    or entered after it, is `401 {"code": "invitation_spent"}`; nothing more is mailed
    for the invitation, and an administrator invites the person again. The right code
-   among the twenty-five accepts. The links, and a code asked for an address a person types at this step, are
-   counted together under another key (`MAIL:`), which anybody who knows an address can
+   among the twenty-five accepts. A code asked for an address a person types at this
+   step is held to a count of the same size, kept under the address
+   (`ADDRESS-GUESS:`). Typing an address shows nothing about who reads it, so the
+   wrong codes entered for one address are counted together, whichever account typed
+   it and in however many sign-ins, and no time resets the count. The wrong code that
+   takes the twenty-fifth place, and every code asked for or entered for that address
+   after it, is `401 {"code": "address_spent"}`; nothing more is mailed to the address
+   from this step. The right code resets the count. A person whose address is spent
+   asks an administrator to put it on their account: the code then goes to the
+   address the account holds, which nobody types. The links, and a code asked for an
+   address a person types at this step, are counted together under another key (`MAIL:`), which anybody who knows an address can
    run up. So nothing a stranger asks for in a person's name, or with a link that was
    mailed to them, holds up the codes that person signs in with. A request takes
    its place under its limit before its code is mailed, counted in the
@@ -3131,6 +3140,7 @@ table is the wire contract:
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. It is also the answer to a sign-in code mailed for an invitation, and to the sign-in that entered it, once that invitation was used, withdrawn or ran out: the code accepts nothing. |
 | `invitation_spent` | `RefusedInvitationSpent` | Auth: a sign-in code asked for, or entered, to accept an invitation that takes no more codes: twenty-five were entered for it and none accepted it. The count is the invitation's, across every sign-in that carried it, and never starts again, so nothing more is mailed for it and no code is compared. The person asks whoever invited them for a new invitation (see "The second factor"). |
+| `address_spent` | `RefusedAddressSpent` | Auth: a sign-in code asked for, or entered, for an address a person typed at the code step, once twenty-five wrong codes were entered for that address. The count is the address's, across every account and sign-in that typed it; no time resets it, only the right code does. Nothing more is mailed to the address from this step and no code is compared. The person asks an administrator to put the address on their account (see "The second factor"). |
 | `invitation_not_open` | `RefusedInvitationNotOpen` | Auth: a sign-in code mailed for an invitation, entered in a browser that carries no invitation or another one. The code is not compared, nothing is written, and it takes its place in the invitation's count. The person opens the invitation's link again and enters the code. |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it answers for (the one the method verified, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, or one its method did not verify, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that names itself and has not confirmed the invited address is not refused at a sign-in, which waits for the code mailed to the invited address; its acceptance by hand, where nothing can wait, is refused with this code and a sentence that says to sign in again from the invitation's link. The login page names the invited address and asks for a sign-in with that account. |
 | `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |
