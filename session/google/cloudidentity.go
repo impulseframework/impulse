@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/cloudidentity/v1"
@@ -139,7 +140,7 @@ func directGroups(ctx context.Context, service *cloudidentity.Service, member st
 	err := call.Pages(ctx, func(page *cloudidentity.SearchDirectGroupsResponse) error {
 		for _, m := range page.Memberships {
 			if m.GroupKey != nil && m.GroupKey.Id != "" {
-				groups = append(groups, strings.ToLower(m.GroupKey.Id))
+				groups = append(groups, util.LowerASCII(m.GroupKey.Id))
 			}
 		}
 

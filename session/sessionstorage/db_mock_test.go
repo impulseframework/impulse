@@ -1572,3 +1572,17 @@ func (mr *MockdbMockRecorder) VerifyUserEmail(ctx, id, email any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserEmail", reflect.TypeOf((*Mockdb)(nil).VerifyUserEmail), ctx, id, email)
 }
+
+// VerifyUserEmailIfHeld mocks base method.
+func (m *Mockdb) VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyUserEmailIfHeld", ctx, id, held, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyUserEmailIfHeld indicates an expected call of VerifyUserEmailIfHeld.
+func (mr *MockdbMockRecorder) VerifyUserEmailIfHeld(ctx, id, held, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserEmailIfHeld", reflect.TypeOf((*Mockdb)(nil).VerifyUserEmailIfHeld), ctx, id, held, email)
+}

@@ -65,6 +65,7 @@ type AuthDriver interface {
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
+	VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
 	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
 	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
@@ -325,6 +326,9 @@ type AuthInstance struct {
 	// instance's method, consuming the mail link linkID, with the configured sign-up
 	// hook. The harness builds it with NewSignUp.
 	SignUp func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error)
+	// Addresses reads and claims an address as the sign-in flow does, each in a
+	// transaction of the driver's. The harness builds it with NewAddresses.
+	Addresses Addresses
 }
 
 // NewSignUp returns an instance's SignUp over d: the flow's password sign-up through
@@ -605,6 +609,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a driver whose sign-in attempts table is not there says so: an error naming the table, never a count of nothing", run: testSignInAttemptsMissingTable},
 		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
+		{name: "an address is verified only while the user still holds what it held", run: testVerifyUserEmailIfHeld},
+		{name: "an address is matched by the case of its ASCII letters alone", run: testAddressFold},
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},
 		{name: "a person's name is stored without the space around it, replaced or taken off by hand, and claimed only for a user who holds none", run: testUserName},

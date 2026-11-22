@@ -1694,8 +1694,17 @@ may use an unverified address; code that relies on one (linking a social identit
 recovery) requires the time. No address is required of any user: an account without a
 verified address has no mail-based recovery, and multi-factor authentication can serve
 instead. The address is unique among every address held, verified or not, matched
-without regard to case (`NormalizedEmail`), so an address is held by one account at a
-time.
+without regard to the case of its ASCII letters (`NormalizedEmail`), so an address is
+held by one account at a time. Nothing else is folded: an address written with a letter
+from outside ASCII is the same address only when it is written with that same letter, in
+the stores' lookups by address and the address's unique index as in every comparison the
+library makes. A username is matched more widely (`NormalizedUsername`: the database's
+Unicode normalization and case folding), so on a store whose usernames are the addresses
+two addresses that differ only by such a letter cannot both be accounts, and a sign-in
+name written with one names the account written with the other. A password sign-in
+under such a name still needs that account's password. A first sign-in that is linked
+on the provider's word for the name (see "A first link on a name alone") is linked to
+the account the wider match finds.
 
 How an address gets onto a user:
 
@@ -1734,8 +1743,12 @@ How an address gets onto a user:
   (`AuthStore.SetUserEmail` with no address) ends, in the same transaction, the
   sign-in codes mailed for the account's sign-ins before it, so a code mailed before
   an administrator's change and entered after it is dead and writes nothing back; the
-  code for an address the person then gives at the step writes it. Nothing writes an
-  address onto an account unconfirmed after its creation.
+  code for an address the person then gives at the step writes it. A change that lands
+  while a code is being entered ends that code as well: the address a code confirms is
+  written only while the account still holds what it held before the code was used,
+  and a completion that finds it changed, or finds that another account took the
+  address, is refused (`code_expired`) with nothing written and nobody linked or
+  signed in. Nothing writes an address onto an account unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the
@@ -1813,10 +1826,10 @@ matching shape:
   ```sql
   -- Spanner
   ALTER TABLE SessionUsers ADD COLUMN Email STRING(MAX) AS (Username) STORED;
-  ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED;
+  ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Username AS BYTES)) AS STRING)) STORED;
   -- PostgreSQL
   ALTER TABLE "SessionUsers" ADD COLUMN "Email" character varying GENERATED ALWAYS AS ("Username") STORED;
-  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED;
+  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying COLLATE "C" GENERATED ALWAYS AS (lower("Username" COLLATE "C")) STORED;
   ```
 
   `EmailVerifiedAt`, the unique index on `NormalizedEmail` and the index by username,

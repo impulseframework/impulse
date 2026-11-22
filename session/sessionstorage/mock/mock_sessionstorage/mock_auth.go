@@ -1408,6 +1408,20 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) VerifyUserEmail(ctx, id, email a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserEmail", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).VerifyUserEmail), ctx, id, email)
 }
 
+// VerifyUserEmailIfHeld mocks base method.
+func (m *MockAuthStoreMethods[Tx]) VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyUserEmailIfHeld", ctx, id, held, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyUserEmailIfHeld indicates an expected call of VerifyUserEmailIfHeld.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) VerifyUserEmailIfHeld(ctx, id, held, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserEmailIfHeld", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).VerifyUserEmailIfHeld), ctx, id, held, email)
+}
+
 // createImpersonatedSession mocks base method.
 func (m *MockAuthStoreMethods[Tx]) createImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	m.ctrl.T.Helper()

@@ -17,10 +17,11 @@ import (
 // to the address the account holds when the code is entered. A code mailed to an address
 // an administrator has since taken off the account, replaced or moved to another account
 // is dead, as one that expired is, on a sign-in that waits to be linked and on one a
-// password started: the completion stops before anything is consumed, linked or written,
-// so nothing is written over the administrator's change. A code mailed to the address
-// the account still holds confirms it, and an account that holds none takes the address
-// its own person gave at the step.
+// password started: the completion stops once the code is consumed and before the
+// pending sign-in is consumed or anything is linked or written, so nothing is written
+// over the administrator's change. A code mailed to the address the account still holds
+// confirms it, and an account that holds none takes the address its own person gave at
+// the step.
 func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 	t.Parallel()
 
@@ -53,7 +54,7 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 		{name: "a password's sign-in, and the address was moved to another account", identity: passwords, heldByAnother: true, wantDead: true},
 		{name: "a linked identity's sign-in, and the address was moved to another account", identity: waitsToBeLinked, linked: true, heldByAnother: true, wantDead: true},
 		{name: "the account still holds the address, which nobody has confirmed, and the code confirms it", identity: waitsToBeLinked, holds: mailedTo, wantWritten: mailedTo},
-		{name: "the account holds the address under another spelling of its letters", identity: waitsToBeLinked, holds: "Alice@Corp.Example", wantWritten: mailedTo},
+		{name: "the account holds the address under another spelling of its letters", identity: waitsToBeLinked, holds: "Alice@Corp.Example", wantWritten: "Alice@Corp.Example"},
 		{name: "the account holds the address confirmed, and nothing is written", identity: waitsToBeLinked, holds: mailedTo, confirmed: true},
 		{name: "an account that holds no address takes the one the person who proved its password gave", identity: passwords, wantWritten: mailedTo},
 		{name: "an account that holds no address takes the one the person its identity is linked to gave", identity: waitsToBeLinked, linked: true, wantWritten: mailedTo},
@@ -100,7 +101,7 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(httpio.NewNotFoundMessage("no live pending sign-in"))
 			}
 			if tt.wantWritten != "" {
-				f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, tt.wantWritten).Return(nil)
+				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, tt.wantWritten).Return(nil)
 			}
 
 			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)

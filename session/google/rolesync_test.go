@@ -46,6 +46,18 @@ func Test_groupSync_roleNames(t *testing.T) {
 			want:        []string{"admin"},
 		},
 		{
+			name:        "a prefix given in capital ASCII letters matches a group written in small ones",
+			groupPrefix: "APP-MYAPP-",
+			groups:      []string{"app-myapp-admin@example.com"},
+			want:        []string{"admin"},
+		},
+		{
+			name:        "a letter Unicode folds to an ASCII one stays as written: a group named with the Kelvin sign names the role written with it, never the ASCII one",
+			groupPrefix: "app-myapp-",
+			groups:      []string{"app-myapp-\u212aiosk@example.com"},
+			want:        []string{"\u212aiosk"},
+		},
+		{
 			name:        "values without an @ are ignored",
 			groupPrefix: "app-myapp-",
 			groups:      []string{"app-myapp-admin"},
