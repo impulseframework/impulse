@@ -27,15 +27,31 @@ import (
 // directly need of the caller (the grants of AssignStaffRole and RemoveStaffRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// The method declares a warning with no word to type: asked first, the server says who
+// leaves which group, and, where the place is the last thing the person holds, that the
+// account is deleted with it.
+//
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @warning
 // @class(access)
 type RemoveStaffGroupMember struct {
 	// @target(StaffGroupUser, key: GroupID)
 	GroupID impulse.UUID
 	// @target(StaffGroupUser, key: UserID)
 	UserID impulse.UUID
+}
+
+// Warning says who would leave which group, and whether the account goes with it. It
+// writes nothing.
+func (m *RemoveStaffGroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	warning, err := client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.GroupMemberRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

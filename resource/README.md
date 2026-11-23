@@ -4196,7 +4196,7 @@ POST <prefix>/create-crew-group               {"name","description","domain"} �
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
 POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewListedGroups
 POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewListedGroups
-POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers
+POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers (declares a warning)
 POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewListedGroups
 POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
@@ -4212,7 +4212,7 @@ POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","desc
 POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId"}          Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
-POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers (declares a warning)
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,

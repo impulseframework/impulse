@@ -428,6 +428,28 @@ describe('ResourceListComponent row methods', () => {
     ]);
   });
 
+  it("hands the table each entry's group from the page's presentation, an entry that only says something too", async () => {
+    await create({
+      primaryResource: people,
+      rowMethods: [
+        {
+          method: 'DisablePerson' as Method,
+          label: 'Disable',
+          group: 'account',
+          when: (row) => row['username'] !== 'ada',
+          otherwise: (row) => `${String(row['username'])} holds the last key: hand it over first`,
+        },
+        { method: 'EnablePerson' as Method, hidden: true },
+        { method: 'RenamePerson' as Method, label: 'Rename', group: 'person' },
+      ],
+    });
+
+    expect(actionsOf(0).map((a) => [a.label, a.group, a.disabled])).toEqual([
+      ['ada holds the last key: hand it over first', 'account', true],
+      ['Rename', 'person', undefined],
+    ]);
+  });
+
   it('asks the server nothing and draws no menu where the page switches the row methods off', async () => {
     await create({ primaryResource: people, rowMethods: false });
 

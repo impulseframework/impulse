@@ -1450,8 +1450,21 @@ export class ResourceListComponent implements OnInit {
           : `${method.method}:${index}`;
       return method.says
         ? // What the row says where the method would be: words, and nothing to run.
-          { id, label: method.says, icon: method.icon, run: (): void => undefined, disabled: true }
-        : { id, label: method.label, icon: method.icon, run: (): void => this.runMethod(method, row) };
+          {
+            id,
+            label: method.says,
+            icon: method.icon,
+            group: method.presentation?.group,
+            run: (): void => undefined,
+            disabled: true,
+          }
+        : {
+            id,
+            label: method.label,
+            icon: method.icon,
+            group: method.presentation?.group,
+            run: (): void => this.runMethod(method, row),
+          };
     });
   }
 
