@@ -48,12 +48,15 @@ import (
 // filters by the person's id (userId:eq:<id>), as a list drawn under the person's row
 // does; a request that names nobody lists nobody's ways, and one that names people any
 // other way is refused. The role file grants it like any resource, to whoever reads the
-// identities of the auth's people.
+// identities of the auth's people. A change to an account or to an
+// identity, or to who holds a role where, tells the list's open pages,
+// which read it again: the tables are declared (@changedBy), since no query names them.
 //
 // @computed
 // @permissionScope(domain)
 // @suppress(readHandler)
 // @outlet(default)
+// @changedBy(CrewSessionUsers, CrewSessionIdentities, CrewUserRoles, CrewGroups, CrewGroupMembers, CrewGroupRoles)
 // @order(Password desc, Through asc)
 // @rowWord(way to sign in, plural: ways to sign in)
 type CrewSectorSignInWay struct {

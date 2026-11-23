@@ -32,13 +32,17 @@ import (
 // derivations, which the application hands them (identityDelegatesTemplate), so a write
 // to the table through the management reaches the view's pages.
 //
-// The views an auth's generated management declares itself (a tenant's lists,
-// identity_lists.go) are published like any view. Their record is written into the
-// auth's handlers package, the package of the tree the application's handler package
-// already imports: the declarations package is internal to the tree, so the assembly
-// could not name a value there. Inside the tree the types over the auth's tables can be
-// named, so that record names every table by its type, the auth's own and the
-// application's alike.
+// The resources an auth's generated management declares itself are published like any
+// other: its views (a tenant's lists, identity_lists.go), declared in the tree's
+// internal declarations package, and its computed resources that declare their tables
+// (the lists of how a person signs in, identity_signinways.go), declared in the methods
+// package beside the functions that list them. Their record is written into the auth's
+// handlers package, the package of the tree the application's handler package already
+// imports: the declarations package is internal to the tree, so the assembly could not
+// name a value there. The handlers package imports both, so each entry names its
+// resource by the package that declares it. Inside the tree the types over the auth's
+// tables can be named, so that record names every table by its type, the auth's own and
+// the application's alike.
 
 // liveDerivationsValueName is the exported value each publishing package's generated
 // file holds.
@@ -52,9 +56,11 @@ type liveDerivationsPackageData struct {
 	// resources package's name and a dot, empty when the file is in that package.
 	ResourcesQualifier string
 	// Auth names the auth whose management the file's resources belong to, empty for a
-	// package of the application's. TypesQualifier then prefixes the types declared in
-	// the auth's declarations package, which the file is not in: the published resources
-	// themselves and the tables marked Own.
+	// package of the application's. TypesQualifier then prefixes the types over the
+	// auth's own tables (Own, RootOwn), declared in the auth's declarations package,
+	// which the file is not in. A resource carries its own qualifier
+	// (derivedResourceData.Qualifier): an auth's views are in that package, its
+	// computed resources are not.
 	Auth           string
 	TypesQualifier string
 	Resources      []derivedResourceData
@@ -79,15 +85,21 @@ func (d *liveDerivationsPackageData) NamesTablesAsText() bool {
 
 // derivedResourceData is one published resource's entry.
 type derivedResourceData struct {
-	// Type is the resource's struct type, in the package the file is written to.
-	Type string
+	// Type is the resource's struct type, and Qualifier what the file writes before it:
+	// the name and a dot of the package that declares the struct, empty when that is
+	// the package the file is written to. The record of an auth's resources is written
+	// to the auth's handlers package, which declares none of them: a view is qualified
+	// by the auth's declarations package, a computed resource by its methods package.
+	Type      string
+	Qualifier string
 	// Comment says how the set was found, and names the tables no resource backs and
 	// the ones the entry names as text.
 	Comment string
 	Global  bool
 	// Root is the struct type over the @rowsOf root, RootTable the root's name where the
 	// file cannot name the type (sourceTableData); both empty without a root. RootOwn
-	// marks a root declared beside the resource in an auth's declarations package.
+	// marks a root that is a table of the resource's own auth, declared in the auth's
+	// declarations package.
 	Root      string
 	RootOwn   bool
 	RootTable string
@@ -97,8 +109,9 @@ type derivedResourceData struct {
 // sourceTableData is one table of a set: the struct type over it, or the table's name
 // where the type is declared in a package the file's cannot import (an auth's generated
 // declarations, internal to the auth's tree). Exactly one of Type and Table is set. Own
-// marks a type declared beside the resource in an auth's declarations package, which
-// the file qualifies as it qualifies the resource.
+// marks the type over a table of the resource's own auth, declared in the auth's
+// declarations package, which the file qualifies with that package
+// (liveDerivationsPackageData.TypesQualifier).
 type sourceTableData struct {
 	Type   string
 	Own    bool
@@ -114,14 +127,14 @@ type liveDerivationsAssemblyData struct {
 	// Values are the packages' LiveDerivations, each qualified by its package name
 	// (bare when the package is the handler package itself), in package-name order.
 	Values []string
-	// AuthViews says a value is the record of the views an auth's generated management
-	// declares, which the file's comment then names.
-	AuthViews bool
+	// AuthRecords says a value is the record of the published resources an auth's
+	// generated management declares, which the file's comment then names.
+	AuthRecords bool
 }
 
-// derivationsPackage is one package's published resources, ready to render. instance
-// is the auth whose views the record holds, written into the auth's handlers package;
-// nil for a package of the application's.
+// derivationsPackage is one package's published resources, ready to render. instance is
+// the auth whose generated management declares them, their record written into the
+// auth's handlers package; nil for a package of the application's.
 type derivationsPackage struct {
 	dir       packageDir
 	instance  *identityInstance
@@ -130,16 +143,17 @@ type derivationsPackage struct {
 
 // liveDerivationsByPackage groups the published resources' entries by the package their
 // record is written into, in package-name order: the package their structs are in, and
-// for the views of an auth's generated management the auth's handlers package. A package
-// with no published resource is not listed. The virtual and computed packages may be one
-// package.
+// for the resources of an auth's generated management the auth's handlers package, where
+// each entry is qualified by the package its struct is in. A package with no published
+// resource is not listed. The virtual and computed packages may be one package.
 func (r *resourceGenerator) liveDerivationsByPackage() ([]derivationsPackage, error) {
 	byDir := make(map[string]*derivationsPackage)
-	add := func(dir packageDir, inst *identityInstance, name string, global bool, decl *publishDecl) error {
+	add := func(dir, declared packageDir, inst *identityInstance, name string, global bool, decl *publishDecl) error {
 		entry, err := r.derivedResourceData(inst, name, global, decl)
 		if err != nil {
 			return err
 		}
+		entry.Qualifier = packageQualifier(dir, declared)
 		key := filepath.Clean(dir.Dir())
 		if byDir[key] == nil {
 			byDir[key] = &derivationsPackage{dir: dir, instance: inst}
@@ -156,7 +170,7 @@ func (r *resourceGenerator) liveDerivationsByPackage() ([]derivationsPackage, er
 		if res.identity != nil {
 			dir = res.identity.handlers
 		}
-		if err := add(dir, res.identity, res.Name(), !res.IsDomainScoped(), &res.publishDecl); err != nil {
+		if err := add(dir, r.resourcesDirOf(res), res.identity, res.Name(), !res.IsDomainScoped(), &res.publishDecl); err != nil {
 			return nil, err
 		}
 	}
@@ -168,7 +182,7 @@ func (r *resourceGenerator) liveDerivationsByPackage() ([]derivationsPackage, er
 		if res.identity != nil {
 			dir = res.identity.handlers
 		}
-		if err := add(dir, res.identity, res.Name(), !res.IsDomainScoped(), &res.publishDecl); err != nil {
+		if err := add(dir, r.computedDirOf(res), res.identity, res.Name(), !res.IsDomainScoped(), &res.publishDecl); err != nil {
 			return nil, err
 		}
 	}
@@ -193,16 +207,16 @@ func (r *resourceGenerator) liveDerivationsByPackage() ([]derivationsPackage, er
 // a generator fault.
 //
 // inst is the auth whose generated management declares the resource, nil for a resource
-// of the application's. The record of an auth's view is written inside the auth's tree,
-// where the types over the auth's own tables can be named, so those are named by type
-// (Own) and nothing as text; a view there reading a table of another auth is a fault of
-// the generator, which writes every such view over its own auth's tables and the
+// of the application's. The record of an auth's resource is written inside the auth's
+// tree, where the types over the auth's own tables can be named, so those are named by
+// type (Own) and nothing as text; one there naming a table of another auth is a fault of
+// the generator, which writes every such resource over its own auth's tables and the
 // application's.
 func (r *resourceGenerator) derivedResourceData(inst *identityInstance, name string, global bool, decl *publishDecl) (derivedResourceData, error) {
 	entry := derivedResourceData{Type: name, Global: global}
 	var unbacked, byName []string
 	foreign := func(table string, res *resourceInfo) error {
-		return errors.Newf("struct %s: a view of the generated management of Auth(%q) reads %s, a table of Auth(%q); the generator writes each such view over its own auth's tables and the application's, so this is a fault of the generator", name, inst.importPath, table, res.identity.importPath)
+		return errors.Newf("struct %s: a resource of the generated management of Auth(%q) names %s, a table of Auth(%q); the generator writes each such resource over its own auth's tables and the application's, so this is a fault of the generator", name, inst.importPath, table, res.identity.importPath)
 	}
 	if root := decl.PublishedRoot(); root != "" {
 		res := r.tableResource(root)
