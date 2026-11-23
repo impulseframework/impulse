@@ -4318,17 +4318,19 @@ and a kind that is to keep one of them names it as an exception to the class
 and never for the real person, a set they are in, or the row their own standing is read
 through. To let someone act as a person with no mask is to give them what the person
 holds, and an application closes the limit through its mask.
-A row removed with its parent, which may name the person, is a limit of its own: the
-database removes a pass with the place it opens, no write of the pass is made, and so
-neither the rule nor a mask that refuses the writes of passes is asked. An application
-closes it under the mask by refusing each request that removes a row above the pass:
-the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`), the
-delete of each record further up while the cascade goes on (the grandparent's delete
-removes the parent and the pass with it), and an action that removes one of them in its
-own body, by name (`accesstypes.RefuseAction`). Where a foreign key changes the row
-instead of removing it (`ON DELETE SET NULL` or `SET DEFAULT`, and `ON UPDATE CASCADE`,
-which follows a change of the parent's key; PostgreSQL has them), the same refusals and
-the refusal of the parent's update close it. A column that records who
+A row taken with the record it is under (a pass that goes with the place it opens, where
+the place's record declares it with `@deleteCascade`) is held to the rule too: it is
+deleted through its own delete, so the rule and the mask are asked about it, and the
+delete of the place is refused whole when a pass under it is the real person's own or
+their set's. A row that goes with its tenant is a limit of its own: a tenant's delete
+asks no grant and no rule of a row. The generator gives that delete the class `access`,
+and an application closes it for a kind that keeps the class by refusing the delete in
+the kind's mask (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`), with any
+action that deletes a tenant in its own body, by name (`accesstypes.RefuseAction`).
+Where a foreign key changes a row where it stands (`ON DELETE SET NULL` or
+`SET DEFAULT`, and `ON UPDATE CASCADE`, which follows a change of the parent's key;
+PostgreSQL has them), no write of the row is made: refusing the parent's delete, and for
+a key the parent's update, closes it. A column that records who
 made a row, which a grant compares to `subject`, is another: the row names a person and
 decides what they may do, and the rule does not read the column. While the application
 stamps the column from the session and people cannot write it, no write moves a row

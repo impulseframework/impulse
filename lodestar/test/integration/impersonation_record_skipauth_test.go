@@ -17,6 +17,8 @@ package integration
 // one record out of that refusal, the hangar passes: a stand-in gives other people and
 // other squadrons a pass, and never themselves or a squadron they are in. The delete of
 // a sector carries the same class, since a sector that goes takes every role held in it.
+// A row of one of these records taken with the record it is under is asked the same
+// (impersonation_taken_skipauth_test).
 //
 // The rule reads the columns that name a person a row is about. A column that records
 // who made a row is not one of them, and the last test here pins what such a column

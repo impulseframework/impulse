@@ -59,25 +59,26 @@ const ClassCredential ActionClass = "credential"
 // colleague. A row of the application's own that reaches the person without naming
 // them (a pass given to a team they are in) is beside those: the record's writes
 // carry the class, so a mask that refuses the class refuses the row, and a session
-// whose mask does not refuse it writes such a row. A row removed with
-// its parent, which may name the person, is a limit of its own: no write of the row
-// is made, and a mask closes it by refusing each request that removes a row above
-// it. Those are the parent's delete (RefusePermission(Delete, parent)), the delete
-// of each record further up while the cascade goes on, and an action that removes
-// one of them in its own body (RefuseAction). Where a foreign key changes the row
-// instead of removing it (PostgreSQL's ON DELETE SET NULL and SET DEFAULT, and its
-// ON UPDATE CASCADE, which follows a change of the parent's key), the same refusals
-// and the refusal of the parent's update close it. A column that records who made
-// a row, which a grant compares to the requester, is another. While the
-// application stamps it from the session and people cannot write it, no write
-// moves a row onto the real person, and where people can write it, a mask refuses
-// the record's writes. A row made in a session that acts as a role is the stated
-// case: a role is not anyone, so the row is stamped with the person who started
-// the session, and what the grants give its author is theirs after the session
-// too. A role kind whose mask refuses the record's create
+// whose mask does not refuse it writes such a row. A row taken with the record it is
+// under (the record's @deleteCascade) is deleted through its own delete, so the
+// class on its record refuses it there, and the record's delete with it. A row that
+// goes with its tenant is a limit of its own: a tenant's delete asks nothing of a
+// row. That delete carries the class access, and a mask that keeps the class closes
+// it by refusing the delete (RefusePermission(Delete, tenant)) and any action that
+// deletes a tenant in its own body (RefuseAction). Where a foreign key changes a row
+// where it stands (PostgreSQL's ON DELETE SET NULL and SET DEFAULT, and its ON
+// UPDATE CASCADE, which follows a change of the parent's key), no write of the row
+// is made: refusing the parent's delete, and for a key the parent's update, closes
+// it. A column that records who made a row, which a grant compares to the requester,
+// is another. While the application stamps it from the session and people cannot
+// write it, no write moves a row onto the real person, and where people can write
+// it, a mask refuses the record's writes. A row made in a session that acts as a
+// role is the stated case: a role is not anyone, so the row is stamped with the
+// person who started the session, and what the grants give its author is theirs
+// after the session too. A role kind whose mask refuses the record's create
 // (RefusePermission(Create, record)) closes that, as does a column the application
-// stamps with nobody in such a session. Each of these is a stated limit of the
-// rule, which a mask that does not refuse it leaves open.
+// stamps with nobody in such a session. Each of these is a stated limit of the rule,
+// which a mask that does not refuse it leaves open.
 //
 // One limit the class does not close. The rule knows the real person by the account
 // they signed in with, so a second account of their own is someone else's to it:
