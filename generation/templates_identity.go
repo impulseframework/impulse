@@ -715,8 +715,8 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
-	// What a sign-in writes is announced by the auth's tables as the generated types over
-	// them name them (AnnounceThrough).
+	// The manager announces a sign-in's writes under the names the generated types give
+	// the auth's tables (AnnounceThrough).
 	opts = append(opts, identity.WithAccountTables(&identity.AccountTables{
 		{{- if .Has "users" }}
 		Users: {{ .ResourcesPackage }}.{{ .User }}{}.Resource(),
@@ -902,8 +902,10 @@ func (c *Client) AnnounceThrough(svc live.Service, derivations *live.Derivations
 // in a transaction of the hook's own on db, the application's database. Nothing else
 // removes them: no job runs on a schedule. The session library calls the hook once the
 // session is committed and logs an error it answers, so the removal neither fails a
-// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
-// package sets it {{ if .RolesSynced }}where it builds the auth and this client{{ else }}where it sets the invitation's{{ end }}.
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The hook then
+// announces the sign-in to the open pages, once the generated handlers have handed the
+// client a service to announce through (AnnounceThrough). The auth's package sets it
+// {{ if .RolesSynced }}where it builds the auth and this client{{ else }}where it sets the invitation's{{ end }}.
 func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
 	return c.manager.SignedIn("{{ .Auth }}", db)
 }
