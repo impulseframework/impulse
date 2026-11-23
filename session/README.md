@@ -451,7 +451,12 @@ DML what a later rule must read.
   subject under the same name (their directory account deleted and made again) is
   therefore followed only where the account holds the address verified and the method
   verifies it; elsewhere the sign-in is refused until the new identity is linked one
-  of those ways.
+  of those ways. No sign-in puts an account under a second tenant's directory: where a
+  tenant declares the directory the identity came through, and the user already signs in
+  through a directory another tenant declares, the sign-in is refused
+  (`second_directory`, `signin.ErrLinkSecondDirectory`) before any confirmation is asked
+  for, and nothing is linked. The tenant whose directory a person signs in through
+  manages their account, so there is one at most.
 
   The standard rule writes nothing for a guest of the directory (an Entra B2B guest,
   refused with `guest_account`: a guest's preferred username is an address the
@@ -3442,6 +3447,7 @@ table is the wire contract:
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
 | `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
+| `second_directory` | `RefusedSecondDirectory` | Auth: the sign-in came through a directory a tenant declares and reached a user who already signs in through a directory another tenant declares. An account signs in through one tenant's directory at most, so nothing is linked and no confirmation is asked for. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count; the codes of the address's own sign-ins are counted apart from everything else); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |

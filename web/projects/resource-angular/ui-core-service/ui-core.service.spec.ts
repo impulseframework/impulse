@@ -51,6 +51,11 @@ describe('UiCoreService login messages', () => {
       want: DEFAULT_LOGIN_MESSAGES['other_tenant'],
     },
     {
+      name: "a sign-in through a second organization's directory says the account signs in through another and how to sign in",
+      code: 'second_directory',
+      want: "This account already signs in through another organization's directory, so it cannot sign in through this one. Please sign in the way you have before.",
+    },
+    {
       name: "an invitation accepted through an organization's directory alone, met another way, says what to sign in with",
       code: 'organization_account_required',
       want: "This invitation is accepted with your organization's account. Sign in with that account, not with a password or a personal account.",
@@ -116,6 +121,7 @@ describe('UiCoreService login messages', () => {
       'codes_spent',
       'invitation_not_open',
       'other_tenant',
+      'second_directory',
       'organization_account_required',
       'organization_has_tenant',
     ];

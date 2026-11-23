@@ -1505,7 +1505,10 @@ func organizationLinked(links []*dbtype.SessionIdentity) bool {
 // proven is the proof of the password the person confirmed with: the link is made only
 // while the user still holds that password, read in the transaction that makes it, so
 // a password changed, reset or removed since the confirmation links nothing
-// (dbtype.ErrPasswordChanged). The nil proof holds the link to nothing.
+// (dbtype.ErrPasswordChanged). The nil proof holds the link to nothing. A link that
+// would put the account under a second tenant's directory, which the account may have
+// come to sign in through since the confirmation was asked for, is a refusal with
+// nothing written (secondDirectory).
 func LinkConfirmed[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
 	directories signin.DirectoryReader[Tx], seat DirectorySeater[Tx], proven dbtype.PasswordProof,
@@ -1522,6 +1525,15 @@ func LinkConfirmed[Tx any](
 			if err := proven.Check(user.PasswordProof); err != nil {
 				return errors.Wrap(err, "dbtype.PasswordProof.Check()")
 			}
+		}
+		// The account may have come to sign in through another tenant's directory since
+		// the confirmation was asked for.
+		stop, err := secondDirectory(ctx, d, tx, userID, identity, directories)
+		if err != nil {
+			return err
+		}
+		if stop != nil {
+			return stop
 		}
 		if err := d.LinkIdentityIn(ctx, tx, userID, identity, tenant); err != nil {
 			return errors.Wrap(err, "Driver.LinkIdentityIn()")
@@ -2077,6 +2089,43 @@ func userDirectoriesIn[Tx any](
 	return directories, nil
 }
 
+// secondDirectory asks, inside tx, whether linking identity to userID would put the
+// account under a second tenant's directory, and answers a refusal (stop,
+// second_directory with signin.ErrLinkSecondDirectory) where it would: a tenant
+// declares the directory identity came through, and the account has a link that came
+// through another directory, which a tenant not among the first directory's tenants
+// declares. The tenant whose directory a person signs in through manages their account,
+// so an account signs in through one tenant's directory at most. It answers nil where
+// the application reads no directories (a nil read), for an identity of a personal
+// account, and where the account's other links came through directories no tenant
+// declares, or the same tenant's. A sign-in that would wait for a confirmation asks it
+// before the confirmation is asked for, and linkUser and LinkConfirmed before the link
+// is written. Links that stood before a tenant declared its directory are left as they
+// are, and the store's own LinkIdentity reads no declaration.
+func secondDirectory[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, identity *sessioninfo.Identity, read signin.DirectoryReader[Tx],
+) (stop, err error) {
+	declared, err := declaredDirectory(ctx, tx, identity, read)
+	if err != nil || len(declared) == 0 {
+		return nil, err
+	}
+	tenants := make(map[accesstypes.Domain]bool, len(declared))
+	for _, declaration := range declared {
+		tenants[declaration.Tenant] = true
+	}
+	held, err := userDirectoriesIn(ctx, d, tx, userID, read)
+	if err != nil {
+		return nil, err
+	}
+	for _, directory := range held {
+		if slices.ContainsFunc(directory.Tenants, func(tenant accesstypes.Domain) bool { return !tenants[tenant] }) {
+			return Refusal("", sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory, "the account already signs in through another tenant's directory"), nil
+		}
+	}
+
+	return nil, nil
+}
+
 // UserDirectories reads the organizations' directories userID's identity links came
 // through, each with the tenants read answers as declaring it, as a sign-in reads them
 // for its policy, in one transaction of its own that writes nothing: for a question
@@ -2178,6 +2227,10 @@ func applyResolution[Tx any](
 		if rules.NoPassword {
 			return "", "", false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrConfirmNeedsPasswordMethod, "identity requires a confirmation that cannot be given"), nil
 		}
+		// Nobody is asked for a password to confirm a link that cannot be made.
+		if stop, err := secondDirectory(ctx, d, tx, res.UserID(), req.Identity, rules.Directories); err != nil || stop != nil {
+			return "", "", false, stop, err
+		}
 		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
 			return "", "", false, nil, errors.Wrap(err, "Driver.UserIn()")
@@ -2215,7 +2268,9 @@ func applyResolution[Tx any](
 // password confirmed a link that has been taken away since) links only while the user
 // still holds that password: after a change or a removal it ends with
 // dbtype.ErrPasswordChanged before anything is linked, consumed or accepted, as
-// resolveLinked ends it. The nil proof holds it to nothing.
+// resolveLinked ends it. The nil proof holds it to nothing. An identity from one
+// tenant's directory is never linked to a user who signs in through another tenant's,
+// trusted or not (secondDirectory).
 func linkUser[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, onName bool, rules Rules[Tx],
 ) (live bool, stop, err error) {
@@ -2258,12 +2313,8 @@ func linkUser[Tx any](
 			}
 		}
 	}
-	if rules.ConfirmAddress {
-		// An account that could not take the address the method vouches for is not
-		// signed in to, and so is linked nothing.
-		if stop, err = addressTaken(ctx, d, tx, req, user); err != nil || stop != nil {
-			return false, stop, err
-		}
+	if stop, err = beforeLinking(ctx, d, tx, req, user, rules); err != nil || stop != nil {
+		return false, stop, err
 	}
 	if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
 		return false, nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
@@ -2275,6 +2326,23 @@ func linkUser[Tx any](
 	live, err = consumeInvitation(ctx, d, tx, req, byInvitation || provenAddress(req, rules.ConfirmAddress) != "")
 
 	return live, nil, err
+}
+
+// beforeLinking is what linkUser asks last, once the rule's link has passed its own
+// refusals and before the link is written: an account that could not take the address
+// the method vouches for is not signed in to, and so is linked nothing (addressTaken,
+// where the rules confirm addresses); and an identity from one tenant's directory is
+// never linked to a user who signs in through another tenant's (secondDirectory).
+func beforeLinking[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, rules Rules[Tx],
+) (stop, err error) {
+	if rules.ConfirmAddress {
+		if stop, err = addressTaken(ctx, d, tx, req, user); err != nil || stop != nil {
+			return stop, err
+		}
+	}
+
+	return secondDirectory(ctx, d, tx, user.ID, req.Identity, rules.Directories)
 }
 
 // asRegistered is user as the sign-in's rules decide it, nil for nil: under an Auth that

@@ -21,6 +21,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -310,6 +311,184 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 	}
 	if got := rec.times(name); got != 2 {
 		t.Errorf("the seat hook gave seats %d time(s) after the refused link, want twice still", got)
+	}
+}
+
+// twoTenants is a directory reader for an application with two tenants, each the owner
+// of its own directories: north declares the Entra tenant tenant-1 and the Google
+// Workspace lakeside, south declares the Entra tenant tenant-2, each with the default
+// seat Member, and no tenant declares any other directory.
+func twoTenants(_ context.Context, _ HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+	switch directory {
+	case signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "lakeside"}:
+		return []signin.DeclaredDirectory{{Tenant: "north", DefaultSeat: "Member"}}, nil
+	case signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-2"}:
+		return []signin.DeclaredDirectory{{Tenant: "south", DefaultSeat: "Member"}}, nil
+	default:
+		return nil, nil
+	}
+}
+
+// throughConnection is identity as it came through connection, as entra's identity of
+// another Entra tenant than tenant-1 does.
+func throughConnection(identity *sessioninfo.Identity, connection string) *sessioninfo.Identity {
+	identity.Connection = connection
+
+	return identity
+}
+
+// confirmedThrough links identity to user the way a person with a password is linked
+// through a directory: the sign-in waits for the password, with tenant on the link to
+// be made, and the password confirms the link.
+func confirmedThrough(ctx context.Context, t *testing.T, in *AuthInstance, user *dbtype.SessionUser, identity *sessioninfo.Identity, tenant string) {
+	t.Helper()
+
+	signingIn := *identity
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, Identity: &signingIn}
+	assertConfirmationPending(ctx, t, in.Driver, signInRequest(ctx, in, req), identity, user, tenant)
+	if err := in.LinkConfirmed(ctx, user.ID, user.Username, identity, tenant); err != nil {
+		t.Fatalf("LinkConfirmed() error = %v", err)
+	}
+	assertLinkedTo(ctx, t, in.Driver, identity, user.ID, tenant)
+}
+
+func testSecondDirectoryRefusedBeforeConfirmation(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open, Admission: &DirectoryAdmission{Directories: twoTenants, Seat: rec.hook},
+	})
+
+	// Kim has a password and signs in through north's directory, which seats her in
+	// north.
+	const name = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, name)
+	confirmedThrough(ctx, t, in, kim, entra("oid-kim", name), "tenant-1")
+
+	// A sign-in under her name through south's directory is refused at once: no
+	// confirmation is asked for, nothing is linked, and south seats nothing.
+	south := throughConnection(entra("oid-kim-south", name), "tenant-2")
+	signingIn := *south
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: &signingIn}
+	err := signInRequest(ctx, in, req)
+	var pending *signin.PendingSignInError
+	if errors.As(err, &pending) {
+		t.Fatalf("sign-in through a second tenant's directory waits for a confirmation (%+v), want a refusal", pending)
+	}
+	assertRefused(t, err, sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory)
+	assertNoLink(ctx, t, in.Driver, south)
+	want := []signin.DirectorySeat{{Tenant: "north", Role: "Member"}}
+	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
+		t.Errorf("seats after the refused sign-in (-want +got):\n%s", diff)
+	}
+	if got := rec.times(name); got != 1 {
+		t.Errorf("the seat hook gave seats %d time(s), want once for north's link", got)
+	}
+}
+
+func testSecondDirectoryRefusedAtConfirmedLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open, Admission: &DirectoryAdmission{Directories: twoTenants, Seat: rec.hook},
+	})
+
+	// Kim, who has a password and no link yet, signs in through south's directory: the
+	// sign-in waits for her password.
+	const name = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, name)
+	south := throughConnection(entra("oid-kim-south", name), "tenant-2")
+	signingIn := *south
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: &signingIn}
+	assertConfirmationPending(ctx, t, in.Driver, signInRequest(ctx, in, req), south, kim, "tenant-2")
+
+	// Before she confirms it, she signs in through north's directory and confirms that
+	// link.
+	confirmedThrough(ctx, t, in, kim, entra("oid-kim", name), "tenant-1")
+
+	// The confirmation south's sign-in waited for now links nothing and seats nothing.
+	err := in.LinkConfirmed(ctx, kim.ID, name, south, "tenant-2")
+	assertRefused(t, err, sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory)
+	assertNoLink(ctx, t, in.Driver, south)
+	want := []signin.DirectorySeat{{Tenant: "north", Role: "Member"}}
+	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
+		t.Errorf("seats after the refused confirmation (-want +got):\n%s", diff)
+	}
+	if got := rec.times(name); got != 1 {
+		t.Errorf("the seat hook gave seats %d time(s), want once for north's link", got)
+	}
+}
+
+func testSecondDirectoryRefusedForRegistrationRule(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	var kimID impulse.UUID
+	// The registration's own rule links any sign-in through south's directory to Kim's
+	// account, trusted, and hands every other to the standard rule.
+	rule := func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		if req.Identity.Connection == "tenant-2" {
+			return signin.Link(kimID, true, signin.Tenant("tenant-2")), nil
+		}
+
+		return signin.Standard(), nil
+	}
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open, Resolve: rule, Admission: &DirectoryAdmission{Directories: twoTenants, Seat: rec.hook},
+	})
+
+	const name = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, name)
+	kimID = kim.ID
+	confirmedThrough(ctx, t, in, kim, entra("oid-kim", name), "tenant-1")
+
+	// The rule's trusted link of south's identity to the account that signs in through
+	// north's directory is refused, and nothing is linked.
+	south := throughConnection(entra("oid-kim-south", name), "tenant-2")
+	signingIn := *south
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: &signingIn}
+	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory)
+	assertNoLink(ctx, t, in.Driver, south)
+	if got := rec.times(name); got != 1 {
+		t.Errorf("the seat hook gave seats %d time(s), want once for north's link", got)
+	}
+}
+
+func testSecondDirectoryNotRefused(ctx context.Context, t *testing.T, h *AuthHarness) {
+	const name = "kim@lakeside.edu"
+	tests := []struct {
+		name     string
+		readsAll bool
+		second   *sessioninfo.Identity
+		tenant   string
+	}{
+		{
+			name: "a second directory no tenant declares", readsAll: true,
+			second: throughConnection(entra("oid-kim-3", name), "tenant-3"), tenant: "tenant-3",
+		},
+		{
+			name: "a second directory of the same tenant", readsAll: true,
+			second: google("sub-kim", name), tenant: "lakeside",
+		},
+		{
+			name: "a personal account", readsAll: true,
+			second: throughConnection(entra("oid-kim-personal", name), signin.MicrosoftPersonalAccountsConnection), tenant: signin.MicrosoftPersonalAccountsConnection,
+		},
+		{
+			name: "an application that reads no directories", readsAll: false,
+			second: throughConnection(entra("oid-kim-south", name), "tenant-2"), tenant: "tenant-2",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := AuthConfig{Auth: true, Accounts: Open}
+			if tt.readsAll {
+				cfg.Admission = &DirectoryAdmission{Directories: twoTenants, Seat: newSeatings().hook}
+			}
+			in := h.New(ctx, t, AuthWithAppTables, cfg)
+
+			// Kim signs in through north's directory, then through the second one: each
+			// sign-in waits for her password, and each confirmation links.
+			kim := passwordUser(ctx, t, in.Driver, name)
+			confirmedThrough(ctx, t, in, kim, entra("oid-kim", name), "tenant-1")
+			confirmedThrough(ctx, t, in, kim, tt.second, tt.tenant)
+		})
 	}
 }
 

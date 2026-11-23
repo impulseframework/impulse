@@ -451,6 +451,11 @@ const (
 	// invitation it carries, or the default role of the directory it came through,
 	// would seat the person in a second tenant.
 	RefusedOtherTenant LoginRefusalCode = "other_tenant"
+	// RefusedSecondDirectory is the code for a sign-in through one tenant's directory
+	// that reached an account which already signs in through another tenant's
+	// directory. An account signs in through one tenant's directory at most, so nothing
+	// is linked.
+	RefusedSecondDirectory LoginRefusalCode = "second_directory"
 	// RefusedOrganizationAccountRequired is the code for a sign-in or an acceptance that
 	// carried an invitation which makes a tenant entered through its directory only
 	// (NewTenant.DirectoryOnly), by a person who did not come through an organization's

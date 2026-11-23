@@ -215,7 +215,9 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // such a user, made on the name, is held to more: it is made only as the user's first
 // identity unless the user holds the identity's verified address (ErrLinkSecondIdentity),
 // and as a first identity only when something vouches for it (see AccountRule).
-// Never
+// Where the application reads its tenants' directories, an identity from one tenant's
+// directory is never linked to a user who already signs in through another tenant's,
+// trusted or not (ErrLinkSecondDirectory). Never
 // choose userID by an email address or another claim the identity's provider does not
 // verify, unless the connection itself is one the application trusts, and then say so
 // with trusted.
@@ -248,7 +250,9 @@ func Provision(user *NewUser, onProvisioned func(ctx context.Context, userID imp
 // confirm (the confirmation answers 401), so Confirm is for users that sign in with a
 // password; a password-less user is linked with Link or refused with Reject. On an Auth
 // that registers no password method nobody can enter a password, so the sign-in is
-// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject.
+// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject. A
+// confirmation whose link would put the account under a second tenant's directory is
+// refused before any password is asked for (ErrLinkSecondDirectory).
 func Confirm(userID impulse.UUID, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: RequireConfirmation, userID: userID}
 	for _, opt := range opts {
@@ -423,6 +427,15 @@ var (
 	// is sessioninfo.RefusedIdentityRejected.
 	ErrLinkNeedsAddress = errors.New(
 		"signin: an identity can't be linked on a sign-in name its method does not vouch for to a user who holds no email address")
+	// ErrLinkSecondDirectory is the cause when an identity that came through a directory
+	// a tenant declares would be linked to a user who already signs in through a
+	// directory another tenant declares. The tenant whose directory a person signs in
+	// through manages their account, so an account signs in through one tenant's
+	// directory at most: the link is refused however it was asked for (a password's
+	// confirmation, a registration's own rule, trusted or not), before any confirmation
+	// is asked for, and nothing is linked. The code is sessioninfo.RefusedSecondDirectory.
+	ErrLinkSecondDirectory = errors.New(
+		"signin: an identity from one tenant's directory can't be linked to a user who already signs in through another tenant's directory")
 	// ErrAddressHeldByAnother is the cause when a sign-in whose method vouches for its
 	// address (Google, for a Gmail address or a Workspace account's) reaches a user who
 	// holds no confirmed address while another user holds that address, confirmed. The
