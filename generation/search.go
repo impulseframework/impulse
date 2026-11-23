@@ -468,12 +468,12 @@ func (b *searchBranch) GoLiteral() string {
 		b.Name, b.Resource, b.Field, b.Tag, b.Table, b.Column, b.JoinColumn, b.TenantColumn, b.Token, b.Index, "resource.SearchRole"+strings.ToUpper(string(b.Role)[:1])+string(b.Role)[1:], anchorList, b.Contains, b.Zone, b.PII, features)
 }
 
-// gatesOf returns the flags of the gates declared, in order, leaving out a gate not
-// declared: what a thing read through another resource stands behind.
+// gatesOf returns the flags of the gates declared, in order, each once, leaving out a
+// gate not declared: what a thing read through another resource stands behind.
 func gatesOf(gates ...*featureGate) []resource.Feature {
 	var features []resource.Feature
 	for _, gate := range gates {
-		if gate != nil {
+		if gate != nil && !slices.Contains(features, gate.Name) {
 			features = append(features, gate.Name)
 		}
 	}
@@ -697,7 +697,7 @@ func (c *client) resolveSearchBranch(parent *resourceInfo, decl searchAlsoDecl, 
 	branch.Token, branch.Index, branch.Role = field.Search.Token, field.Search.Index, field.Search.Role
 	branch.Anchors, branch.Contains, branch.Zone = field.Search.Anchors, field.Search.Contains, field.Search.Zone
 	branch.PII = field.IsPII()
-	branch.Features = gatesOf(child.Feature, field.Feature)
+	branch.Features = gatesOf(child.Feature, field.Feature, join.Feature)
 
 	if !join.IsPrimaryKey && !slices.Contains(c.indexStoring(branch.Table, field.Search.Index), branch.JoinColumn) {
 		parent.searchWarnings = append(parent.searchWarnings, SearchBranchStoringWarning{Resource: parent.Name(), Child: branch.Table, IndexName: field.Search.Index, JoinColumn: branch.JoinColumn})

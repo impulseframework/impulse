@@ -381,7 +381,7 @@ index comes back to the view's rows through the foreign key, and the key set cos
 matches only when that index serves it. On PostgreSQL every match renders as `ILIKE` over the role's
 expression of the column and a branch as a correlated `EXISTS`; the matching trigram or
 expression index is the application's DDL, as every PostgreSQL index is. `count=true`
-counts under the same box, and a cursor's fingerprint covers the filter as before. A branch whose child field, or whose child resource, stands behind a feature flag that is off is left out of the box for that request: the box searches it again when the flag is on.
+counts under the same box, and a cursor's fingerprint covers the filter as before. A branch whose child field, whose child resource, or whose foreign key to the parent stands behind a feature flag that is off is left out of the box for that request: the box searches it again when the flag is on.
 
 A sort or filter runs over the projection the caller can see. A field the caller is
 denied cannot be sorted or filtered on: the request is a 403 naming the field, because

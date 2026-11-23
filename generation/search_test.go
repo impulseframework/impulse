@@ -373,19 +373,21 @@ func TestSearchFacts(t *testing.T) {
 }
 
 // Test_searchBranchFeatures pins the flags a branch stands behind: the child
-// resource's, then the child field's, each only where it is declared, and the
-// literal the generated SearchBranches method writes, which names them only where
-// there are any.
+// resource's, then the child field's, then the foreign key's the branch joins through,
+// each only where it is declared and once, and the literal the generated SearchBranches
+// method writes, which names them only where there are any.
 func Test_searchBranchFeatures(t *testing.T) {
 	t.Parallel()
 
 	resourceGate := &featureGate{Constant: "Notes", Name: "notes"}
 	fieldGate := &featureGate{Constant: "NoteBodies", Name: "note_bodies"}
+	keyGate := &featureGate{Constant: "NoteLinks", Name: "note_links"}
 	const literal = `{Name: "accountNote.body", Resource: "AccountNotes", Field: "Body", Tag: "body", Table: "AccountNotes", Column: "Body", JoinColumn: "AccountId", TenantColumn: "TenantId", Token: "Body_Search", Index: "AccountNotesSearch", Role: resource.SearchRoleText, Anchors: nil, Contains: true, Zone: "", PII: true`
 	tests := []struct {
 		name        string
 		resource    *featureGate
 		field       *featureGate
+		key         *featureGate
 		want        []resource.Feature
 		wantLiteral string
 	}{
@@ -393,6 +395,9 @@ func Test_searchBranchFeatures(t *testing.T) {
 		{name: "the child field gated", field: fieldGate, want: []resource.Feature{"note_bodies"}, wantLiteral: literal + `, Features: []resource.Feature{"note_bodies"}}`},
 		{name: "the child resource gated", resource: resourceGate, want: []resource.Feature{"notes"}, wantLiteral: literal + `, Features: []resource.Feature{"notes"}}`},
 		{name: "both gated: the resource's first", resource: resourceGate, field: fieldGate, want: []resource.Feature{"notes", "note_bodies"}, wantLiteral: literal + `, Features: []resource.Feature{"notes", "note_bodies"}}`},
+		{name: "the foreign key the branch joins through gated", key: keyGate, want: []resource.Feature{"note_links"}, wantLiteral: literal + `, Features: []resource.Feature{"note_links"}}`},
+		{name: "all three gated: the resource's, the field's, then the key's", resource: resourceGate, field: fieldGate, key: keyGate, want: []resource.Feature{"notes", "note_bodies", "note_links"}, wantLiteral: literal + `, Features: []resource.Feature{"notes", "note_bodies", "note_links"}}`},
+		{name: "the field and the key behind one flag: named once", field: fieldGate, key: fieldGate, want: []resource.Feature{"note_bodies"}, wantLiteral: literal + `, Features: []resource.Feature{"note_bodies"}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -405,6 +410,7 @@ func Test_searchBranchFeatures(t *testing.T) {
 			note := resourceNamed(t, resources, "AccountNote")
 			note.Feature = tt.resource
 			fieldNamed(t, note, "Body").Feature = tt.field
+			fieldNamed(t, note, "AccountID").Feature = tt.key
 			byName := make(map[string]*resourceInfo, len(resources))
 			for _, res := range resources {
 				byName[res.Name()] = res
