@@ -502,7 +502,8 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 	}, nil)
 
 	// The crew's client is not built without what makes a citadel; the members', whose
-	// people make none, is built as before.
+	// people make none, is built as before: no tenant maker is asked for or checked (the
+	// word "tenants" itself is in the client, in its hook of a person's own tenants).
 	assertContains(t, "crewidentity/client.go", identitySource(t, "crewidentity/client.go"), []string{
 		"func NewClient(controller access.Controller, sessions identity.SessionAPI, tenants identity.TenantMaker, opts ...identity.Option) (*Client, error) {",
 		"if tenants == nil {\n return nil, errors.New(\"crewidentity.NewClient(): tenants is nil; pass the generated NewCitadelMaker of the application's handler package, which makes a citadel from an accepted invitation\")\n }",
@@ -510,7 +511,7 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 	}, nil)
 	assertContains(t, "membersidentity/client.go", identitySource(t, "membersidentity/client.go"), []string{
 		"func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {",
-	}, []string{"TenantMaker", "tenants"})
+	}, []string{"TenantMaker", "tenants == nil"})
 
 	// The store writes the tenant an invitation makes with the invitation's row, and
 	// reads the ones that stand past the declarations; a schema with no mail links

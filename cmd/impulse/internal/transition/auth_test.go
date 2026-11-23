@@ -605,7 +605,8 @@ func TestAuthApply(t *testing.T) {
 					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
 					// What a sign-in clears is set before what a sign-in gives: the identity
 					// client's hook for a sign-in that stands, over the application's database.
-					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// The directory admission",
+					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// A person's own tenants, on their account page",
+					"\tauthSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))\n\n\t// The directory admission",
 					"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\t// An accepted invitation gives its roles",
 					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
 					// The hook that gives a person who signs up their place: here they create a
@@ -648,7 +649,8 @@ func TestAuthApply(t *testing.T) {
 					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n",
 					// With no directory admission between them, what a sign-in clears is followed
 					// at once by what an accepted invitation gives.
-					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// An accepted invitation gives its roles",
+					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// A person's own tenants, on their account page",
+					"\tauthSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))\n\n\t// An accepted invitation gives its roles",
 					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
 				} {
 					if !strings.Contains(pkg, want) {

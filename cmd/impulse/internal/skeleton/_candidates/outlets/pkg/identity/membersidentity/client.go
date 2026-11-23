@@ -241,6 +241,17 @@ func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
 	return c.manager.SignedIn("Members", db)
 }
 
+// OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
+// over the Members auth's tables: a signed-in person's account page lists the
+// tenants they hold something in, with the roles held in each, and takes them out of one
+// at their own word (identity.Manager.OwnTenants), each in a transaction of the hook's
+// own on db, the application's database. A tenant's last administrator does not leave
+// it, and an account left holding nothing is deleted with its sessions. The auth's
+// package sets it where it sets the after-sign-in hook.
+func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {
+	return c.manager.OwnTenants("Members", db)
+}
+
 // SignedUp answers the session library's hook for a sign-up through an open sign-in
 // method (session.Auth.SetSignUpSeated) over the Members auth's tables: the default
 // role the method's row names is given to the person in the transaction that makes

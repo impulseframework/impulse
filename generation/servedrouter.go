@@ -73,6 +73,13 @@ const (
 	// browser the second factor remembered for them (session.Auth.ForgetBrowsers).
 	userForgetBrowsersSuffix = "/user/browser/forget-all"
 	forgetBrowsersHandler    = "ForgetBrowsers"
+	// userTenantsSuffix is where a signed-in person's account page lists their tenants
+	// (session.Auth.OwnTenants), and userTenantsLeaveSuffix where it takes them out of
+	// one (session.Auth.LeaveTenant).
+	userTenantsSuffix      = "/user/tenants"
+	userTenantsLeaveSuffix = "/user/tenants/leave"
+	ownTenantsHandler      = "OwnTenants"
+	leaveTenantHandler     = "LeaveTenant"
 	// The token page's routes under an issuing session outlet's prefix, and the device
 	// flow's public endpoints under a machine outlet's.
 	userTokensSuffix  = "/user/tokens"
@@ -702,6 +709,11 @@ type servedOutlet struct {
 	// ForgetBrowsers is where the account page forgets every browser remembered for the
 	// person, told to the browser beside the methods.
 	ForgetBrowsers string
+	// OwnTenantsList and OwnTenantsLeave are where the account page lists the person's
+	// tenants and takes them out of one, told to the browser beside the methods where the
+	// auth's package set the hook that answers them.
+	OwnTenantsList  string
+	OwnTenantsLeave string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
 	// password method, SignUp with a password method too (nil otherwise).
@@ -1217,7 +1229,7 @@ func linkTokenIssuers(data *servedRouterData) {
 // the outlet's prefix, as the router tells them to the browser beside the methods:
 // forgetting the remembered browser, the person's own name, what the person signs in
 // with, the look the person chose, the person's own username, where they are signed
-// in, and forgetting every remembered browser.
+// in, forgetting every remembered browser, and the person's tenants.
 func servedAccountPathsOf(so *servedOutlet, prefix string) {
 	so.ForgetBrowser = prefix + userForgetBrowserSuffix
 	so.ChangeName = prefix + userNameSuffix
@@ -1229,6 +1241,8 @@ func servedAccountPathsOf(so *servedOutlet, prefix string) {
 	so.OwnSessionsEnd = prefix + userSessionsEndSuffix
 	so.OwnSessionsEndOthers = prefix + userSessionsEndOthersSuffix
 	so.ForgetBrowsers = prefix + userForgetBrowsersSuffix
+	so.OwnTenantsList = prefix + userTenantsSuffix
+	so.OwnTenantsLeave = prefix + userTenantsLeaveSuffix
 }
 
 // servedSessionOf fills a session outlet's methods and routes from its auth's methods:
@@ -1252,6 +1266,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodGet, userPendingSuffix, pendingStatusHandler, false),
 		route(http.MethodGet, userSignInMeansSuffix, signInMeansHandler, false),
 		route(http.MethodGet, userSessionsSuffix, ownSessionsHandler, false),
+		route(http.MethodGet, userTenantsSuffix, ownTenantsHandler, false),
 	}
 	var guarded []servedRoute
 	kinds := make([]string, 0, len(o.auth.methods))
@@ -1316,6 +1331,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userSessionsEndSuffix, endOwnSessionHandler, true),
 		route(http.MethodPost, userSessionsEndOthersSuffix, endOtherSessionsHandler, true),
 		route(http.MethodPost, userForgetBrowsersSuffix, forgetBrowsersHandler, true),
+		route(http.MethodPost, userTenantsLeaveSuffix, leaveTenantHandler, true),
 	)
 	servedAccountPathsOf(so, prefix)
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
@@ -1829,6 +1845,12 @@ type {{ .SessionInterface }} interface {
 	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
 	// validates the session itself.
 	ForgetBrowsers() http.HandlerFunc
+	// OwnTenants answers the signed-in person's tenants, with the roles held in each, to
+	// their account page (session.Auth.OwnTenants); it validates the session itself.
+	OwnTenants() http.HandlerFunc
+	// LeaveTenant takes the signed-in person out of one of their tenants, from their
+	// account page (session.Auth.LeaveTenant); it validates the session itself.
+	LeaveTenant() http.HandlerFunc
 {{- range .SessionHandlers }}
 	// {{ .Description }}.
 	{{ .Name }}() http.HandlerFunc
@@ -2086,6 +2108,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			UsernameFree: "{{ $outlet.UsernameFree }}",
 			OwnSessions: session.OwnSessionsRoutes{List: "{{ $outlet.OwnSessionsList }}", End: "{{ $outlet.OwnSessionsEnd }}", EndOthers: "{{ $outlet.OwnSessionsEndOthers }}"},
 			ForgetBrowsers: "{{ $outlet.ForgetBrowsers }}",
+			OwnTenants: session.OwnTenantsRoutes{List: "{{ $outlet.OwnTenantsList }}", Leave: "{{ $outlet.OwnTenantsLeave }}"},
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
 			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}", Confirm: "{{ $outlet.Email.Confirm }}"},
 {{- if $outlet.SignUp }}

@@ -407,9 +407,10 @@ func TestAuth_ForgetBrowsers(t *testing.T) {
 	}
 }
 
-// TestAuth_ownSessionHandlers_refuse proves each of the four handlers asks for a
+// TestAuth_ownSessionHandlers_refuse proves each of the six handlers asks for a
 // session of the person's own: none without a session, none under the password change
-// mark, and none for a session someone else established acting as the person.
+// mark, and none for a session someone else established acting as the person. The two
+// own-tenants handlers are refused before their hook is asked.
 func TestAuth_ownSessionHandlers_refuse(t *testing.T) {
 	t.Parallel()
 
@@ -426,6 +427,11 @@ func TestAuth_ownSessionHandlers_refuse(t *testing.T) {
 		},
 		{name: "EndOtherSessions", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).EndOtherSessions, method: http.MethodPost, body: func(impulse.UUID) string { return "" }},
 		{name: "ForgetBrowsers", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ForgetBrowsers, method: http.MethodPost, body: func(impulse.UUID) string { return "" }},
+		{name: "OwnTenants", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants), method: http.MethodGet, body: func(impulse.UUID) string { return "" }},
+		{
+			name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost,
+			body: func(impulse.UUID) string { return `{"domain":"t-acme","deletesAccount":false}` },
+		},
 	}
 	for _, h := range handlers {
 		t.Run(h.name+": a request without a session is refused", func(t *testing.T) {
@@ -465,10 +471,11 @@ func TestAuth_ownSessionHandlers_refuse(t *testing.T) {
 	}
 }
 
-// TestAuth_ownAccountHandlers_refuseAToken proves none of the six handlers of a person's
-// own sessions and username serves a request a token authenticated: such a request has
-// no session of its own to keep, so "every other" would end every session the person
-// has. Each is a 403 in words, and the store is asked nothing more.
+// TestAuth_ownAccountHandlers_refuseAToken proves none of the eight handlers of a
+// person's own sessions, username and tenants serves a request a token authenticated:
+// such a request has no session of its own to keep, so "every other" would end every
+// session the person has. Each is a 403 in words, and the store and the own-tenants hook
+// are asked nothing more.
 func TestAuth_ownAccountHandlers_refuseAToken(t *testing.T) {
 	t.Parallel()
 
@@ -484,6 +491,8 @@ func TestAuth_ownAccountHandlers_refuseAToken(t *testing.T) {
 		{name: "ForgetBrowsers", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ForgetBrowsers, method: http.MethodPost},
 		{name: "ChangeUsername", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ChangeUsername, method: http.MethodPost, body: `{"username":"patricia"}`},
 		{name: "UsernameFree", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).UsernameFree, method: http.MethodPost, body: `{"username":"patricia"}`},
+		{name: "OwnTenants", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants), method: http.MethodGet},
+		{name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost, body: `{"domain":"t-acme","deletesAccount":false}`},
 	}
 	for _, h := range handlers {
 		t.Run(h.name, func(t *testing.T) {

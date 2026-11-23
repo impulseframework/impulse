@@ -83,6 +83,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
 		{url: "/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
 		{url: "/api/user/sessions", suffix: "/user/sessions", method: http.MethodGet, handler: "OwnSessions"},
+		{url: "/api/user/tenants", suffix: "/user/tenants", method: http.MethodGet, handler: "OwnTenants"},
 		{url: "/api/user/google/login", suffix: "/user/google/login", method: http.MethodGet, handler: "GoogleLogin"},
 		{url: "/api/user/google/callback", suffix: "/user/google/callback", method: http.MethodGet, handler: "GoogleCallback"},
 		{url: "/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
@@ -102,6 +103,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/sessions/end", suffix: "/user/sessions/end", method: http.MethodPost, handler: "EndOwnSession", xsrf: true},
 		{url: "/api/user/sessions/end-others", suffix: "/user/sessions/end-others", method: http.MethodPost, handler: "EndOtherSessions", xsrf: true},
 		{url: "/api/user/browser/forget-all", suffix: "/user/browser/forget-all", method: http.MethodPost, handler: "ForgetBrowsers", xsrf: true},
+		{url: "/api/user/tenants/leave", suffix: "/user/tenants/leave", method: http.MethodPost, handler: "LeaveTenant", xsrf: true},
 		{url: "/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
 		{url: "/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
@@ -846,6 +848,10 @@ func (s *routerDefaultSessionStub) OwnSessions() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "OwnSessions")
 }
 
+func (s *routerDefaultSessionStub) OwnTenants() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnTenants")
+}
+
 func (s *routerDefaultSessionStub) GoogleLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "GoogleLogin")
 }
@@ -920,6 +926,10 @@ func (s *routerDefaultSessionStub) EndOtherSessions() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) ForgetBrowsers() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowsers")
+}
+
+func (s *routerDefaultSessionStub) LeaveTenant() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "LeaveTenant")
 }
 
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {
