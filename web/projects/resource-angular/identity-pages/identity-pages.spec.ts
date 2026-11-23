@@ -1230,7 +1230,8 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect([everywhere.hidden, everywhere.when]).toEqual([undefined, undefined]);
   });
 
-  it("draws a person's menu in four groups, the removal from the sector with the account, and the button above the person's roles in none", () => {
+  it("draws a person's menu in the groups the whole application's does, the removal from the sector with the account, and the button above the person's roles in none", () => {
+    // The description's tenant side has no sign-in method, so the menu holds three of the four groups.
     expect(groupsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'roles'],
       ['SetCrewSectorUserName', 'person'],
