@@ -272,6 +272,10 @@
                         </button>
                         <mat-menu #rowActionsMenu="matMenu">
                           @for (action of actions; track action.id) {
+                            <!-- A line above an entry whose group is not the one of the entry before it. -->
+                            @if (!$first && action.group !== actions[$index - 1].group) {
+                              <mat-divider></mat-divider>
+                            }
                             <!-- An entry that only says something is drawn grayed out and runs nothing. -->
                             <button
                               type="button"
