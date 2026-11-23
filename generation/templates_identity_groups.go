@@ -621,19 +621,31 @@ func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, access
 	// tenant's own groups is something held in it, and a place in a group kept for the
 	// whole application that holds a role in every tenant is such a role. A place, and the
 	// group's role, that has ended is none (identitySourceData.Standing).
+	//
+	// Each is written with EXISTS alone and joins no table: Spanner refuses a query of more
+	// than twenty joins, and the list of a tenant whose record declares the directory-only
+	// switch, for an auth that keeps groups, holds eighteen without these two.
 	identityGroupPersonHere = `{{- if .KeepsGroups }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.GroupMembers }} gm JOIN {{ .Policy.Groups }} hg ON hg.Id = gm.GroupId
-    WHERE gm.UserId = u.Id AND hg.Kind = {{ .KindDomain }} AND hg.Axis = {{ .ScopeAxis }} AND hg.DomainId = t.DomainId
-      AND {{ .Standing "gm" }}
+    SELECT 1 FROM {{ .Policy.GroupMembers }} gm
+    WHERE gm.UserId = u.Id AND {{ .Standing "gm" }}
+      AND EXISTS (
+        SELECT 1 FROM {{ .Policy.Groups }} hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = {{ .KindDomain }} AND hg.Axis = {{ .ScopeAxis }} AND hg.DomainId = t.DomainId
+      )
   ){{- end }}`
 
 	identityGroupPersonInEveryTenant = `{{- if .KeepsGroups }} OR EXISTS (
     SELECT 1 FROM {{ .Policy.GroupMembers }} gm
-    JOIN {{ .Policy.Groups }} eg ON eg.Id = gm.GroupId
-    JOIN {{ .Policy.GroupRoles }} er ON er.GroupId = gm.GroupId
-    WHERE gm.UserId = u.Id AND eg.Kind = {{ .KindGlobal }} AND er.Kind = {{ .KindEvery }} AND er.Axis = {{ .ScopeAxis }}
-      AND {{ .Standing "gm" }}
-      AND {{ .Standing "er" }}
+    WHERE gm.UserId = u.Id AND {{ .Standing "gm" }}
+      AND EXISTS (
+        SELECT 1 FROM {{ .Policy.Groups }} eg
+        WHERE eg.Id = gm.GroupId AND eg.Kind = {{ .KindGlobal }}
+      )
+      AND EXISTS (
+        SELECT 1 FROM {{ .Policy.GroupRoles }} er
+        WHERE er.GroupId = gm.GroupId AND er.Kind = {{ .KindEvery }} AND er.Axis = {{ .ScopeAxis }}
+          AND {{ .Standing "er" }}
+      )
   ){{- end }}`
 
 	// identityGroupUsersTemplate declares the people of a group, with their names: every

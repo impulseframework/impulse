@@ -287,8 +287,9 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			// A place in one of the tenant's own groups is something held in the tenant
 			// itself, and a place in a group kept for the whole application that holds a role
 			// in every tenant is a role held in every tenant.
-			"WHERE gm.UserId = u.Id AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId\n      AND " + standingSQL("gm") + "\n  )) AS HeldHere,",
-			"WHERE gm.UserId = u.Id AND eg.Kind = 'global' AND er.Kind = 'every' AND er.Axis = ''\n      AND " + standingSQL("gm") + "\n      AND " + standingSQL("er") + "\n  )) AS HeldInEveryTenant",
+			// Each is written with EXISTS alone, as it adds no join to the query (below).
+			"SELECT 1 FROM CrewGroupMembers gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups hg\n        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId\n      )\n  )) AS HeldHere,",
+			"SELECT 1 FROM CrewGroupMembers gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups eg\n        WHERE eg.Id = gm.GroupId AND eg.Kind = 'global'\n      )\n      AND EXISTS (\n        SELECT 1 FROM CrewGroupRoles er\n        WHERE er.GroupId = gm.GroupId AND er.Kind = 'every' AND er.Axis = ''\n          AND " + standingSQL("er") + "\n      )\n  )) AS HeldInEveryTenant",
 		},
 		"crewidentity/create_crew_ship_group.go": {
 			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
@@ -318,6 +319,18 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 				t.Errorf("%s lacks %q:\n%s", file, line, content)
 			}
 		}
+	}
+
+	// The two facts of what a person holds in the tenant itself and in every tenant add no
+	// join to the list of the tenant's people: Spanner refuses a query of more than twenty
+	// joins, and the list of a tenant whose record declares the directory-only switch,
+	// for an auth that keeps groups, holds eighteen without these two.
+	users := readTreeFile(t, "internal/crewresources/crew_ship_users.go")
+	from, to := strings.Index(users, ") AS HeldGlobally,"), strings.Index(users, ") AS HeldInEveryTenant")
+	if from < 0 || to < from {
+		t.Errorf("crew_ship_users.go lacks HeldGlobally before HeldInEveryTenant:\n%s", users)
+	} else if facts := users[from:to]; strings.Contains(facts, "JOIN") {
+		t.Errorf("crew_ship_users.go joins a table in HeldHere or HeldInEveryTenant, want EXISTS alone:\n%s", facts)
 	}
 
 	// A tenant's method takes no tenant in its request: the tenant is the one the

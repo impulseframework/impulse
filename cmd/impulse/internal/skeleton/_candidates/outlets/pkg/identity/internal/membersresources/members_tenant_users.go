@@ -122,9 +122,12 @@ SELECT
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM MembersGroupMembers gm JOIN MembersGroups hg ON hg.Id = gm.GroupId
-    WHERE gm.UserId = u.Id AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
-      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+    SELECT 1 FROM MembersGroupMembers gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM MembersGroups hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
+      )
   )) AS HeldHere,
   (EXISTS (
     SELECT 1 FROM MembersUserRoles o
@@ -132,11 +135,16 @@ SELECT
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM MembersGroupMembers gm
-    JOIN MembersGroups eg ON eg.Id = gm.GroupId
-    JOIN MembersGroupRoles er ON er.GroupId = gm.GroupId
-    WHERE gm.UserId = u.Id AND eg.Kind = 'global' AND er.Kind = 'every' AND er.Axis = ''
-      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
-      AND (er.EndsAt IS NULL OR er.EndsAt > CURRENT_TIMESTAMP())
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM MembersGroups eg
+        WHERE eg.Id = gm.GroupId AND eg.Kind = 'global'
+      )
+      AND EXISTS (
+        SELECT 1 FROM MembersGroupRoles er
+        WHERE er.GroupId = gm.GroupId AND er.Kind = 'every' AND er.Axis = ''
+          AND (er.EndsAt IS NULL OR er.EndsAt > CURRENT_TIMESTAMP())
+      )
   )) AS HeldInEveryTenant,
   (td.TenantId IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM MembersSessionIdentities di
