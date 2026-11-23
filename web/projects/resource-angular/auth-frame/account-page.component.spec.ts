@@ -489,6 +489,15 @@ describe('AccountPageComponent', () => {
       expect(TestBed.inject(Account).usernameLine()).toBe(false);
     });
 
+    it('does not say the address is what they sign in with to a person whose password is disabled', async () => {
+      await open({
+        methods: { ...everything, usernameIsEmail: true },
+        session: { ...gale, username: 'gale@lakeside.edu' },
+        means: means(true, [], false, true),
+      });
+      expect(inLine('email', 'hint')).toBe('Sign-in codes and notices go here.');
+    });
+
     it("shows a directory person their address as the directory's, unchanged here, and the directory they sign in through", async () => {
       await open({ methods: directoryMethods, means: means(false, ['Lakeside Google'], true) });
       expect(lines()).toEqual(['username', 'name', 'email', 'sign-in']);

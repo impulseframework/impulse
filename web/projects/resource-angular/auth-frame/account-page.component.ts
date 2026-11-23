@@ -191,7 +191,9 @@ export class AccountPageComponent {
     if (this.account.directoryAddress()) {
       return "From your organization's directory, so it is not changed here.";
     }
-    return this.account.usernameIsEmail() ? 'You sign in with this address.' : 'Sign-in codes and notices go here.';
+    return this.account.usernameIsEmail() && !this.account.passwordDisabled()
+      ? 'You sign in with this address.'
+      : 'Sign-in codes and notices go here.';
   });
   /** The directories the person signs in through, joined as a sentence names them. */
   readonly signInThrough = computed(() => joinedByOr(this.account.otherSignIns()));
