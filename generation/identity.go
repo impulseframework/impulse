@@ -34,7 +34,8 @@ import (
 //     the Client they run over. An application calls them in its own transactions.
 //   - <tree>/<auth>handlers: the generated frames of those resources and methods, the
 //     ones the handler templates write for any resource, over the Deps the application
-//     hands them, and the record of what changes the tenant's lists.
+//     hands them, and the record of what changes the tenant's lists and the lists of how
+//     a person signs in.
 //
 // The declarations and the methods are written before the packages are loaded, so the
 // same run extracts them as it extracts the application's own; from there they are
