@@ -101,13 +101,16 @@ type storedRow struct {
 // its patches buffered, by table in buffered order, which no read of the transaction
 // sees, and what each read of the database answered, by the question it asked. What is
 // remembered is what the database holds; the buffered writes are laid over it at each
-// read. Like the other records of a transaction it belongs to one attempt: a retried
-// transaction runs its function again over a fresh record.
+// read. It keeps an image of each row its patches wrote too, by table and row, which a
+// change record's old values are read from (rowImage). Like the other records of a
+// transaction it belongs to one attempt: a retried transaction runs its function again
+// over a fresh record.
 type transactionRows struct {
 	writes   map[string][]bufferedColumns
 	reads    map[pointRead]pointAnswer
 	rowReads map[pointRead]storedRow
 	keyReads map[keyedRead]pointAnswer
+	images   map[string]map[string]rowImage
 }
 
 // newTransactionRows returns an empty record.
@@ -117,13 +120,16 @@ func newTransactionRows() *transactionRows {
 		reads:    make(map[pointRead]pointAnswer),
 		rowReads: make(map[pointRead]storedRow),
 		keyReads: make(map[keyedRead]pointAnswer),
+		images:   make(map[string]map[string]rowImage),
 	}
 }
 
 // note records the columns a patch buffered for one row, which row is its key as
 // rowMatchKey spells it, and key the row's key by column, nil when the patch keeps none.
-// A key that cannot be spelled is not kept. A delete is not noted.
+// A key that cannot be spelled is not kept. A delete is not noted among the writes; the
+// row's image takes every patch, a delete included (noteImage).
 func (t *transactionRows) note(table accesstypes.Resource, patchType PatchType, row string, key, columns map[string]any) {
+	t.noteImage(string(table), patchType, row, columns)
 	if patchType == DeletePatchType {
 		return
 	}
