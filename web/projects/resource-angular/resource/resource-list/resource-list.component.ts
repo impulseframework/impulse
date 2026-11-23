@@ -578,8 +578,9 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * Whether the caller may open a row: the digest's Read answer for the resource a row
-   * opens (granted or conditional). Without it the view column is not drawn, since the
-   * row page would only be refused; the row route carries the same gate.
+   * opens (granted, conditional or conditional on time). Without it the view column is
+   * not drawn, since the row page would only be refused; the row route carries the same
+   * gate.
    */
   canView = computed(() => {
     const target = this.rowTarget();

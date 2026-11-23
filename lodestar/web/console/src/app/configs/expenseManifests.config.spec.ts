@@ -4,7 +4,14 @@ import { ActivatedRoute } from '@angular/router';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ClientBase,
+  Domain,
+  PermissionDigest,
+  PermissionDigestState,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { CompoundResourceComponent, ResourceListComponent } from '@impulseframework/resource-angular/resource';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
@@ -45,7 +52,7 @@ const manifests = [
 ];
 
 /** A digest that lists the manifests and their four fields with one List state. */
-const digestOf = (state: 'granted' | 'conditional'): PermissionDigest =>
+const digestOf = (state: PermissionDigestState): PermissionDigest =>
   Object.fromEntries(
     [
       'ExpenseManifests',

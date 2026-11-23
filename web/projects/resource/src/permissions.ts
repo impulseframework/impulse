@@ -182,9 +182,10 @@ export type UnreadListener = (domain: Domain | undefined, failure: DigestFailure
 /**
  * PermissionStore owns the session user's digest cache. One digest per scope (global,
  * or one per domain), loaded on demand and cached for the session; `can` answers
- * synchronously from the cache and never fetches. `granted` and `conditional` both
- * answer true: render the surface, and let the server narrow it per row. A scope that
- * has not been loaded answers false — fail closed — so load the digest for a domain
+ * synchronously from the cache and never fetches. `granted`, `conditional` and
+ * `conditionalOnTime` all answer true: render the surface, and let the server narrow it
+ * per row (`conditional`) or refuse it outside its time (`conditionalOnTime`). A scope
+ * that has not been loaded answers false — fail closed — so load the digest for a domain
  * before rendering its pages.
  *
  * A read that fails is not an answer, and the cache never holds one as if it were: a

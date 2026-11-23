@@ -123,7 +123,7 @@ describe('queryableMeta', () => {
     expect(queryableMeta(undefined, underCondition)).toBeUndefined();
   });
 
-  it('a table or a view comes back as it is, a field listed under a condition and all', () => {
+  it('a table or a view comes back as it is, a field listed as conditional and all', () => {
     expect(queryableMeta(table, underCondition)).toBe(table);
     expect(queryableMeta(table, granted)).toBe(table);
   });
@@ -133,7 +133,7 @@ describe('queryableMeta', () => {
     expect(queryableMeta(passes, {})).toBe(passes);
   });
 
-  it('a computed resource marks each field listed under a condition unsortable, with no filter and no text match, and leaves the rest', () => {
+  it('a computed resource marks each field listed as conditional unsortable, with no filter and no text match, and leaves the rest', () => {
     const narrowed = queryableMeta(passes, underCondition);
 
     expect(narrowed).not.toBe(passes);
