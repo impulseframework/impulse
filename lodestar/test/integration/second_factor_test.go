@@ -16,17 +16,17 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-// TestSecondFactor proves the second factor every session carries, on the served stack
-// and the way the login page runs it. The cadet's password is admitted and her sign-in
-// waits for the sign-in code: she holds no address, gives one, reads the code from the
-// mail the auth sent, and the right code opens her session, the address now hers and
-// verified. The browser she asked to be remembered is not asked again; another browser
-// of hers is; headquarters makes the server forget her remembered browsers through the
-// crew's generated management, and the remembered browser is asked once more. The navigator, who signs in through
-// the fleet's directory, is never asked: the fleet administers its Workspace, which
-// attests for him. Nothing is remembered for him either: his browser carries no
-// remembering cookie and the read of where he is signed in counts no remembered browser,
-// so his account page has none to forget.
+// TestSecondFactor proves the second factor the auth's sign-in setting requires, on the
+// served stack and the way the login page runs it. The cadet's password is admitted and
+// her sign-in waits for the sign-in code: she holds no address, gives one, reads the
+// code from the mail the auth sent, and the right code opens her session, the address
+// now hers and verified. The browser she asked to be remembered is not asked again;
+// another browser of hers is; headquarters makes the server forget her remembered
+// browsers through the crew's generated management, and the remembered browser is asked
+// once more. The navigator, who signs in through the fleet's directory, is never asked:
+// the fleet administers its Workspace, which attests for him. Nothing is remembered for
+// him either: his browser carries no remembering cookie and the read of where he is
+// signed in counts no remembered browser, so his account page has none to forget.
 //
 // Demonstrates: auth.second-factor, auth.trusted-device, auth.attested-directory.
 func TestSecondFactor(t *testing.T) {

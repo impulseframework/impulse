@@ -27,12 +27,14 @@
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
-// Every session carries a second factor. A sign-in the password admitted, or a directory
-// the deployment does not administer, waits for the sign-in code the auth mails to the
-// person's verified address (a person who holds none gives one first), unless the
-// browser is one the person asked to be remembered after a code (the staff-trusted
-// cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing. An
+// Every session carries a second factor while the auth's sign-in setting requires one,
+// as it does until an administrator turns it off (the Sign-in page). While it is
+// required, a sign-in the password admitted, or a directory the deployment does not
+// administer, waits for the sign-in code the auth mails to the person's verified
+// address (a person who holds none gives one first), unless the browser is one the
+// person asked to be remembered after a code (the staff-trusted cookie); a sign-in
+// through a directory the deployment administers, or whose token says a second factor
+// was passed, carries the directory's and is asked for nothing. An
 // administrator makes the server forget the browsers a person asked to be remembered,
 // from the person's account page, so their next sign-in asks again.
 package staff
@@ -337,7 +339,8 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // refuses to open without. Beside the role file's roles the engine defines one of the
 // framework's in every auth, Super Administrator (accesstypes.SuperAdministrator), held
 // for the whole application alone: its holder gives and takes any role of the auth, enters
-// every tenant, and signs in with a second factor whatever the sign-in rule asks.
+// every tenant, and signs in with a second factor whatever the auth's sign-in
+// setting says.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if access.IsNilCollection(settings.Collection) {
 		return nil, errors.New("staff.Settings.Collection is nil: the permission engine holds every grant to the permission collection the release declares; pass the generated router's Collection(), or where the application has several sites the union of theirs (the configuration's Collection(), over access.UnionCollection)")
@@ -390,10 +393,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
 	// The Auth is built knowing who holds the Super Administrator role, which is why the
-	// permission engine opens first: a holder signs in with a second factor whatever the
-	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
-	// the library's own after the application's. The memberships are read outside the
-	// sign-in's transaction (resource.SignInRoles).
+	// permission engine opens first: a holder signs in with a second factor whatever
+	// the auth's sign-in setting says, held for the mailed code by a rule of the
+	// library's own. The memberships are read outside the sign-in's transaction
+	// (resource.SignInRoles).
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,

@@ -15,9 +15,10 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 )
 
-// The second factor every session carries, as the login page completes it: the sign-in
-// code the auth mails to the person's address, which a browser the person asked to be
-// remembered stands in for. The helpers here sign a login in through it.
+// The second factor the auth's sign-in setting requires, as the login page completes
+// it: the sign-in code the auth mails to the person's address, which a browser the
+// person asked to be remembered stands in for. The helpers here sign a login in through
+// it.
 
 // signIn primes the XSRF handshake and signs a login in the way a person does, failing
 // the test on refusal: the password, then the second factor. The login's first sign-in
@@ -197,13 +198,13 @@ func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string
 	return ""
 }
 
-// TestSecondFactor drives the second factor every session carries the way the login page
-// does: the development login's password is accepted and the sign-in waits for the code;
-// the login holds no address, so it gives one and the code goes there; a wrong code is
-// refused and the right one, read from the mail the auth sent, opens the session and
-// remembers the browser, which is not asked at its next sign-in; an administrator makes
-// the server forget the login's remembered browsers through the auth's generated
-// management, and the sign-in after that waits for the code again.
+// TestSecondFactor drives the second factor the auth's sign-in setting requires the way
+// the login page does: the development login's password is accepted and the sign-in
+// waits for the code; the login holds no address, so it gives one and the code goes
+// there; a wrong code is refused and the right one, read from the mail the auth sent,
+// opens the session and remembers the browser, which is not asked at its next sign-in;
+// an administrator makes the server forget the login's remembered browsers through the
+// auth's generated management, and the sign-in after that waits for the code again.
 func TestSecondFactor(t *testing.T) {
 	t.Parallel()
 

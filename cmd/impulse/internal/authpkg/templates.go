@@ -31,12 +31,14 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
-// Every session carries a second factor. A sign-in the password admitted, or a directory
-// the deployment does not administer, waits for the sign-in code the auth mails to the
-// person's verified address (a person who holds none gives one first), unless the
-// browser is one the person asked to be remembered after a code (the {{.Name}}-trusted
-// cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing.{{if .Directory}} Every
+// Every session carries a second factor while the auth's sign-in setting requires one,
+// as it does until an administrator turns it off (the Sign-in page). While it is
+// required, a sign-in the password admitted, or a directory the deployment does not
+// administer, waits for the sign-in code the auth mails to the person's verified
+// address (a person who holds none gives one first), unless the browser is one the
+// person asked to be remembered after a code (the {{.Name}}-trusted cookie); a sign-in
+// through a directory the deployment administers, or whose token says a second factor
+// was passed, carries the directory's and is asked for nothing.{{if .Directory}} Every
 // account a person signs in to has a confirmed address, so a person who comes through a
 // directory that does not vouch for theirs (Microsoft Entra ID vouches for none)
 // confirms one at their first sign-in with a code mailed to it, whatever the directory
@@ -416,7 +418,8 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // the deployment invites nobody to it, and the library asks a holder for no second factor
 // of its own.
 {{- else}}: its holder gives and takes any role of the auth, enters
-// every tenant, and signs in with a second factor whatever the sign-in rule asks.
+// every tenant, and signs in with a second factor whatever the auth's sign-in
+// setting says.
 {{- end}}
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if access.IsNilCollection(settings.Collection) {
@@ -485,15 +488,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The Auth is built knowing who holds the Super Administrator role, as every auth
 	// with roles is, which is why the permission engine opens first. The library's own
 	// second factor for a holder holds nobody who signs in through a directory that
-	// writes the roles: there the directory is the authority, and the sign-in rule set
-	// below asks of a holder what it asks of anyone. The memberships are read outside
+	// writes the roles: there the directory is the authority, and the auth's sign-in
+	// setting asks of a holder what it asks of anyone. The memberships are read outside
 	// the sign-in's transaction (resource.SignInRoles).
 {{- else}}
 	// The Auth is built knowing who holds the Super Administrator role, which is why the
-	// permission engine opens first: a holder signs in with a second factor whatever the
-	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
-	// the library's own after the application's. The memberships are read outside the
-	// sign-in's transaction (resource.SignInRoles).
+	// permission engine opens first: a holder signs in with a second factor whatever
+	// the auth's sign-in setting says, held for the mailed code by a rule of the
+	// library's own. The memberships are read outside the sign-in's transaction
+	// (resource.SignInRoles).
 {{- end}}
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),

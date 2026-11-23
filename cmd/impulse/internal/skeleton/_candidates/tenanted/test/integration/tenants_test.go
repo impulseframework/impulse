@@ -208,7 +208,7 @@ func tenantRolesOf(ctx context.Context, t *testing.T, b *browser, tenant, user s
 }
 
 // signedIn returns a browser signed in as the development login, through the password
-// and the second factor every session carries (browser.signIn).
+// and the second factor the auth's sign-in setting requires (browser.signIn).
 func signedIn(ctx context.Context, t *testing.T, s *served, user string) *browser {
 	t.Helper()
 

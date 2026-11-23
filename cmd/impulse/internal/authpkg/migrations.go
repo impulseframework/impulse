@@ -445,7 +445,7 @@ CREATE INDEX %[1]sSessionDeviceCodesByUserCode ON %[1]sSessionDeviceCodes(UserCo
 }
 
 // factorsUp creates the sign-in codes and trusted devices tables, the last part of the
-// sessions migration: the second factor every session carries.
+// sessions migration: the second factor the auth's sign-in setting requires.
 func factorsUp(p, who string) string {
 	return fmt.Sprintf(`
 -- The second factor of the %[2]s auth's sessions: the sign-in codes and the trusted
