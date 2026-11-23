@@ -110,9 +110,10 @@ type Driver[Tx any] interface {
 // spent and its roles given together, or neither. It reads and writes through tx
 // alone: the Spanner emulator allows one read-write transaction at a time, so a second
 // transaction or a read through another client inside the hook waits on the one it
-// runs in. A user the same transaction provisioned is buffered and not readable in it
-// (Spanner applies a buffered row at the commit), so the user is named by id, which is
-// what the hook writes under, and by username, for what it reports.
+// runs in. A user the same transaction makes (one a directory sign-in provisions, and
+// the account of a sign-up with a password through the invitation) is buffered and not
+// readable in it (Spanner applies a buffered row at the commit), so the user is named
+// by id, which is what the hook writes under, and by username, for what it reports.
 //
 // committed, nil for none, is work the flow runs once that transaction has committed
 // and before the sign-in policy decides: telling a permission engine that its rows
@@ -120,7 +121,7 @@ type Driver[Tx any] interface {
 // than once (Spanner retries an aborted transaction), so the hook is called once per
 // run and only the committed function of the run that committed is called, once. An
 // error fails the transaction: the invitation stands, a user the transaction would
-// have provisioned is not created, and the sign-in ends with the error.
+// have made is not created, and the sign-in ends with the error.
 type InvitationAcceptor[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
 
 // DirectorySeater is the application's half of a directory's default seat: it seats
