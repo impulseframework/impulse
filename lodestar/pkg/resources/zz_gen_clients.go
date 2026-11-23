@@ -48,6 +48,9 @@ func (Client) DeleteTree() *resource.DeleteTree {
 					patch := &ClientContactDeletePatch{patchSet: patchSet}
 					if !caller.IsZero() {
 						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsClientContactSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
 					}
 				}),
 			},

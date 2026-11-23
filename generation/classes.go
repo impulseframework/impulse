@@ -81,9 +81,9 @@ type accessWrite struct {
 // A record a subject set's or a subject value's dotted value is read through (value:
 // SquadID.DivisionID reads the division off the squad's row): the row says what every
 // person who reaches it holds, so its change moves them all. Its create and its delete
-// carry no class: a new row is reached by nobody yet, and a delete that takes with it
-// the rows that reach it is a row removed with its parent, which a mask closes by
-// refusing the parent's delete by name.
+// carry no class: a new row is reached by nobody yet, and the rows that reach it stop
+// its delete, or go with it through their own delete where a record declares that
+// (@deleteCascade), which carries their own class.
 //
 // The tenant record (@tenant), its delete alone: a tenant that goes takes with it the
 // roles every person holds in it, its groups, the custom roles made in it and the

@@ -91,17 +91,22 @@ const (
 // kind, which has no mask, moves other people's squadrons to another wing and never
 // the real person's own.
 //
-// A row removed with its parent, which may name the person, is a limit of its own: a
-// hangar pass goes with its hangar, its wing or its sector, a hangar goes with its
-// sector too, and no write of the pass is made for the rule or for the class to
-// refuse. Neither kind refuses those deletes here. Every pass gives something and none
-// restricts, so such a delete only takes away; an application whose rows restrict (a
-// ban, a cap) refuses in the kind's mask each delete that reaches the row, the parent's
-// and that of each record above it (accesstypes.RefusePermission(accesstypes.Delete,
-// parent)), and by name an action that removes one of them (accesstypes.RefuseAction).
-// Lodestar's foreign keys remove a row with its parent or refuse the parent's delete;
-// none changes a row where it stands, as PostgreSQL's ON DELETE SET NULL and ON UPDATE
-// CASCADE do.
+// A row taken with the record it is under is held to the same rule and the same mask: a
+// hangar pass goes with its hangar or its wing through the pass's own delete (their
+// @deleteCascade), a place in a squadron with its wing, and a client's contact with the
+// client. Under either kind the delete of a hangar, a wing or a client is refused whole
+// when a row under it is the real person's own, or a pass of a squadron or a group they
+// are in. Under the act kind the class also refuses the place in a squadron and the
+// contact, whoever they name, and keeps the pass out as it does for the pass's own
+// writes. A pass given to a group still goes with the group when the group is deleted,
+// by the foreign key's own rule, with no write of the pass. A row that goes with its
+// sector is a limit of its own: a sector's delete asks no grant and no rule of a row.
+// The act kind refuses that delete by its class. The role kind has no mask; no role
+// Lodestar ships deletes a sector, and an application whose role does refuses the
+// delete in the kind's mask (accesstypes.RefusePermission(accesstypes.Delete, tenant)),
+// and by name an action that deletes a tenant (accesstypes.RefuseAction). None of
+// Lodestar's foreign keys changes a row where it stands, as PostgreSQL's ON DELETE SET
+// NULL and ON UPDATE CASCADE do.
 //
 // A column that records who made a row is another (a mission's booker,
 // Mission.BookedByUserID, which grants compare to the requester): the rule does not
