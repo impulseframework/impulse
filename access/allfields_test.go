@@ -179,6 +179,32 @@ func TestSnapshot_conditionalAllFieldsUpdateLeavesOutAnImmutableField(t *testing
 	}
 }
 
+// TestSnapshot_allFieldsUpdateDigestLeavesOutAnImmutableField pins that the digest
+// tells Update on all of a resource's fields over the fields the release declares,
+// though no grant names them, and leaves out the one the release marks immutable, as a
+// check of it does.
+func TestSnapshot_allFieldsUpdateDigestLeavesOutAnImmutableField(t *testing.T) {
+	t.Parallel()
+
+	records := &policy.Records{Grants: []policy.Grant{
+		{Scope: tenant1Policy, Subject: userSubject("dana"), Perm: accesstypes.Update, Resource: "Widgets", Field: "*"},
+	}}
+	snap, findings, err := newSnapshot(records, nil, immutablePriceCollection{}, time.Now())
+	if err != nil {
+		t.Fatalf("newSnapshot() error = %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("newSnapshot() findings = %v, want none: the grant is one the release declares", findings)
+	}
+
+	want := accesstypes.PermissionDigest{
+		"Widgets.name": {accesstypes.Update: accesstypes.DigestGranted},
+	}
+	if diff := cmp.Diff(want, snap.userDigest(tenant1Scope, "dana")); diff != "" {
+		t.Errorf("userDigest() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestAllFieldsGrant_roleFileAndWriteGiveTheSameSet pins that a role file and a write
 // to a custom role accept the same grants of all of a resource's fields and refuse the
 // same ones, so a role made at run time holds nothing a default role could not: the

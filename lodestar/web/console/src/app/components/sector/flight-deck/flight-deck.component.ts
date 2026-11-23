@@ -322,8 +322,9 @@ export class FlightDeckComponent {
   expenseAmountForm = new FormGroup({ amount: new FormControl<string | null>(null) });
   // The server's refusal of the last call-sheet save, shown under the form.
   editRefusal = signal<string | undefined>(undefined);
-  // The editable fields whose Update grant is conditional, named for the hint under the
-  // form; undefined when every editable field is granted outright.
+  // The editable fields whose Update grant is conditional, by the row or by the time,
+  // named for the hint under the form; undefined when every editable field is granted
+  // outright.
   conditionalEdits = computed(() => {
     const fields = (
       [
@@ -333,7 +334,10 @@ export class FlightDeckComponent {
         ['notes', 'the notes'],
       ] as const
     )
-      .filter(([field]) => this.sectors.fieldState(Permissions.Update, Resources.Missions, field) === 'conditional')
+      .filter(([field]) => {
+        const state = this.sectors.fieldState(Permissions.Update, Resources.Missions, field);
+        return state === 'conditional' || state === 'conditionalOnTime';
+      })
       .map(([, words]) => words);
     return fields.length ? listed.format(fields) : undefined;
   });

@@ -477,6 +477,9 @@ export interface EnumeratedConfigOptions {
    * The order the options are listed in. On a source with a maximum page size (paged) it
    * is the sort the picker pages by; none, and the source's declared `@order` applies,
    * else the first display column ascending, since every paged request carries an order.
+   * Over a computed source a sort by a field the digest lists as `conditional` for the
+   * person is not sent, and the picker pages by the key where that field is the display
+   * column.
    */
   sorts?: FieldSort[];
   listDisplay?: FieldName[];
@@ -1082,7 +1085,12 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * list is read again once one has run.
    */
   listMethods?: MethodPresentation[];
-  /** The sorts the list is requested in until a header is clicked; none, and the resource's declared order applies. */
+  /**
+   * The sorts the list is requested in until a header is clicked; none, and the resource's
+   * declared order applies. Over a computed resource a sort by a field the digest lists as
+   * `conditional` for the person is not sent; where that leaves none and the resource
+   * declares no order, the list is asked by its key.
+   */
   sorts?: FieldSort[];
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   /**

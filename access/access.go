@@ -478,9 +478,11 @@ func (c *Client) SuperAdministratorMethods() []accesstypes.Resource {
 
 // UserPermissionDigest returns user's structural grant enumeration within
 // scope: every resource and field the user's grants reach, each mapping
-// permission → granted (an unconditional cover exists) or conditional (only
-// conditional grants cover it), with denied targets absent — fail-closed by
-// construction. It is the payload of the frontend's per-scope permission
+// permission → granted (an unconditional cover exists), conditional on time
+// (only conditional grants cover it, and every one of their conditions reads
+// the time of the request alone) or conditional (only conditional grants
+// cover it, and one of their conditions reads more), with denied targets
+// absent — fail-closed by construction. It is the payload of the frontend's per-scope permission
 // digest and is advisory only; enforcement stays with the Check seams.
 //
 // Unlike the Check seams the digest never folds: it reports grant structure
@@ -518,9 +520,9 @@ func (c *Client) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope
 
 // RolePermissionDigest returns role's structural grant enumeration within
 // scope — the frontend digest payload for a session operating as the role,
-// with UserPermissionDigest's semantics: granted or conditional per resource
-// and permission, denied targets absent, nothing folded, scope-wide grants
-// not enumerated.
+// with UserPermissionDigest's semantics: granted, conditional on time or
+// conditional per resource and permission, denied targets absent, nothing
+// folded, scope-wide grants not enumerated.
 func (c *Client) RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

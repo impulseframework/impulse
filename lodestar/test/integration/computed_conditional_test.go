@@ -4,8 +4,9 @@ package integration
 // computed_conditional_test (design plan §9): the hazard board answers under the
 // analyst's row-free `now < '2099-01-01T00:00:00Z'` grant before the certification
 // instant and refuses after it (pinned through the engine at two instants), the
-// analyst's search box is answered, since the check settles the board's condition, and a
-// row-bearing condition on the same grant is refused when the role file is validated.
+// analyst's search box, sort and filter by the ship are answered, since the check settles
+// the board's condition, and a row-bearing condition on the same grant is refused when the
+// role file is validated.
 
 import (
 	"net/http"
@@ -56,6 +57,22 @@ func TestComputedConditionalGrant(t *testing.T) {
 		// condition reads the time of the request alone, so the check settles it and grants
 		// the ship's name. The box travels in the URL, as the browser sends it.
 		status, body := doRequestAs(t, h, "hazards", http.MethodGet, sectorPath(anvil, "sector-hazard-boards?"+filter(`*:search:"king"`)), "")
+		assertStatus(t, status, http.StatusOK, body)
+	})
+
+	t.Run("the analyst's sort by the ship is answered", func(t *testing.T) {
+		t.Parallel()
+
+		// A sort shares the search's rule: the check settles the board's condition from the
+		// time of the request and grants the ship's name, so the board is ordered by it.
+		status, body := doRequestAs(t, h, "hazards", http.MethodGet, sectorPath(anvil, "sector-hazard-boards?sort=shipName"), "")
+		assertStatus(t, status, http.StatusOK, body)
+	})
+
+	t.Run("the analyst's filter by the ship is answered", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, "hazards", http.MethodGet, sectorPath(anvil, "sector-hazard-boards?filter=shipName:eq:Kingfisher"), "")
 		assertStatus(t, status, http.StatusOK, body)
 	})
 

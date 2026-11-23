@@ -75,9 +75,9 @@ type Controller interface {
 	Auth() string
 
 	// UserPermissionDigest returns user's structural grant enumeration within
-	// scope — the frontend digest payload: resource → permission → granted or
-	// conditional, denied targets absent, nothing folded (see
-	// Client.UserPermissionDigest).
+	// scope — the frontend digest payload: resource → permission → granted,
+	// conditional on time or conditional, denied targets absent, nothing
+	// folded (see Client.UserPermissionDigest).
 	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
 	// ForUser returns the request-bound permission checker for user, whose

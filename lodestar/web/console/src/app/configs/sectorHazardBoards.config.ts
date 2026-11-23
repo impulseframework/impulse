@@ -50,7 +50,9 @@ export function recentReadingsInWords(row: HazardRow): string {
 // the pointer or the keyboard's focus), and its header offers no sort. A row is one
 // ship's one subsystem, a compound key, so the list draws no row page; the board
 // declares no create, update or delete, and the page offers none. The search box and the
-// Ship and Subsystem filters are the resource's own, answered by the fold.
+// Ship and Subsystem filters are the resource's own, answered by the fold. The analyst is
+// offered them: the digest lists the board's fields as conditionalOnTime, a grant that
+// depends on the time alone, which the server settles at each request.
 // The board pages by the size its descriptor declares; `limit=all`, legal here because
 // the board declares no maximum, is the served suite's to ask.
 //
