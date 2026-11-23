@@ -311,6 +311,16 @@ describe('filterChoiceLists', () => {
       // A field that holds a role's name: the metadata lists the roles it may hold.
       field('role', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
       field('backupRole', { isIndex: true, filterable: 'always', roles: [] }),
+      field('docked', { displayType: 'boolean', filterable: 'always' }),
+      field('cleared', { displayType: 'nullboolean', filterable: 'always' }),
+      field('flagged', {
+        displayType: 'boolean',
+        filterable: 'always',
+        enumeration: [
+          { id: 'true', display: 'Flagged' },
+          { id: 'false', display: 'Not flagged' },
+        ],
+      }),
     ],
   };
   const cases: {
@@ -388,6 +398,39 @@ describe('filterChoiceLists', () => {
           { value: 'claimed', label: 'Claimed' },
           { value: 'on_hold', label: 'On hold' },
           { value: 'open', label: 'Open' },
+        ],
+      },
+    },
+    {
+      name: 'a yes-or-no field offers Yes and No, carrying true and false',
+      meta: missions,
+      columns: ['title', 'docked'],
+      want: {
+        docked: [
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
+        ],
+      },
+    },
+    {
+      name: 'a nullable yes-or-no field offers Yes and No, carrying true and false',
+      meta: missions,
+      columns: ['cleared'],
+      want: {
+        cleared: [
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
+        ],
+      },
+    },
+    {
+      name: 'a yes-or-no field with fixed values offers its values',
+      meta: missions,
+      columns: ['flagged'],
+      want: {
+        flagged: [
+          { value: 'true', label: 'Flagged' },
+          { value: 'false', label: 'Not flagged' },
         ],
       },
     },

@@ -13,6 +13,7 @@ import {
   ColumnFilterChoices,
   ColumnFilterInputs,
   ColumnSearches,
+  FilterChoice,
   PageTurn,
 } from '@impulseframework/resource-angular/grid';
 import {
@@ -237,6 +238,12 @@ export function filterInputKinds(
   return inputs;
 }
 
+/** The two values a yes-or-no field's filter menu offers, in the order it offers them. */
+const yesOrNo: readonly FilterChoice[] = [
+  { value: 'true', label: 'Yes' },
+  { value: 'false', label: 'No' },
+];
+
 /**
  * The values each of the table's columns filters by where its field takes one of a fixed
  * set: the generated metadata's `enumeration` for the field each column shows, each value
@@ -245,9 +252,10 @@ export function filterInputKinds(
  * the filter carries the values. A field that holds a role's name offers the metadata's
  * roles and, after them, the roles the list was found to hold beyond those (`found`), each
  * by its words: a role made at run time is in no metadata, and the list is the one place
- * that says a row holds it. A column whose field lists none and was found to hold none (a
- * key into another resource's rows among them), or whose id is not a field of the listed
- * resource, is absent.
+ * that says a row holds it. A yes-or-no field (`boolean` or `nullboolean`) that lists
+ * neither offers "Yes" and "No", carrying `true` and `false`. A column whose field lists
+ * none and was found to hold none (a key into another resource's rows among them), or whose
+ * id is not a field of the listed resource, is absent.
  */
 export function filterChoiceLists(
   meta: ResourceMeta | undefined,
@@ -266,6 +274,11 @@ export function filterChoiceLists(
       if (roles.length > 0) {
         choices[column.id] = roles.map((role) => ({ value: role, label: roleInWords(role) }));
       }
+    } else if (
+      enumeration === undefined &&
+      (field?.displayType === 'boolean' || field?.displayType === 'nullboolean')
+    ) {
+      choices[column.id] = yesOrNo;
     }
   }
   return choices;
