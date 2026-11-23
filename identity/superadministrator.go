@@ -127,7 +127,7 @@ func callerActor(ctx context.Context, caller *resource.Caller) (actor accesstype
 // refuseLastSuperAdministrator refuses an act that would leave the auth with no super
 // administrator who can sign in: userID holds the role, their account is not disabled,
 // and nobody else is both. act says what was asked of the person, as the end of a
-// sentence ("take the Super administrator role from them", "disable their account").
+// sentence ("take the role from them", "disable their account").
 // It is refused whoever asks, a call outside any request included. A person who holds
 // the role and cannot sign in is nobody's way back in, so an act on them is not judged.
 //
