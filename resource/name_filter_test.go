@@ -131,6 +131,12 @@ func TestNameFilter_decoder(t *testing.T) {
 			wantErr: "cannot filter on sensitive field in URL: crewName",
 		},
 		{
+			name:    "a sensitive name in the URL, its field name padded",
+			decode:  decodeNameFilter[loosePassRequest],
+			target:  "/?columns=id&filter=+crewName:eq:Bravo&sort=id&limit=2",
+			wantErr: "cannot filter on sensitive field in URL: crewName",
+		},
+		{
 			name:   "a sensitive name in the body",
 			decode: decodeNameFilter[loosePassRequest],
 			target: "/?columns=id&sort=id&limit=2",
@@ -467,6 +473,156 @@ func TestNameFilter_grants(t *testing.T) {
 					if got := stmt.Params[param]; got != value {
 						t.Errorf("%s params[%s] = %v, want %v", dbType, param, got, value)
 					}
+				}
+			}
+		})
+	}
+}
+
+// TestNameFilter_spaced pins a condition whose field name is padded with white
+// space (` levelId:eq:visit`, `levelId :eq:visit`): the parser reads it as the
+// field, and what the decoder decides about the filter is read from the parser's
+// tree, so the padded condition is held to everything the unpadded one is held
+// to: its field's grant, the condition its field is shown under and the
+// sensitive-field rule, on a field of the resource's own as on a name.
+func TestNameFilter_spaced(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a padded filter decodes to the fields, names and box of the unpadded one", func(t *testing.T) {
+		t.Parallel()
+
+		type decoded struct {
+			Fields []accesstypes.Field
+			Names  []accesstypes.Field
+			Box    bool
+		}
+		decode := func(t *testing.T, filter string) decoded {
+			t.Helper()
+
+			qSet, err := decodeNameFilter[lookupPassRequest](t, filterRequest(t, "/?columns=id&filter="+filter+"&sort=id&limit=2", ""))
+			if err != nil {
+				t.Fatalf("DecodeWithoutPermissions(%s) error = %v", filter, err)
+			}
+
+			return decoded{Fields: qSet.filterFields, Names: qSet.filterNames, Box: qSet.searchBox}
+		}
+		for _, tt := range []struct{ padded, unpadded string }{
+			{padded: "%20squadronId:eq:s1", unpadded: "squadronId:eq:s1"},
+			{padded: "%20squadronName:eq:Red", unpadded: "squadronName:eq:Red"},
+			{padded: "%20squadronName:eq:Red,%20levelId:eq:visit", unpadded: "squadronName:eq:Red,levelId:eq:visit"},
+			{padded: "levelId%20:eq:visit", unpadded: "levelId:eq:visit"},
+		} {
+			want := decode(t, tt.unpadded)
+			if len(want.Fields) == 0 {
+				t.Fatalf("%s decodes to no field", tt.unpadded)
+			}
+			if diff := cmp.Diff(want, decode(t, tt.padded)); diff != "" {
+				t.Errorf("%s decodes apart from %s (-want +got):\n%s", tt.padded, tt.unpadded, diff)
+			}
+		}
+	})
+
+	refusals := []struct {
+		name     string
+		target   string
+		perms    *nameGrantPermissions
+		sentence string
+		cause    string
+	}{
+		{
+			name:     "a field of the resource's own, its grant denied",
+			target:   "/?columns=id&filter=%20levelId:eq:visit&sort=id&limit=2",
+			perms:    deniedInSector1("HangarPasses.levelId"),
+			sentence: "You may not sort or filter hangar passes by the level id here.",
+			cause:    "(List) on HangarPasses.levelId is denied",
+		},
+		{
+			name:     "a field of the resource's own padded after its name, its grant denied",
+			target:   "/?columns=id&filter=levelId%20:eq:visit&sort=id&limit=2",
+			perms:    deniedInSector1("HangarPasses.levelId"),
+			sentence: "You may not sort or filter hangar passes by the level id here.",
+			cause:    "(List) on HangarPasses.levelId is denied",
+		},
+		{
+			name:     "an enumeration table's name, its id's grant denied: refused as the id",
+			target:   "/?columns=id&filter=%20levelName:eq:Visit&sort=id&limit=2",
+			perms:    deniedInSector1("HangarPasses.levelId"),
+			sentence: "You may not sort or filter hangar passes by the level id here.",
+			cause:    "(List) on HangarPasses.levelId is denied",
+		},
+		{
+			name:     "a tenant's row's name, the name's grant denied",
+			target:   "/?columns=id&filter=%20squadronName:eq:Red&sort=id&limit=2",
+			perms:    deniedInSector1(squadronNameGrant),
+			sentence: "You may not sort or filter hangar passes by the squadron name here.",
+			cause:    "(List) on Squadrons.name is denied",
+		},
+	}
+	for _, tt := range refusals {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+				_, err := decodePasses(t, accesstypes.List, Paging{}, tt.target, tt.perms, dbType)
+				plainAnswer(t, err, httpio.HasForbidden, tt.sentence, tt.cause)
+			}
+		})
+	}
+
+	statements := []struct {
+		name     string
+		padded   string
+		unpadded string
+		perms    *nameGrantPermissions
+		want     map[DBType]string
+	}{
+		{
+			name:     "a field of the resource's own held under a condition: filtered inside it",
+			padded:   "%20squadronId:eq:s1",
+			unpadded: "squadronId:eq:s1",
+			perms: &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+				{scope: inSector1, perm: accesstypes.List, res: "HangarPasses.squadronId"}: conditionalOn("HangarPasses.squadronId", "level = 'visit'"),
+			}},
+			want: bothDatabases(
+				"WHERE CASE WHEN `HangarPasses`.`LevelId` = @_c1 THEN `SquadronId` END = @_p1",
+				`WHERE CASE WHEN "HangarPasses"."LevelId" = @_c1 THEN "SquadronId" END = @_p1`,
+			),
+		},
+		{
+			name:     "an enumeration table's name, its id held under a condition: the id read inside it",
+			padded:   "%20levelName:eq:Visit",
+			unpadded: "levelName:eq:Visit",
+			perms: &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+				{scope: inSector1, perm: accesstypes.List, res: "HangarPasses.levelId"}: conditionalOn("HangarPasses.levelId", "level = 'visit'"),
+			}},
+			want: bothDatabases(
+				"WHERE CASE WHEN `HangarPasses`.`LevelId` = @_c1 THEN `LevelId` END IN (SELECT `ca1`.`Id` FROM `PassLevels` `ca1` WHERE `Description` = @_p1)",
+				`WHERE CASE WHEN "HangarPasses"."LevelId" = @_c1 THEN "LevelId" END IN (SELECT "ca1"."Id" FROM "PassLevels" "ca1" WHERE "Description" = @_p1)`,
+			),
+		},
+		{
+			name:     "a name alone, every grant held",
+			padded:   "%20squadronName:eq:Red",
+			unpadded: "squadronName:eq:Red",
+			perms:    &nameGrantPermissions{},
+			want: bothDatabases(
+				"WHERE `SquadronId` IN (SELECT `ca1`.`Id` FROM `Squadrons` `ca1` WHERE `ca1`.`SectorId` = @domain AND `Name` = @_p1)",
+				`WHERE "SquadronId" IN (SELECT "ca1"."Id" FROM "Squadrons" "ca1" WHERE "ca1"."SectorId" = @domain AND "Name" = @_p1)`,
+			),
+		},
+	}
+	for _, tt := range statements {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for dbType, want := range tt.want {
+				_, unpadded := passesStatement(t, Paging{}, "/?columns=id&filter="+tt.unpadded+"&sort=id&limit=2", tt.perms, dbType)
+				_, padded := passesStatement(t, Paging{}, "/?columns=id&filter="+tt.padded+"&sort=id&limit=2", tt.perms, dbType)
+				if !strings.Contains(unpadded, want) {
+					t.Errorf("%s statement of %s =\n%s\nwant it to contain:\n%s", dbType, tt.unpadded, unpadded, want)
+				}
+				if padded != unpadded {
+					t.Errorf("%s statement of %s =\n%s\nwant the statement of %s:\n%s", dbType, tt.padded, padded, tt.unpadded, unpadded)
 				}
 			}
 		})

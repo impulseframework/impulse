@@ -26,9 +26,12 @@ type parsedQueryParams struct {
 	// the read checks can require an unconditional grant on each of them; a name
 	// the filter names counts as the id field it stands beside. FilterNames are
 	// the name fields the filter names, each looked up through the pointed-to
-	// table under its own grant.
-	FilterFields []accesstypes.Field
-	FilterNames  []accesstypes.Field
+	// table under its own grant. Both are read from the parsed tree, as is
+	// SensitiveField: the wire name of the first sensitive (pii) field the
+	// filter names, "" where it names none.
+	FilterFields   []accesstypes.Field
+	FilterNames    []accesstypes.Field
+	SensitiveField string
 	// SearchBox says the filter carries the search box, and SearchFields names the
 	// resource's own fields it searches, in declaration order; a field the caller
 	// cannot read drops out at the read checks instead of refusing the request.
@@ -380,15 +383,13 @@ func (d *QueryDecoder[Resource, Request]) DecodeWithoutPermissions(request *http
 
 // decode builds the QuerySet from the request. boxPII says a search box in the URL
 // is refused because it would search a PII field; a filter naming a PII field in
-// the URL is refused regardless.
+// the URL is refused regardless. Both are asked of the parsed filter, after the
+// parse's own refusals.
 func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII bool) (*QuerySet[Resource], error) {
 	queryParams := request.URL.Query()
-
-	if filterStr := queryParams.Get(filterParam); filterStr != "" {
-		if err := d.checkForPII(filterStr, boxPII); err != nil {
-			return nil, err
-		}
-	}
+	// Where the filter came from is noted before a body's filter joins the
+	// parameters: the sensitive-field rule is about a filter in the URL.
+	filterInURL := queryParams.Get(filterParam) != ""
 
 	if request.Method == http.MethodPost {
 		body, err := d.bodyDecoder.Decode(request)
@@ -412,6 +413,11 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 	parsedQuery, err := d.parseQuery(queryParams, hidden, request.Header.Get(TimeZoneHeader))
 	if err != nil {
 		return nil, err
+	}
+	if filterInURL {
+		if err := refuseSensitiveInURL(parsedQuery, boxPII); err != nil {
+			return nil, err
+		}
 	}
 
 	qSet := NewQuerySet(d.resourceSet.ResourceMetadata())
@@ -520,9 +526,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 	var nameFields []accesstypes.Field
 	var sortFields []SortField
 	var filterParser func(DBType) (ExpressionNode, error)
-	var filterFields []accesstypes.Field
-	var filterNames []accesstypes.Field
-	var searchBox bool
+	var filter filterRead
 	var searchFields []accesstypes.Field
 	var err error
 
@@ -557,23 +561,11 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 	}
 
 	if filterStr := query.Get(filterParam); filterStr != "" {
-		filterParser, err = d.filterExpressionParser(filterStr, hidden, zoneName)
+		filterParser, filter, err = d.parseFilter(filterStr, hidden, zoneName)
 		if err != nil {
 			return nil, err
 		}
-		// The filter is part of the request's shape, so it is validated here with
-		// the rest of it: syntax, field names, whether each field is filterable,
-		// and whether each value fits its field. The parse names conditions by Go
-		// field, which every resource has, so it decides nothing about the
-		// database; the per-database parse that renders SQL and applies the index
-		// rule still runs when the query does, and a computed resource's handler
-		// evaluates this same tree against its rows.
-		if _, err := filterParser(goFieldNames); err != nil {
-			return nil, err
-		}
-		filterFields, filterNames = d.filterFields(filterStr)
-		if d.hasSearchBox(filterStr) {
-			searchBox = true
+		if filter.box {
 			searchFields = d.visibleBoxFields(hidden)
 		}
 
@@ -613,16 +605,17 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 	}
 
 	return &parsedQueryParams{
-		ColumnFields: columnFields,
-		NameFields:   nameFields,
-		SortFields:   sortFields,
-		FilterParser: filterParser,
-		FilterFields: filterFields,
-		FilterNames:  filterNames,
-		SearchBox:    searchBox,
-		SearchFields: searchFields,
-		Page:         page,
-		Capabilities: capabilities,
+		ColumnFields:   columnFields,
+		NameFields:     nameFields,
+		SortFields:     sortFields,
+		FilterParser:   filterParser,
+		FilterFields:   filter.fields,
+		FilterNames:    filter.names,
+		SensitiveField: filter.sensitive,
+		SearchBox:      filter.box,
+		SearchFields:   searchFields,
+		Page:           page,
+		Capabilities:   capabilities,
 	}, nil
 }
 
@@ -637,24 +630,6 @@ func (d *QueryDecoder[Resource, Request]) visibleBoxFields(hidden map[accesstype
 
 		return isHidden
 	})
-}
-
-// hasSearchBox reports whether a filter's text carries the search box, a condition on
-// the pseudo-field *. The walk reads tokens only; the parse decides whether the box is
-// well formed.
-func (d *QueryDecoder[Resource, Request]) hasSearchBox(filterStr string) bool {
-	lexer := NewFilterLexer(filterStr)
-	for {
-		token, err := lexer.NextToken()
-		if err != nil || token.Type == TokenEOF {
-			return false
-		}
-		if token.Type == TokenCondition {
-			if field, _, _ := strings.Cut(token.Value, ":"); strings.TrimSpace(field) == searchBoxField {
-				return true
-			}
-		}
-	}
 }
 
 // wholeListOnly reports whether this decoder lists a key-less resource: a list
@@ -812,15 +787,14 @@ func (d *QueryDecoder[Resource, Request]) filterExpressionParser(filterStr strin
 	return parser.Parse, nil
 }
 
-// checkForPII refuses a filter in the URL that names a sensitive field, or, when
-// boxPII says so, one that carries the search box: such a filter travels in the body.
-func (d *QueryDecoder[Resource, Request]) checkForPII(filterStr string, boxPII bool) error {
-	for _, fieldInfo := range d.filterConditionFields(filterStr) {
-		if fieldInfo.PII {
-			return httpio.NewBadRequestMessagef("cannot filter on sensitive field in URL: %s", fieldInfo.JSONFieldName)
-		}
+// refuseSensitiveInURL refuses a filter in the URL that names a sensitive field,
+// or, when boxPII says so, one that carries the search box: such a filter travels
+// in the body.
+func refuseSensitiveInURL(parsed *parsedQueryParams, boxPII bool) error {
+	if parsed.SensitiveField != "" {
+		return httpio.NewBadRequestMessagef("cannot filter on sensitive field in URL: %s", parsed.SensitiveField)
 	}
-	if boxPII && d.hasSearchBox(filterStr) {
+	if boxPII && parsed.SearchBox {
 		return errSearchBoxInURL()
 	}
 
@@ -833,48 +807,93 @@ func errSearchBoxInURL() error {
 	return httpio.NewBadRequestMessagef("cannot filter on sensitive field in URL: the search box searches a sensitive field; send the filter in the request body")
 }
 
-// filterFields names the resource fields a filter expression touches, and the
-// name fields it names, each in first appearance order without repeats. A name
-// counts among the fields as the id field it stands beside, whose grant covers
-// it. parseQuery has parsed the expression before asking, so every condition
-// names a filterable field and none is skipped.
-func (d *QueryDecoder[Resource, Request]) filterFields(filterStr string) (fields, names []accesstypes.Field) {
-	for _, fieldInfo := range d.filterConditionFields(filterStr) {
-		field := accesstypes.Field(fieldInfo.GOFieldName)
-		if fieldInfo.nameKey != "" {
-			if !slices.Contains(names, field) {
-				names = append(names, field)
-			}
-			field = fieldInfo.nameKey
-		}
-		if !slices.Contains(fields, field) {
-			fields = append(fields, field)
-		}
+// parseFilter parses the filter's text and reads what it touches. The filter is
+// part of the request's shape, so it is validated here with the rest of it:
+// syntax, field names, whether each field is filterable, and whether each value
+// fits its field. The parse names conditions by Go field, which every resource
+// has, so it decides nothing about the database; the per-database parse that
+// renders SQL and applies the index rule still runs when the query does, and a
+// computed resource's handler evaluates this same tree against its rows. What
+// the filter touches is read from this tree and from nothing else, so every
+// check hears of each condition the statement will carry, however its text is
+// spaced.
+func (d *QueryDecoder[Resource, Request]) parseFilter(filterStr string, hidden map[accesstypes.Field]struct{}, zoneName string) (func(DBType) (ExpressionNode, error), filterRead, error) {
+	filterParser, err := d.filterExpressionParser(filterStr, hidden, zoneName)
+	if err != nil {
+		return nil, filterRead{}, err
+	}
+	root, err := filterParser(goFieldNames)
+	if err != nil {
+		return nil, filterRead{}, err
+	}
+	read, err := d.readFilter(root)
+	if err != nil {
+		return nil, filterRead{}, err
 	}
 
-	return fields, names
+	return filterParser, read, nil
 }
 
-// filterConditionFields walks the filter's tokens and returns the filterable
-// field behind each condition. Conditions on fields the parser would refuse are
-// skipped: the PII check walks the text before the parse runs, and the parser's
-// own refusal is the one the caller then sees.
-func (d *QueryDecoder[Resource, Request]) filterConditionFields(filterStr string) []FilterFieldInfo {
-	var infos []FilterFieldInfo
-	lexer := NewFilterLexer(filterStr)
-	for {
-		token, err := lexer.NextToken()
-		if err != nil || token.Type == TokenEOF {
-			return infos
-		}
+// filterRead is what a parsed filter touches, as readFilter reads it from the
+// tree: the resource fields, a name counting as the id field it stands beside;
+// the name fields; each in first appearance order without repeats; whether it
+// carries the search box; and the wire name of the first sensitive field it
+// names, "" where it names none.
+type filterRead struct {
+	fields    []accesstypes.Field
+	names     []accesstypes.Field
+	box       bool
+	sensitive string
+}
 
-		if token.Type == TokenCondition {
-			jsonFieldNameStr, _, _ := strings.Cut(token.Value, ":")
-			if fieldInfo, found := d.filterParserFields[jsonFieldName(jsonFieldNameStr)]; found {
-				infos = append(infos, fieldInfo)
+// readFilter reads what a filter touches from the tree its parse over Go field
+// names returned, leaf by leaf in source order. The tree is the one reader of
+// the filter's text: a field name the parser reads past white space is the
+// field every check hears of. A name counts among the fields as the id field it
+// stands beside, whose grant covers it. The parse admits a condition only on a
+// field of the decoder's table, so a leaf on any other is an error, never
+// skipped.
+func (d *QueryDecoder[Resource, Request]) readFilter(root ExpressionNode) (filterRead, error) {
+	var read filterRead
+	for _, leaf := range leaves(root) {
+		if leaf.Condition.IsSearch() {
+			read.box = true
+
+			continue
+		}
+		info, ok := d.filterFieldByGoName(leaf.Condition.Field)
+		if !ok {
+			return filterRead{}, errors.Newf("the filter's condition on %s names no filterable field of %s", leaf.Condition.Field, d.resourceSet.BaseResource())
+		}
+		if info.PII && read.sensitive == "" {
+			read.sensitive = info.JSONFieldName
+		}
+		field := accesstypes.Field(info.GOFieldName)
+		if leaf.Condition.name != "" {
+			if !slices.Contains(read.names, leaf.Condition.name) {
+				read.names = append(read.names, leaf.Condition.name)
 			}
+			field = info.nameKey
+		}
+		if !slices.Contains(read.fields, field) {
+			read.fields = append(read.fields, field)
 		}
 	}
+
+	return read, nil
+}
+
+// filterFieldByGoName returns the entry of the decoder's field table whose Go
+// field name is field: a condition of the tree parsed over Go field names names
+// its field so.
+func (d *QueryDecoder[Resource, Request]) filterFieldByGoName(field string) (FilterFieldInfo, bool) {
+	for _, info := range d.filterParserFields {
+		if info.GOFieldName == field {
+			return info, true
+		}
+	}
+
+	return FilterFieldInfo{}, false
 }
 
 // newFilterParserFields builds the table of the request type's fields a filter may
