@@ -10,9 +10,28 @@ import (
 	"github.com/impulseframework/impulse/session"
 )
 
+// newSettingsManager builds a manager of an auth that registers the methods, over the
+// store.
+func newSettingsManager(t *testing.T, store Store, methods []session.RegisteredMethod) *Manager {
+	t.Helper()
+
+	m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{methods: methods})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	return m
+}
+
+// passwordAlone is an auth that registers the password method and no other.
+func passwordAlone() []session.RegisteredMethod {
+	return registeredMethods()[:1]
+}
+
 // TestManager_SignInSettings pins the Sign-in page's two lines in each state the row
 // can be in, the second factor first, both carrying the row's fields, and the defaults
-// the session library reads where there is no row.
+// the session library reads where there is no row, for an auth that registers the
+// password alone.
 func TestManager_SignInSettings(t *testing.T) {
 	t.Parallel()
 
@@ -54,7 +73,7 @@ func TestManager_SignInSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := newSignUpManager(t, &fakeStore{settingsRow: tt.row})
+			m := newSettingsManager(t, &fakeStore{settingsRow: tt.row}, passwordAlone())
 			var got []SignInSetting
 			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				var err error
@@ -77,6 +96,94 @@ func TestManager_SignInSettings(t *testing.T) {
 	// The defaults are the session library's: the day count is its constant.
 	if session.DefaultRememberedBrowserDays != 30 {
 		t.Errorf("session.DefaultRememberedBrowserDays = %d, and the no-row case above says 30 days", session.DefaultRememberedBrowserDays)
+	}
+}
+
+// TestManager_secondFactorOff pins how the second factor's line while it is not
+// required, and the warning before it is turned off, say people then sign in, by what
+// the auth registers: a method whose directory writes the roles (the session library
+// lets it stand alone on its Auth), methods none of which is the password, and anything
+// else. The line while the second factor is required reads the same whatever the auth
+// registers.
+func TestManager_secondFactorOff(t *testing.T) {
+	t.Parallel()
+
+	const (
+		required = "Everyone is asked for a code mailed to their address when they sign in, unless their directory already asked for one or this browser is remembered."
+
+		directoryWritesLine        = "Not required: people sign in through their directory alone, a super administrator among them."
+		directoryWritesConsequence = "People will sign in through their directory alone, a super administrator among them."
+		directoryLine              = "Not required: people sign in through their directory alone. A super administrator is always asked for a code."
+		directoryConsequence       = "People will sign in through their directory alone."
+		passwordLine               = "Not required: people sign in with a password alone. A super administrator is always asked for a code."
+		passwordConsequence        = "People will sign in with a password alone."
+	)
+	methods := registeredMethods()
+	password, workspace, entra, partners := methods[0], methods[1], methods[3], methods[4]
+	tests := []struct {
+		name            string
+		methods         []session.RegisteredMethod
+		wantLine        string
+		wantConsequence string
+	}{
+		{
+			name: "a directory that writes the roles", methods: []session.RegisteredMethod{entra},
+			wantLine: directoryWritesLine, wantConsequence: directoryWritesConsequence,
+		},
+		{
+			name: "directories whose roles are the application's, and no password", methods: []session.RegisteredMethod{workspace, partners},
+			wantLine: directoryLine, wantConsequence: directoryConsequence,
+		},
+		{
+			name: "the password beside a directory whose roles are the application's", methods: []session.RegisteredMethod{password, workspace},
+			wantLine: passwordLine, wantConsequence: passwordConsequence,
+		},
+		{
+			name: "no method at all", methods: nil,
+			wantLine: passwordLine, wantConsequence: passwordConsequence,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			says := func(row *SignInSettingsRow) string {
+				t.Helper()
+
+				m := newSettingsManager(t, &fakeStore{settingsRow: row}, tt.methods)
+				var got []SignInSetting
+				if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					var err error
+					got, err = m.SignInSettings(ctx, txn)
+
+					return err
+				}); err != nil {
+					t.Fatalf("SignInSettings() error = %v", err)
+				}
+
+				return got[0].Says
+			}
+			if got := says(&SignInSettingsRow{RequireSecondFactor: false, RememberBrowserDays: 14}); got != tt.wantLine {
+				t.Errorf("SignInSettings() while not required says %q, want %q", got, tt.wantLine)
+			}
+			if got := says(&SignInSettingsRow{RequireSecondFactor: true, RememberBrowserDays: 14}); got != required {
+				t.Errorf("SignInSettings() while required says %q, want %q", got, required)
+			}
+
+			m := newSettingsManager(t, &fakeStore{}, tt.methods)
+			var warning *resource.Warning
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				warning, err = m.StopRequiringSecondFactorWarning(ctx, txn)
+
+				return err
+			}); err != nil {
+				t.Fatalf("StopRequiringSecondFactorWarning() error = %v", err)
+			}
+			if diff := cmp.Diff(&resource.Warning{Consequence: tt.wantConsequence, Confirm: "Stop requiring it"}, warning); diff != "" {
+				t.Errorf("StopRequiringSecondFactorWarning() (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -106,13 +213,13 @@ func TestRememberLengths(t *testing.T) {
 
 // TestManager_signInSettingsWrites pins the three writes: each reaches the store with
 // its one field, a setting that already says so is written again, the warning writes
-// nothing and says the two strings, and a length the list does not offer is refused
-// with nothing written.
+// nothing and says the two strings for an auth that registers the password alone, and a
+// length the list does not offer is refused with nothing written.
 func TestManager_signInSettingsWrites(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{settingsRow: &SignInSettingsRow{RequireSecondFactor: true, RememberBrowserDays: 30}}
-	m := newSignUpManager(t, store)
+	m := newSettingsManager(t, store, passwordAlone())
 	var warning *resource.Warning
 	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		if err := m.RequireSecondFactor(ctx, txn); err != nil {

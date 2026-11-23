@@ -2,12 +2,14 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"strconv"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -103,7 +105,7 @@ func (m *Manager) SignInSettings(ctx context.Context, reader resource.ReadOnlyTr
 
 	return []SignInSetting{
 		{
-			Name: SettingSecondFactor, Position: 1, Says: secondFactorSays(row),
+			Name: SettingSecondFactor, Position: 1, Says: m.secondFactorSays(row),
 			RequireSecondFactor: row.RequireSecondFactor, RememberBrowserDays: row.RememberBrowserDays,
 		},
 		{
@@ -113,15 +115,42 @@ func (m *Manager) SignInSettings(ctx context.Context, reader resource.ReadOnlyTr
 	}, nil
 }
 
-// secondFactorSays is the second factor's line in words.
-func secondFactorSays(row *SignInSettingsRow) string {
+// secondFactorSays is the second factor's line in words. While the second factor is not
+// required, the line says how people then sign in, by what the auth registers
+// (withoutSecondFactor).
+func (m *Manager) secondFactorSays(row *SignInSettingsRow) string {
 	switch {
 	case !row.RequireSecondFactor:
-		return "Not required: people sign in with a password alone. A super administrator is always asked for a code."
+		line, _ := m.withoutSecondFactor()
+
+		return line
 	case row.RememberBrowserDays > 0:
 		return "Everyone is asked for a code mailed to their address when they sign in, unless their directory already asked for one or this browser is remembered."
 	default:
 		return "Everyone is asked for a code mailed to their address when they sign in, unless their directory already asked for one."
+	}
+}
+
+// withoutSecondFactor says how people sign in while the second factor is not required,
+// by what the auth registers, judged in this order: a method whose directory writes the
+// roles, where the directory is the authority on who is a super administrator and the
+// library asks them for no code of its own (the session library lets such a method
+// stand alone on its Auth); methods none of which is the password; and anything else, a
+// password method or no method at all. line is the second factor's line on the Sign-in
+// page, and consequence the warning's before the setting is turned off. It reads
+// nothing: the methods are the ones the code registered.
+func (m *Manager) withoutSecondFactor() (line, consequence string) {
+	registered := m.sessions.SignInMethods()
+	switch {
+	case slices.ContainsFunc(registered, func(method session.RegisteredMethod) bool { return method.SyncsRoles }):
+		return "Not required: people sign in through their directory alone, a super administrator among them.",
+			"People will sign in through their directory alone, a super administrator among them."
+	case len(registered) > 0 && !slices.ContainsFunc(registered, func(method session.RegisteredMethod) bool { return method.Method == sessioninfo.MethodPassword }):
+		return "Not required: people sign in through their directory alone. A super administrator is always asked for a code.",
+			"People will sign in through their directory alone."
+	default:
+		return "Not required: people sign in with a password alone. A super administrator is always asked for a code.",
+			"People will sign in with a password alone."
 	}
 }
 
@@ -155,13 +184,16 @@ func (m *Manager) RequireSecondFactor(ctx context.Context, txn resource.ReadWrit
 
 // StopRequiringSecondFactorWarning says what no longer requiring a second factor would
 // do, in the words a person reads before they confirm it, and the words for the button
-// that does it. It writes nothing.
+// that does it: how people will then sign in, by what the auth registers. It writes
+// nothing.
 func (m *Manager) StopRequiringSecondFactorWarning(ctx context.Context, _ resource.ReadWriteTransaction) (*resource.Warning, error) {
 	_, span := tracer.Start(ctx)
 	defer span.End()
 
+	_, consequence := m.withoutSecondFactor()
+
 	return &resource.Warning{
-		Consequence: "People will sign in with a password alone.",
+		Consequence: consequence,
 		Names:       nil,
 		Also:        nil,
 		Confirm:     "Stop requiring it",
@@ -172,8 +204,9 @@ func (m *Manager) StopRequiringSecondFactorWarning(ctx context.Context, _ resour
 // second factor by the setting, in the caller's transaction: the one field of the row,
 // with the days a browser is remembered left as they stand. From the commit on, a
 // sign-in the application's rule allows gets its session with no code; a super
-// administrator is still asked, and so is anyone the rule holds for a factor of its
-// own. A setting that already says so is written again, and nothing is refused.
+// administrator is still asked, except where a directory writes the auth's roles, and so
+// is anyone the rule holds for a factor of its own. A setting that already says so is
+// written again, and nothing is refused.
 func (m *Manager) StopRequiringSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

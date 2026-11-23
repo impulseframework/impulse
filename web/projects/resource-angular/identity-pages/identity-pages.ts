@@ -2162,13 +2162,27 @@ const secondFactorLine = 'second-factor';
 /** The line that says for how long a remembered browser skips the second factor. */
 const rememberedBrowserLine = 'remembered-browser';
 
+/** The words the server opens the second factor's line with while it is not required, which the notice says its own way. */
+const notRequiredPrefix = 'Not required: ';
+
 /**
  * The second factor's standing notice: one sentence while its line says it is not
- * required, and nothing while it is.
+ * required, and nothing while it is. The sentence says the server's line its own way:
+ * what the line says after its opening words, up to its first period, and no more than
+ * that a second factor is not required where the line says nothing after them.
  */
 function secondFactorOff(rows: RecordData[]): string | undefined {
-  const off = rows.some((row) => row['name'] === secondFactorLine && row['requireSecondFactor'] === false);
-  return off ? 'A second factor is not required: people sign in with a password alone.' : undefined;
+  const off = rows.find((row) => row['name'] === secondFactorLine && row['requireSecondFactor'] === false);
+  if (off === undefined) {
+    return undefined;
+  }
+  const says = typeof off['says'] === 'string' ? off['says'] : '';
+  const rest = says.startsWith(notRequiredPrefix) ? says.slice(notRequiredPrefix.length).trim() : '';
+  if (rest === '') {
+    return 'A second factor is not required.';
+  }
+  const period = rest.indexOf('.');
+  return `A second factor is not required: ${period < 0 ? rest : rest.slice(0, period + 1)}`;
 }
 
 /** The words the server opens an open method's sentence with, which the notice says its own way. */

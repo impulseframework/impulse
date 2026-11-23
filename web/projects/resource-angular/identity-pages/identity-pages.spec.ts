@@ -604,6 +604,37 @@ describe("identityPages, the whole application's side", () => {
         );
       });
 
+      it("says the server's line its own way: what the line says after its opening words, up to its first period", () => {
+        const notice = factorOf(signIn).notice;
+        const lineWithNoWords = Object.fromEntries(Object.entries(notRequired).filter(([field]) => field !== 'says'));
+        const saying = (says: string | undefined): RecordData[] => [
+          says === undefined ? lineWithNoWords : { ...notRequired, says },
+          rememberedNotRequired,
+        ];
+        const cases: [string | undefined, string][] = [
+          [
+            'Not required: people sign in with a password alone. A super administrator is always asked for a code.',
+            'A second factor is not required: people sign in with a password alone.',
+          ],
+          [
+            'Not required: people sign in through their directory alone, a super administrator among them.',
+            'A second factor is not required: people sign in through their directory alone, a super administrator among them.',
+          ],
+          [
+            'Not required: people sign in through their directory alone. A super administrator is always asked for a code.',
+            'A second factor is not required: people sign in through their directory alone.',
+          ],
+          // Words that do not open as the server's do, the opening with nothing after it,
+          // and a line with no words.
+          ['People sign in with a password alone.', 'A second factor is not required.'],
+          ['Not required: ', 'A second factor is not required.'],
+          [undefined, 'A second factor is not required.'],
+        ];
+        for (const [says, want] of cases) {
+          expect(notice?.(saying(says)), String(says)).toBe(want);
+        }
+      });
+
       it('offers no method the description does not name', () => {
         const [global, domain] = crew.sides;
         const methods = Object.fromEntries(

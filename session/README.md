@@ -1319,11 +1319,12 @@ does. An administrator changes it with `AuthAPI.SetSecondFactorRequired`, or on 
 Sign-in page of an application with generated management, and the next sign-in follows
 it with no restart. A policy still answers `signin.RequireMFA(...)` for a rule of the
 application's own, and that hold stands whatever the setting says; so do the library's
-own: a super administrator is always asked, and so is a tenant's administrator who signs
-in with a password to reach a directory-only tenant. The library satisfies a hold one of
-three ways, in this order, before it holds the sign-in. What a connection can vouch for
-is the registration's, below, since it is a property of the sign-in method, not of the
-tenant the person reaches.
+own: a super administrator is always asked, except at a sign-in through a method whose
+directory writes the roles, where the setting asks of them what it asks of anyone, and
+so is a tenant's administrator who signs in with a password to reach a directory-only
+tenant. The library satisfies a hold one of three ways, in this order, before it holds
+the sign-in. What a connection can vouch for is the registration's, below, since it is a
+property of the sign-in method, not of the tenant the person reaches.
 
 1. **The connection attests.** A sign-in's connection says what it can about a second
    factor (`sessioninfo.Identity.Attestation`), and the Auth records it as the
