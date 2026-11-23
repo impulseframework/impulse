@@ -68,8 +68,8 @@ export interface DirectoryOnlyCount {
 
 /**
  * One auth's part of a tenant's count: what a page calls the auth's people (`label`), the
- * tenant's list of them as the description names it (`people`), how many of them hold a
- * role in the tenant (`seated`) and how many of those the switch keeps out (`outside`).
+ * tenant's list of them as the description names it (`people`), how many people that
+ * list holds (`seated`) and how many of those the switch keeps out (`outside`).
  */
 export interface DirectoryOnlyShare {
   label: string;
