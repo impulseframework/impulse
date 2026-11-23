@@ -24,6 +24,8 @@ const (
 	usernameHeldWords      = "Someone else has that username."
 	oneLineWords           = "A username is text on one line, with no tab or other control character."
 	atMost200Words         = "A username is at most 200 characters."
+	ownAddressWords        = "A username with an @ in it has to be your own email address. Type your own address, or choose a name without an @."
+	noConfirmedWords       = "A username with an @ in it has to be your own email address, and your account has no confirmed address yet. Confirm your address first, or choose a name without an @."
 )
 
 // usernameCase is a person signed in as pat, of the username handlers' tests.
@@ -45,11 +47,19 @@ func newUsernameCase(t *testing.T, passwordOptions ...PasswordOption) *usernameC
 // signedIn expects the session's validation: the request's session, live, and its user,
 // pat. It returns the user's read, so a test that reads the user again orders the reads.
 func (c *usernameCase) signedIn() *gomock.Call {
+	return c.signedInAs(&sessionstorage.SessionUser{Username: "pat"})
+}
+
+// signedInAs expects the session's validation as signedIn does, with user, given the
+// case's user ID, as the request's user. It returns the user's read.
+func (c *usernameCase) signedInAs(user *sessionstorage.SessionUser) *gomock.Call {
+	row := *user
+	row.ID = c.userID
 	c.f.store.EXPECT().Session(gomock.Any(), c.sessionID).Return(&sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: c.sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(c.userID),
+		SessionInfo: &sessioninfo.SessionInfo{ID: c.sessionID, Username: row.Username, UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(c.userID),
 	}, nil)
 
-	return c.f.store.EXPECT().User(gomock.Any(), c.userID).Return(&sessionstorage.SessionUser{ID: c.userID, Username: "pat"}, nil)
+	return c.f.store.EXPECT().User(gomock.Any(), c.userID).Return(&row, nil)
 }
 
 // post runs h on a POST with body in the case's session.
@@ -293,6 +303,126 @@ func TestAuth_usernameHandlers_nameTheStoreKeeps(t *testing.T) {
 				t.Errorf("%s() = %s, want %s: the name is looked up", h.name, got, h.goesOn)
 			}
 		})
+	}
+}
+
+// TestAuth_usernameHandlers_addressAsUsername proves both username handlers hold a name
+// with an @ in it to the person's own confirmed address, the same but for the case of its
+// ASCII letters, and refuse any other in words before the store is asked, so the answer
+// is the same whether or not an account holds the name. The person's current username,
+// typed exactly as it is kept, is answered as before.
+func TestAuth_usernameHandlers_addressAsUsername(t *testing.T) {
+	t.Parallel()
+
+	confirmedAt := time.Now()
+	confirmed := func(username string) *sessionstorage.SessionUser {
+		return &sessionstorage.SessionUser{Username: username, Email: strPtr("pat@lakeside.edu"), EmailVerifiedAt: &confirmedAt}
+	}
+	p1 := confirmed("pat")
+	p2 := &sessionstorage.SessionUser{Username: "pat", Email: strPtr("pat@lakeside.edu")}
+	p3 := &sessionstorage.SessionUser{Username: "pat"}
+	p4 := confirmed("old@lakeside.edu")
+	sam := impulse.Must(impulse.NewUUID())
+
+	// A case's store expects the store's calls past the session's validation, in order
+	// after read, the validation's read of the user; nil for none.
+	type store func(c *usernameCase, read *gomock.Call)
+	tests := []struct {
+		name        string
+		person      *sessionstorage.SessionUser
+		typed       string
+		change      string
+		changeStore store
+		free        string
+		freeStore   store
+	}{
+		{
+			name: "another's address is refused", person: p1, typed: "sam@lakeside.edu",
+			change: "400 " + ownAddressWords, free: "400 " + ownAddressWords,
+		},
+		{
+			name: "the person's own confirmed address in another case, which nobody holds, is taken", person: p1, typed: "Pat@Lakeside.EDU",
+			change: `200 {"username":"Pat@Lakeside.EDU"}`,
+			changeStore: func(c *usernameCase, read *gomock.Call) {
+				gomock.InOrder(
+					read,
+					c.f.store.EXPECT().UserByUserName(gomock.Any(), "Pat@Lakeside.EDU").Return(nil, httpio.NewNotFoundMessage("no such user")),
+					c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "Pat@Lakeside.EDU").Return(nil),
+					c.f.store.EXPECT().User(gomock.Any(), c.userID).Return(&sessionstorage.SessionUser{ID: c.userID, Username: "Pat@Lakeside.EDU"}, nil),
+				)
+			},
+			free:      `200 {"free":true}`,
+			freeStore: func(c *usernameCase, _ *gomock.Call) { c.holder("Pat@Lakeside.EDU", nil) },
+		},
+		{
+			name: "the person's own confirmed address, which another account holds as its username, is held", person: p1, typed: "pat@lakeside.edu",
+			change:      "409 " + usernameHeldWords,
+			changeStore: func(c *usernameCase, _ *gomock.Call) { c.holder("pat@lakeside.edu", &sam) },
+			free:        `200 {"free":false}`,
+			freeStore:   func(c *usernameCase, _ *gomock.Call) { c.holder("pat@lakeside.edu", &sam) },
+		},
+		{
+			name: "the person's own address, not confirmed, is refused", person: p2, typed: "pat@lakeside.edu",
+			change: "400 " + noConfirmedWords, free: "400 " + noConfirmedWords,
+		},
+		{
+			name: "an address, where the person holds none, is refused", person: p3, typed: "pat@lakeside.edu",
+			change: "400 " + noConfirmedWords, free: "400 " + noConfirmedWords,
+		},
+		{
+			name: "the person's own address with a Kelvin sign for its k is refused", person: p1, typed: "pat@la\u212Aeside.edu",
+			change: "400 " + ownAddressWords, free: "400 " + ownAddressWords,
+		},
+		{
+			name: "a name that opens with an @ is refused", person: p1, typed: "@pat",
+			change: "400 " + ownAddressWords, free: "400 " + ownAddressWords,
+		},
+		{
+			name: "a name that ends with an @ is refused", person: p1, typed: "pat@",
+			change: "400 " + ownAddressWords, free: "400 " + ownAddressWords,
+		},
+		{
+			name: "the person's current username with an @ in it, typed exactly, is answered as before", person: p4, typed: "old@lakeside.edu",
+			change:    `200 {"username":"old@lakeside.edu"}`,
+			free:      `200 {"free":true}`,
+			freeStore: func(c *usernameCase, _ *gomock.Call) { c.holder("old@lakeside.edu", &c.userID) },
+		},
+		{
+			name: "the person's current username with an @ in it, in another case, is a change and refused", person: p4, typed: "OLD@lakeside.edu",
+			change: "400 " + ownAddressWords, free: "400 " + ownAddressWords,
+		},
+	}
+	handlers := []struct {
+		name    string
+		handler func(*Auth[NoCustomData, NoCustomData, mockTx]) http.HandlerFunc
+		want    func(tt int) (string, store)
+	}{
+		{name: "ChangeUsername", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ChangeUsername, want: func(i int) (string, store) { return tests[i].change, tests[i].changeStore }},
+		{name: "UsernameFree", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).UsernameFree, want: func(i int) (string, store) { return tests[i].free, tests[i].freeStore }},
+	}
+	for _, h := range handlers {
+		for i, tt := range tests {
+			t.Run(h.name+": "+tt.name, func(t *testing.T) {
+				t.Parallel()
+				c := newUsernameCase(t)
+				read := c.signedInAs(tt.person)
+				want, expect := h.want(i)
+				// The mocked store refuses a call it was not told of: where expect is nil
+				// the store is not asked.
+				if expect != nil {
+					expect(c, read)
+				}
+
+				rr := c.post(h.handler(c.f.auth), `{"username":"`+tt.typed+`"}`)
+				got := fmt.Sprintf("%d %s", rr.Code, strings.TrimSpace(rr.Body.String()))
+				if rr.Code >= http.StatusBadRequest {
+					got = fmt.Sprintf("%d %s", rr.Code, messageOf(t, rr))
+				}
+				if got != want {
+					t.Errorf("%s(%q) = %s, want %s", h.name, tt.typed, got, want)
+				}
+			})
+		}
 	}
 }
 

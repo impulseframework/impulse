@@ -430,11 +430,12 @@ DML what a later rule must read.
 
   **Never a second identity on a name alone.** A name proves nothing about who holds an
   account. Where a username is not an address, a person may sign up under a colleague's
-  sign-in name, sign in through the directory as themselves (the account holds their own
-  address, so the directory's sign-in finds it and the password confirms the link) and
-  remove the password. The account then has no password to confirm a link with and one
-  identity on the directory's connection, and the colleague's first sign-in through
-  that directory arrives under the account's name; with a method that writes one
+  sign-in name that has no @ in it (a username a person types with an @ in it has to be
+  their own address), sign in through the directory as themselves (the account holds
+  their own address, so the directory's sign-in finds it and the password confirms the
+  link) and remove the password. The account then has no password to confirm a link
+  with and one identity on the directory's connection, and the colleague's first sign-in
+  through that directory arrives under the account's name; with a method that writes one
   connection for every account (any Google account, Microsoft personal accounts) every
   account shares the connection. So the standard rule links an identity the application
   has not seen, on its sign-in name, to a user without a password only as that user's
