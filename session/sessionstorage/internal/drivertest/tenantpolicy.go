@@ -189,7 +189,14 @@ func testTenantAdministratorsWayIn(_ context.Context, t *testing.T, h *AuthHarne
 				roles.administers[person] = []accesstypes.Domain{"lakeside"}
 			}
 
-			_, err := passwordSignIn(ctx, in, user, sessioninfo.ReasonLogin)
+			// Jane's account signs in through Lakeside's directory too, and the instance
+			// sets no directory admission: the policy is told no directory.
+			mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
+
+			req, err := passwordSignIn(ctx, in, user, sessioninfo.ReasonLogin)
+			if req.User == nil || len(req.User.Directories) != 0 {
+				t.Errorf("the sign-in's user = %+v, want one with no directories on an Auth that sets no directory admission", req.User)
+			}
 			if tt.completion != nil {
 				assertHeldForCode(t, err)
 				err = signInRequest(ctx, in, &sessioninfo.NewSessionRequest{

@@ -285,11 +285,12 @@ func (h *InvitationHandlers) Accept() http.HandlerFunc { return h.accept }
 // account, with the invited address as its own, verified, signs the person in and
 // accepts the invitation. username is the address when the password method declares
 // the username as the email address, and chosen otherwise. A taken username or
-// address is 409, a password the judgment refuses 400, no password method or no
-// live invitation 404. An invitation that makes a tenant entered through its
-// directory only is refused as a sign-in is (organization_account_required). Route it
-// beside the password login, behind StartSession and ValidateXSRFToken, and route the
-// pending handlers, which take the code.
+// address is 409, a password the judgment refuses 400, a chosen username with an @ in
+// it that is not the account's address 400, no password method or no live invitation
+// 404. An invitation that makes a tenant entered through its directory only is refused
+// as a sign-in is (organization_account_required). Route it beside the password login,
+// behind StartSession and ValidateXSRFToken, and route the pending handlers, which take
+// the code.
 func (h *InvitationHandlers) SignUp() http.HandlerFunc { return h.signUp }
 
 // Invitation returns the invitation handlers.
@@ -731,7 +732,9 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 // chose is kept without the space around it, as their own change of it is, and one of
 // nothing but space is none; it is then held to the rule of a typed one
 // (sessioninfo.UsernameRefusal). An address used as the username is neither cut nor held
-// to that rule.
+// to that rule. A chosen username with an @ in it has to be email, in any case of its
+// ASCII letters (usernameAddressRefusal): the address is confirmed by the time the
+// account exists.
 func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
 	chosen := !a.registered().usernameIsEmail()
 	if chosen {
@@ -748,6 +751,9 @@ func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*se
 	}
 	if chosen {
 		if err := sessioninfo.UsernameRefusal(username); err != nil {
+			return nil, err
+		}
+		if err := usernameAddressRefusal(username, email); err != nil {
 			return nil, err
 		}
 	}

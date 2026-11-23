@@ -196,6 +196,7 @@ func TestAuth_InvitedSignUp(t *testing.T) {
 	t.Run("where the username is the address, the password is judged against the address as its username, as the page asks about it", invitedSignUpJudgedAsAsked)
 	t.Run("a wrong code makes nobody and leaves the wait", invitedSignUpWrongCode)
 	t.Run("an address or a username another account holds is 409 in the store's words before anything is held or mailed", invitedSignUpTaken)
+	t.Run("a chosen username with an @ in it has to be the invited address, refused before anything is held or mailed", invitedSignUpAddressAsUsername)
 	t.Run("the application's own step cannot complete a sign-up: 409, the wait left as it was", invitedSignUpNotTheApplications)
 	t.Run("the account is made only from what the sign-up kept, for the invitation it was started for, by a code mailed to the invited address", invitedSignUpAttemptRefusals)
 }
@@ -440,6 +441,33 @@ func invitedSignUpTaken(t *testing.T) {
 		if cookieNamed(rr, defaultPendingCookieName) != nil || len(recorder.Messages()) != 1 {
 			t.Errorf("SignUp() set a pending cookie (%t) or mailed (%d messages), want neither", cookieNamed(rr, defaultPendingCookieName) != nil, len(recorder.Messages())-1)
 		}
+	})
+}
+
+func invitedSignUpAddressAsUsername(t *testing.T) {
+	t.Parallel()
+
+	t.Run("another address is refused: nothing is held, mailed or looked up", func(t *testing.T) {
+		t.Parallel()
+		f, recorder, _, cookies := invitedPat(t)
+
+		// The mocked store expects no UserByUserName and no HoldSignIn: a call fails the
+		// test.
+		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse battery staple", "username": "sam@lakeside.edu"}, cookies)
+
+		if rr.Code != http.StatusBadRequest || messageOf(t, rr) != ownAddressWords {
+			t.Errorf("SignUp() with another address as the username = %d %s, want 400 %q", rr.Code, rr.Body.String(), ownAddressWords)
+		}
+		if cookieNamed(rr, defaultPendingCookieName) != nil || len(recorder.Messages()) != 1 {
+			t.Errorf("SignUp() set a pending cookie (%t) or mailed (%d messages), want neither", cookieNamed(rr, defaultPendingCookieName) != nil, len(recorder.Messages())-1)
+		}
+	})
+
+	t.Run("the invited address in another case is held for the code", func(t *testing.T) {
+		t.Parallel()
+		f, _, _, cookies := invitedPat(t)
+
+		signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "PAT@lakeside.edu"}, "PAT@lakeside.edu")
 	})
 }
 

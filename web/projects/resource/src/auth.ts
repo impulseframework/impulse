@@ -1398,8 +1398,9 @@ export class AuthClient {
    * methods list again, then posts `{ username }` to the path it names. The result is
    * `changed` with the username as the server keeps it, so the page checks the session
    * again to show it, or the server's refusal with its words: someone else holds the name
-   * (409), or the usernames are the addresses (409). A server whose list names no such
-   * path serves none, or its usernames are the addresses, and the call throws saying so.
+   * (409), a name with an @ in it that is not the person's own confirmed address (400), or
+   * the usernames are the addresses (409). A server whose list names no such path serves
+   * none, or its usernames are the addresses, and the call throws saying so.
    */
   async changeUsername(username: string): Promise<UsernameChangeResult> {
     const list = await this.methods();
@@ -1420,9 +1421,10 @@ export class AuthClient {
   /**
    * Asks the server whether the signed-in person may take a username, for a page to say
    * while the person types it: `answered`, free for a name no one holds, or the person
-   * holds themselves; or the server's refusal with its words, for a name it does not keep.
-   * Posts to the path of the list the client last read, reading the list only when none
-   * was read, as the password strength question does. The question is quiet: a refusal is
+   * holds themselves; or the server's refusal with its words, for a name it does not keep,
+   * or one with an @ in it that is not the person's own confirmed address. Posts to the
+   * path of the list the client last read, reading the list only when none was read, as
+   * the password strength question does. The question is quiet: a refusal is
    * resolved, any other answer that is an error is thrown, and neither is handed to the
    * application's error hook. A server whose list names no such path serves none, and the
    * call throws saying so.

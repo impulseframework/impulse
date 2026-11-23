@@ -105,9 +105,13 @@ func TestAuth_ChangeUserPassword_continuesItsSession(t *testing.T) {
 }
 
 // TestAuthAPI_ChangeSessionUserPassword_nothingToContinue pins the change made with no
-// session of the person's own in the context: another person's session, and one that
-// views the application as the person, are not continued, and the new session records
-// the password the change proved.
+// session of the person's own in the context: no session at all, as in a call of the
+// application's, another person's session, one that views the application as the
+// person, and a request a bearer token stands in for. The password is changed and the
+// person's sessions are ended, and no session is started, so none rests on a password
+// the sign-in policy was not asked about: the store is given no CreateSession (the mock
+// refuses a call it was not told of), the response sets no cookie, and the call returns
+// nil. The person signs in again, where the sign-in policy decides.
 func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 	t.Parallel()
 
@@ -136,6 +140,9 @@ func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 				Token: &sessioninfo.TokenInfo{},
 			},
 		},
+		{
+			name: "a call of the application's, with no session in the context, starts none",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -145,16 +152,19 @@ func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 			old := hashed(t, "the old one")
 			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
 			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil)
-			createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
-				if diff := cmp.Diff([]sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}, req.AuthEvents); diff != "" {
-					t.Errorf("the auth events of the new session (-want +got):\n%s", diff)
-				}
-			})
+			f.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Times(0)
 
-			ctx := context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, tt.session)
-			err := f.auth.API().ChangeSessionUserPassword(ctx, httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "the old one", NewPassword: "the new one, chosen with care"})
+			ctx := context.Background()
+			if tt.session != nil {
+				ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, tt.session)
+			}
+			rr := httptest.NewRecorder()
+			err := f.auth.API().ChangeSessionUserPassword(ctx, rr, userID, &ChangeSessionUserPasswordRequest{OldPassword: "the old one", NewPassword: "the new one, chosen with care"})
 			if err != nil {
 				t.Fatalf("ChangeSessionUserPassword() error = %v", err)
+			}
+			if cookies := rr.Header().Values("Set-Cookie"); len(cookies) != 0 {
+				t.Errorf("the response sets %d cookies, want none: no session is started", len(cookies))
 			}
 		})
 	}
