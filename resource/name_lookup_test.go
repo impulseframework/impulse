@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -296,6 +297,151 @@ func TestNewQueryDecoder_undescribedName(t *testing.T) {
 	want := `request field SquadronName is marked the name of SquadronID (nameof:"SquadronID"), but the resource's NameFields() describes no such name, so there is nothing to look it up in; regenerate the resource and its handlers together`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("NewQueryDecoder() error = %v, want it to contain %q", err, want)
+	}
+}
+
+// passViewQuery is the query a test view of passes opens with.
+type passViewQuery interface {
+	query() string
+}
+
+// squadronsWith opens the view's query with a WITH table spelled as the table the
+// squadron's name is read from.
+type squadronsWith struct{}
+
+func (squadronsWith) query() string {
+	return "WITH Squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM Squadrons"
+}
+
+// lowerSquadronsWith spells that WITH table in another case.
+type lowerSquadronsWith struct{}
+
+func (lowerSquadronsWith) query() string {
+	return "WITH squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM squadrons"
+}
+
+// levelsThenSquadronsWith opens with a WITH table spelled as each of two names'
+// tables, the later name's first.
+type levelsThenSquadronsWith struct{}
+
+func (levelsThenSquadronsWith) query() string {
+	return "WITH PassLevels AS (SELECT Id FROM Levels), Squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM Squadrons"
+}
+
+// renamedWith opens with a WITH table no name is read from.
+type renamedWith struct{}
+
+func (renamedWith) query() string {
+	return "WITH PassRows AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM PassRows"
+}
+
+// passView is a view (a @virtual resource) of passes, with lookupPass's names, whose
+// query Q gives.
+type passView[Q passViewQuery] struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SectorID   string  `spanner:"SectorId"   postgres:"SectorId"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+	LevelID    string  `spanner:"LevelId"    postgres:"LevelId"`
+	CrewID     *string `spanner:"CrewId"     postgres:"CrewId"`
+}
+
+// Resource names the resource in grants and routes.
+func (passView[Q]) Resource() accesstypes.Resource {
+	return "PassViews"
+}
+
+// DefaultConfig is the resource's configuration.
+func (passView[Q]) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the view's name fields: lookupPass's.
+func (passView[Q]) NameFields() []NameField {
+	return lookupPass{}.NameFields()
+}
+
+// Subquery is the view's query.
+func (passView[Q]) Subquery() (query string, params map[string]any) {
+	var q Q
+
+	return q.query(), nil
+}
+
+// passViewPlainRequest is a list request type of the view that carries no name.
+type passViewPlainRequest struct {
+	ID         string  `json:"id"         index:"true" perm:"-"`
+	SectorID   string  `json:"sectorId"   index:"true"`
+	SquadronID *string `json:"squadronId" index:"true"`
+}
+
+// newPassViewDecoder builds the decoder of a list of the view over the request type.
+func newPassViewDecoder[Q passViewQuery, Request any](t *testing.T) error {
+	t.Helper()
+
+	resSet, err := NewSet[passView[Q], Request](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	_, err = NewQueryDecoder[passView[Q], Request](resSet)
+
+	return err
+}
+
+// TestNewQueryDecoder_withTableNamedAsAName pins that a view whose query opens with a
+// WITH table spelled, in any case, as the table one of the request's names is read
+// from is refused where its list's decoder is built, naming the first such name in the
+// request type's order and what to rename; and that the view builds with the WITH
+// table renamed, or over a request type that carries no name.
+func TestNewQueryDecoder_withTableNamedAsAName(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "the query of PassViews opens with a WITH table named %s, which is also the table the name %s is read from: a statement over the view would read the name from the WITH table's rows. Rename the WITH table in the view's query."
+	tests := []struct {
+		name    string
+		build   func(t *testing.T) error
+		wantErr string
+	}{
+		{
+			name:    "a WITH table spelled as a name's table",
+			build:   newPassViewDecoder[squadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
+		},
+		{
+			name:    "spelled in another case",
+			build:   newPassViewDecoder[lowerSquadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "squadrons", "SquadronName"),
+		},
+		{
+			name:    "two names' tables: the first name in the request type's order",
+			build:   newPassViewDecoder[levelsThenSquadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
+		},
+		{
+			name:  "the WITH table renamed",
+			build: newPassViewDecoder[renamedWith, lookupPassRequest],
+		},
+		{
+			name:  "a request type with no name",
+			build: newPassViewDecoder[squadronsWith, passViewPlainRequest],
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.build(t)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("NewQueryDecoder() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("NewQueryDecoder() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 

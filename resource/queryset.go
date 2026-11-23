@@ -1758,6 +1758,70 @@ func extractWithClause(query string) (withClause, remainingQuery string) {
 	return "", query
 }
 
+// withTableNames returns the names of the WITH tables a query opens with, as the query
+// spells them, in order: the identifier heading each item of the clause
+// extractWithClause lifts (the first after WITH, each one after a comma at depth 0),
+// before its optional column list and AS (. A WITH inside an item's body is the body's
+// own and is not returned; a query that does not open with WITH has none.
+func withTableNames(query string) []string {
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	var toks []token.Token
+	for {
+		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
+			break
+		}
+		toks = append(toks, lex.Token)
+	}
+	if len(toks) == 0 || !strings.EqualFold(toks[0].Raw, "WITH") {
+		return nil
+	}
+
+	i := 1
+	if i < len(toks) && strings.EqualFold(toks[i].Raw, "RECURSIVE") {
+		i++
+	}
+	var names []string
+	for i < len(toks) && toks[i].Kind == token.TokenIdent {
+		name := toks[i].AsString
+		i++
+		if i < len(toks) && toks[i].Kind == "(" {
+			i = closingParen(toks, i) + 1
+		}
+		if i+1 >= len(toks) || !strings.EqualFold(toks[i].Raw, "AS") || toks[i+1].Kind != "(" {
+			break
+		}
+		names = append(names, name)
+		i = closingParen(toks, i+1) + 1
+		if i >= len(toks) || toks[i].Kind != "," {
+			break
+		}
+		i++
+	}
+
+	return names
+}
+
+// closingParen returns the index of the parenthesis that closes the one at open, or
+// the last index where the tokens end first.
+func closingParen(toks []token.Token, open int) int {
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch toks[i].Kind {
+		case "(":
+			depth++
+		case ")":
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return len(toks) - 1
+}
+
 // moreThan checks if more than a given count of boolean expressions are true.
 func moreThan(cnt int, exp ...bool) bool {
 	count := 0

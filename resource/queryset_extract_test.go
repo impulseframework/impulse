@@ -107,3 +107,60 @@ WHERE RowNum = 1`,
 		})
 	}
 }
+
+// TestWithTableNames pins the WITH tables a view's query opens with: each item's name
+// at the clause's own depth, after WITH or a comma, with or without a column list, and
+// none from a WITH inside a body.
+func TestWithTableNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			name:  "no WITH clause",
+			query: "SELECT Id, Name FROM Squadrons",
+		},
+		{
+			name:  "one WITH table",
+			query: "WITH Squadrons AS (SELECT Id, Name FROM Units) SELECT Id FROM Squadrons",
+			want:  []string{"Squadrons"},
+		},
+		{
+			name:  "two WITH tables, the keyword in lower case",
+			query: "with Pilots AS (SELECT Id FROM Crews), Squadrons AS (SELECT Id FROM Units, Pilots) SELECT Id FROM Squadrons",
+			want:  []string{"Pilots", "Squadrons"},
+		},
+		{
+			name:  "a WITH table with a column list",
+			query: "WITH Squadrons (Id, Name) AS (SELECT Id, Label FROM Units) SELECT Id FROM Squadrons",
+			want:  []string{"Squadrons"},
+		},
+		{
+			name:  "a recursive WITH",
+			query: "WITH RECURSIVE Squadrons AS (SELECT 1 AS Id UNION ALL SELECT Id + 1 FROM Squadrons WHERE Id < 3) SELECT Id FROM Squadrons",
+			want:  []string{"Squadrons"},
+		},
+		{
+			name:  "a WITH inside a WITH table's body",
+			query: "WITH Wrapped AS (WITH Squadrons AS (SELECT Id FROM Units) SELECT Id FROM Squadrons) SELECT Id FROM Wrapped",
+			want:  []string{"Wrapped"},
+		},
+		{
+			name:  "a WITH inside the query's body",
+			query: "SELECT Id FROM (WITH Squadrons AS (SELECT Id FROM Units) SELECT Id FROM Squadrons)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, withTableNames(tt.query)); diff != "" {
+				t.Errorf("withTableNames() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

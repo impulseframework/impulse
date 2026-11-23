@@ -276,6 +276,9 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseWithTableNamedAsNames[Resource](names); err != nil {
+		return nil, err
+	}
 
 	// A name is a field to filter by only beside an id the request type carries,
 	// as it is a column to ask for only there (visibleNames).
@@ -317,6 +320,29 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 		boxPII:             boxPII,
 		searchKeys:         searchKeyColumns(keyFields, resSet.ResourceMetadata()),
 	}, nil
+}
+
+// refuseWithTableNamedAsNames refuses a view whose query opens with a WITH table
+// spelled as the table one of the request's names is read from: every statement over
+// the view lifts the WITH clause to lead it (viewFromItem), so the name's lookup would
+// read the WITH table's rows. The names are checked in the request type's order.
+func refuseWithTableNamedAsNames[Resource Resourcer](names []requestName) error {
+	var res Resource
+	view, ok := any(res).(virtualQuerier)
+	if !ok || len(names) == 0 {
+		return nil
+	}
+	query, _ := view.Subquery()
+	withTables := withTableNames(query)
+	for i := range names {
+		for _, withTable := range withTables {
+			if strings.EqualFold(withTable, names[i].Table) {
+				return errors.Newf("the query of %s opens with a WITH table named %s, which is also the table the name %s is read from: a statement over the view would read the name from the WITH table's rows. Rename the WITH table in the view's query.", res.Resource(), withTable, names[i].Field)
+			}
+		}
+	}
+
+	return nil
 }
 
 // searchBoxFields lists the request fields that join the search box, in declaration
