@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/drivertest"
 )
@@ -28,7 +29,7 @@ func TestRowDeletionPolicies(t *testing.T) {
 	if err := db.Client.Single().Query(ctx, stmt).Do(func(r *spanner.Row) error {
 		var table, expression string
 		if err := r.Columns(&table, &expression); err != nil {
-			return err
+			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		got[table] = policyText(expression)
 
