@@ -142,7 +142,10 @@ func cherokeeCapital(r rune) rune {
 // it and a name the table tells apart has a count of its own. A name with an @ in it
 // reads as an email address and has its ASCII capital letters lowercased and every
 // other character as written (util.LowerASCII); any other name is in Unicode NFC and
-// case-folded (FoldWide).
+// case-folded (FoldWide). The key agrees with the table for every letter that both the
+// library's Unicode tables (golang.org/x/text) and the database's know. A cased letter
+// added to Unicode since the older of the two is folded by one and not by the other, so
+// two names that differ only by such a letter may share a count, or one name have two.
 func Normalize(name string) string {
 	if strings.Contains(name, "@") {
 		return util.LowerASCII(name)

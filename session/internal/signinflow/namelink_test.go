@@ -22,11 +22,13 @@ import (
 // is refused, since a code mailed to an address typed at the sign-in would show only
 // that the person reads their own mail. A name Google vouches for links at once where it
 // is the account's own: its username as the library compares two addresses, or the
-// address the account holds confirmed. A vouched name the stores' wider match found under
-// another spelling (the Kelvin sign for a k) is not the account's own, and waits as a
-// name the method does not vouch for. A registration of the deployment's own seeded
-// accounts links on the name. The wait is the link's own: it does not turn on whether
-// the rules hold a person for an address (Rules.ConfirmAddress).
+// address the account holds confirmed. A vouched name that a store matching more widely
+// would find under another spelling (the Kelvin sign for a k) is not the account's own,
+// and waits as a name the method does not vouch for: the shipped stores find no account
+// under it, and this test's driver matches more widely so that the flow's own check is
+// what the case holds. A registration of the deployment's own seeded accounts links on
+// the name. The wait is the link's own: it does not turn on whether the rules hold a
+// person for an address (Rules.ConfirmAddress).
 func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 	t.Parallel()
 

@@ -54,18 +54,17 @@ import (
 // any other application no tenant vouches for a link, so such a user is linked at once
 // only where the method vouches for the sign-in name (Google, for a Gmail address or a
 // Workspace account's) and that name is the user's own (its username as the library
-// compares two addresses, or the address it holds confirmed; a username the stores'
-// wider match found under another spelling is not), and otherwise once the person
-// enters the code mailed to the address the user holds, with nothing linked while the
-// sign-in waits; a user who holds no address is refused the link
-// (ErrLinkNeedsAddress). A
-// registration that declares its provider's names the application's own
-// (Registration.SeededUsers) links such a user on the name alone. A user with no
-// password who already signs in through an identity is never linked a second one on
-// the name (ErrLinkSecondIdentity): a person may hold an account under another
-// person's sign-in name, and such a user has no password to confirm with. A user who
-// holds, verified, the address the method verified for the identity is the person, and
-// is linked on a connection they already sign in through.
+// compares two addresses, which is how the stores find a username with an @ in it, or
+// the address it holds confirmed), and otherwise once the person enters the code mailed
+// to the address the user holds, with nothing linked while the sign-in waits; a user
+// who holds no address is refused the link (ErrLinkNeedsAddress). A registration that
+// declares its provider's names the application's own (Registration.SeededUsers) links
+// such a user on the name alone. A user with no password who already signs in through
+// an identity is never linked a second one on the name (ErrLinkSecondIdentity): a
+// person may hold an account under another person's sign-in name, and such a user has
+// no password to confirm with. A user who holds, verified, the address the method
+// verified for the identity is the person, and is linked on a connection they already
+// sign in through.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
 // Policy is the application's sign-in rule, asked once a sign-in's user is known and
