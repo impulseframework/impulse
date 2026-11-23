@@ -14,10 +14,10 @@ import (
 // Members auth for a second factor: from the commit on, a sign-in the application's
 // rule allows gets its session with a password alone. A super administrator is still
 // asked, and so is anyone the application's rule holds for a factor of its own. It
-// takes a way into every account down to one, so the method declares a warning: the
-// page shows it before anything is saved, and the call is confirmed by typing a word. A
-// setting that already says so is written again. The change is kept with who made it
-// and when (MembersSessionSignInSetting's change events).
+// lowers what a sign-in needs for every account at once, so the method declares a
+// warning: the page shows it before anything is saved, and the call is confirmed by
+// typing a word. A setting that already says so is written again. The change is kept
+// with who made it and when (MembersSessionSignInSetting's change events).
 //
 // @rpc
 // @outlet(portal, default)

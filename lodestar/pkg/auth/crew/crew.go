@@ -37,11 +37,11 @@
 // email address is held apart from their username, added and verified by the person
 // through a mailed link, or entered unverified by an operator.
 //
-// Every crew session carries a second factor, whichever way the person signed in
-// (requireSecondFactor, the sign-in rule's last word): the fleet's
-// directory attests for its people when the deployment says the fleet administers it,
-// a browser a person asked to be remembered stands in for the factor, and otherwise the
-// login page runs the sign-in code the auth mails. Headquarters makes the server forget
+// Whether a session then carries a second factor is the auth's sign-in setting (the
+// Sign-in page), which the session library reads at every sign-in. The fleet's directory
+// attests for its people when the deployment says the fleet administers it, a browser a
+// person asked to be remembered stands in for the factor, and otherwise the login page
+// runs the sign-in code the auth mails. Headquarters makes the server forget
 // a person's remembered browsers from the person's account
 // (RevokeCrewUserTrustedDevices).
 //
@@ -76,7 +76,6 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/oidc"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -842,13 +841,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// stays on the chart marked closed, with the reason. The memberships are read
 	// outside the sign-in's transaction (resource.SignInRoles): the Spanner client
 	// refuses the engine's read under the transaction's context as a nested transaction.
-	// The rule's last word is the second factor every crew session carries
-	// (requireSecondFactor): a sign-in the tenant policy admits waits for the
-	// code the auth mails, unless the fleet's directory attested for the person or the
-	// browser is one they asked to be remembered.
+	// Whether a session then carries a second factor is the auth's sign-in setting (the
+	// Sign-in page), which the session library reads at every sign-in.
 	//
-	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
-	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
+	// Demonstrates: tenancy.declaration, tenancy.directory-only.
+	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
 	// the rule would refuse a sign-in with a password as directory only. Their account
@@ -1039,18 +1036,4 @@ func (a *Auth) Close() error {
 	}
 
 	return nil
-}
-
-// requireSecondFactor is the last word of the crew's sign-in rule, chained after the
-// tenant policy (signin.Policy.Then): every session carries a second factor, with the
-// sign-in code the library mails as the factor the login page runs
-// (signin.RequireMFA(sessioninfo.MethodEmailCode)). The library satisfies it before it
-// holds the sign-in: a directory the fleet administers attests for its people
-// (auth.Directory.Administered), a browser the person asked to be remembered after a code
-// stands in for the next thirty days, and otherwise the sign-in waits for the code the
-// person reads from their mail. The requirement is the rule's, not a tenant's, so no
-// sector turns it off. Each auth package holds its own, as impulse writes it and as
-// impulse check reads it; the members' is the same rule.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }

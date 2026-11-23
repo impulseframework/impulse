@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
@@ -284,6 +285,58 @@ func TestSecondFactor(t *testing.T) {
 	if sess := b.session(ctx); !sess.Authenticated {
 		t.Fatalf("session after the second code = %+v, want authenticated", sess)
 	}
+}
+
+// TestSecondFactorSetting drives the second factor as a setting of the running
+// application: a login's password sign-in waits for the code; the development login, an
+// administrator, stops requiring it through the auth's generated method, and the next
+// sign-in gets its session with no code; required again through the other method, the
+// one after that waits once more. The development login is a super administrator, who is
+// asked for the code whatever the setting says, so the sign-ins are another login's, one
+// that holds no role.
+func TestSecondFactorSetting(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := newBrowser(t, s)
+	admin.signIn(ctx, adminUser)
+	const clerk = "clerk"
+	password := adminPassword
+	if _, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: clerk, Password: &password}); err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", clerk, err)
+	}
+
+	// signsIn signs the clerk in from a browser of its own, failing the test unless the
+	// sign-in waits for the code exactly when held is set.
+	signsIn := func(when string, held bool) {
+		t.Helper()
+
+		b := newBrowser(t, s)
+		if status, body := b.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
+			t.Fatalf("GET /api/user/session before the clerk's login %s: status %d: %s", when, status, body)
+		}
+		if status, body := b.login(ctx, clerk, adminPassword); status != http.StatusOK || heldForFactor(t, body) != held {
+			t.Fatalf("the clerk's password sign-in %s: status %d: %s, want 200 with the sign-in held for the second factor %v", when, status, body, held)
+		}
+		if sess := b.session(ctx); sess.Authenticated == held {
+			t.Fatalf("the clerk's session %s = %+v, want it open %v", when, sess, !held)
+		}
+	}
+	// runs runs one of the auth's sign-in settings methods as the development login.
+	runs := func(route string) {
+		t.Helper()
+
+		if status, body := admin.do(ctx, http.MethodPost, route, []byte(`{}`)); status != http.StatusNoContent {
+			t.Fatalf("POST %s: status %d: %s", route, status, body)
+		}
+	}
+
+	signsIn("while the second factor is required", true)
+	runs("/api/stop-requiring-staff-second-factor")
+	signsIn("once it is not required", false)
+	runs("/api/require-staff-second-factor")
+	signsIn("once it is required again", true)
 }
 
 // verifyCode enters a sign-in code for the waiting sign-in, asking for the browser to be

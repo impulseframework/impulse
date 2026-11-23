@@ -52,7 +52,6 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -399,8 +398,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	handlers := &Handlers{Session: authSession}
 	handlers.password = registerPassword(authSession)
 
-	// The sign-in rule: every session carries a second factor (requireSecondFactor).
-	authSession.SetSignInPolicy(requireSecondFactor)
+	// No sign-in rule of the application's own: the session library's checks decide, and
+	// it asks everyone for a second factor while the auth's sign-in setting requires one
+	// (the Sign-in page changes it).
 
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
@@ -490,17 +490,6 @@ func (a *Auth) Close() error {
 	}
 
 	return nil
-}
-
-// requireSecondFactor is the sign-in rule every session ends with: the second factor, the
-// sign-in code mailed to the person's address (sessioninfo.MethodEmailCode), unless the
-// sign-in carries one already, a remembered browser's token or the attestation of a
-// directory the deployment administers or whose token says a second factor was passed,
-// which the library takes before it asks. A sign-in the rule holds waits for the code
-// (?pending=mfa on the login page), where the person asks for it, enters it and may ask
-// for the browser to be remembered.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }
 
 // announcePolicy is the sending half of the engine's change signal: after a policy write

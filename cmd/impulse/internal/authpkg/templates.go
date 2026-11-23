@@ -1,20 +1,5 @@
 package authpkg
 
-// secondFactorRule is the sign-in rule every auth package ends with, as the template
-// writes it into the package and impulse upgrade's second-factor recipe writes it into an
-// auth package that set none (SecondFactorRule).
-const secondFactorRule = `// requireSecondFactor is the sign-in rule every session ends with: the second factor, the
-// sign-in code mailed to the person's address (sessioninfo.MethodEmailCode), unless the
-// sign-in carries one already, a remembered browser's token or the attestation of a
-// directory the deployment administers or whose token says a second factor was passed,
-// which the library takes before it asks. A sign-in the rule holds waits for the code
-// (?pending=mfa on the login page), where the person asks for it, enters it and may ask
-// for the browser to be remembered.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
-}
-`
-
 // authTemplate renders the Auth file: the package, its tables, its permission store, its
 // role file, the Auth session with the methods registered on it, and the served surface.
 const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who hold their roles in the
@@ -612,17 +597,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// password and a second factor, and nobody else's reaches one whose declaration
 	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
-	// transaction's context as a nested transaction. A sign-in the rule admits then
-	// carries a second factor (requireSecondFactor).
+	// transaction's context as a nested transaction. Whether a sign-in the rule admits
+	// is then asked for a second factor is the auth's sign-in setting, which the session
+	// library reads at every sign-in.
 {{- else}}
 	// Which tenants the session then reaches is where its tenant list is computed
 	// (UserPermissions): a super administrator's session reaches every tenant, and
 	// anybody else's the tenants that seat them. The memberships are read outside the
 	// sign-in's transaction (resource.SignInRoles): the Spanner client refuses the
-	// engine's read under the transaction's context as a nested transaction. A sign-in
-	// the rule admits then carries a second factor (requireSecondFactor).
+	// engine's read under the transaction's context as a nested transaction. Whether a
+	// sign-in the rule admits is then asked for a second factor is the auth's sign-in
+	// setting, which the session library reads at every sign-in.
 {{- end}}
-	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations{{if .TenantPolicy.AdmitWithoutTenant}}, signin.AdmitWithoutTenant(){{end}}).Then(requireSecondFactor))
+	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations{{if .TenantPolicy.AdmitWithoutTenant}}, signin.AdmitWithoutTenant(){{end}}))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
 	// the rule would refuse a sign-in with a password as directory only. Their account
@@ -632,8 +619,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 {{- else}}
 
-	// The sign-in rule: every session carries a second factor (requireSecondFactor).
-	authSession.SetSignInPolicy(requireSecondFactor)
+` + NoSignInRule + `
 {{- end}}
 {{- if .IdentityPackage}}
 
@@ -801,7 +787,6 @@ func (a *Auth) Close() error {
 	return nil
 }
 
-` + secondFactorRule + `
 // announcePolicy is the sending half of the engine's change signal: after a policy write
 // (a role, a grant, a membership) the engine signals the policy kind on the live service,
 // and every instance subscribed to the kind rereads its snapshot. A failure is the
@@ -832,6 +817,13 @@ func watchPolicy(signals Signals) func(ctx context.Context, onChange func()) err
 	}
 }
 `
+
+// NoSignInRule is the comment an auth package of an application without tenants carries
+// in New where one with tenants sets its sign-in rule. Add tenancy takes it out where it
+// writes the tenant policy as the Auth's rule.
+const NoSignInRule = "\t// No sign-in rule of the application's own: the session library's checks decide, and\n" +
+	"\t// it asks everyone for a second factor while the auth's sign-in setting requires one\n" +
+	"\t// (the Sign-in page changes it)."
 
 // loginFormTemplate renders the password method's file: the method that signs in from the
 // login page's form.
@@ -1552,15 +1544,6 @@ func parse{{.Pascal}}Workspaces(value string, administered []string) (google.Wor
 }
 {{- end}}
 `
-
-// SecondFactorRule is the text of requireSecondFactor, the sign-in rule every auth
-// package ends with, as the auth template writes it: a package-level function over the
-// Spanner transaction (imported as cloudspanner), sessioninfo and signin, returning
-// signin.RequireMFA(sessioninfo.MethodEmailCode). impulse upgrade's second-factor recipe
-// and impulse check --fix write it into an auth package that has none.
-func SecondFactorRule() string {
-	return secondFactorRule
-}
 
 // oidcTemplate renders the file of a method that signs in through an organization's own
 // identity provider: the session library's generic OpenID Connect method, registered in

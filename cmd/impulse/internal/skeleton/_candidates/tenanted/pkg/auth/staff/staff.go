@@ -57,7 +57,6 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/mail"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -468,9 +467,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// password and a second factor, and nobody else's reaches one whose declaration
 	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
-	// transaction's context as a nested transaction. A sign-in the rule admits then
-	// carries a second factor (requireSecondFactor).
-	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
+	// transaction's context as a nested transaction. Whether a sign-in the rule admits
+	// is then asked for a second factor is the auth's sign-in setting, which the session
+	// library reads at every sign-in.
+	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
 	// the rule would refuse a sign-in with a password as directory only. Their account
@@ -596,17 +596,6 @@ func (a *Auth) Close() error {
 	}
 
 	return nil
-}
-
-// requireSecondFactor is the sign-in rule every session ends with: the second factor, the
-// sign-in code mailed to the person's address (sessioninfo.MethodEmailCode), unless the
-// sign-in carries one already, a remembered browser's token or the attestation of a
-// directory the deployment administers or whose token says a second factor was passed,
-// which the library takes before it asks. A sign-in the rule holds waits for the code
-// (?pending=mfa on the login page), where the person asks for it, enters it and may ask
-// for the browser to be remembered.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }
 
 // announcePolicy is the sending half of the engine's change signal: after a policy write
