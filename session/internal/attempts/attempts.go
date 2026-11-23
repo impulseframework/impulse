@@ -125,7 +125,12 @@ func (l *Limiter) SetClock(now func() time.Time) {
 // Cherokee letter in its other case, where Unicode's case folding, which the stores
 // apply, gives the capital for a capital and a small letter alike; the small letters are
 // put back to their capitals (cherokeeCapital), so the form is the stores' and folding it
-// again changes nothing.
+// again changes nothing. The first normalization composes (NFC) where Unicode's canonical
+// caseless matching decomposes (NFD). The two differ only for a text that holds a Greek
+// iota subscript (U+0345, alone or within a letter; the Unicode Standard, 3.13): a small
+// alpha with a circumflex and the iota under it (U+1FB7) and the capital that carries the
+// iota, followed by the circumflex (U+1FBC U+0342), are two names here and one name
+// there. The stores compute this same form, so the key and the table agree on such names.
 func FoldWide(text string) string {
 	return norm.NFC.String(strings.Map(cherokeeCapital, cases.Fold().String(norm.NFC.String(text))))
 }
@@ -147,13 +152,14 @@ func cherokeeCapital(r rune) rune {
 // it and a name the table tells apart has a count of its own. A name with an @ in it
 // reads as an email address and has its ASCII capital letters lowercased and every
 // other character as written (util.LowerASCII); any other name is in Unicode NFC and
-// case-folded (FoldWide). The key agrees with the table for every letter that both the
-// library's Unicode tables (golang.org/x/text) and the database's know. A cased letter
-// added to Unicode since the older of the two is folded by one and not by the other:
-// where the library's tables are the newer, two usernames that differ only by the case
-// of such a letter are two accounts with one count, and a right password for either
-// clears what was counted against the other; where the database's are the newer, one
-// username has a count for each spelling of such a letter.
+// case-folded (FoldWide). The key agrees with the table for every character that both
+// the library's Unicode tables (golang.org/x/text) and the database's know. A cased
+// letter or a combining mark added to Unicode since the older of the two is folded, or
+// put in its order among the marks on a letter, by one and not by the other: where the
+// library's tables are the newer, two usernames that differ only by the case of such a
+// letter or the order of such a mark are two accounts with one count, and a right
+// password for either clears what was counted against the other; where the database's
+// are the newer, one username has a count for each such spelling.
 func Normalize(name string) string {
 	if strings.Contains(name, "@") {
 		return util.LowerASCII(name)

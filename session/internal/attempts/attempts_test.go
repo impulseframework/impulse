@@ -251,9 +251,9 @@ func TestFoldWide(t *testing.T) {
 
 // TestFoldWide_foldedAgain pins that the form FoldWide gives is the same when it is folded
 // again, for every code point alone and for every cased letter followed by each combining
-// mark from U+0300 to U+036F, which is where the folding of a normalized text is not
-// normalized: SignInAttemptKey folds a listed name, which is already a key, again, and has
-// to name the row the list shows.
+// mark from U+0300 to U+036F, among which are texts whose folding is not normalized (the
+// sharp s followed by an acute accent): SignInAttemptKey folds a listed name, which is
+// already a key, again, and has to name the row the list shows.
 func TestFoldWide_foldedAgain(t *testing.T) {
 	t.Parallel()
 
