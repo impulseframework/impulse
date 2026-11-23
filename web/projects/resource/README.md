@@ -930,7 +930,7 @@ answer say what the caller may do with it. A page that must work in every applic
 names from the block; an application's own code uses the handles by name.
 
 ```ts
-// The people who hold a role in the sector, each with the methods the caller may run on them.
+// The sector's people, each with the methods the caller may run on them.
 const people = await api.domain('anvil').crewSectorUsers.list({ capabilities: ['Execute'] });
 if (api.domain('anvil').assignCrewSectorRole.can()) {
   await api.domain('anvil').assignCrewSectorRole.execute({ userId: people[0].id, role: 'Harbormaster' });

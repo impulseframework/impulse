@@ -4416,7 +4416,11 @@ One party manages each account, and the lists say which. The tenant whose direct
 person signs in through manages their account. A person who signs in through no tenant's
 directory, and holds something in one tenant and nothing anywhere else, is managed by
 that tenant. Every other account is the application's own administrators' to manage.
-`managedHere` is true on the row of the tenant that manages the account.
+`managedHere` is true on the row of the tenant that manages the account. No sign-in
+links an account under a second tenant's directory. An account that came under two all
+the same (its links stood before either tenant took its directory, or the application
+wrote one itself with the store's `LinkIdentity`) is managed by both, and `managedHere`
+is true on both rows.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
 it by name, and the role file says what a tenant's administrator sees of a person whose
