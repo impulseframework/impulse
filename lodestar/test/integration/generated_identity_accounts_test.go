@@ -5,7 +5,9 @@ package integration
 // management of the crew auth lists them for the Accounts page. Each account is a row of
 // the users table with a line for each role it holds and until when its sign-in is
 // locked by failed tries, and the list filters by the name and the email address beside
-// the username. The fleet's methods on a person name the person by their row here.
+// the username. The fleet's methods on a person name the person by their row here. A
+// sector's list of its people says the two facts as well: the roles each person holds in
+// the sector itself, and the lock.
 //
 // The suites drive the list as served, against the real engine over the shipped role
 // file, on the Spanner emulator: the list is a query the generator writes in Spanner's
@@ -189,11 +191,11 @@ func TestGeneratedIdentityAccountsSayWhatEachHolds(t *testing.T) {
 }
 
 // TestGeneratedIdentityAccountsSayTheLock holds until when an account's sign-in is
-// locked, read from the counts the session library keeps for the account: the latest
-// lock still ahead among the rows kept under its username and under its id, each key
-// read; and nothing for a lock that has passed, for an account with no count, and for
-// the counts kept under its address, which limit the mail it is sent and lock no
-// sign-in.
+// locked, on the accounts list and on a sector's list of its people, read from the
+// counts the session library keeps for the account: the latest lock still ahead among
+// the rows kept under its username and under its id, each key read; and nothing for a
+// lock that has passed, for an account with no count, and for the counts kept under its
+// address, which limit the mail it is sent and lock no sign-in.
 func TestGeneratedIdentityAccountsSayTheLock(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -238,37 +240,50 @@ func TestGeneratedIdentityAccountsSayTheLock(t *testing.T) {
 		t.Fatalf("writing the counts: %v", err)
 	}
 
+	says := func(list, name string, row map[string]any) {
+		t.Helper()
+		want, locked := locks[name]
+		if !locked {
+			if row["lockedUntil"] != nil {
+				t.Errorf("%s's row of %s says locked until %v, want nothing", name, list, row["lockedUntil"])
+			}
+
+			return
+		}
+		got, err := time.Parse(time.RFC3339Nano, text(row, "lockedUntil"))
+		if err != nil {
+			t.Errorf("%s's row of %s says locked until %v, want %s: %v", name, list, row["lockedUntil"], want, err)
+
+			return
+		}
+		if !got.Equal(want) {
+			t.Errorf("%s's row of %s says locked until %s, want %s", name, list, got, want)
+		}
+	}
 	listed := listedAccounts(t, w.h, "governor", "")
 	for _, name := range []string{"ada", "bo", "cy", "di", "eve", "fay", "gus"} {
 		row, ok := listed[name]
 		if !ok {
 			t.Fatalf("the accounts list does not carry %s", name)
 		}
-		want, locked := locks[name]
-		if !locked {
-			if row["lockedUntil"] != nil {
-				t.Errorf("%s's row says locked until %v, want nothing", name, row["lockedUntil"])
-			}
-
-			continue
+		says("the accounts", name, row)
+	}
+	// Anvil's people say the same of everyone Anvil holds: di is Bastion's alone.
+	people := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)
+	for _, name := range []string{"ada", "bo", "cy", "eve", "fay", "gus"} {
+		row, ok := people[w.ids[name]]
+		if !ok {
+			t.Fatalf("Anvil's people do not carry %s", name)
 		}
-		got, err := time.Parse(time.RFC3339Nano, text(row, "lockedUntil"))
-		if err != nil {
-			t.Errorf("%s's row says locked until %v, want %s: %v", name, row["lockedUntil"], want, err)
-
-			continue
-		}
-		if !got.Equal(want) {
-			t.Errorf("%s's row says locked until %s, want %s", name, got, want)
-		}
+		says("Anvil's people", name, row)
 	}
 }
 
 // TestGeneratedIdentityAccountsSayTheLockOfFailedSignIns holds the lock on the served
 // stack, with the real session manager and its limiter: failed sign-ins through the
-// sign-in route lock the pilot's name, and the pilot's row of the accounts says until
-// when, the moment the list of failed sign-ins shows; headquarters clears it through the
-// generated method, and the row says nothing.
+// sign-in route lock the pilot's name, and the pilot's row of the accounts and of Anvil's
+// people says until when, the moment the list of failed sign-ins shows; headquarters
+// clears it through the generated method, and the rows say nothing.
 func TestGeneratedIdentityAccountsSayTheLockOfFailedSignIns(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -276,19 +291,28 @@ func TestGeneratedIdentityAccountsSayTheLockOfFailedSignIns(t *testing.T) {
 
 	hq := newBrowser(t, s, consoleAPI)
 	hq.signIn(ctx, "governor")
-	pilotRow := func() map[string]any {
+	pilotRows := func() map[string]map[string]any {
 		t.Helper()
-		status, body := hq.do(ctx, http.MethodGet, consoleAPI+"/"+crewListedAccountsPath+"?limit=200&filter=username:eq:pilot", nil)
-		assertStatus(t, status, http.StatusOK, body)
-		rows := decodeRows(t, body)
-		if len(rows) != 1 {
-			t.Fatalf("the accounts list filtered by the pilot's username answers %d rows, want 1: %s", len(rows), body)
+		rows := make(map[string]map[string]any, 2)
+		for list, target := range map[string]string{
+			"the accounts":   consoleAPI + "/" + crewListedAccountsPath + "?limit=200&filter=username:eq:pilot",
+			"Anvil's people": sectorPath(anvil, sectorPeoplePath+"?limit=200&filter=username:eq:pilot"),
+		} {
+			status, body := hq.do(ctx, http.MethodGet, target, nil)
+			assertStatus(t, status, http.StatusOK, body)
+			listed := decodeRows(t, body)
+			if len(listed) != 1 {
+				t.Fatalf("%s filtered by the pilot's username answer %d rows, want 1: %s", list, len(listed), body)
+			}
+			rows[list] = listed[0]
 		}
 
-		return rows[0]
+		return rows
 	}
-	if got := pilotRow()["lockedUntil"]; got != nil {
-		t.Fatalf("the pilot's row before any failed sign-in says locked until %v, want nothing", got)
+	for list, row := range pilotRows() {
+		if got := row["lockedUntil"]; got != nil {
+			t.Fatalf("the pilot's row of %s before any failed sign-in says locked until %v, want nothing", list, got)
+		}
 	}
 
 	stranger := newBrowser(t, s, consoleAPI)
@@ -317,15 +341,19 @@ func TestGeneratedIdentityAccountsSayTheLockOfFailedSignIns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the failed sign-ins list's lock %q: %v", shown, err)
 	}
-	got, err := time.Parse(time.RFC3339Nano, text(pilotRow(), "lockedUntil"))
-	if err != nil || !got.Equal(want) {
-		t.Errorf("the pilot's row says locked until %s (%v), want %s, as the list of failed sign-ins shows", got, err, want)
+	for list, row := range pilotRows() {
+		got, err := time.Parse(time.RFC3339Nano, text(row, "lockedUntil"))
+		if err != nil || !got.Equal(want) {
+			t.Errorf("the pilot's row of %s says locked until %s (%v), want %s, as the list of failed sign-ins shows", list, got, err, want)
+		}
 	}
 
 	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/unlock-crew-sign-in", []byte(`{"name":"pilot"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
-	if got := pilotRow()["lockedUntil"]; got != nil {
-		t.Errorf("the pilot's row after the unlock says locked until %v, want nothing", got)
+	for list, row := range pilotRows() {
+		if got := row["lockedUntil"]; got != nil {
+			t.Errorf("the pilot's row of %s after the unlock says locked until %v, want nothing", list, got)
+		}
 	}
 }
 
@@ -400,5 +428,154 @@ func TestGeneratedIdentityAccountsOfferTheMethods(t *testing.T) {
 	})
 	if got := offered(w.ids["chief"]); !slices.Equal(got, own) {
 		t.Errorf("headquarters' own row offers it %v, want %v: neither Disable nor Delete", got, own)
+	}
+}
+
+// TestGeneratedIdentitySectorPeopleSayWhatEachHoldsThere holds the roles a sector's list
+// of its people says each person holds: the roles held in the sector itself, of the
+// person's own or through a group of the sector's or of the fleet's, each name once and
+// in alphabetical order, a role whose period has not begun among them and one that has
+// ended, or that comes through a place that has ended, not; a role held in every sector,
+// in another sector or for the whole fleet is no name there. Case by case, the names are
+// the roles the sector's one list of the roles held answers for the person with
+// everyDomain false.
+func TestGeneratedIdentitySectorPeopleSayWhatEachHoldsThere(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+
+	post := func(user accesstypes.User, path, body string) (int, []byte) {
+		return doRequestAs(t, w.h, user, http.MethodPost, path, body)
+	}
+	done := func(status int, body []byte) {
+		t.Helper()
+		assertStatus(t, status, http.StatusNoContent, body)
+	}
+	marshal := func(method, body string) (int, []byte) { return post("marshal", sectorPath(anvil, method), body) }
+	hq := func(method, body string) (int, []byte) { return post("governor", consoleAPI+"/"+method, body) }
+	later := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	// The suite's two roles: R, the Engineer's, and S, the Cadet's, each a role a person
+	// holds in a sector.
+	const r, s = "Engineer", "Cadet"
+	person := func(name string, own map[accesstypes.Role]accesstypes.PolicyScope) {
+		t.Helper()
+		w.ids[name] = string(makeCrewAccount(ctx, t, w.db, accesstypes.User(name)))
+		if len(own) > 0 {
+			w.assignCrewRoles(ctx, t, name, own)
+		}
+	}
+	inAnvil := crewScope(t, anvil, false)
+	group := func(user accesstypes.User, method, body string) string {
+		t.Helper()
+		status, answer := post(user, method, body)
+		assertStatus(t, status, http.StatusOK, answer)
+
+		return cell[string](t, decodeRow(t, answer), "id")
+	}
+	// A period that ends a moment away: the rule refuses an end that is past already, so a
+	// request that took longer than the moment is given a longer one. The test waits for
+	// the last such end before it reads.
+	var last time.Time
+	endsSoon := func(what string, give func(endsAt time.Time) (int, []byte)) {
+		t.Helper()
+		for _, in := range []time.Duration{2 * time.Second, 10 * time.Second} {
+			ends := time.Now().UTC().Add(in).Truncate(time.Microsecond)
+			status, body := give(ends)
+			if status == http.StatusBadRequest {
+				continue
+			}
+			assertStatus(t, status, http.StatusNoContent, body)
+			if ends.After(last) {
+				last = ends
+			}
+
+			return
+		}
+		t.Fatalf("%s was not given an end a moment away: each request took longer than its moment", what)
+	}
+
+	// Anvil's own group, and two of the fleet's: each holds R at Anvil; the second holds R
+	// at Anvil from later on and R in every sector now.
+	hands := group("marshal", sectorPath(anvil, "create-crew-sector-group"), `{"name":"Hangar hands","description":"The crew who work Anvil's hangar deck."}`)
+	done(marshal("give-crew-sector-group-role", fmt.Sprintf(`{"groupId":%q,"role":%q}`, hands, r)))
+	inspectors := group("governor", consoleAPI+"/create-crew-group", `{"name":"Fleet inspectors","description":"Headquarters' inspectors, sent to a sector at a time."}`)
+	done(hq("give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":%q,"domain":%q}`, inspectors, r, anvil)))
+	relief := group("governor", consoleAPI+"/create-crew-group", `{"name":"Relief crews","description":"Headquarters' crews, sent where they are wanted."}`)
+	done(hq("give-crew-group-role", periodBody(t, map[string]any{"groupId": relief, "role": r, "domain": anvil}, later, time.Time{})))
+	done(hq("give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":%q,"everyDomain":true}`, relief, r)))
+	place := func(name, groupID string) {
+		t.Helper()
+		done(hq("add-crew-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, groupID, w.ids[name])))
+	}
+
+	cases := []struct {
+		name, holds string
+		want        []string
+	}{
+		{name: "c1", holds: "R of their own at Anvil", want: []string{r}},
+		{name: "c2", holds: "S of their own at Anvil, and R of their own there from later on", want: []string{s, r}},
+		{name: "c3", holds: "S of their own at Anvil, and R of their own there for a period that has ended", want: []string{s}},
+		{name: "c4", holds: "a place in Anvil's own group, which holds R there", want: []string{r}},
+		{name: "c5", holds: "a place in a group of the fleet's, which holds R at Anvil", want: []string{r}},
+		{name: "c6", holds: "R of their own at Anvil, and a place in a group that holds R there", want: []string{r}},
+		{name: "c7", holds: "S of their own at Anvil, and a place that has ended in a group that holds R there", want: []string{s}},
+		{name: "c8", holds: "S of their own at Anvil, and a place in a group of the fleet's that holds R at Anvil from later on and R in every sector now", want: []string{s}},
+		{name: "c9", holds: "S of their own at Anvil, R of their own at Bastion, a role in every sector and a role for the whole fleet", want: []string{s}},
+	}
+	person("c1", map[accesstypes.Role]accesstypes.PolicyScope{r: inAnvil})
+	person("c2", map[accesstypes.Role]accesstypes.PolicyScope{s: inAnvil})
+	done(marshal("assign-crew-sector-role", periodBody(t, map[string]any{"userId": w.ids["c2"], "role": r}, later, time.Time{})))
+	person("c3", map[accesstypes.Role]accesstypes.PolicyScope{s: inAnvil})
+	endsSoon("c3's own R", func(endsAt time.Time) (int, []byte) {
+		return marshal("assign-crew-sector-role", periodBody(t, map[string]any{"userId": w.ids["c3"], "role": r}, time.Time{}, endsAt))
+	})
+	person("c4", nil)
+	place("c4", hands)
+	person("c5", nil)
+	place("c5", inspectors)
+	person("c6", map[accesstypes.Role]accesstypes.PolicyScope{r: inAnvil})
+	place("c6", hands)
+	person("c7", map[accesstypes.Role]accesstypes.PolicyScope{s: inAnvil})
+	endsSoon("c7's place in the hangar hands", func(endsAt time.Time) (int, []byte) {
+		return hq("add-crew-group-member", periodBody(t, map[string]any{"groupId": hands, "userId": w.ids["c7"]}, time.Time{}, endsAt))
+	})
+	person("c8", map[accesstypes.Role]accesstypes.PolicyScope{s: inAnvil})
+	place("c8", relief)
+	person("c9", map[accesstypes.Role]accesstypes.PolicyScope{
+		s: inAnvil, r: crewScope(t, bastion, false), "Archivist": crewScope(t, "", true), "CrewCommon": crewScope(t, "", false),
+	})
+	time.Sleep(time.Until(last.Add(100 * time.Millisecond)))
+
+	people := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)
+	for _, tc := range cases {
+		row, ok := people[w.ids[tc.name]]
+		if !ok {
+			t.Errorf("%s (%s) is not one of Anvil's people", tc.name, tc.holds)
+
+			continue
+		}
+		want := slices.Sorted(slices.Values(tc.want))
+		if got := roleLines(row); !slices.Equal(got, want) {
+			t.Errorf("%s (%s): Anvil's people say %q, want %q", tc.name, tc.holds, got, want)
+		}
+		// What Anvil's one list of the roles held answers for the person, held there itself.
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, sectorHeldRolesPath+"?limit=200&filter=userId:eq:"+w.ids[tc.name]), "")
+		assertStatus(t, status, http.StatusOK, body)
+		var held, everywhere []string
+		for _, line := range decodeRows(t, body) {
+			name := cell[string](t, line, "role")
+			if cell[bool](t, line, "everyDomain") {
+				everywhere = append(everywhere, name)
+			} else if !slices.Contains(held, name) {
+				held = append(held, name)
+			}
+		}
+		slices.Sort(held)
+		if got := roleLines(row); !slices.Equal(got, held) {
+			t.Errorf("%s (%s): Anvil's people say %q, and Anvil's list of the roles held says %q held there itself", tc.name, tc.holds, got, held)
+		}
+		if tc.name == "c8" && !slices.Contains(everywhere, r) {
+			t.Errorf("c8 (%s): Anvil's list of the roles held says %q in every sector, want %s among them", tc.holds, everywhere, r)
+		}
 	}
 }
