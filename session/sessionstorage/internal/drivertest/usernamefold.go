@@ -34,6 +34,7 @@ var plainNamePairs = []namePair{
 	{name: "the sharp s", stored: "stra\u00DFe", asked: "strasse", one: true},
 	{name: "an accented letter in one code point and in two", stored: "jos\u00E9", asked: "jose\u0301", one: true},
 	{name: "a capital letter from outside ASCII", stored: "\u00C9milie", asked: "\u00E9milie", one: true},
+	{name: "a Cherokee letter as a capital and as a small letter", stored: "\u13A0\u13A1", asked: "\uAB70\uAB71", one: true},
 	{name: "the dotted capital I", stored: "\u0130rem", asked: "irem"},
 	{name: "two names", stored: "kim", asked: "kin"},
 }

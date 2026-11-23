@@ -114,11 +114,27 @@ func (l *Limiter) SetClock(now func() time.Time) {
 	l.now = now
 }
 
-// FoldWide returns text in Unicode NFC and case-folded: the wide reading of an address
-// the counts of its mail are kept under, which takes some addresses that only read
-// alike for one. No account is found by it.
+// FoldWide returns text in Unicode NFC and in Unicode's full case folding: the form the
+// users table matches a username with no @ in it by, and the wide reading of an address
+// that the counts of its mail are kept under, which takes some addresses that only read
+// alike for one. cases.Fold gives a Cherokee letter in its other case, where Unicode's
+// case folding, which the stores apply, gives the capital for a capital and a small
+// letter alike; the small letters are put back to their capitals (cherokeeCapital), so
+// the form is the stores' and folding it again changes nothing.
 func FoldWide(text string) string {
-	return cases.Fold().String(norm.NFC.String(text))
+	return strings.Map(cherokeeCapital, cases.Fold().String(norm.NFC.String(text)))
+}
+
+// cherokeeCapital is r as its capital when r is a small Cherokee letter, and r otherwise.
+func cherokeeCapital(r rune) rune {
+	switch {
+	case r >= 0xAB70 && r <= 0xABBF:
+		return r - 0xAB70 + 0x13A0
+	case r >= 0x13F8 && r <= 0x13FD:
+		return r - 8
+	default:
+		return r
+	}
 }
 
 // Normalize returns name as the key its attempts are counted under: name as the users

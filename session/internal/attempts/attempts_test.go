@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -187,6 +188,12 @@ func TestNormalize(t *testing.T) {
 		{name: "a kind's capitals before an address are lowercased", in: "MAIL:\u00C9milie@lakeside.edu", want: "mail:\u00C9milie@lakeside.edu"},
 		{name: "a name with no @ in it is one name in a composed and a decomposed spelling", in: "re\u0301sume\u0301", want: "r\u00E9sum\u00E9"},
 		{name: "a folded name stays as it is", in: "pat", want: "pat"},
+		{name: "a name with no @ in it in Cherokee capitals stays in capitals", in: "\u13A0\u13A1", want: "\u13A0\u13A1"},
+		{name: "a name with no @ in it in Cherokee small letters is folded to the capitals", in: "\uAB70\uAB71", want: "\u13A0\u13A1"},
+		{name: "a name with no @ in it in a Cherokee capital and a small letter is folded to the capitals", in: "\u13A0\uAB71", want: "\u13A0\u13A1"},
+		{name: "a name with no @ in it in a Cherokee capital of the later block stays a capital", in: "\u13F0", want: "\u13F0"},
+		{name: "a name with no @ in it in a Cherokee small letter of the later block is folded to its capital", in: "\u13F8", want: "\u13F0"},
+		{name: "an address keeps Cherokee small letters", in: "\uAB70\uAB71@lakeside.edu", want: "\uAB70\uAB71@lakeside.edu"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -216,6 +223,12 @@ func TestFoldWide(t *testing.T) {
 		{name: "a capital letter from outside ASCII is folded", in: "\u00C9milie@lakeside.edu", want: "\u00E9milie@lakeside.edu"},
 		{name: "a name with no @ in it is folded the same way", in: "\u212Aim", want: "kim"},
 		{name: "the sharp s in a name with no @ in it folds to ss", in: "Stra\u00DFe", want: "strasse"},
+		{name: "Cherokee capitals stay capitals", in: "\u13A0\u13A1", want: "\u13A0\u13A1"},
+		{name: "Cherokee small letters fold to the capitals", in: "\uAB70\uAB71", want: "\u13A0\u13A1"},
+		{name: "a Cherokee capital and a small letter fold to the capitals", in: "\u13A0\uAB71", want: "\u13A0\u13A1"},
+		{name: "a Cherokee capital of the later block stays a capital", in: "\u13F0", want: "\u13F0"},
+		{name: "a Cherokee small letter of the later block folds to its capital", in: "\u13F8", want: "\u13F0"},
+		{name: "an address in Cherokee small letters folds to the capitals", in: "\uAB70\uAB71@lakeside.edu", want: "\u13A0\u13A1@lakeside.edu"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,6 +238,23 @@ func TestFoldWide(t *testing.T) {
 				t.Errorf("FoldWide(%+q) = %+q, want %+q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFoldWide_foldedAgain pins that the form FoldWide gives is the same when it is folded
+// again, for every code point: SignInAttemptKey folds a listed name, which is already a
+// key, again, and has to name the row the list shows.
+func TestFoldWide_foldedAgain(t *testing.T) {
+	t.Parallel()
+
+	for r := rune(0); r <= utf8.MaxRune; r++ {
+		if !utf8.ValidRune(r) {
+			continue
+		}
+		once := FoldWide(string(r))
+		if twice := FoldWide(once); twice != once {
+			t.Errorf("FoldWide(%+q) = %+q, and folded again %+q", string(r), once, twice)
+		}
 	}
 }
 
