@@ -80,7 +80,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			"\tif settings.TenantDeclarations == nil {\n",
 			"\tTenantMaker identity.TenantMaker\n}",
 			"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators)",
-			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
+			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n" + passwordDisabledCheck,
 		},
 		"pkg/config/data.go":              {"app.NewTenantDeclarationReader()", "app.NewTenantMaker(tenants, liveService)"},
 		"pkg/config/tenancy.go":           {"func (c *DataConfiguration) TenantDeclarations() resource.TenantDeclarations {\n\treturn c.tenants.Declarations\n}"},
@@ -226,10 +226,12 @@ func TestTenancyApply_overAMethodThroughADirectory(t *testing.T) {
 		}
 
 		auth := read(t, a, "pkg/auth/staff/staff.go")
-		// The method is registered as it was, and the sign-in rule is set, in both.
+		// The method is registered as it was, and the sign-in rule and the password-disabled
+		// check are set, in both.
 		for _, want := range []string{
 			"\thandlers.google = registerGoogle(",
 			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant())",
+			"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n",
 		} {
 			if !strings.Contains(auth, want) {
 				t.Errorf("no directories %v: pkg/auth/staff/staff.go lacks %q:\n%s", noDirectories, want, auth)
