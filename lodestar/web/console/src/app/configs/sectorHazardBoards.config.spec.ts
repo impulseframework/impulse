@@ -30,12 +30,11 @@ import {
 // its worst reading and the readings behind it. The page draws the worst reading with its
 // severity in a word and each reading behind it with its severity and when it was
 // recorded, in the order the server sent them; a row has a compound key, so the page
-// draws no way into a row; the board declares no create, and the page offers none; the
-// readings' header is words, since the server orders by no nested field; and so is the
-// header of every field the analyst holds under the board's condition, since the server
-// refuses a sort by such a field on a computed resource. The search box is offered all the
-// same: the digest cannot say whether the server will settle a condition, and the board's it
-// settles from the time of the request.
+// draws no way into a row; the board declares no create, and the page offers none; and the
+// readings' header is words, since the server orders by no nested field. Every other column
+// sorts, the ship's name and the subsystem filter, and the search box is offered: the digest
+// lists the board's fields as conditionalOnTime, a grant that depends on the time alone,
+// which the server settles at each request.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 const kingfisher = '70000000-0000-4000-8000-000000000001';
@@ -67,12 +66,15 @@ const board = [
 /** A moment as the page says it. */
 const at = (moment: string): string => format(new Date(moment), dayAndMinuteFormat);
 
-/** The Hazard Analyst's digest in the sector: the board under its condition, field by field. */
+/**
+ * The Hazard Analyst's digest in the sector, field by field: the board under its expiry, a
+ * condition that reads the time of the request alone.
+ */
 const analyst: PermissionDigest = Object.fromEntries(
   [
     'SectorHazardBoards',
     ...['shipName', 'sectorId', 'worstReading', 'recordedAt', 'recent'].map((f) => `SectorHazardBoards.${f}`),
-  ].map((name) => [name, { List: 'conditional' }]),
+  ].map((name) => [name, { List: 'conditionalOnTime' }]),
 );
 
 describe('the hazard board', () => {
@@ -161,7 +163,7 @@ describe('the hazard board', () => {
     expect(columns).toEqual(['recent', 'recordedAt', 'shipId', 'shipName', 'subsystem', 'worstReading']);
   });
 
-  it('draws no way into a row, offers no create, and offers a sort by the subsystem alone', async () => {
+  it('draws no way into a row, offers no create, and offers a sort by every column but the recent readings', async () => {
     await create(board);
 
     // A row is one ship's one subsystem: no View column, no menu, no button of any kind.
@@ -170,19 +172,30 @@ describe('the hazard board', () => {
     const pressable = Array.from(element().querySelectorAll('th button.header-label .col-header')).map((h) =>
       h.textContent?.trim(),
     );
-    // The readings sort by nothing, and the analyst holds the ship, the worst reading and
-    // when it was recorded under the board's condition, which the server orders by the
-    // rows' real values: only the subsystem, a key field that takes no grant, sorts.
-    expect(pressable).toEqual(['Subsystem']);
+    // The readings sort by nothing. The analyst holds the ship, the worst reading and when it
+    // was recorded at certain times, which the server settles from the time of the request
+    // and then orders by the rows' real values: each of them sorts, as the subsystem does.
+    expect(pressable).toEqual(['Ship', 'Subsystem', 'Worst reading', 'Recorded']);
   });
 
-  it("offers the analyst the search box, though the role holds the ship's name under the board's condition", async () => {
+  it("offers the analyst the search box: the role holds the ship's name at certain times, which the server settles", async () => {
     await create(board);
 
-    // The digest lists the ship's name under the board's condition, which the server settles
-    // from the time of the request, so it answers the search.
+    // The digest lists the ship's name as conditionalOnTime, a grant the server settles from
+    // the time of the request, so it answers the search while the grant holds.
     expect(element().querySelector('impulse-search-box')).not.toBeNull();
     expect(element().querySelector('.impulse-resource-list-search-refused')).toBeNull();
+  });
+
+  it('offers the analyst a filter on the Ship column, as on the Subsystem column', async () => {
+    await create(board);
+
+    // The grid draws a filter button, not disabled, in the heading of each column the server
+    // filters by: the board's two, the ship's name held at certain times and the subsystem.
+    const filtered = Array.from(element().querySelectorAll('th'))
+      .filter((heading) => heading.querySelector('button.filter-trigger:not([disabled])') !== null)
+      .map((heading) => heading.querySelector('.col-header')?.textContent?.trim());
+    expect(filtered).toEqual(['Ship', 'Subsystem']);
   });
 
   it('says so when no droid has reported in the sector', async () => {

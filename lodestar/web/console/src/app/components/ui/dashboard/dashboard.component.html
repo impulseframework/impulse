@@ -2,8 +2,8 @@
 <p>
   Lodestar is the operations console of a frontier rescue and salvage service. Below is your service card: per resource,
   what your posting grants you in the place you are in — <b>granted</b>, <b>terms apply</b> (a conditional grant the
-  server narrows row by row), or nothing at all. Every deck consults this same digest before it asks the server for
-  anything.
+  server narrows row by row), <b>at certain times</b> (a grant that depends on the time alone), or nothing at all. Every
+  deck consults this same digest before it asks the server for anything.
 </p>
 
 <app-pilot-card />
@@ -24,8 +24,8 @@
   <h3>Methods you may fire</h3>
   <div class="methods">
     @for (m of methods(); track m.method) {
-      <span class="pill" [class.granted]="m.state === 'granted'" [class.conditional]="m.state === 'conditional'">
-        {{ m.method }}{{ m.state === 'conditional' ? ' · terms apply' : '' }}
+      <span class="pill" [class.granted]="m.state === 'granted'" [class.conditional]="m.state !== 'granted'">
+        {{ m.method }}{{ m.terms }}
       </span>
     } @empty {
       <span class="empty">{{ emptyMessage() }}</span>

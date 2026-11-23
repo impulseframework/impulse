@@ -9,7 +9,7 @@ import {
   PermissionsCardComponent,
   PermissionsCardResource,
 } from '@impulseframework/resource-angular/ui-permissions-card';
-import { Method, Permission, Resource } from '@impulseframework/resource';
+import { Method, Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
 import { ImpersonationService } from '@components/sector/impersonation.service';
 import { SectorService } from '@components/sector/sector.service';
 import { PilotCardComponent } from '@components/shared/pilot-card/pilot-card.component';
@@ -23,9 +23,17 @@ const READ_WRITE: Permission[] = [
   Permissions.Delete,
 ];
 
+/** What a method's pill says after its name, by the digest's answer: nothing for a grant outright. */
+const METHOD_TERMS: Record<PermissionDigestState, string> = {
+  granted: '',
+  conditional: ' · terms apply',
+  conditionalOnTime: ' · at certain times',
+};
+
 /**
  * The dashboard is the service card: a badge listing, per resource, what you hold in
- * the open sector — granted, conditional ("terms apply"), or absent. It is the
+ * the open sector — granted, conditional ("terms apply"), conditional on time ("at
+ * certain times"), or absent. It is the
  * permission digest rendered as an object in the world; every deck consults the same
  * digest before issuing a request. Under a masked "view as" session the write column
  * carries a stripe: Masked drops those permissions from the digest itself. Above it, the
@@ -78,11 +86,12 @@ export class DashboardComponent {
   });
 
   // Execute grants: the methods lit in the open sector (transitions and plain
-  // targets) plus the global ones.
+  // targets) plus the global ones, each with the words its pill says after its name.
   methods = computed(() =>
-    (Object.values(Methods) as Method[])
-      .map((m) => ({ method: m, state: this.sectors.state(Permissions.Execute, m) }))
-      .filter((m) => m.state !== undefined),
+    (Object.values(Methods) as Method[]).flatMap((m) => {
+      const state = this.sectors.state(Permissions.Execute, m);
+      return state === undefined ? [] : [{ method: m, state, terms: METHOD_TERMS[state] }];
+    }),
   );
 
   /** The permissions a masked "view as" session has lost: the card stripes their columns. */

@@ -180,10 +180,12 @@ refuses.
 
 A computed resource's list is ordered and filtered by its handler, over the rows' real
 values, so the server refuses a sort or a filter by a field unless the caller holds List on
-the field with no condition (403, "You may not sort or filter hangar passes by the budget
-here."). The generated metadata marks such a resource: `ResourceMeta.computed` is `true`,
-and absent on a table and a view, whose sorts and filters run over what the caller may see.
-The permission digest says which fields the caller holds under a condition, so a table
+the field with no condition left once the request is checked: outright, or under conditions
+that read the time of the request alone, while one holds (403, "You may not sort or filter
+hangar passes by the budget here."). The generated metadata marks such a resource:
+`ResourceMeta.computed` is `true`, and absent on a table and a view, whose sorts and
+filters run over what the caller may see. The permission digest says which fields the
+caller holds under a condition that reads more than the time (`conditional`), so a table
 over a computed resource draws the heading of such a column as words and no filter control
 on it.
 
@@ -263,8 +265,9 @@ people it answers true for; the list itself answers anyone else an empty array.
 or one per domain), loaded on demand and cached for the session.
 
 - `handle.can(permission)` and `method.can()` answer synchronously from the cache and
-  never fetch. `granted` and `conditional` both answer true: render the surface and let
-  the server narrow it per row. A scope that has not been loaded answers false.
+  never fetch. `granted`, `conditional` and `conditionalOnTime` all answer true: render
+  the surface, and let the server narrow it per row (`conditional`) or refuse it outside
+  its time (`conditionalOnTime`). A scope that has not been loaded answers false.
 - `handle.rowCan(row, 'Update' | 'Delete')` asks the row first, the digest second: a
   capability envelope on the row (from `capabilities: [...]` on the read) decides for
   that row; without one, the scope's digest decides. `rowCan(row, 'Execute', method)`
@@ -274,10 +277,10 @@ or one per domain), loaded on demand and cached for the session.
   child list, e.g. lines under a draft requisition).
 - `handle.grantedFields(permission)` is the digest's field-level enumeration — for
   `Create`, the inputs a create form is worth rendering: sorted field names whose
-  dotted target is granted or conditional (a denied field is absent). Undefined means
-  the digest carries no field-level entries for the permission — no field information
-  (denied outright, or a keys-only resource) — so narrow only on a defined answer.
-  Key fields never appear: they are structural, not grant-bearing.
+  dotted target is granted, conditional or conditionalOnTime (a denied field is absent).
+  Undefined means the digest carries no field-level entries for the permission — no
+  field information (denied outright, or a keys-only resource) — so narrow only on a
+  defined answer. Key fields never appear: they are structural, not grant-bearing.
 - `api.permissions.loadDigest(domain?)` loads a scope. A read that fails rejects and
   leaves the cache as it was: a scope never read stays unloaded, a scope read before
   keeps its last answer, and no failure is cached as an empty digest, which would say the

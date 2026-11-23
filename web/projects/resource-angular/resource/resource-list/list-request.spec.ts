@@ -1,11 +1,20 @@
-import { ApiError, FieldMeta, PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
-import { PageTurn } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig } from '@impulseframework/resource-angular/types';
 import {
+  ApiError,
+  FieldMeta,
+  PermissionDigestState,
+  Resource,
+  ResourceDescriptor,
+  ResourceMeta,
+} from '@impulseframework/resource';
+import { PageTurn } from '@impulseframework/resource-angular/grid';
+import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
+import {
+  answeredSorts,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   listEmptyMessage,
+  listSorts,
   pageLabel,
   PagePosition,
   positionAfter,
@@ -93,22 +102,24 @@ describe('unorderedFields', () => {
   }
 });
 
+// A computed resource, and the same fields over a table: what queryableMeta and
+// answeredSorts read the digest's List states against.
+const passes: ResourceMeta = {
+  route: 'hangar-passes',
+  computed: true,
+  createDisabled: true,
+  fields: [
+    field('id', { primaryKey: { ordinalPosition: 0 } }),
+    field('holder', { filterable: 'always', search: ['contains', 'startswith'] }),
+    field('budget', { displayType: 'number', filterable: 'always' }),
+    field('bay', { filterable: 'always' }),
+  ],
+  searchFields: ['holder'],
+};
+const table: ResourceMeta = { ...passes };
+delete table.computed;
+
 describe('queryableMeta', () => {
-  const passes: ResourceMeta = {
-    route: 'hangar-passes',
-    computed: true,
-    createDisabled: true,
-    fields: [
-      field('id', { primaryKey: { ordinalPosition: 0 } }),
-      field('holder', { filterable: 'always', search: ['contains', 'startswith'] }),
-      field('budget', { displayType: 'number', filterable: 'always' }),
-      field('bay', { filterable: 'always' }),
-    ],
-    searchFields: ['holder'],
-  };
-  // The same fields over a table: no `computed`.
-  const table: ResourceMeta = { ...passes };
-  delete table.computed;
   const granted: Record<string, PermissionDigestState> = { holder: 'granted', budget: 'granted', bay: 'granted' };
   const underCondition: Record<string, PermissionDigestState> = {
     holder: 'conditional',
@@ -120,7 +131,7 @@ describe('queryableMeta', () => {
     expect(queryableMeta(undefined, underCondition)).toBeUndefined();
   });
 
-  it('a table or a view comes back as it is, a field listed under a condition and all', () => {
+  it('a table or a view comes back as it is, a field listed as conditional and all', () => {
     expect(queryableMeta(table, underCondition)).toBe(table);
     expect(queryableMeta(table, granted)).toBe(table);
   });
@@ -130,7 +141,7 @@ describe('queryableMeta', () => {
     expect(queryableMeta(passes, {})).toBe(passes);
   });
 
-  it('a computed resource marks each field listed under a condition unsortable, with no filter and no text match, and leaves the rest', () => {
+  it('a computed resource marks each field listed as conditional unsortable, with no filter and no text match, and leaves the rest', () => {
     const narrowed = queryableMeta(passes, underCondition);
 
     expect(narrowed).not.toBe(passes);
@@ -146,6 +157,100 @@ describe('queryableMeta', () => {
     expect(narrowed?.searchFields).toEqual(['holder']);
     expect(narrowed?.route).toBe('hangar-passes');
     expect(passes.fields[1]).toEqual(field('holder', { filterable: 'always', search: ['contains', 'startswith'] }));
+  });
+
+  it('a computed resource with a field listed as conditionalOnTime and the rest granted comes back as it is: the server settles the time', () => {
+    expect(queryableMeta(passes, { holder: 'conditionalOnTime', budget: 'granted', bay: 'granted' })).toBe(passes);
+  });
+
+  it('a computed resource narrows a field listed as conditional and leaves one listed as conditionalOnTime the object it was', () => {
+    const narrowed = queryableMeta(passes, { holder: 'conditional', budget: 'granted', bay: 'conditionalOnTime' });
+
+    expect(narrowed).not.toBe(passes);
+    expect(narrowed?.fields[1]).toEqual(field('holder', { sortable: false }));
+    expect(narrowed?.fields[3]).toBe(passes.fields[3]);
+  });
+});
+
+describe('answeredSorts', () => {
+  // The holder conditional, the budget granted, the bay conditionalOnTime; the digest
+  // lists neither the issue date nor the key, which takes no grant.
+  const states: Record<string, PermissionDigestState> = {
+    holder: 'conditional',
+    budget: 'granted',
+    bay: 'conditionalOnTime',
+  };
+  const sorts = [
+    { field: 'holder', direction: 'asc' as const },
+    { field: 'budget', direction: 'desc' as const },
+    { field: 'bay', direction: 'asc' as const },
+    { field: 'issuedOn', direction: 'desc' as const },
+    { field: 'id', direction: 'asc' as const },
+  ];
+
+  it('a computed resource drops a sort by a field listed as conditional and keeps the rest in their order', () => {
+    expect(answeredSorts(sorts, passes, states)).toEqual([sorts[1], sorts[2], sorts[3], sorts[4]]);
+  });
+
+  it('a table keeps every sort', () => {
+    expect(answeredSorts(sorts, table, states)).toEqual(sorts);
+  });
+
+  it('with no metadata, every sort is kept', () => {
+    expect(answeredSorts(sorts, undefined, states)).toEqual(sorts);
+  });
+
+  it('the sorts handed in are not changed, and a new array comes back', () => {
+    const handed = [...sorts];
+    const got = answeredSorts(handed, passes, states);
+
+    expect(handed).toEqual(sorts);
+    expect(got).not.toBe(handed);
+    expect(answeredSorts(handed, table, states)).not.toBe(handed);
+  });
+});
+
+describe('listSorts', () => {
+  // The holder conditional and the budget granted; the key, which takes no grant, is
+  // named by no digest.
+  const states: Record<string, PermissionDigestState> = { holder: 'conditional', budget: 'granted' };
+  const byHolder = { field: 'holder' as FieldName, direction: 'desc' as const };
+  const byBudget = { field: 'budget' as FieldName, direction: 'asc' as const };
+  const unordered: ResourceDescriptor = {
+    resource: 'HangarPass' as Resource,
+    property: 'hangarPasses',
+    route: 'hangar-passes',
+    scope: 'domain',
+    consolidated: false,
+    keys: ['id'],
+    operations: ['list'],
+  };
+  const ordered: ResourceDescriptor = { ...unordered, order: [{ field: 'bay', direction: 'asc' }] };
+
+  it('a computed resource with no declared order keeps a sort the server answers, as it is', () => {
+    expect(listSorts([byHolder, byBudget], passes, states, unordered)).toEqual([byBudget]);
+  });
+
+  it('a computed resource with no declared order, every sort cut, is asked by its first key field ascending', () => {
+    expect(listSorts([byHolder], passes, states, unordered)).toEqual([{ field: 'id', direction: 'asc' }]);
+  });
+
+  it('every sort cut with a declared order gives none: the declared order applies', () => {
+    expect(listSorts([byHolder], passes, states, ordered)).toEqual([]);
+  });
+
+  it('no sort asked gives none', () => {
+    expect(listSorts([], passes, states, unordered)).toEqual([]);
+  });
+
+  it('no key field in the metadata, every sort cut, gives none: the resource is read whole', () => {
+    const keyless: ResourceMeta = { ...passes, fields: passes.fields.slice(1) };
+
+    expect(listSorts([byHolder], keyless, states, unordered)).toEqual([]);
+  });
+
+  it('over a table every sort comes back', () => {
+    expect(listSorts([byHolder, byBudget], table, states, unordered)).toEqual([byHolder, byBudget]);
   });
 });
 

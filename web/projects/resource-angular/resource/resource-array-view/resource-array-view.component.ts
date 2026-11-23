@@ -18,14 +18,21 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { ArrayConfig, ColumnConfig, RecordData, RESOURCE_META, ViewConfig } from '@impulseframework/resource-angular/types';
-import { readMode } from '@impulseframework/resource';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import {
+  ArrayConfig,
+  ColumnConfig,
+  RecordData,
+  RESOURCE_META,
+  ViewConfig,
+} from '@impulseframework/resource-angular/types';
+import { ListPermission, readMode } from '@impulseframework/resource';
 import {
   ActionAccessControlWrapperComponent,
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
-import { listEmptyMessage, pageLabel } from '../resource-list/list-request';
+import { listEmptyMessage, listSorts, pageLabel, sameSorts } from '../resource-list/list-request';
 import { ResourceStore } from '../resource-store.service';
 
 /**
@@ -56,6 +63,7 @@ export class ResourceArrayViewComponent implements OnInit {
   /** The store of the row page the children sit under: the count of the methods that ran against the row or under it. */
   private pageStore = inject(ResourceStore, { skipSelf: true, optional: true });
   injector = inject(Injector);
+  private auth = inject(AuthService);
 
   resourceConfig = input.required<ArrayConfig>();
   /**
@@ -78,6 +86,24 @@ export class ResourceArrayViewComponent implements OnInit {
     return this.store.client.descriptor.resources[config.connectorResource || config.primaryResource];
   });
 
+  /**
+   * The sorts the children are asked in (listSorts): the config's sorts as the server
+   * answers them for this caller, following the digest.
+   */
+  private askedSorts = computed(
+    () => {
+      const config = this.resourceConfig();
+      const listed = config.connectorResource || config.primaryResource;
+      return listSorts(
+        config.sorts,
+        this.resourceMeta(listed),
+        this.auth.fieldPermissionStates({ resource: listed, permission: ListPermission }),
+        this.descriptor(),
+      );
+    },
+    { equal: sameSorts },
+  );
+
   /** Whether the children are paged: the listed resource declares a maximum page size. */
   paged = computed(() => {
     const descriptor = this.descriptor();
@@ -88,7 +114,9 @@ export class ResourceArrayViewComponent implements OnInit {
   rows = computed<RecordData[]>(() => (this.paged() ? this.store.page().rows : this.store.listData()));
 
   /** Whether the children have arrived. */
-  resolved = computed(() => (this.paged() ? this.store.pageStatus() === 'resolved' : this.store.listStatus() === 'resolved'));
+  resolved = computed(() =>
+    this.paged() ? this.store.pageStatus() === 'resolved' : this.store.listStatus() === 'resolved',
+  );
 
   /** What the read of the children ended in when the server refused it or it failed, else undefined. */
   private unreadError = computed<unknown>(() => (this.paged() ? this.store.pageError() : this.store.listError()));
@@ -175,7 +203,7 @@ export class ResourceArrayViewComponent implements OnInit {
       columnArray.push({ id: 'id' } as ColumnConfig);
     }
     this.store.listColumns.set(columnArray);
-    this.store.sorts.set(this.resourceConfig().sorts);
+    this.store.sorts.set(this.askedSorts());
   }
 
   constructor() {
@@ -208,6 +236,11 @@ export class ResourceArrayViewComponent implements OnInit {
           this.store.reloadListData();
         }
       });
+    });
+
+    // The store asks what the children are asked in now: the sorts follow the digest (askedSorts).
+    effect(() => {
+      this.store.sorts.set(this.askedSorts());
     });
 
     // The filter follows the parent row: nothing until the row is on hand, then the

@@ -1,8 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Resource, ResourceMeta } from '@impulseframework/resource';
+import {
+  ClientBase,
+  PermissionDigest,
+  Resource,
+  ResourceMeta,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { scriptedTransport } from '@impulseframework/resource/testing';
+import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { arrayConfig, RESOURCE_META, viewConfig } from '@impulseframework/resource-angular/types';
+import { arrayConfig, FieldName, RESOURCE_META, viewConfig } from '@impulseframework/resource-angular/types';
 
 import { CompoundResourceComponent } from '../compound-resource/compound-resource.component';
 import { ResourceArrayViewComponent } from './resource-array-view.component';
@@ -113,4 +121,68 @@ describe('ResourceArrayViewComponent, where the children could not be read', () 
       expect(written).toEqual([`Squadrons: the list could not be loaded: ${tt.message}`]);
     });
   }
+});
+
+describe('ResourceArrayViewComponent, sorting its children by a field the digest lists as conditional', () => {
+  // The config sorts the children by the name, which the digest lists as conditional. A
+  // computed resource refuses that sort, so the children are asked by the key, the
+  // squadrons declaring no order; a table sorts over what the caller may see.
+  const digest: PermissionDigest = {
+    Squadrons: { List: 'granted' },
+    'Squadrons.id': { List: 'granted' },
+    'Squadrons.name': { List: 'conditional' },
+  };
+  /** The sort of the view's first request for the children. */
+  const firstSort = async (computed: boolean): Promise<string | null> => {
+    const transport = scriptedTransport((request: TransportRequest): TransportResponse =>
+      request.url.startsWith('/api/permission-digest') ? { status: 200, body: digest } : { status: 200, body: [] },
+    );
+    const squadrons: ResourceMeta = {
+      route: 'squadrons',
+      fields: [
+        { fieldName: 'id', required: true, primaryKey: { ordinalPosition: 1 }, displayType: 'string', isIndex: true },
+        { fieldName: 'name', required: true, displayType: 'string', isIndex: false },
+      ],
+    };
+    await TestBed.configureTestingModule({
+      imports: [ResourceArrayViewComponent],
+      providers: [
+        provideResourceTesting({ transport }),
+        {
+          provide: RESOURCE_META,
+          useValue: (): ResourceMeta => (computed ? { ...squadrons, computed: true } : squadrons),
+        },
+      ],
+    }).compileComponents();
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    const fixture = TestBed.createComponent(ResourceArrayViewComponent);
+    fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+    fixture.componentRef.setInput(
+      'resourceConfig',
+      arrayConfig({
+        primaryResource: 'Squadrons' as Resource,
+        iteratedConfig: viewConfig({ primaryResource: 'Squadrons' as Resource, elements: [] }),
+        listFilter: (row: { id: string }): string => `id:ne:${row.id}`,
+        sorts: [{ field: 'name' as FieldName, direction: 'asc' }],
+      }),
+    );
+    fixture.componentRef.setInput('parentData', { id: 'sq-1' });
+    fixture.detectChanges();
+    const children = (): TransportRequest[] =>
+      transport.requests.filter((request) => request.url.split('?')[0] === '/api/squadrons');
+    for (let i = 0; i < 50 && children().length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    }
+    const first = children()[0];
+    return first ? new URL(first.url, 'http://view.test').searchParams.get('sort') : null;
+  };
+
+  it('over a computed resource with no declared order, the key ascending', async () => {
+    expect(await firstSort(true)).toBe('id:asc');
+  });
+
+  it('over a table, the sort by the name', async () => {
+    expect(await firstSort(false)).toBe('name:asc');
+  });
 });

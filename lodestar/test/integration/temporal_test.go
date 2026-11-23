@@ -7,8 +7,9 @@ package integration
 // around its own instant: the on-shift role's Refits list answers and the off-shift
 // role's refuses at any hour; a wrap-around window holds across midnight; dayOfWeek
 // refuses on a computed weekend and admits on a computed weekday; the digest reads
-// conditional for every windowed grant; a local condition in an app that wires no
-// zone fails its first check loudly.
+// conditional on time for every windowed grant, since a window reads the time of the
+// request alone; a local condition in an app that wires no zone fails its first check
+// loudly.
 
 import (
 	"context"
@@ -207,18 +208,18 @@ func TestTemporalWindows(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:       "the on-shift digest reads conditional at any hour",
+			name:       "the on-shift digest reads conditional on time at any hour",
 			user:       "shift-on",
 			target:     "/console/api/permission-digest?domain=" + anvil,
 			wantStatus: http.StatusOK,
-			wantDigest: accesstypes.DigestConditional,
+			wantDigest: accesstypes.DigestConditionalOnTime,
 		},
 		{
-			name:       "the off-shift digest reads conditional at any hour",
+			name:       "the off-shift digest reads conditional on time at any hour",
 			user:       "shift-off",
 			target:     "/console/api/permission-digest?domain=" + anvil,
 			wantStatus: http.StatusOK,
-			wantDigest: accesstypes.DigestConditional,
+			wantDigest: accesstypes.DigestConditionalOnTime,
 		},
 	}
 

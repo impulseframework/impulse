@@ -21,7 +21,7 @@ import (
 func (a *App) ExpenseManifests() http.HandlerFunc {
 	type expenseManifest struct {
 		MissionID          impulse.UUID    `json:"missionId"          perm:"-"`
-		Title              string          `json:"title"`
+		Title              string          `json:"title"              allow_filter:"true" search:"memory"`
 		Sorties            int64           `json:"sorties"`
 		Expenses           decimal.Decimal `json:"expenses"`
 		AssignedSquadronID *impulse.UUID   `json:"assignedSquadronId"`

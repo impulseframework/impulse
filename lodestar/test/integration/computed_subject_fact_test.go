@@ -11,7 +11,9 @@ package integration
 // lists, reads and downloads the manifests of the missions Hammer flies and no other; the
 // Purser's grants carry no condition and reach every manifest of the sector. Every
 // expectation is read off the seed: the Hammer missions are the ones the condition
-// language suite pins for the Flight Lead's missions.
+// language suite pins for the Flight Lead's missions. A computed list is searched and
+// sorted by its rows' real values, so the Flight Lead's search of the manifests and sort by
+// the title are refused, and the Purser's search is answered.
 
 import (
 	"bytes"
@@ -134,5 +136,39 @@ func TestComputedSubjectFact(t *testing.T) {
 		// The Purser downloads the sheet the Flight Lead is refused.
 		open := fileRequestAs(t, h, "purser", sectorPath(anvil, manifests+"/"+missionHaulerID+"/content"), nil)
 		assertStatus(t, open.Code, http.StatusOK, open.Body.Bytes())
+	})
+
+	t.Run("the Flight Lead's search of the manifests is refused: a computed list is searched by its rows' real values", func(t *testing.T) {
+		t.Parallel()
+
+		// The title is the manifests' search field. The Flight Lead holds it on the rows of
+		// Hammer's missions alone, so the check leaves it to the rows, and a search over the
+		// real values of rows the Flight Lead may not see is refused whole. The box travels in
+		// the URL, as the browser sends it.
+		status, body := doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"?"+filter(`*:search:"lantern"`)), "")
+		assertStatus(t, status, http.StatusForbidden, body)
+	})
+
+	t.Run("the Purser's search is answered", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, "purser", http.MethodGet, sectorPath(anvil, manifests+"?"+filter(`*:search:"lantern"`)), "")
+		assertStatus(t, status, http.StatusOK, body)
+		rows := decodeRows(t, body)
+		if len(rows) == 0 {
+			t.Fatalf("the Purser's search for the Lantern pod's mission answered no row: %s", body)
+		}
+		for _, row := range rows {
+			if title := cell[string](t, row, "title"); !strings.Contains(strings.ToLower(title), "lantern") {
+				t.Errorf("the Purser's search answered %q, which does not name the Lantern", title)
+			}
+		}
+	})
+
+	t.Run("the Flight Lead's sort by the title is refused", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"?sort=title"), "")
+		assertStatus(t, status, http.StatusForbidden, body)
 	})
 }

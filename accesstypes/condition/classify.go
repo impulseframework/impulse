@@ -39,6 +39,17 @@ func RowFree(e Expr) bool {
 	return rowFree
 }
 
+// TimeOnly reports whether the expression reads the time of the request and
+// nothing else: every comparison and membership test has now or a temporal
+// function on its left and a literal or now on its right, so it names no
+// binding, no subject value and no subject set. Fold settles such an
+// expression to one Truth for any Facts that carry the instant, and the zone
+// where the expression says local. The permission digest reports a target
+// covered only by such conditions as conditional on time.
+func TimeOnly(e Expr) bool {
+	return RowFree(e) && len(SubjectValues(e)) == 0 && len(SubjectSets(e)) == 0
+}
+
 // Bindings returns the distinct binding names the expression references in
 // attribute positions — now excluded, pre- and post-image collapsed to the
 // name, a comparison's right-side attribute (the old-vs-new form) included —
