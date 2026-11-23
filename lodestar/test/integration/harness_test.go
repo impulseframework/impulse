@@ -394,6 +394,12 @@ func (noSessionAPI) TenantName(accesstypes.Domain) string {
 	return ""
 }
 
+// SessionTimeout answers ten minutes, the session library's own default: this suite
+// sets none.
+func (noSessionAPI) SessionTimeout() time.Duration {
+	return 10 * time.Minute
+}
+
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
 // here to mail through, and each says so.
 func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {

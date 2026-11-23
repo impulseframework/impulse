@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/impulseframework/impulse"
@@ -227,6 +228,12 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 // TenantName names no tenant: the matrix gives the session library no tenant names.
 func (noSessionAPI) TenantName(accesstypes.Domain) string {
 	return ""
+}
+
+// SessionTimeout answers ten minutes, the session library's own default: this suite
+// sets none.
+func (noSessionAPI) SessionTimeout() time.Duration {
+	return 10 * time.Minute
 }
 
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
