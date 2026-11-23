@@ -1926,7 +1926,8 @@ design. A schema allows one where a record has two links that nothing holds to o
 foreign keys on an id alone, or, on a record that reads its tenant through other rows, a
 foreign key beside the link its tenant is read through, which is the one link the library
 proves when the row is written (section 5). No tool looks for such a record. It is found when
-the schema is designed and when it is reviewed.
+the schema is designed and when it is reviewed. `impulse advise` hands an agent a brief to
+read the schema for it.
 
 Example: [a pass's key to its hangar and an answer's to its relay](../lodestar/schema/migrations/000001_Baseline.up.sql),
 which hold the sector, and [the served test](../lodestar/test/integration/tenancy_test.go) of
