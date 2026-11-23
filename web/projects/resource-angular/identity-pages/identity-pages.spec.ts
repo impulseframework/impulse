@@ -579,6 +579,9 @@ describe("identityPages, the whole application's side", () => {
           [false, false, true],
         ]);
         expect([stop.icon, again.icon, change.icon]).toEqual(['lock_open', 'lock', 'schedule']);
+        // None of the three names a target row: each is filled from the row, with nothing,
+        // and so a list offers it on its rows.
+        expect([stop, again, change].map((p) => p.fill?.(required))).toEqual([{}, {}, {}]);
         // Stopping is confirmed by the warning the method declares and the word it types; requiring it again by a plain question.
         expect(stop.confirm).toBeUndefined();
         expect(again.confirm).toBe(

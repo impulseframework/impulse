@@ -883,7 +883,9 @@ class SideBuilder {
    * offers Stop requiring it while it is required, which the server's warning and typed
    * word confirm, and Require it while it is not, which a plain question confirms; the
    * remembered browser's line offers Change how long, picked from the lengths the server
-   * lists. The caller sees an action only while their roles grant the method. While the
+   * lists. The caller sees an action only while their roles grant the method. None of
+   * the three names a target row, so each is filled from the row, with nothing: a list
+   * offers a method that names no row on its rows only where the page fills it. While the
    * second factor is not required the list says so above it, in the warning colors.
    */
   private secondFactor(resource: Resource): ListViewConfig {
@@ -916,6 +918,7 @@ class SideBuilder {
             label: 'Stop requiring it',
             icon: 'lock_open',
             when: (row) => row['name'] === secondFactorLine && row['requireSecondFactor'] === true,
+            fill: () => ({}),
             successMessage: 'A second factor is no longer required.',
           },
         ],
@@ -925,6 +928,7 @@ class SideBuilder {
             label: 'Require it',
             icon: 'lock',
             when: (row) => row['name'] === secondFactorLine && row['requireSecondFactor'] !== true,
+            fill: () => ({}),
             confirm:
               'Everyone will be asked for a mailed code at their next sign-in, unless their directory already asked for one or their browser is remembered.',
             successMessage: 'A second factor is required again.',
@@ -936,6 +940,7 @@ class SideBuilder {
             label: 'Change how long',
             icon: 'schedule',
             when: (row) => row['name'] === rememberedBrowserLine,
+            fill: () => ({}),
             labels: { length: 'Remember a browser for' },
             successMessage: 'How long a browser is remembered is changed.',
           },
