@@ -496,6 +496,17 @@ func TestChangeRecordTenant_ownColumn(t *testing.T) {
 			writes: []write{{"Berths", DeletePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "DockId": "dock-9"}}},
 			row:    berth("berth-1"),
 		},
+		{
+			name: "an insert-or-update after a delete made the row afresh: a column it left out answers empty",
+			writes: []write{
+				{"Berths", UpdatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "DockId": "dock-1"}},
+				{"Berths", DeletePatchType, berth("berth-1"), nil},
+				{"Berths", CreateOrUpdatePatchType, berth("berth-1"), map[string]any{"Id": "berth-1", "Name": "again"}},
+			},
+			row:       berth("berth-1"),
+			want:      nil,
+			wantKnown: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

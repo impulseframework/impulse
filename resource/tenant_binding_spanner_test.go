@@ -384,10 +384,9 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 		}
 	})
 
-	// The move is an insert-or-update: an update of a row the same transaction created
-	// is refused, since its change set reads the row as stored. The fixture leaves a
-	// pier's code and name nullable, since the emulator holds an insert-or-update of a
-	// row it has not stored to every column that may not be null.
+	// The move is an insert-or-update. The fixture leaves a pier's code and name
+	// nullable, since the emulator holds an insert-or-update of a row it has not stored
+	// to every column that may not be null.
 	t.Run("a pier created with its code, moved by its key, then a slip created: the new yard", func(t *testing.T) {
 		t.Parallel()
 

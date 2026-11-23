@@ -5789,10 +5789,10 @@ which is why two plain creates of one row in one transaction are refused at comm
 `OrCreate` or `OrSkip` patch asks the transaction's record of the rows its patches wrote
 before it reads: a row an earlier patch of the transaction wrote is there, and one it
 deleted is not. So a second `OrSkip` of one row skips, and a second `OrCreate` updates.
-One limit is the update path's own: on a resource that keeps change records, under a
-grant with a row condition, and in a tenant request, an update reads the stored row, so
-an `OrCreate` of a row the same transaction created is answered not found, exactly as a
-plain update of that row is. An `OrSkip` of such a row skips.
+One limit is the update path's own: under a grant with a row condition, and in a tenant
+request, an update's check reads the stored row, so an `OrCreate` of a row the same
+transaction created is answered not found, exactly as a plain update of that row is. An
+`OrSkip` of such a row skips.
 
 **A transaction that runs again.** A transaction Spanner aborts runs its function again,
 and the row may be there on the second attempt where it was not on the first. The patch
@@ -6104,6 +6104,17 @@ SELECT TableName, RowId, EventTime, EventSource, ChangeSet
 
 `impulse check` (`change-history`) says when an application's table lacks a column or
 the index.
+
+**More than one write of a row in one transaction.** A record's old values are the row as
+it stood just before that write, counting what the same transaction's earlier patches
+wrote: the stored row with those writes laid over it. A row created and then updated in
+one transaction has two records, numbered by `Sequence`, and the second's old values are
+the ones the create gave. A row updated twice has a record for each step, and a change put
+back is recorded as a change. A row created and deleted in one transaction has both
+records, though it is never stored. A row the transaction deleted is not there for a later
+update of it, which is answered 404; a second delete of it writes no second record. On a
+row the transaction created, a field no patch set reads as empty: a default the database
+gives the column is not known before the commit.
 
 **How long records are kept.** The application's schema says it. `period` is
 `resource.KeepChangeHistoryDays(n)` or `resource.KeepChangeHistoryForever()`, and a
