@@ -50,7 +50,7 @@ func TestAuth_SignInRemovesIdleSessions(t *testing.T) {
 		{name: "a session made 31 days ago and active 29 days ago", id: active29, want: true},
 		{name: "the new session", id: fresh, want: true},
 	} {
-		if got := exists(ctx, t, in.Raw, `"Sessions"`, `"Id"`, tt.id); got != tt.want {
+		if got := exists(ctx, t, in.Raw, `"Sessions"`, tt.id); got != tt.want {
 			t.Errorf("%s is there after another person's sign-in = %v, want %v", tt.name, got, tt.want)
 		}
 	}
@@ -73,16 +73,16 @@ func TestAuth_SignInStandsWhenItsRemovalFails(t *testing.T) {
 	age(ctx, t, in.Raw, `INSERT INTO "SessionNotes" ("SessionId") VALUES ($1)`, due)
 
 	held := signInAs(ctx, t, in, "sam@lakeside.edu")
-	if !exists(ctx, t, in.Raw, `"Sessions"`, `"Id"`, held) {
+	if !exists(ctx, t, in.Raw, `"Sessions"`, held) {
 		t.Error("the session of the sign-in whose removal failed is not there, want it signed in")
 	}
-	if !exists(ctx, t, in.Raw, `"Sessions"`, `"Id"`, due) {
+	if !exists(ctx, t, in.Raw, `"Sessions"`, due) {
 		t.Error("the due session a foreign key with no cascade holds is gone, want it kept")
 	}
 
 	age(ctx, t, in.Raw, `DELETE FROM "SessionNotes"`)
 	signInAs(ctx, t, in, "kim@lakeside.edu")
-	if exists(ctx, t, in.Raw, `"Sessions"`, `"Id"`, due) {
+	if exists(ctx, t, in.Raw, `"Sessions"`, due) {
 		t.Error("the due session is there after the sign-in that follows the holding row's delete, want it removed")
 	}
 }
@@ -192,7 +192,7 @@ func TestAuth_LinkInsertRemovesExpiredLinks(t *testing.T) {
 		{name: "a link that expired 29 days ago", link: expired29, want: true},
 		{name: "a live link", link: live, want: true},
 	} {
-		if got := exists(ctx, t, in.Raw, `"SessionMailLinks"`, `"Id"`, tt.link.ID); got != tt.want {
+		if got := exists(ctx, t, in.Raw, `"SessionMailLinks"`, tt.link.ID); got != tt.want {
 			t.Errorf("%s is there after another link's insert = %v, want %v", tt.name, got, tt.want)
 		}
 	}
@@ -257,7 +257,7 @@ func TestAuth_LinkInsertSkipsAHeldRow(t *testing.T) {
 	if err := in.Driver.InsertMailLink(short, newLink("while-held", time.Now().Add(time.Hour))); err != nil {
 		t.Fatalf("InsertMailLink() while another transaction holds a due row error = %v, want it to go on without the row", err)
 	}
-	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, `"Id"`, held.ID) {
+	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, held.ID) {
 		t.Error("a due row another transaction holds was removed, want it left")
 	}
 
@@ -265,7 +265,7 @@ func TestAuth_LinkInsertSkipsAHeldRow(t *testing.T) {
 		t.Fatalf("Rollback() error = %v", err)
 	}
 	insertLink(ctx, t, in.Driver, "after", time.Now().Add(time.Hour))
-	if exists(ctx, t, in.Raw, `"SessionMailLinks"`, `"Id"`, held.ID) {
+	if exists(ctx, t, in.Raw, `"SessionMailLinks"`, held.ID) {
 		t.Error("a due row is there after the next insert that follows its release, want it removed")
 	}
 }
@@ -286,10 +286,10 @@ func TestAuth_LinkInsertStandsWhenItsRemovalFails(t *testing.T) {
 	if err := in.Driver.InsertMailLink(ctx, link); err != nil {
 		t.Fatalf("InsertMailLink() whose removal fails error = %v, want the link inserted", err)
 	}
-	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, `"Id"`, link.ID) {
+	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, link.ID) {
 		t.Error("the link whose insert's removal failed is not there, want it inserted")
 	}
-	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, `"Id"`, due.ID) {
+	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, due.ID) {
 		t.Error("the due link a foreign key with no cascade holds is gone, want it kept")
 	}
 }
@@ -326,19 +326,17 @@ func TestAuth_RemovalsReadTheirIndexes(t *testing.T) {
 		{table: `"SessionSignInAttempts"`, removal: attemptsRemoval, args: []any{time.Now()}, index: "SessionSignInAttempts_EndsAt_idx"},
 		{table: `"SessionMailLinks"`, removal: mailLinksRemoval, index: "SessionMailLinks_ExpiresAt_idx"},
 	} {
-		t.Run(tt.table, func(t *testing.T) {
-			rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+tt.removal.statement(tt.table), tt.args...)
-			if err != nil {
-				t.Fatalf("EXPLAIN error = %v", err)
-			}
-			lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
-			if err != nil {
-				t.Fatalf("pgx.CollectRows() error = %v", err)
-			}
-			if plan := strings.Join(lines, "\n"); !strings.Contains(plan, tt.index) {
-				t.Errorf("the removal does not read the index %s; the plan:\n%s", tt.index, plan)
-			}
-		})
+		rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+tt.removal.statement(tt.table), tt.args...)
+		if err != nil {
+			t.Fatalf("EXPLAIN of the removal from %s error = %v", tt.table, err)
+		}
+		lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatalf("pgx.CollectRows() error = %v", err)
+		}
+		if plan := strings.Join(lines, "\n"); !strings.Contains(plan, tt.index) {
+			t.Errorf("the removal from %s does not read the index %s; the plan:\n%s", tt.table, tt.index, plan)
+		}
 	}
 }
 
@@ -371,12 +369,12 @@ func age(ctx context.Context, t *testing.T, raw any, statement string, args ...a
 	}
 }
 
-// exists says whether table holds a row whose key is id, read directly.
-func exists(ctx context.Context, t *testing.T, raw any, table, key string, id impulse.UUID) bool {
+// exists says whether table holds a row whose "Id" is id, read directly.
+func exists(ctx context.Context, t *testing.T, raw any, table string, id impulse.UUID) bool {
 	t.Helper()
 
 	var found bool
-	if err := queryer(t, raw).QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE %s = $1)`, table, key), id).Scan(&found); err != nil {
+	if err := queryer(t, raw).QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE "Id" = $1)`, table), id).Scan(&found); err != nil {
 		t.Fatalf("QueryRow().Scan() error = %v", err)
 	}
 

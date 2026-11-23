@@ -11,6 +11,9 @@ import (
 // rows that came due together, which the writes after it take in turn.
 const dueRemovalLimit = 100
 
+// idKey is the key column of the sessions and mail links tables.
+const idKey = `"Id"`
+
 // removal is the housekeeping a write carries for the rows of its table that are over.
 // On Spanner the table's row deletion policy removes these rows; PostgreSQL has none, so
 // the write runs this statement after its own work and outside its own answer: a removal
@@ -36,7 +39,7 @@ var (
 	// session's activity.
 	sessionsRemoval = removal{
 		what:  "sessions idle more than 30 days",
-		key:   `"Id"`,
+		key:   idKey,
 		due:   `"CreatedAt" < now() - interval '720 hours' AND "UpdatedAt" < now() - interval '720 hours'`,
 		order: `"CreatedAt"`,
 	}
@@ -51,7 +54,7 @@ var (
 	// mailLinksRemoval takes the links that expired more than 30 days ago, used or not.
 	mailLinksRemoval = removal{
 		what:  "mail links that expired more than 30 days ago",
-		key:   `"Id"`,
+		key:   idKey,
 		due:   `"ExpiresAt" < now() - interval '720 hours'`,
 		order: `"ExpiresAt"`,
 	}
