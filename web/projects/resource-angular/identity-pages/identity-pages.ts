@@ -1209,7 +1209,7 @@ class SideBuilder {
     });
   }
 
-  /** The people in a group, under the group's row. */
+  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group, and whether the account goes with it. */
   private peopleOfGroup(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.groupUsers) {
@@ -1234,8 +1234,6 @@ class SideBuilder {
           {
             label: 'Remove from the group',
             icon: 'person_remove',
-            confirm: (row) =>
-              `Remove ${String(row['username'] ?? 'this person')} from the group? They keep the roles they hold themselves and lose the group's.`,
           },
         ],
       ]),
