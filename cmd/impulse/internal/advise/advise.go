@@ -1,8 +1,8 @@
 // Package advise writes the brief impulse advise hands to an agent: what the application's
 // generate programs raised under -audit (or where the accepted warnings are pinned, when
 // generation is skipped), where the accepted role warnings are pinned, impulse's own
-// deterministic reading of each kind, and the question each kind leaves to judgment, and
-// the schema design no tool judges, which the agent reviews whether or not anything was
+// deterministic reading of each kind, the question each kind leaves to judgment, and the
+// schema design no tool judges, which the agent reviews whether or not anything was
 // raised. The agent answers in prose and edits nothing; impulse reads no test file itself.
 //
 // Analysis by an agent is opt-in, a command of its own beside impulse audit: the check
