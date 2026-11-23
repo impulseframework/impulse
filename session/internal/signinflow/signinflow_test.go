@@ -1346,3 +1346,36 @@ func TestSignIn_aPersonWithAnAccountSignsInTheSameUnderEitherChoice(t *testing.T
 		})
 	}
 }
+
+func TestCarriesSecondFactor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		events []sessioninfo.AuthMethod
+		want   bool
+	}{
+		{name: "no event", want: false},
+		{name: "a password alone", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword}, want: false},
+		{name: "an application's own sign-in name alone", events: []sessioninfo.AuthMethod{"magic-link"}, want: false},
+		{name: "an application's own sign-in name, then a link confirmation", events: []sessioninfo.AuthMethod{"magic-link", sessioninfo.MethodLinkConfirmation}, want: false},
+		{name: "a password, then a link confirmation", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodLinkConfirmation}, want: false},
+		{name: "a password, then the application's own factor", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, "totp"}, want: true},
+		{name: "a directory, then its attestation", events: []sessioninfo.AuthMethod{sessioninfo.MethodWorkOS, sessioninfo.MethodAttestedByEvidence}, want: true},
+		{name: "a password, then the mailed code", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodEmailCode}, want: true},
+		{name: "a password, a link confirmation, then the application's own factor", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodLinkConfirmation, "totp"}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			events := make([]sessioninfo.AuthEvent, 0, len(tt.events))
+			for _, m := range tt.events {
+				events = append(events, sessioninfo.AuthEvent{Method: m})
+			}
+			if got := carriesSecondFactor(events); got != tt.want {
+				t.Errorf("carriesSecondFactor(%v) = %v, want %v", tt.events, got, tt.want)
+			}
+		})
+	}
+}

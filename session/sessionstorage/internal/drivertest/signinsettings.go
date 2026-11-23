@@ -248,6 +248,12 @@ func testSecondFactorRequiredPassed(_ context.Context, t *testing.T, h *AuthHarn
 			events:     []sessioninfo.AuthEvent{lakesideEvent, {Method: sessioninfo.MethodEmailCode}},
 			wantEvents: []sessioninfo.AuthEvent{lakesideEvent, {Method: sessioninfo.MethodEmailCode}},
 		},
+		{
+			name:       "the completion that carries the application's own factor gets its session",
+			reason:     sessioninfo.ReasonStepUp,
+			events:     []sessioninfo.AuthEvent{lakesideEvent, {Method: "totp"}},
+			wantEvents: []sessioninfo.AuthEvent{lakesideEvent, {Method: "totp"}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -273,6 +279,18 @@ func testSecondFactorRequiredPassed(_ context.Context, t *testing.T, h *AuthHarn
 			}
 		})
 	}
+}
+
+func testSecondFactorRequiredNotCarried(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, AuthEvents: true, Settings: RequiredRow})
+	user := createUser(ctx, t, in.Driver, "jane@lakeside.edu")
+	mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
+
+	// The sign-in's own event records no second factor, so a completion that carries
+	// nothing after it is held as a first sign-in is.
+	lakesideEvent := sessioninfo.AuthEvent{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}}
+	_, _, err := signInWithEvents(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonStepUp, []sessioninfo.AuthEvent{lakesideEvent})
+	heldFor(t, err, user, sessioninfo.MethodEmailCode)
 }
 
 func testSecondFactorSettingUndecidedReason(ctx context.Context, t *testing.T, h *AuthHarness) {

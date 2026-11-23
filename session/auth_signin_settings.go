@@ -46,10 +46,12 @@ func (p *AuthAPI[S, U, Tx]) SignInSettings(ctx context.Context) (SignInSettings,
 // SetSecondFactorRequired says, in the running application, whether everyone is asked
 // for a second factor when they sign in. It is read at every sign-in, after the
 // application's sign-in rule: while it is required, a sign-in the rule allows (or any,
-// where the Auth has no rule) is held for the library's mailed code; a refusal stands,
-// and so does a hold of the rule's own, with the factors it names, which turning it off
-// never removes. It writes the one field and leaves the days a browser is remembered as
-// they stand.
+// where the Auth has no rule) is held for the library's mailed code, unless it already
+// carries a second factor (sessioninfo.AuthMethod.SecondFactor): the mailed code, a
+// connection's attestation, or a step the application ran under a name of its own. A
+// refusal stands, and so does a hold of the rule's own, with the factors it names,
+// which turning it off never removes. It writes the one field and leaves the days a
+// browser is remembered as they stand.
 func (p *AuthAPI[S, U, Tx]) SetSecondFactorRequired(ctx context.Context, required bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
