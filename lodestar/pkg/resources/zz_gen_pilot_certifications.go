@@ -7,8 +7,10 @@ import (
 	"context"
 	"iter"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -545,4 +547,20 @@ func (p *PilotCertificationDeletePatch) CertificationID() string {
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *PilotCertificationDeletePatch) Diff(got *PilotCertificationDeletePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
+}
+
+// RefuseImpersonatorAsPilotCertificationSubject asks, of one write of the pilot certification
+// record, what a record that decides what a person may do is asked in a session that
+// acts as someone else: nobody writes the row that decides it for themselves. op is the
+// write, key the row's key (empty for an add whose id is generated) and patchSet the
+// write's fields. The record's generated write, where it has one, calls it once the
+// operation is decoded, ahead of the create, the change and the delete, and the delete
+// of a row taken with the record it is under (resource.NewTakenRows) calls it as a
+// removal, so the two ask the same. It answers nil outside such a session.
+func RefuseImpersonatorAsPilotCertificationSubject(ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet, patchSet *resource.PatchSet[PilotCertification]) error {
+	if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op, key, patchSet, "pilot certification", "UserID"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+	}
+
+	return nil
 }
