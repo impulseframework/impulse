@@ -626,7 +626,9 @@ throws saying the server names no such route.
 A sign-in the policy holds for a second factor waits with the reason `mfa`, and when the policy
 accepts the mailed code the status carries `emailCode`, the step this client drives: the masked
 address the code goes to (`codeEmail`, `n•••@fleet.example`), whether a code stands (`codeSent`,
-`codeExpiresAt`) and whether the account holds no address yet (`enrollEmail`). `sendCode()` has
+`codeExpiresAt`) and whether the account holds no address yet (`enrollEmail`). `rememberOffered`
+says the page may offer to remember the browser; it is false while an administrator has turned
+remembering off. `sendCode()` has
 the code mailed, replacing one standing, and answers `sent` with the address and the expiry, or
 the refusal (409 when the sign-in does not wait for the code or the account holds no address;
 `too_many_emails` with the wait when the address was sent five codes within fifteen minutes and
