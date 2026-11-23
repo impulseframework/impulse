@@ -165,6 +165,10 @@ func refused(ctx context.Context, t *testing.T, l *Limiter, name string, client 
 	return wait
 }
 
+// TestNormalize pins the key a name's attempts are counted under: a name with an @ in it
+// with its ASCII capitals lowercased and every other character as written, any other in
+// Unicode NFC and case-folded. The letters from outside ASCII are written as escapes so
+// that each is the code point it is named for.
 func TestNormalize(t *testing.T) {
 	t.Parallel()
 
@@ -173,8 +177,15 @@ func TestNormalize(t *testing.T) {
 		in   string
 		want string
 	}{
-		{name: "a name is case-folded", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
-		{name: "a composed and a decomposed spelling are one name", in: "résumé", want: "résumé"},
+		{name: "an address's ASCII capitals are lowercased", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
+		{name: "an address keeps the Kelvin sign", in: "Kim@Lakeside.EDU", want: "Kim@lakeside.edu"},
+		{name: "an address keeps the sharp s", in: "straße@lakeside.edu", want: "straße@lakeside.edu"},
+		{name: "an address keeps an accented letter in two code points", in: "josé@Lakeside.edu", want: "josé@lakeside.edu"},
+		{name: "an address keeps a capital letter from outside ASCII", in: "Émilie@lakeside.edu", want: "Émilie@lakeside.edu"},
+		{name: "a name with no @ in it is case-folded, the Kelvin sign to a k", in: "Kim", want: "kim"},
+		{name: "a name with no @ in it is case-folded, the sharp s to ss", in: "Straße", want: "strasse"},
+		{name: "a kind's capitals before an address are lowercased", in: "MAIL:Émilie@lakeside.edu", want: "mail:Émilie@lakeside.edu"},
+		{name: "a name with no @ in it is one name in a composed and a decomposed spelling", in: "résumé", want: "résumé"},
 		{name: "a folded name stays as it is", in: "pat", want: "pat"},
 	}
 	for _, tt := range tests {
@@ -182,7 +193,36 @@ func TestNormalize(t *testing.T) {
 			t.Parallel()
 
 			if got := Normalize(tt.in); got != tt.want {
-				t.Errorf("Normalize(%q) = %q, want %q", tt.in, got, tt.want)
+				t.Errorf("Normalize(%+q) = %+q, want %+q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFoldWide pins the wide reading of an address that the counts of its mail are kept
+// under: Unicode NFC and case-folded, so some addresses that only read alike are one.
+func TestFoldWide(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "ASCII capitals are lowercased", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
+		{name: "the Kelvin sign folds to a k", in: "Kim@Lakeside.EDU", want: "kim@lakeside.edu"},
+		{name: "the sharp s folds to ss", in: "straße@lakeside.edu", want: "strasse@lakeside.edu"},
+		{name: "an accented letter in two code points is composed", in: "josé@Lakeside.edu", want: "josé@lakeside.edu"},
+		{name: "a capital letter from outside ASCII is folded", in: "Émilie@lakeside.edu", want: "émilie@lakeside.edu"},
+		{name: "a name with no @ in it is folded the same way", in: "Kim", want: "kim"},
+		{name: "the sharp s in a name with no @ in it folds to ss", in: "Straße", want: "strasse"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := FoldWide(tt.in); got != tt.want {
+				t.Errorf("FoldWide(%+q) = %+q, want %+q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -205,6 +245,11 @@ func TestOwnKey(t *testing.T) {
 				t.Errorf("a sign-in under the name %q is counted under %q, which is the library's own count %q", typed, name, key)
 			}
 		}
+	}
+	// A name with an @ in it keeps its letters from outside ASCII as written, and the
+	// capitals of a kind before it are lowercased all the same.
+	if typed := "MAIL:\u00c9milie@lakeside.edu"; IsOwnKey(Normalize(typed)) {
+		t.Errorf("a sign-in under the name %+q is counted under %+q, which is one of the library's own counts", typed, Normalize(typed))
 	}
 	for _, name := range []string{"pat", "pat@lakeside.edu", "mail:pat@lakeside.edu", "reset:pat@lakeside.edu", "invitation:0f9a1c2e", "invitation-guess:0f9a1c2e", "address-guess:pat@lakeside.edu", "code-guess:pat@lakeside.edu", "first-password:0f9a1c2e", "MAILROOM", ""} {
 		if IsOwnKey(name) {
@@ -378,6 +423,23 @@ func TestLimiter_NameResetAndCache(t *testing.T) {
 				succeed(ctx, t, l, "sam", Client{})
 				if store.record(Normalize("sam")) != nil {
 					t.Errorf("record after a right password with no failure before it = %v, want none: the attempt was given back", store.record(Normalize("sam")))
+				}
+			},
+		},
+		{
+			name: "a right password for a name that only reads like another leaves the other's count: each has its own",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				// The Kelvin sign (U+212A) for the k: another address, so another name.
+				const kim, alike = "kim@lakeside.edu", "\u212aim@lakeside.edu"
+				fail(ctx, t, l, kim, Client{})
+				fail(ctx, t, l, kim, Client{})
+				fail(ctx, t, l, alike, Client{})
+				succeed(ctx, t, l, alike, Client{})
+				if r := store.record(Normalize(kim)); r == nil || r.Failures != 2 {
+					t.Errorf("record of %+q after a right password for %+q = %+v, want its two failures", kim, alike, r)
+				}
+				if r := store.record(Normalize(alike)); r != nil {
+					t.Errorf("record of %+q after its right password = %+v, want none", alike, r)
 				}
 			},
 		},

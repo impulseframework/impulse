@@ -6,6 +6,7 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 )
 
@@ -38,6 +39,15 @@ var plainNamePairs = []namePair{
 }
 
 func testUsernameFold(ctx context.Context, t *testing.T, h *AuthHarness) {
+	// The tables are the key a name's failed sign-ins are counted under before they are
+	// the stores' rule: two names are counted together exactly when they are one name.
+	for _, pairs := range [][]namePair{foldPairs, plainNamePairs} {
+		for _, p := range pairs {
+			if got := attempts.Normalize(p.stored) == attempts.Normalize(p.asked); got != p.one {
+				t.Fatalf("attempts.Normalize(%+q) == attempts.Normalize(%+q) is %v, want %v: the pair %q is not as the library counts it", p.stored, p.asked, got, p.one, p.name)
+			}
+		}
+	}
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	t.Run("a username with an @ in it", func(t *testing.T) {
 		testUsernameFoldOver(ctx, t, in, foldPairs)

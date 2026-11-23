@@ -292,8 +292,8 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 				// takes it for the address, and the users table for another, which another
 				// account holds.
 				alike := strings.Replace(email, "k", "\u212A", 1)
-				if attempts.Normalize(alike) != attempts.Normalize(email) {
-					t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", alike, email)
+				if attempts.FoldWide(alike) != attempts.FoldWide(email) {
+					t.Fatalf("attempts.FoldWide() folds %q and %q apart, want them folded to one", alike, email)
 				}
 				if sameAddress(alike, email) {
 					t.Fatalf("sameAddress(%q, %q) = true, want two addresses", alike, email)

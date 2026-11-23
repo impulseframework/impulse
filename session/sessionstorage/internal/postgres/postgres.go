@@ -121,7 +121,8 @@ func (s *SessionStorageDriver) usernameIndex() string {
 // declared under, so it is the same whatever collation the database was created with,
 // and the comparison and the column's unique index are under one collation and a
 // lookup uses the index. It is translate() and not addressFold's lower() under "C":
-// two collations named in one expression are an error.
+// two collations named in one expression are an error. The key a name's failed sign-ins
+// are counted under is the same form (attempts.Normalize).
 func usernameFold(operand string) string {
 	return fmt.Sprintf(`(CASE WHEN strpos(%[1]s, '@') > 0 THEN translate(%[1]s, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ELSE casefold(normalize(%[1]s) COLLATE "pg_unicode_fast") END)`, operand)
 }

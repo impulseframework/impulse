@@ -895,8 +895,8 @@ func TestRetryAfterSeconds(t *testing.T) {
 }
 
 // TestSignInAttemptName pins the key a name's failed sign-ins are counted under, for a
-// caller that deletes the row itself: the name case-folded and in NFC, as the limiter
-// keys it.
+// caller that deletes the row itself: the name as the users table normalizes it, as the
+// limiter keys it.
 func TestSignInAttemptName(t *testing.T) {
 	t.Parallel()
 
@@ -908,6 +908,7 @@ func TestSignInAttemptName(t *testing.T) {
 		{name: "a lowercase name is itself", username: "pat", want: "pat"},
 		{name: "another case is the same name", username: "Pat@Example.COM", want: "pat@example.com"},
 		{name: "a decomposed letter is composed", username: "renée", want: "renée"},
+		{name: "an address keeps a letter from outside ASCII as written: the Kelvin sign is not a k", username: "\u212aim@Lakeside.EDU", want: "\u212aim@lakeside.edu"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

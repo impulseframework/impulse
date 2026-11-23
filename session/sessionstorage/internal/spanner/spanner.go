@@ -119,7 +119,8 @@ func (s *SessionStorageDriver) usernameIndex() string {
 // with. A username with an @ in it reads as an email address and is folded as an
 // address is (addressFold): its ASCII capital letters lowercased and every other
 // character as written. Any other username is put in Unicode's normalization and case
-// folding.
+// folding. The key a name's failed sign-ins are counted under is the same form
+// (attempts.Normalize).
 func usernameFold(operand string) string {
 	return fmt.Sprintf(`IF(STRPOS(%[1]s, '@') > 0, %[2]s, NORMALIZE_AND_CASEFOLD(%[1]s))`, operand, addressFold(operand))
 }

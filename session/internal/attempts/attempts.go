@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
@@ -113,11 +114,25 @@ func (l *Limiter) SetClock(now func() time.Time) {
 	l.now = now
 }
 
-// Normalize returns name as the key its attempts are counted under: Unicode NFC and
-// case-folded, as the users table normalizes usernames, so a name spelled in another
-// case is the same name.
+// FoldWide returns text in Unicode NFC and case-folded: the wide reading of an address
+// the counts of its mail are kept under, which takes some addresses that only read
+// alike for one. No account is found by it.
+func FoldWide(text string) string {
+	return cases.Fold().String(norm.NFC.String(text))
+}
+
+// Normalize returns name as the key its attempts are counted under: name as the users
+// table normalizes usernames, so a name the table takes for another's is counted with
+// it and a name the table tells apart has a count of its own. A name with an @ in it
+// reads as an email address and has its ASCII capital letters lowercased and every
+// other character as written (util.LowerASCII); any other name is in Unicode NFC and
+// case-folded (FoldWide).
 func Normalize(name string) string {
-	return cases.Fold().String(norm.NFC.String(name))
+	if strings.Contains(name, "@") {
+		return util.LowerASCII(name)
+	}
+
+	return FoldWide(name)
 }
 
 // The kinds of count the library keeps in the sign-in attempts table beside the names
@@ -129,10 +144,10 @@ func Normalize(name string) string {
 // is kept under its kind, a colon, and what it counts (OwnKey).
 //
 // A kind is spelled in capitals, and that is what keeps the counts apart from the
-// names: a name is counted under its case-folded form (Normalize), which holds no
-// capital, so nothing a person types at a sign-in is ever one of these keys. A stranger
-// who fails to sign in under the text of a key counts against a name nobody holds, and
-// never closes an address to its mail or an account to its first password.
+// names: a name is counted under its normalized form (Normalize), which holds no
+// ASCII capital, so nothing a person types at a sign-in is ever one of these keys. A
+// stranger who fails to sign in under the text of a key counts against a name nobody
+// holds, and never closes an address to its mail or an account to its first password.
 const (
 	KindMail            = "MAIL"
 	KindCode            = "CODE"
