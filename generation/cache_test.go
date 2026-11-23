@@ -501,14 +501,14 @@ func copyFixtureMigrations(t *testing.T) string {
 
 // deleteRuleTables is a synthetic schema carrying the delete facts the schema read
 // records: a parent, children interleaved in it on cascade and on no action, and foreign
-// keys to it with each delete rule, on the column and on the key whole.
+// keys to it with each delete rule.
 func deleteRuleTables() map[string]*tableMetadata {
 	pk := columnMeta{IsPrimaryKey: true}
 	key := func(ordinal int64) columnMeta {
 		return columnMeta{IsPrimaryKey: true, OrdinalPosition: ordinal, KeyOrdinalPosition: ordinal}
 	}
-	foreignKey := func(ordinal int64, rule string) columnMeta {
-		return columnMeta{IsForeignKey: true, ReferencedTable: "Parents", ReferencedColumn: "Id", DeleteRule: rule, OrdinalPosition: ordinal}
+	foreignKey := func(ordinal int64) columnMeta {
+		return columnMeta{IsForeignKey: true, ReferencedTable: "Parents", ReferencedColumn: "Id", OrdinalPosition: ordinal}
 	}
 	toParent := func(name, column, rule string) []foreignKeyMeta {
 		return []foreignKeyMeta{{Name: name, Columns: []string{column}, ReferencedTable: "Parents", ReferencedColumns: []string{"Id"}, DeleteRule: rule}}
@@ -523,10 +523,10 @@ func deleteRuleTables() map[string]*tableMetadata {
 			"Id": key(0), "Sequence": key(1),
 		}},
 		"Referencings": {PkCount: 1, Columns: map[string]columnMeta{
-			"Id": pk, "ParentId": foreignKey(1, "CASCADE"),
+			"Id": pk, "ParentId": foreignKey(1),
 		}, ForeignKeys: toParent("FK_Referencings_Parents", "ParentId", "CASCADE")},
 		"Plains": {PkCount: 1, Columns: map[string]columnMeta{
-			"Id": pk, "ParentId": foreignKey(1, "NO ACTION"),
+			"Id": pk, "ParentId": foreignKey(1),
 		}, ForeignKeys: toParent("FK_Plains_Parents", "ParentId", "NO ACTION")},
 	}
 }

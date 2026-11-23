@@ -21,8 +21,8 @@ stated limitation, which a normal generation never prints (no shape is reported 
 Findings never fail the command; a program that fails, or does not take -audit, does.
 
 It regenerates the tree like go generate does, so it needs the Spanner emulator. Run it
-by decision, not on every change: before a release, after a schema change to a table
-that stores files, or when a stated limitation is in question.`,
+by decision, not on every change: before a release, or when a stated limitation is in
+question.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			a, err := app.Discover(appDir)

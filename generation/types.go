@@ -338,7 +338,6 @@ type informationSchemaResult struct {
 	IsInterleaved        bool    `spanner:"IS_INTERLEAVED"`
 	ParentTable          *string `spanner:"PARENT_TABLE_NAME"`
 	OnDeleteAction       *string `spanner:"ON_DELETE_ACTION"`
-	DeleteRule           *string `spanner:"DELETE_RULE"`
 }
 
 type enumData struct {
@@ -459,10 +458,6 @@ type columnMeta struct {
 	KeyOrdinalPosition int64
 	ReferencedTable    string
 	ReferencedColumn   string
-	// DeleteRule is the foreign key's delete rule as REFERENTIAL_CONSTRAINTS spells it,
-	// CASCADE or NO ACTION, on a foreign-key column; "" otherwise. A CASCADE deletes the
-	// row with the referenced one, outside the patch machinery.
-	DeleteRule string
 	// Default is the column's DEFAULT expression as INFORMATION_SCHEMA.COLUMNS spells
 	// it, without the parentheses the DDL wraps it in ("TRUE", "false", "0"); "" where
 	// the column declares none, which HasDefault says. A yes or no column's reaches

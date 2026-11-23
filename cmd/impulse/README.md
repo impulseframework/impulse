@@ -846,8 +846,7 @@ printing the `Warning:` lines and, under `-audit`, the `Audit:` lines, and
 `warnings_test.go` pinning the accepted warnings. It regenerates the tree like
 `go generate` does, so it needs the Spanner emulator. It is a command of its own and not
 a check: the check is the gate on every change, and the audit is read by decision, before
-a release, after a schema change to a table that stores files, or when a stated
-limitation is in question.
+a release, or when a stated limitation is in question.
 
 ## impulse advise
 

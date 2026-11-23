@@ -477,8 +477,6 @@ func (t *tableMetadata) addSchemaResult(result *informationSchemaResult) {
 		if result.ReferencedColumn != nil {
 			column.ReferencedColumn = *result.ReferencedColumn
 		}
-
-		column.DeleteRule = valueOrEmpty(result.DeleteRule)
 	}
 
 	column.IsNullable = result.IsNullable
