@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
@@ -390,7 +391,6 @@ func TestTenancyApply(t *testing.T) {
 	withAuthDid[6] = "app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()), App.TenantRoster() and App.TenantAdministratorRoles() (the staff auth's AdministratorRoles held in every tenant: the domain roles the Tenant record's generated create-your-own route gives the person who creates a tenant of their own, through the auth's identity client, which the generated contract asks the handlers for); app/app.go gained the fields and their assignments"
 	withAuthDid = slices.Insert(withAuthDid, 6,
 		"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and the directory reader (TenantDirectories), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) with the password-disabled check beside it (signin.PasswordsDisabledByTenants over the same reader, through resource.OutsideSignIn) and the directory admission (session.Auth.SetDirectoryAdmission over the directory reader, the default role given by the identity client's DirectorySeated in the transaction that creates the person)",
-		"pkg/auth/staff/staff.go: New's one sign-in rule is the tenant policy with the second factor chained last (.Then(requireSecondFactor)); the call that set the second factor alone is gone, since an Auth has one rule and a second SetSignInPolicy call panics when the auth opens",
 		"pkg/config/data.go: the staff.Settings literal in NewDataConfiguration (an application composed before the staffSettings method) passes the declaration reader (app.NewTenantDeclarationReader()) and the directory reader (app.NewTenantDirectoryReader()) to the staff auth",
 	)
 	tests = append(tests, struct {
@@ -433,9 +433,9 @@ func TestTenancyApply(t *testing.T) {
 				"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n}",
 				"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
 				"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\n\tstore, err := spannerstore.New(",
-				// One rule: the tenant policy, with the second factor the base set alone
-				// chained last, and the password-disabled check directly after it.
-				"\t// engine's read under the transaction's context as a nested transaction. A sign-in\n\t// the rule admits then carries a second factor (requireSecondFactor), chained last:\n\t// an Auth has one rule.\n\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))\n" + passwordDisabledCheck + "\n\t// The directory admission",
+				// One rule, the tenant policy, since the base sets none, and the
+				// password-disabled check directly after it.
+				"\t// engine's read under the transaction's context as a nested transaction.\n\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))\n" + passwordDisabledCheck + "\n\t// The directory admission",
 				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 				"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				"\t\"github.com/impulseframework/impulse/resource\"\n",
@@ -746,23 +746,28 @@ const passwordDisabledCheck = "\n" +
 	"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n"
 
 // TestTenancyApply_oneSignInRule pins the sign-in rule add tenancy leaves on an auth:
-// one call. The base's auth package sets the second factor alone, and an Auth has one
-// rule, a second SetSignInPolicy call panicking when the auth opens, so the transition
-// takes that call out and writes the tenant policy with the second factor chained last,
-// and says so. Where New set a rule in a form the tool does not read, both calls stand
-// and the change says they must become one, in the words the second-factor check uses.
-// Wherever the tool writes the tenant policy it writes the password-disabled check
-// directly after it; where it writes no rule, the change names the check beside the
-// call it tells the reader to make.
+// one call. The base's auth package sets no rule, so the transition writes the tenant
+// policy as the Auth's rule and takes out the comment saying it sets none. An Auth has
+// one rule, a second SetSignInPolicy call panicking when the auth opens, so where New set
+// a rule already, both calls stand and the change says they must become one. Wherever the
+// tool writes the tenant policy it writes the password-disabled check directly after it;
+// where it writes no rule, the change names the check beside the call it tells the reader
+// to make.
 func TestTenancyApply_oneSignInRule(t *testing.T) {
 	t.Parallel()
 
-	chainedDid := "pkg/auth/staff/staff.go: New's one sign-in rule is the tenant policy with the second factor chained last (.Then(requireSecondFactor)); the call that set the second factor alone is gone, since an Auth has one rule and a second SetSignInPolicy call panics when the auth opens"
-	twoRules := "pkg/auth/staff/staff.go: New set a sign-in rule before this change, in a form the tool does not read, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, the rule that stood chained after it with .Then, and requireSecondFactor last"
+	twoRules := "pkg/auth/staff/staff.go: New set a sign-in rule before this change, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, and the rule that stood chained after it with .Then"
 	base := staffPackage(t, "staff.go")
-	const lone = "authSession.SetSignInPolicy(requireSecondFactor)"
-	if strings.Count(base, lone) != 1 {
-		t.Fatalf("the base's auth package sets the second factor alone %d time(s), want once: the fixture of this test", strings.Count(base, lone))
+	if n := strings.Count(base, ".SetSignInPolicy("); n != 0 {
+		t.Fatalf("the base's auth package sets a sign-in rule %d time(s), want none: the fixture of this test", n)
+	}
+	if n := strings.Count(base, authpkg.NoSignInRule); n != 1 {
+		t.Fatalf("the base's auth package says it sets no sign-in rule %d time(s), want once: the fixture of this test", n)
+	}
+	// A rule of the application's own, where the base says it sets none.
+	const houseRule = "authSession.SetSignInPolicy(houseRule)"
+	withHouseRule := func(src string) string {
+		return strings.Replace(src, authpkg.NoSignInRule, "\t"+houseRule, 1)
 	}
 	// An auth package whose New ends in a form of its own: the tool writes no rule there.
 	const skeletonEnd, ownEnd = "\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n", "\tauth := &Auth{access: accessClient, handlers: handlers, identity: identityClient}\n\n\treturn auth, nil\n"
@@ -772,14 +777,12 @@ func TestTenancyApply_oneSignInRule(t *testing.T) {
 	ownForm := strings.Replace(base, skeletonEnd, ownEnd, 1)
 	oneAlready := "pkg/auth/staff/staff.go: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does, so the sign-in rule was not changed, and New sets one already; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the call New makes now the tenant policy with the rule that stood chained after it: authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(<the rule New sets now>)); and set the check the account page's Password line follows beside it: authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))"
 	// The same New with no rule at all: the tool writes none, and says which to set.
-	noRule := strings.Replace(ownForm, lone+"\n", "", 1)
 	noneSet := "pkg/auth/staff/staff.go: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does, so the sign-in rule was not set; call authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations)) before the first request, and authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations))) beside it, which the account page's Password line follows"
 	tests := []struct {
 		name        string
 		staff       string
 		wantCalls   int
 		wantRule    string
-		wantDid     bool
 		wantSkipped bool
 		// wantLeft is a line the change leaves for the reader, beside the two above.
 		wantLeft string
@@ -789,19 +792,19 @@ func TestTenancyApply_oneSignInRule(t *testing.T) {
 		{
 			// The reader is told to make the one call the tenant policy, never to add a
 			// second call beside the rule that stands.
-			name: "a New of another form keeps its one rule, and the change says to make that call the tenant policy", staff: ownForm, wantCalls: 1, wantLeft: oneAlready,
-			wantRule: lone,
+			name: "a New of another form keeps its one rule, and the change says to make that call the tenant policy", staff: withHouseRule(ownForm), wantCalls: 1, wantLeft: oneAlready,
+			wantRule: houseRule,
 		},
 		{
-			name: "the base's rule is chained into the tenant policy", staff: base, wantCalls: 1, wantDid: true, wantCheck: true,
-			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))",
-		},
-		{
-			name: "a rule of another form is left, and the change says the two must become one", staff: strings.Replace(base, lone, "authSession.SetSignInPolicy(houseRule)", 1), wantCalls: 2, wantSkipped: true, wantCheck: true,
+			name: "the base gains the tenant policy as its one rule", staff: base, wantCalls: 1, wantCheck: true,
 			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))",
 		},
 		{
-			name: "a New of another form that sets no rule is left so, and the change names the rule and the check to set", staff: noRule, wantCalls: 0, wantLeft: noneSet,
+			name: "a rule of another form is left, and the change says the two must become one", staff: withHouseRule(base), wantCalls: 2, wantSkipped: true, wantCheck: true,
+			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))",
+		},
+		{
+			name: "a New of another form that sets no rule is left so, and the change names the rule and the check to set", staff: ownForm, wantCalls: 0, wantLeft: noneSet,
 		},
 	}
 	for _, tt := range tests {
@@ -829,8 +832,8 @@ func TestTenancyApply_oneSignInRule(t *testing.T) {
 			if got, want := strings.Count(staff, ".SetPasswordDisabledCheck("), strings.Count(staff, "SetSignInPolicy(signin.TenantPolicy("); got != want {
 				t.Errorf("staff.go sets the password-disabled check %d time(s) and the tenant policy %d time(s), want as many", got, want)
 			}
-			if got := slices.Contains(ch.Did, chainedDid); got != tt.wantDid {
-				t.Errorf("Did says the rule was chained = %t, want %t; got:\n%s", got, tt.wantDid, strings.Join(ch.Did, "\n"))
+			if got, want := strings.Contains(staff, authpkg.NoSignInRule), tt.wantCalls == 0; got != want {
+				t.Errorf("staff.go says it sets no sign-in rule = %t, want %t:\n%s", got, want, staff)
 			}
 			if got := slices.Contains(ch.Skipped, twoRules); got != tt.wantSkipped {
 				t.Errorf("Skipped says the two rules must become one = %t, want %t; got:\n%s", got, tt.wantSkipped, strings.Join(ch.Skipped, "\n"))
@@ -969,19 +972,15 @@ func TestTenancyApply_whoIsAdmittedWithoutATenant(t *testing.T) {
 	staff := read(t, a, "pkg/auth/staff/staff.go")
 	for _, want := range []string{
 		"\t// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a\n\t// person who signs up through a sign-in method an administrator opened signs in\n\t// first and creates a tenant of their own, and keeps their account when the method\n\t// is made invite only again.",
-		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n" + passwordDisabledCheck,
+		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n" + passwordDisabledCheck,
 	} {
 		if !strings.Contains(staff, want) {
 			t.Errorf("staff.go lacks %q:\n%s", want, staff)
 		}
 	}
-	// An Auth has one rule: the call that set the second factor alone is gone, and a
-	// second call would panic when the auth opens.
+	// An Auth has one rule: a second call would panic when the auth opens.
 	if n := strings.Count(staff, ".SetSignInPolicy("); n != 1 {
 		t.Errorf("staff.go calls SetSignInPolicy %d time(s), want once:\n%s", n, staff)
-	}
-	if lone := "authSession.SetSignInPolicy(requireSecondFactor)"; strings.Contains(staff, lone) {
-		t.Errorf("staff.go still holds %q beside the tenant policy", lone)
 	}
 	if refused := "A person who holds no tenant is refused (no_tenant)"; strings.Contains(staff, refused) {
 		t.Errorf("staff.go says %q of the auth whose people create a tenant of their own", refused)

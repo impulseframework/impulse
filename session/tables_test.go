@@ -30,7 +30,7 @@ func TestTablesWithPrefix(t *testing.T) {
 			want: Tables{
 				Sessions: "CrewSessions", Users: "CrewSessionUsers", Identities: "CrewSessionIdentities",
 				PendingSignIns: "CrewSessionPendingSignIns", SignInAttempts: "CrewSessionSignInAttempts", SignInMethods: "CrewSessionSignInMethods",
-				MailLinks: "CrewSessionMailLinks", FactorCodes: "CrewSessionFactorCodes", TrustedDevices: "CrewSessionTrustedDevices",
+				SignInSettings: "CrewSessionSignInSettings", MailLinks: "CrewSessionMailLinks", FactorCodes: "CrewSessionFactorCodes", TrustedDevices: "CrewSessionTrustedDevices",
 				Tokens: "CrewSessionTokens", DeviceCodes: "CrewSessionDeviceCodes",
 				AuthEvents: "CrewSessionAuthEvents", Impersonations: "CrewSessionImpersonations",
 			},
@@ -80,7 +80,7 @@ func TestDefaultTables(t *testing.T) {
 	want := Tables{
 		Sessions: "Sessions", Users: "SessionUsers", Identities: "SessionIdentities",
 		PendingSignIns: "SessionPendingSignIns", SignInAttempts: "SessionSignInAttempts", SignInMethods: "SessionSignInMethods",
-		MailLinks: "SessionMailLinks", FactorCodes: "SessionFactorCodes", TrustedDevices: "SessionTrustedDevices",
+		SignInSettings: "SessionSignInSettings", MailLinks: "SessionMailLinks", FactorCodes: "SessionFactorCodes", TrustedDevices: "SessionTrustedDevices",
 		Tokens: "SessionTokens", DeviceCodes: "SessionDeviceCodes",
 		AuthEvents: "SessionAuthEvents", Impersonations: "SessionImpersonations",
 	}

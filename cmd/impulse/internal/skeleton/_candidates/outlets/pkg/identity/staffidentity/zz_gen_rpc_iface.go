@@ -16,12 +16,14 @@ type Method interface {
 		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
 		RemoveStaffRole | RemoveStaffTenantGroupMember | RemoveStaffTenantPassword |
 		RemoveStaffTenantRole | RemoveStaffTenantUser | RenameStaffTenantUser | RenameStaffUser |
-		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
-		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
-		RevokeStaffUserTrustedDevices | SendStaffTenantUserPasswordResetLink |
-		SendStaffUserPasswordResetLink | SetStaffSelfServiceReset | SetStaffTenantUserEmail |
-		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
-		TakeStaffRole | TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
+		RequireStaffPasswordChange | RequireStaffSecondFactor |
+		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
+		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
+		SendStaffTenantUserPasswordResetLink | SendStaffUserPasswordResetLink |
+		SetStaffRememberedBrowsers | SetStaffSelfServiceReset | SetStaffTenantUserEmail |
+		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
+		StopRequiringStaffSecondFactor | TakeStaffGroupRole | TakeStaffRole |
+		TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
 		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
 		WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
 }

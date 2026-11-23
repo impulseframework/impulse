@@ -276,6 +276,21 @@
               ]
             },
             {
+              "resource": "CrewSignInSettings",
+              "fields": [
+                "position",
+                "rememberBrowserDays",
+                "requireSecondFactor",
+                "says"
+              ]
+            },
+            {
+              "resource": "CrewRememberLengths",
+              "fields": [
+                "days"
+              ]
+            },
+            {
               "resource": "CrewSessionAuthEvents",
               "fields": [
                 "connection",
@@ -933,6 +948,15 @@
             },
             {
               "resource": "SetCrewSelfServiceReset"
+            },
+            {
+              "resource": "RequireCrewSecondFactor"
+            },
+            {
+              "resource": "StopRequiringCrewSecondFactor"
+            },
+            {
+              "resource": "SetCrewRememberedBrowsers"
             },
             {
               "resource": "InviteCrewUser"

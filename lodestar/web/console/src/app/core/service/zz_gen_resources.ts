@@ -899,6 +899,11 @@ export interface CrewListedRoleGrants {
   skipped?: string;
 }
 
+export interface CrewRememberLengths {
+  name: string;
+  days?: number;
+}
+
 export interface CrewSectorDirectoryRoles {
   name: string;
   description?: string;
@@ -931,6 +936,14 @@ export interface CrewSignInMethods {
   ownRule?: boolean;
   says?: string;
   selfServiceReset?: boolean;
+}
+
+export interface CrewSignInSettings {
+  name: string;
+  position?: number;
+  says?: string;
+  requireSecondFactor?: boolean;
+  rememberBrowserDays?: number;
 }
 
 export interface CrewSignInWays {
@@ -971,6 +984,31 @@ export interface MembersListedRoleGrants {
   condition: string;
   updatedAt?: Date;
   skipped?: string;
+}
+
+export interface MembersRememberLengths {
+  name: string;
+  days?: number;
+}
+
+export interface MembersSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  ownRule?: boolean;
+  says?: string;
+  selfServiceReset?: boolean;
+}
+
+export interface MembersSignInSettings {
+  name: string;
+  position?: number;
+  says?: string;
+  requireSecondFactor?: boolean;
+  rememberBrowserDays?: number;
 }
 
 export interface PilotCards {
@@ -2386,6 +2424,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewRememberLengths]: {
+    route: 'crew-remember-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'days', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewSectorDirectoryRoles]: {
     route: 'sectors/{sectorID}/crew-sector-directory-roles',
     readDisabled: true,
@@ -2455,6 +2507,23 @@ const resourceMap = defineResourceMap({
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSignInSettings]: {
+    route: 'crew-sign-in-settings',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'sign-in setting', many: 'sign-in settings' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'position', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'requireSecondFactor', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'rememberBrowserDays', displayType: 'number', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSignInWays]: {
@@ -2540,6 +2609,58 @@ const resourceMap = defineResourceMap({
       { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersRememberLengths]: {
+    route: 'members-remember-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'days', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersSignInMethods]: {
+    route: 'members-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'way to sign in', many: 'ways to sign in' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersSignInSettings]: {
+    route: 'members-sign-in-settings',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'sign-in setting', many: 'sign-in settings' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'position', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'requireSecondFactor', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'rememberBrowserDays', displayType: 'number', required: false, isIndex: false },
     ],
   },
   [Resources.PilotCards]: {
@@ -2729,15 +2850,20 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewInvitedSectors]: PermissionScopes.global,
   [Resources.CrewInvitedSectorRoles]: PermissionScopes.global,
   [Resources.CrewListedRoleGrants]: PermissionScopes.global,
+  [Resources.CrewRememberLengths]: PermissionScopes.global,
   [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
   [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
   [Resources.CrewSignInMethods]: PermissionScopes.global,
+  [Resources.CrewSignInSettings]: PermissionScopes.global,
   [Resources.CrewSignInWays]: PermissionScopes.global,
   [Resources.CrewTakeLengths]: PermissionScopes.global,
   [Resources.CrewTakeableRoles]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
   [Resources.MembersListedRoleGrants]: PermissionScopes.global,
+  [Resources.MembersRememberLengths]: PermissionScopes.global,
+  [Resources.MembersSignInMethods]: PermissionScopes.global,
+  [Resources.MembersSignInSettings]: PermissionScopes.global,
   [Resources.PilotCards]: PermissionScopes.global,
   [Resources.SectorHazardBoards]: PermissionScopes.domain,
   [Resources.ServiceLedgers]: PermissionScopes.global,

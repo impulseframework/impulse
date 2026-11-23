@@ -982,6 +982,34 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetPendingSignInsTableName(name 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPendingSignInsTableName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetPendingSignInsTableName), name)
 }
 
+// SetRememberBrowserDays mocks base method.
+func (m *MockAuthStoreMethods[Tx]) SetRememberBrowserDays(ctx context.Context, days int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRememberBrowserDays", ctx, days)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRememberBrowserDays indicates an expected call of SetRememberBrowserDays.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetRememberBrowserDays(ctx, days any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRememberBrowserDays", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetRememberBrowserDays), ctx, days)
+}
+
+// SetRequireSecondFactor mocks base method.
+func (m *MockAuthStoreMethods[Tx]) SetRequireSecondFactor(ctx context.Context, on bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRequireSecondFactor", ctx, on)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRequireSecondFactor indicates an expected call of SetRequireSecondFactor.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetRequireSecondFactor(ctx, on any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRequireSecondFactor", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetRequireSecondFactor), ctx, on)
+}
+
 // SetSelfServiceReset mocks base method.
 func (m *MockAuthStoreMethods[Tx]) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
 	m.ctrl.T.Helper()
@@ -1050,6 +1078,20 @@ func (m *MockAuthStoreMethods[Tx]) SetSignInMethodsTableName(name string) error 
 func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetSignInMethodsTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInMethodsTableName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetSignInMethodsTableName), name)
+}
+
+// SetSignInSettingsTableName mocks base method.
+func (m *MockAuthStoreMethods[Tx]) SetSignInSettingsTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSignInSettingsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSignInSettingsTableName indicates an expected call of SetSignInSettingsTableName.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetSignInSettingsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInSettingsTableName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetSignInSettingsTableName), name)
 }
 
 // SetTokensTableName mocks base method.
@@ -1205,6 +1247,21 @@ func (m *MockAuthStoreMethods[Tx]) SignInMethods(ctx context.Context) ([]*sessio
 func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SignInMethods(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInMethods", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SignInMethods), ctx)
+}
+
+// SignInSettings mocks base method.
+func (m *MockAuthStoreMethods[Tx]) SignInSettings(ctx context.Context) (*sessionstorage.SignInSettings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignInSettings", ctx)
+	ret0, _ := ret[0].(*sessionstorage.SignInSettings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignInSettings indicates an expected call of SignInSettings.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SignInSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInSettings", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SignInSettings), ctx)
 }
 
 // SignUp mocks base method.

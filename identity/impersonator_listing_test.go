@@ -34,6 +34,7 @@ const (
 	ofAGroup  = "it names a group and no person; a role that reaches the real person through a group they are in is what the rule cannot see, and what a mask that refuses the class access refuses"
 	ofAMethod = "it sets what a sign-in method of the auth offers everyone, and names no person"
 	withdrawn = "it takes back what an invitation would have given, and gives the real person nothing"
+	ofSignIn  = "it sets what every sign-in of the auth asks for, and names no person"
 )
 
 // guardedMethods lists every exported method of the Manager and of a Tenant, each with
@@ -145,6 +146,12 @@ var guardedMethods = map[string]subjectRule{
 		none: "it hands the manager the function its sign-in hooks announce what they wrote through, once, where the application is wired, and names no person",
 	},
 
+	// What every sign-in asks for (signin_settings.go).
+	"Manager.RequireSecondFactor":              {none: ofSignIn},
+	"Manager.StopRequiringSecondFactorWarning": {none: ofSignIn},
+	"Manager.StopRequiringSecondFactor":        {none: ofSignIn},
+	"Manager.SetRememberedBrowsers":            {none: ofSignIn},
+
 	"Manager.Tenant":                          {none: reads},
 	"Manager.TenantRoles":                     {none: reads},
 	"Manager.TenantAdministratorRoles":        {none: reads},
@@ -160,6 +167,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.InvitedTenants":                  {none: reads},
 	"Manager.SignInMethods":                   {none: reads},
 	"Manager.AnyMethodOpen":                   {none: reads},
+	"Manager.SignInSettings":                  {none: reads},
 	"Manager.SignUpRoles":                     {none: reads},
 	"Manager.StartingRoles":                   {none: reads},
 	"Manager.SkippedStoredGrants":             {none: reads},

@@ -40,6 +40,8 @@ type SessionStorageDriver struct {
 	mailLinksTableName string
 	// signInMethodsTableName names the auth schema's sign-in methods table.
 	signInMethodsTableName string
+	// signInSettingsTableName names the auth schema's sign-in settings table.
+	signInSettingsTableName string
 	// tokensTableName names the auth schema's tokens table.
 	tokensTableName string
 	// deviceCodesTableName names the auth schema's device codes table.
@@ -65,6 +67,7 @@ func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 		attemptsTableName:       dbtype.SignInAttemptsTable,
 		mailLinksTableName:      dbtype.MailLinksTable,
 		signInMethodsTableName:  dbtype.SignInMethodsTable,
+		signInSettingsTableName: dbtype.SignInSettingsTable,
 		tokensTableName:         dbtype.TokensTable,
 		deviceCodesTableName:    dbtype.DeviceCodesTable,
 		factorCodesTableName:    dbtype.FactorCodesTable,
@@ -245,6 +248,17 @@ func (s *SessionStorageDriver) SetSignInMethodsTableName(name string) error {
 		return errors.Wrap(err, "dbtype.ValidateTableName()")
 	}
 	s.signInMethodsTableName = name
+
+	return nil
+}
+
+// SetSignInSettingsTableName sets the name of the sign-in settings table; a name that
+// is not an identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetSignInSettingsTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
+	s.signInSettingsTableName = name
 
 	return nil
 }

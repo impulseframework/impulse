@@ -15,7 +15,8 @@ func TestDefaultTablesAreTheLibrarys(t *testing.T) {
 
 	got := session.Tables{
 		Sessions: DefaultSessionTable, Users: DefaultUserTable, Identities: DefaultIdentitiesTable,
-		PendingSignIns: DefaultPendingTable, SignInAttempts: DefaultAttemptsTable, SignInMethods: DefaultSignInMethodsTable, MailLinks: DefaultMailLinksTable,
+		PendingSignIns: DefaultPendingTable, SignInAttempts: DefaultAttemptsTable, SignInMethods: DefaultSignInMethodsTable,
+		SignInSettings: DefaultSignInSettingsTable, MailLinks: DefaultMailLinksTable,
 		FactorCodes: DefaultFactorCodesTable, TrustedDevices: DefaultTrustedDevicesTable,
 		Tokens: DefaultTokensTable, DeviceCodes: DefaultDeviceCodesTable,
 		AuthEvents: DefaultAuthEventsTable, Impersonations: DefaultImpersonationTable,
