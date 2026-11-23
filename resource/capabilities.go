@@ -172,14 +172,24 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 			}
 			resources = resources[:0]
 			var held accesstypes.Resource
+			keptOffOwn := false
 			for _, tm := range executeCandidates(q.collection, q.resourceSet.BaseResource()) {
 				resources = append(resources, tm.Method)
 				if tm.CallerEnters && held == "" {
 					held = tm.Method
 				}
+				if tm.OwnAccountColumn != "" {
+					keptOffOwn = true
+				}
 			}
 			if len(resources) == 0 {
 				continue
+			}
+			// A method a row keeps off the caller's own account (@notOnOwnAccount)
+			// needs the accounts that are the caller's own, read once from the
+			// session.
+			if keptOffOwn && q.ownAccounts == nil {
+				q.ownAccounts = sessionOwnAccounts(ctx)
 			}
 			// A method offered only to a caller whose session enters the row's
 			// tenants (@callerEnters), one that names the row or one offered on
@@ -242,12 +252,27 @@ type capabilityGroups struct {
 
 	// held marks, by group, a boolean that also holds the row to the tenants
 	// its caller's session enters (@callerEnters): its expression, if any,
-	// ANDed with the entering term. A held group's expression is nil where the
-	// method has none of its own. heldBySource dedupes the held groups by
-	// their expression's canonical source as bySource dedupes the rest, so a
-	// held and an unheld method with one expression take two booleans.
-	held         []bool
-	heldBySource map[string]int
+	// ANDed with the entering term. ownColumns name, by group, the row's column
+	// a boolean also holds to none of the caller's own accounts
+	// (@notOnOwnAccount), "" for none: its expression and entering term, if
+	// any, ANDed with the own-account term. A marked group's expression is nil
+	// where the method has none of its own. markedBy dedupes the marked groups
+	// by their expression's canonical source, their entering mark and their
+	// column as bySource dedupes the rest, so a marked and an unmarked method
+	// with one expression take two booleans, and so do two methods marked
+	// otherwise.
+	held       []bool
+	ownColumns []string
+	markedBy   map[groupMarks]int
+}
+
+// groupMarks is what a marked boolean is deduped by: its expression's canonical
+// source, "" for none, whether it is held to the tenants the caller's session
+// enters, and the column it holds to none of the caller's own accounts.
+type groupMarks struct {
+	source    string
+	held      bool
+	ownColumn string
 }
 
 // intern resolves one Conditional decision's payload to its group index,
@@ -281,29 +306,32 @@ func (g *capabilityGroups) internExpr(expr condition.Expr) int {
 		g.bySource[source] = idx
 		g.exprs = append(g.exprs, expr)
 		g.held = append(g.held, false)
+		g.ownColumns = append(g.ownColumns, "")
 	}
 
 	return idx
 }
 
-// internHeld resolves a held method's boolean to its group index: its own
+// internMarked resolves a marked method's boolean to its group index: its own
 // expression, nil when it has none, held to the tenants the caller's session
-// enters. Every held method with the same expression, or with none, shares
-// one boolean.
-func (g *capabilityGroups) internHeld(expr condition.Expr) int {
-	source := ""
+// enters where held says so, and to none of the caller's own accounts by
+// ownColumn where it is not "". Every marked method with the same expression,
+// or with none, and the same marks shares one boolean.
+func (g *capabilityGroups) internMarked(expr condition.Expr, held bool, ownColumn string) int {
+	marks := groupMarks{held: held, ownColumn: ownColumn}
 	if expr != nil {
-		source = expr.String()
+		marks.source = expr.String()
 	}
-	idx, ok := g.heldBySource[source]
+	idx, ok := g.markedBy[marks]
 	if !ok {
-		if g.heldBySource == nil {
-			g.heldBySource = make(map[string]int)
+		if g.markedBy == nil {
+			g.markedBy = make(map[groupMarks]int)
 		}
 		idx = len(g.exprs)
-		g.heldBySource[source] = idx
+		g.markedBy[marks] = idx
 		g.exprs = append(g.exprs, expr)
-		g.held = append(g.held, true)
+		g.held = append(g.held, held)
+		g.ownColumns = append(g.ownColumns, ownColumn)
 	}
 
 	return idx
@@ -389,8 +417,12 @@ func (q *QuerySet[Resource]) plannedUpdate(perm accesstypes.Permission, decision
 // session does not enter some tenant; while it enters every one, the method is
 // planned as any other. A method that names no row and is offered on the
 // resource's rows (@callerEnters naming the resource) is a candidate beside them,
-// planned as a plain method held to the tenants the caller enters. Distinct
-// expressions share one boolean per statement, the held apart from the rest.
+// planned as a plain method held to the tenants the caller enters. A method a
+// row keeps off the caller's own account (@notOnOwnAccount) ANDs the
+// own-account term into its boolean, or takes the term alone, while the
+// request has an account of its own; while it has none, the method is planned
+// as any other. Distinct expressions share one boolean per statement, the
+// marked apart from the rest and from those marked otherwise.
 func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, groups *capabilityGroups) (plannedCapability, error) {
 	planned := plannedCapability{perm: accesstypes.Execute, group: -1}
 	if q.collection == nil {
@@ -428,10 +460,15 @@ func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, gro
 		case 2:
 			expr = condition.And{Operands: exprs}
 		}
+		held := tm.CallerEnters && len(q.unentered) > 0
+		ownColumn := ""
+		if len(q.ownAccounts) > 0 {
+			ownColumn = tm.OwnAccountColumn
+		}
 		group := -1
 		switch {
-		case tm.CallerEnters && len(q.unentered) > 0:
-			group = groups.internHeld(expr)
+		case held || ownColumn != "":
+			group = groups.internMarked(expr, held, ownColumn)
 		case expr != nil:
 			group = groups.internExpr(expr)
 		}
@@ -587,8 +624,15 @@ func (q *QuerySet[Resource]) renderCapabilities(dbType DBType, registry *paramRe
 				return nil, "", err
 			}
 		}
+		var marks []string
 		if groups.held[i] {
-			term := q.enteringTerm(gen, lctx.outer, entering, registry)
+			marks = append(marks, q.enteringTerm(gen, lctx.outer, entering, registry))
+		}
+		if column := groups.ownColumns[i]; column != "" {
+			marks = append(marks, ownAccountTerm(gen, lctx.outer, column, q.ownAccounts, registry))
+		}
+		if len(marks) > 0 {
+			term := strings.Join(marks, " AND ")
 			if sql == "" {
 				sql = term
 			} else {
