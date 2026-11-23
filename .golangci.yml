@@ -208,6 +208,12 @@ linters:
       - .WithMessagef(
       - .Cause(
       - .RetryableError(
+      - dbtype.AccountNotFound(
+      - dbtype.UsernameNotFound(
+      - dbtype.EmailNotFound(
+      - dbtype.SessionNotFound(
+      - dbtype.SignInIdentityNotFound(
+      - dbtype.SignInIdentityNotLinked(
       - sessioninfo.ImpersonatorRefusal(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(

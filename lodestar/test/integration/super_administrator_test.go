@@ -60,8 +60,8 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 	const (
 		inAnvil    = `,"domain":"` + anvil + `"`
 		everywhere = `,"everyDomain":true`
-		lastHolder = "This person is the last super administrator who can sign in"
-		notAHolder = "you do not hold the Super Administrator role"
+		lastHolder = "This person is the last super administrator who can sign in. Give another person the Super administrator role before you "
+		notAHolder = "you are not one."
 	)
 
 	// A holder makes another: the governor gives sol, who holds nothing, the role and
@@ -71,20 +71,20 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 
 	status, body = post(hana, "assign-crew-role", role(ivanID, "SuperAdministrator", ""))
-	refused("headquarters giving the role", status, body, http.StatusForbidden, "Only a super administrator gives the Super Administrator role, and "+notAHolder)
+	refused("headquarters giving the role", status, body, http.StatusForbidden, "Only a super administrator gives the Super administrator role, and "+notAHolder)
 	status, body = post(hana, "invite-crew-user", `{"email":"jo-`+sfx+`@example.com","roles":["SuperAdministrator"]}`)
-	refused("headquarters inviting a person to the role", status, body, http.StatusForbidden, "Only a super administrator invites a person to the Super Administrator role, and "+notAHolder)
+	refused("headquarters inviting a person to the role", status, body, http.StatusForbidden, "Only a super administrator invites a person to the Super administrator role, and "+notAHolder)
 	status, body = post(hana, "remove-crew-role", role(solID, "SuperAdministrator", ""))
-	refused("headquarters taking the role from a holder", status, body, http.StatusForbidden, "Only a super administrator takes the Super Administrator role away, and "+notAHolder)
+	refused("headquarters taking the role from a holder", status, body, http.StatusForbidden, "Only a super administrator takes the Super administrator role away, and "+notAHolder)
 	status, body = post(hana, "delete-crew-user", `{"userId":"`+solID+`"}`)
-	refused("headquarters deleting a holder's account", status, body, http.StatusForbidden, "Only a super administrator deletes a super administrator's account")
+	refused("headquarters deleting a holder's account", status, body, http.StatusForbidden, "Only a super administrator deletes a super administrator's account, since the role goes with it, and "+notAHolder)
 	status, body = post(hana, "disable-crew-user", `{"userId":"`+solID+`"}`)
 	refused("headquarters disabling a holder's account", status, body, http.StatusForbidden, "Only a super administrator disables a super administrator's account, and "+notAHolder)
 	if disabled := readColumn[bool](t.Context(), t, w.db, "CrewSessionUsers", spanner.Key{solID}, "Disabled"); disabled {
 		t.Error("sol's account after headquarters was refused disabling it: disabled, want it left as it was")
 	}
 	status, body = post(hana, "assign-crew-role", role(hanaID, "SuperAdministrator", ""))
-	refused("headquarters giving herself the role", status, body, http.StatusForbidden, notAHolder)
+	refused("headquarters giving herself the role", status, body, http.StatusForbidden, "Only a super administrator gives the Super administrator role, and "+notAHolder)
 
 	// How a holder signs in is a holder's to change. Sol's two identities are written as
 	// a directory sign-in writes one; headquarters, whose role file lets her run each of
@@ -172,13 +172,13 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 		t.Error("sol's account after headquarters was refused enabling it: enabled, want it left disabled")
 	}
 	status, body = post("governor", "remove-crew-role", role(governor, "SuperAdministrator", ""))
-	refused("the last holder giving the role up", status, body, http.StatusForbidden, "You are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own")
+	refused("the last holder giving the role up", status, body, http.StatusForbidden, "You are the last super administrator who can sign in. Give another person the Super administrator role before you remove your own.")
 	status, body = post(sol, "remove-crew-role", role(governor, "SuperAdministrator", ""))
-	refused("another holder taking the last holder's role", status, body, http.StatusForbidden, lastHolder)
+	refused("another holder taking the last holder's role", status, body, http.StatusForbidden, lastHolder+"take the role from them.")
 	status, body = post(sol, "disable-crew-user", `{"userId":"`+governor+`"}`)
-	refused("another holder disabling the last holder's account", status, body, http.StatusForbidden, lastHolder)
+	refused("another holder disabling the last holder's account", status, body, http.StatusForbidden, lastHolder+"disable their account.")
 	status, body = post(sol, "delete-crew-user", `{"userId":"`+governor+`"}`)
-	refused("another holder deleting the last holder's account", status, body, http.StatusForbidden, lastHolder)
+	refused("another holder deleting the last holder's account", status, body, http.StatusForbidden, lastHolder+"delete their account.")
 	if got := readColumn[string](t.Context(), t, w.db, "CrewUserRoles", crewMembershipKey("SuperAdministrator", accesstypes.User(governor)), "UserId"); got != governor {
 		t.Errorf("the governor's Super Administrator membership after the refusals: user = %q, want it kept", got)
 	}
@@ -190,7 +190,7 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 	status, body = post("governor", "remove-crew-role", role(governor, "SuperAdministrator", ""))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = post("governor", "assign-crew-role", role(governor, "SuperAdministrator", ""))
-	refused("a person who gave the role up taking it back", status, body, http.StatusForbidden, notAHolder)
+	refused("a person who gave the role up taking it back", status, body, http.StatusForbidden, "Only a super administrator gives the Super administrator role, and "+notAHolder)
 
 	// The rule on a holder's sign-in follows the role, not the person: the governor, who
 	// ran these methods on sol a moment ago and still holds headquarters, is refused

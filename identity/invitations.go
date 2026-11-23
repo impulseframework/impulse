@@ -178,7 +178,7 @@ func (m *Manager) refuseUninvitable(ctx context.Context, txn resource.ReadWriteT
 		return m.refuseAbsentRole(ctx, txn, role, scope)
 	}
 	if role == accesstypes.SuperAdministrator {
-		if err := m.requireSuperAdministrator(ctx, txn, "invites a person to the Super Administrator role"); err != nil {
+		if err := m.requireSuperAdministrator(ctx, txn, "invites a person to the Super administrator role"); err != nil {
 			return err
 		}
 	}

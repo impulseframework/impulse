@@ -61,7 +61,7 @@ func superAdministratorKey(user accesstypes.User) access.MembershipKey {
 // requireSuperAdministrator refuses an act that makes or removes a super administrator
 // unless the real person behind the request holds the role in this auth, read in the
 // transaction (callerActor). act says what was asked, as the middle of a sentence
-// ("gives the Super Administrator role"). A caller who came through another auth is
+// ("gives the Super administrator role"). A caller who came through another auth is
 // nobody of this one and holds no role here; a call outside any request is the
 // application's act and goes through.
 func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.ReadWriteTransaction, act string) error {
@@ -81,7 +81,7 @@ func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.Re
 		}
 	}
 
-	return httpio.NewForbiddenMessagef("Only a super administrator %s, and you do not hold the Super Administrator role", act)
+	return httpio.NewForbiddenMessagef("Only a super administrator %s, and you are not one.", act)
 }
 
 // requireSuperAdministratorFor refuses an act on how a person signs in, or on where the
@@ -127,7 +127,7 @@ func callerActor(ctx context.Context, caller *resource.Caller) (actor accesstype
 // refuseLastSuperAdministrator refuses an act that would leave the auth with no super
 // administrator who can sign in: userID holds the role, their account is not disabled,
 // and nobody else is both. act says what was asked of the person, as the end of a
-// sentence ("take the Super Administrator role from them", "disable their account").
+// sentence ("take the role from them", "disable their account").
 // It is refused whoever asks, a call outside any request included. A person who holds
 // the role and cannot sign in is nobody's way back in, so an act on them is not judged.
 //
@@ -145,10 +145,10 @@ func (m *Manager) refuseLastSuperAdministrator(ctx context.Context, txn resource
 		return err
 	}
 	if m.callerIs(ctx, userID) {
-		return httpio.NewForbiddenMessage("You are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own")
+		return httpio.NewForbiddenMessage("You are the last super administrator who can sign in. Give another person the Super administrator role before you remove your own.")
 	}
 
-	return httpio.NewForbiddenMessagef("This person is the last super administrator who can sign in: give another person the Super Administrator role before you %s", act)
+	return httpio.NewForbiddenMessagef("This person is the last super administrator who can sign in. Give another person the Super administrator role before you %s.", act)
 }
 
 // lastSuperAdministrator reports whether userID is the one super administrator who can

@@ -196,7 +196,7 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled", emailColumn, emailVerifiedAtColumn})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return nil, dbtype.AccountNotFound(userID)
 		}
 
 		return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -402,7 +402,7 @@ func (s *SessionStorageDriver) Identity(ctx context.Context, method sessioninfo.
 		return nil, err
 	}
 	if link == nil {
-		return nil, httpio.NewNotFoundMessagef("identity (%s, %q, %q) is not linked", method, connection, subject)
+		return nil, dbtype.SignInIdentityNotLinked(method, connection, subject)
 	}
 
 	return link, nil
@@ -465,7 +465,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 		row, err := txn.ReadRow(ctx, s.identitiesTableName, spanner.Key{identityID.String()}, []string{"UserId"})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
+				return dbtype.SignInIdentityNotFound(identityID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -692,7 +692,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		row, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID.String()}, []string{expiredColumnName})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+				return dbtype.SessionNotFound(sessionID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")

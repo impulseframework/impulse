@@ -29,9 +29,9 @@ func TestManager_ownPeriod_lastAdministrator(t *testing.T) {
 	sooner := accesstypes.Period{End: current.End.Add(-30 * time.Minute)}
 	laterStart := accesstypes.Period{Start: upcoming.Start.Add(30 * time.Minute), End: upcoming.End}
 	const (
-		removing = "you are the last administrator of this tenant: give another person the role before you remove your own"
-		leaving  = "you are the last administrator of this tenant: give another person the role before you leave the group that gives you yours"
-		taking   = "you are the last administrator of this tenant: give another person the role before you take it from the group that gives you yours"
+		removing = "You are the last administrator of this tenant. Give another person the role before you remove your own."
+		leaving  = "You are the last administrator of this tenant. Give another person the role before you leave the group that gives you yours."
+		taking   = "You are the last administrator of this tenant. Give another person the role before you take it from the group that gives you yours."
 	)
 	own := access.NewMembershipKey(alphaScope, dana, "Reader")
 	ownWriter := access.NewMembershipKey(alphaScope, dana, "Writer")
