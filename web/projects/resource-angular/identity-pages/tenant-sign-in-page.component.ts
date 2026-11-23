@@ -6,6 +6,7 @@ import {
   AnyResourceHandle,
   CreatePermission,
   DeletePermission,
+  DirectorySecondFactor,
   Domain,
   ExecutePermission,
   ListPermission,
@@ -36,6 +37,9 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * tenant's directory by the name people know it by, the role a person gets the first time
  * they sign in through it in plain words, and whether the tenant is directory only, with
  * how many of its people that keeps out, a count that opens those people on the People page.
+ * Where the application's directories carry it, the page also says whether the tenant
+ * vouches for its directory's own second factor, with the control that says so or takes it
+ * back.
  *
  * What it says comes from two reads: the read of the tenant's sign-in settings, asked
  * where the digest grants any of the tenant's own sign-in methods the route names, which
@@ -43,10 +47,10 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * directories, asked where the digest grants List on it, which says only whether there is
  * one. A tenant has one directory, and nobody types one in: a person who may create it and
  * is signed in through an organization's directory makes that one the tenant's, and the
- * request names none. Everything else the page changes is one of the tenant's own methods, run through
- * the library's method dialog; a method that warns is asked for its warning first, so a
- * refusal is shown on the page in the server's words and no dialog opens. After a write
- * the page reads both again.
+ * request names none. Everything else the page changes is one of the tenant's own methods,
+ * run through the library's method dialog; a method that warns is asked for its warning
+ * first, so a refusal is shown on the page in the server's words and no dialog opens.
+ * After a write the page reads both again.
  *
  * The route carries the names (tenantSignInRoute); the tenant is the one the page is open
  * in. The page draws nothing until the tenant's digest has loaded and each read it asks
@@ -99,6 +103,8 @@ export class TenantSignInPageComponent {
   readonly canInviteOnly = computed(() => this.grants('makeDirectoryInviteOnly'));
   readonly canMakeOnly = computed(() => this.grants('makeDirectoryOnly'));
   readonly canEndOnly = computed(() => this.grants('endDirectoryOnly'));
+  readonly canVouch = computed(() => this.grants('vouchForDirectorySecondFactor'));
+  readonly canStopVouching = computed(() => this.grants('stopVouchingForDirectorySecondFactor'));
 
   /**
    * The tenant's sign-in settings as they stand, read under the grant of any of the
@@ -108,7 +114,13 @@ export class TenantSignInPageComponent {
   private readonly read = resource({
     params: () => ({
       tenant: this.tenant(),
-      readable: this.canOpen() || this.canInviteOnly() || this.canMakeOnly() || this.canEndOnly(),
+      readable:
+        this.canOpen() ||
+        this.canInviteOnly() ||
+        this.canMakeOnly() ||
+        this.canEndOnly() ||
+        this.canVouch() ||
+        this.canStopVouching(),
     }),
     loader: ({ params }): Promise<TenantSignInSettings | undefined> =>
       params.readable && params.tenant ? tenantSignInSettings(this.client, params.tenant) : Promise.resolve(undefined),
@@ -267,6 +279,19 @@ export class TenantSignInPageComponent {
     (this.facts()?.conditions ?? []).filter((condition) => !condition.met),
   );
 
+  /**
+   * The second factor's part of the read: whether the tenant vouches for its directory's
+   * own second factor, in the server's words. Absent for a tenant with no directory and
+   * where the application's directories carry no word for it, and the page then draws no
+   * such part.
+   */
+  readonly secondFactor = computed((): DirectorySecondFactor | undefined => this.facts()?.secondFactor);
+
+  /** What saying the directory asks for a second factor takes of the person reading that they do not meet, in the server's sentences. */
+  readonly unmetToVouch = computed((): TenantSignInCondition[] =>
+    (this.secondFactor()?.conditions ?? []).filter((condition) => !condition.met),
+  );
+
   /** What the sentence beside the button that turns directory only off says of who is kept out. */
   readonly keptOut = computed(
     () =>
@@ -352,12 +377,25 @@ export class TenantSignInPageComponent {
     });
   }
 
+  /** Says the tenant's directory asks its people for a second factor of its own, behind the method's warning. */
+  async vouch(): Promise<void> {
+    await this.run('vouchForDirectorySecondFactor', 'Say the directory asks for a second factor', {}, {});
+  }
+
+  /** Takes back the tenant's word for its directory's second factor, once the person confirms. */
+  async stopVouching(): Promise<void> {
+    await this.run('stopVouchingForDirectorySecondFactor', 'Ask them for a code again', {
+      confirm:
+        'People who sign in through the directory will be asked for a mailed code again, from their next sign-in.',
+    });
+  }
+
   /**
    * Runs one of the tenant's methods through the library's method dialog, which draws it
    * from the method's metadata and calls it in the tenant. A method that warns is asked
    * for its warning first, with `warnedWith` as the body: the server's refusal is shown on
    * the page in its own words and no dialog opens. Once the method has run the page reads
-   * the switch and the list again.
+   * the sign-in settings and the list again.
    */
   private async run(
     kind: SignInMethod,
@@ -387,7 +425,7 @@ export class TenantSignInPageComponent {
     });
   }
 
-  /** Reads the switch and the list again. */
+  /** Reads the sign-in settings and the list again. */
   private reload(): void {
     this.read.reload();
     this.rows.reload();

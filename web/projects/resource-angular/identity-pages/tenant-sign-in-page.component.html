@@ -81,6 +81,45 @@
         }
       }
 
+      @if (secondFactor(); as factor) {
+        <h2>Second factor</h2>
+        <p class="impulse-tenant-sign-in-second-factor">{{ factor.says }}</p>
+        @if (factor.vouched) {
+          @if (canStopVouching()) {
+            <div class="impulse-tenant-sign-in-action">
+              <button
+                mat-button
+                type="button"
+                class="impulse-tenant-sign-in-stop-vouching"
+                [disabled]="busy()"
+                (click)="stopVouching()">
+                Ask them for a code again
+              </button>
+            </div>
+          }
+        } @else if (factor.asked && canVouch()) {
+          @for (condition of unmetToVouch(); track condition.sentence) {
+            <p class="impulse-tenant-sign-in-condition">
+              {{ condition.sentence }}
+              <strong>{{ condition.toDo }}</strong>
+            </p>
+          }
+          @if (unmetToVouch().length === 0) {
+            <div class="impulse-tenant-sign-in-action">
+              <button
+                mat-flat-button
+                type="button"
+                class="impulse-tenant-sign-in-vouch"
+                [disabled]="busy()"
+                (click)="vouch()">
+                Say the directory asks for a second factor
+              </button>
+              <p class="impulse-tenant-sign-in-note">You are shown what this does before it is saved.</p>
+            </div>
+          }
+        }
+      }
+
       @if (switchFacts(); as facts) {
         <h2>Directory only</h2>
         @if (facts.directoryOnly) {

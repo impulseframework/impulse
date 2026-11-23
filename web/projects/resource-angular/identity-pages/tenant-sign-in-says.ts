@@ -28,6 +28,8 @@ export interface TenantSignIn {
     makeDirectoryInviteOnly?: Method;
     makeDirectoryOnly?: Method;
     endDirectoryOnly?: Method;
+    vouchForDirectorySecondFactor?: Method;
+    stopVouchingForDirectorySecondFactor?: Method;
   };
 }
 

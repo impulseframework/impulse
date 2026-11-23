@@ -82,6 +82,39 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
     expect(route.data?.[tenantSignInKey]).toEqual(carried);
   });
 
+  it("the route carries the methods of the tenant's word for its directory's second factor where the side names them, and neither where it names none", () => {
+    const vouching: ApiDescriptor = {
+      ...descriptor,
+      identity: [
+        {
+          auth: 'Staff',
+          label: 'Staff',
+          tenant: 'Team',
+          tenantResource: 'Teams',
+          sides: [
+            side('global', {}),
+            side(
+              'domain',
+              { directories: 'TeamDirectories' },
+              {
+                ...methods,
+                vouchForDirectorySecondFactor: 'VouchForTeamDirectorySecondFactor',
+                stopVouchingForDirectorySecondFactor: 'StopVouchingForTeamDirectorySecondFactor',
+              },
+            ),
+          ],
+        },
+      ],
+    };
+
+    const carried = tenantSignInRoute(vouching, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+    expect(carried.methods.vouchForDirectorySecondFactor).toBe('VouchForTeamDirectorySecondFactor');
+    expect(carried.methods.stopVouchingForDirectorySecondFactor).toBe('StopVouchingForTeamDirectorySecondFactor');
+    const plain = tenantSignInRoute(descriptor, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+    expect(Object.keys(plain.methods)).not.toContain('vouchForDirectorySecondFactor');
+    expect(Object.keys(plain.methods)).not.toContain('stopVouchingForDirectorySecondFactor');
+  });
+
   it('refuse an Auth the description does not carry', () => {
     expect(() => tenantSignInPage(descriptor, { auth: 'Visitors' })).toThrowError(
       'tenantSignInPage: the API description carries no generated management of the auth Visitors (it carries: Staff, Members, Guests); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it',

@@ -8,6 +8,7 @@ import {
   ApiDescriptor,
   ClientBase,
   createClient,
+  DirectorySecondFactor,
   Domain,
   Method,
   MethodMeta,
@@ -105,6 +106,18 @@ const descriptor: ApiDescriptor = {
       route: 'end-team-directory-only',
       scope: 'domain',
     },
+    VouchForTeamDirectorySecondFactor: {
+      method: 'VouchForTeamDirectorySecondFactor' as Method,
+      property: 'vouchForTeamDirectorySecondFactor',
+      route: 'vouch-for-team-directory-second-factor',
+      scope: 'domain',
+    },
+    StopVouchingForTeamDirectorySecondFactor: {
+      method: 'StopVouchingForTeamDirectorySecondFactor' as Method,
+      property: 'stopVouchingForTeamDirectorySecondFactor',
+      route: 'stop-vouching-for-team-directory-second-factor',
+      scope: 'domain',
+    },
   },
   domainRoute: { segment: 'teams', param: 'teamID' },
   consolidatedRoute: 'resources',
@@ -125,6 +138,8 @@ const descriptor: ApiDescriptor = {
             makeDirectoryInviteOnly: 'MakeTeamInviteOnly',
             makeDirectoryOnly: 'MakeTeamDirectoryOnly',
             endDirectoryOnly: 'EndTeamDirectoryOnly',
+            vouchForDirectorySecondFactor: 'VouchForTeamDirectorySecondFactor',
+            stopVouchingForDirectorySecondFactor: 'StopVouchingForTeamDirectorySecondFactor',
           },
         },
       ],
@@ -153,6 +168,17 @@ const methodMeta: Record<string, MethodMeta> = {
   MakeTeamInviteOnly: { route: 'make-team-invite-only', dryRun: true, fields: [] },
   MakeTeamDirectoryOnly: { route: 'make-team-directory-only', dryRun: true, warning: { typed: 'close' }, fields: [] },
   EndTeamDirectoryOnly: { route: 'end-team-directory-only', dryRun: true, fields: [] },
+  VouchForTeamDirectorySecondFactor: {
+    route: 'vouch-for-team-directory-second-factor',
+    dryRun: true,
+    warning: { typed: 'vouch' },
+    fields: [],
+  },
+  StopVouchingForTeamDirectorySecondFactor: {
+    route: 'stop-vouching-for-team-directory-second-factor',
+    dryRun: true,
+    fields: [],
+  },
 };
 
 /** How the person signed in: through the team's Workspace, or by password, which reports no directory. */
@@ -167,6 +193,8 @@ const administrator: PermissionDigest = {
   MakeTeamInviteOnly: { Execute: 'granted' },
   MakeTeamDirectoryOnly: { Execute: 'granted' },
   EndTeamDirectoryOnly: { Execute: 'granted' },
+  VouchForTeamDirectorySecondFactor: { Execute: 'granted' },
+  StopVouchingForTeamDirectorySecondFactor: { Execute: 'granted' },
 };
 /** A reader who may list the team's directory and nothing more. */
 const lister: PermissionDigest = { TeamDirectories: { List: 'granted' } };
@@ -222,6 +250,49 @@ const withDirectoryByPassword: TenantSignInSettings = {
   conditions: [notThroughTheDirectory, hasAPassword],
 };
 
+/** What saying the team's word for its directory's second factor takes of the person reading, as the server says it. */
+const throughTheDirectoryToVouch: TenantSignInCondition = {
+  sentence:
+    "Only a person who is signed in through this team's directory, Google Workspace riverside.example, can say that it asks its people for a second factor.",
+  met: true,
+};
+/** The second factor's part of the read where the application asks everyone, for a person signed in through the directory. */
+const asksEveryone: DirectorySecondFactor = {
+  vouched: false,
+  asked: true,
+  says: 'People who sign in through Google Workspace riverside.example are asked for a code mailed to their address, as everyone is.',
+  conditions: [throughTheDirectoryToVouch],
+};
+/** The same, for a person signed in with a password, who does not meet the condition. */
+const asksEveryoneByPassword: DirectorySecondFactor = {
+  ...asksEveryone,
+  conditions: [
+    {
+      ...throughTheDirectoryToVouch,
+      met: false,
+      toDo: 'You signed in with a password. Sign in through Google Workspace riverside.example and try again.',
+    },
+  ],
+};
+/** The part where the application asks nobody for a second factor now. */
+const asksNobody: DirectorySecondFactor = {
+  vouched: false,
+  asked: false,
+  says: 'This application asks nobody for a second factor now, so there is nothing to turn off for people who sign in through Google Workspace riverside.example.',
+};
+/** The part where the team says its directory asks for a second factor. */
+const vouched: DirectorySecondFactor = {
+  vouched: true,
+  asked: true,
+  says: 'This team says that Google Workspace riverside.example asks its people for a second factor when they sign in, so they are not asked for a code.',
+};
+
+/** What the server says the team's word for its directory's second factor would do. */
+const wouldVouch: MethodWarning = {
+  consequence:
+    'You are saying that Google Workspace riverside.example asks its people for a second factor when they sign in. This application will stop asking them for a code.',
+  confirm: 'Stop asking people who sign in through Google Workspace riverside.example for a code',
+};
 /** What the server says making the team directory only would do. */
 const wouldKeepOut: MethodWarning = {
   consequence:
@@ -261,6 +332,8 @@ const ownMethods = [
   'make-team-invite-only',
   'make-team-directory-only',
   'end-team-directory-only',
+  'vouch-for-team-directory-second-factor',
+  'stop-vouching-for-team-directory-second-factor',
 ];
 
 function serverFor(world: World): (request: TransportRequest) => TransportResponse | Promise<TransportResponse> {
@@ -269,7 +342,13 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
     const own = ownMethods.find((route) => url.pathname === `/api/teams/${team}/${route}`);
     if (own && request.headers?.['X-Warning'] === 'true') {
       const role = (request.body as { role?: string } | undefined)?.role ?? '';
-      return world.warning ?? { status: 200, body: own === 'open-team-to-directory' ? wouldOpen(role) : wouldKeepOut };
+      const warned =
+        own === 'open-team-to-directory'
+          ? wouldOpen(role)
+          : own === 'vouch-for-team-directory-second-factor'
+            ? wouldVouch
+            : wouldKeepOut;
+      return world.warning ?? { status: 200, body: warned };
     }
     if (own) {
       return world.write ?? { status: 200, body: undefined };
@@ -385,12 +464,18 @@ describe('TenantSignInPageComponent', () => {
     transport.requests.filter((r) => r.url.replace(/\?.*$/, '') === `/api/teams/${team}/sign-in-settings`).length;
 
   it('is headed Sign-in settings, with a heading for each part, and names its elements for the page', async () => {
-    await pageFor({ digest: administrator, session: throughWorkspace, state: withDirectory, directories: [workspace] });
+    await pageFor({
+      digest: administrator,
+      session: throughWorkspace,
+      state: { ...withDirectory, secondFactor: asksEveryone },
+      directories: [workspace],
+    });
 
     expect(texts('h1')).toEqual(['Sign-in settings']);
     expect(texts('h2')).toEqual([
       'Directory',
       'The role a person gets the first time they sign in through it',
+      'Second factor',
       'Directory only',
     ]);
     expect(notNamedFor('impulse-tenant-sign-in-', element())).toEqual([]);
@@ -777,6 +862,246 @@ describe('TenantSignInPageComponent', () => {
     await turn();
     expect(sent('end-team-directory-only')).toEqual([{ kind: 'call', body: {} }]);
     expect(writes()).toEqual([]);
+  });
+
+  describe("says whether the team vouches for its directory's second factor", () => {
+    const line = (): string[] => texts('.impulse-tenant-sign-in-second-factor');
+    const headed = (): boolean => texts('h2').includes('Second factor');
+
+    it('not vouched, where the application asks: a holder of the method who meets its condition is offered the button', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksEveryone.says]);
+      expect(texts('.impulse-tenant-sign-in-vouch')).toEqual(['Say the directory asks for a second factor']);
+      expect(texts('.impulse-tenant-sign-in-vouch + .impulse-tenant-sign-in-note')).toEqual([
+        'You are shown what this does before it is saved.',
+      ]);
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+      expect(button('stop-vouching')).toBeNull();
+    });
+
+    it('not vouched, where the application asks: a holder who does not meet the condition is told it and what to do, with no button', async () => {
+      await pageFor({
+        digest: { VouchForTeamDirectorySecondFactor: { Execute: 'granted' } },
+        session: byPassword,
+        state: { ...withDirectoryByPassword, secondFactor: asksEveryoneByPassword },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksEveryoneByPassword.says]);
+      const [unmet] = asksEveryoneByPassword.conditions ?? [];
+      expect(texts('.impulse-tenant-sign-in-condition')).toEqual([`${unmet?.sentence} ${unmet?.toDo}`]);
+      expect(texts('.impulse-tenant-sign-in-condition strong')).toEqual([unmet?.toDo ?? '']);
+      expect(button('vouch')).toBeNull();
+    });
+
+    it('not vouched, where the application asks: a reader who does not hold the method is told how it stands, and nothing more', async () => {
+      await pageFor({
+        digest: { MakeTeamDirectoryOnly: { Execute: 'granted' } },
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksEveryone.says]);
+      expect(button('vouch')).toBeNull();
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+    });
+
+    it('not vouched, where the application asks nobody: the line says there is nothing to turn off, with no button and no condition', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksNobody },
+        directories: [workspace],
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksNobody.says]);
+      expect(button('vouch')).toBeNull();
+      expect(button('stop-vouching')).toBeNull();
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+    });
+
+    it('vouched: a reader who holds only the method that takes it back is offered it', async () => {
+      await pageFor({
+        digest: { StopVouchingForTeamDirectorySecondFactor: { Execute: 'granted' } },
+        session: byPassword,
+        state: { ...withDirectoryByPassword, secondFactor: vouched },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([vouched.says]);
+      expect(texts('.impulse-tenant-sign-in-stop-vouching')).toEqual(['Ask them for a code again']);
+      expect(button('vouch')).toBeNull();
+    });
+
+    it('vouched: a reader who does not hold the method that takes it back is told how it stands, and nothing more', async () => {
+      await pageFor({
+        digest: { MakeTeamDirectoryOnly: { Execute: 'granted' } },
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: vouched },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([vouched.says]);
+      expect(button('stop-vouching')).toBeNull();
+    });
+
+    it('where the read says no second factor part, the page draws no such part', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(headed()).toBe(false);
+      expect(element().querySelector('.impulse-tenant-sign-in-second-factor')).toBeNull();
+      expect(button('vouch')).toBeNull();
+      expect(button('stop-vouching')).toBeNull();
+    });
+
+    it("the team's word is said behind the server's warning and the typed word, and the page then says it stands", async () => {
+      const world: World = {
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      };
+      await pageFor(world);
+      world.state = { ...withDirectory, secondFactor: vouched };
+
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      // The page asked the server first, and nothing has run.
+      expect(sent('vouch-for-team-directory-second-factor')[0]).toEqual({ kind: 'warning', body: {} });
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([]);
+      expect(dialogText('[mat-dialog-title]')).toBe('Say the directory asks for a second factor');
+      expect(dialogText('.warning-consequence')).toBe(wouldVouch.consequence);
+      expect(runButton().textContent?.trim()).toBe(wouldVouch.confirm);
+      expect(dialogText('.typed-word mat-label')).toBe('Type vouch to confirm');
+      expect(runButton().disabled).toBe(true);
+      await typeWord('vouch');
+      expect(runButton().disabled).toBe(false);
+      const reads = readsOfTheSettings();
+
+      runButton().click();
+      await turn();
+      await turn();
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([{}]);
+      expect(readsOfTheSettings()).toBe(reads + 1);
+      expect(line()).toEqual([vouched.says]);
+      expect(texts('.impulse-tenant-sign-in-stop-vouching')).toEqual(['Ask them for a code again']);
+      expect(button('vouch')).toBeNull();
+    });
+
+    it("a person who cancels the warning's dialog says nothing", async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      });
+
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      (inDialog('mat-dialog-actions button:not(.run)') as HTMLButtonElement).click();
+      await turn();
+      await turn();
+      expect(inDialog('[mat-dialog-title]')).toBeNull();
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([]);
+      expect(button('vouch')?.disabled).toBe(false);
+    });
+
+    it("the server's refusal of the warning is shown in its own words, with no dialog and no call", async () => {
+      const sentence =
+        'This application asks nobody for a second factor now, so there is nothing to turn off for people who sign in through Google Workspace riverside.example.';
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+        warning: { status: 409, body: { message: sentence } },
+      });
+
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      expect(texts('.impulse-tenant-sign-in-refusal')).toEqual([sentence]);
+      expect(inDialog('[mat-dialog-title]')).toBeNull();
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([]);
+    });
+
+    it('the word is taken back on a plain confirmation, and the page reads again; a person who cancels takes nothing back', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: vouched },
+        directories: [workspace],
+      });
+
+      button('stop-vouching')?.click();
+      await turn();
+      expect(sent('stop-vouching-for-team-directory-second-factor')).toEqual([]);
+      expect(dialogText('[mat-dialog-title]')).toBe('Ask them for a code again');
+      expect(dialogText('.question')).toBe(
+        'People who sign in through the directory will be asked for a mailed code again, from their next sign-in.',
+      );
+      expect(inDialog('.typed-word')).toBeNull();
+      (inDialog('mat-dialog-actions button:not(.run)') as HTMLButtonElement).click();
+      await turn();
+      await turn();
+      expect(sent('stop-vouching-for-team-directory-second-factor')).toEqual([]);
+
+      button('stop-vouching')?.click();
+      await turn();
+      const reads = readsOfTheSettings();
+      runButton().click();
+      await turn();
+      await turn();
+      expect(sent('stop-vouching-for-team-directory-second-factor')).toEqual([{ kind: 'call', body: {} }]);
+      expect(readsOfTheSettings()).toBe(reads + 1);
+    });
+
+    it("nothing of the directory's connection is on the page, nor in the dialog that says the word", async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      });
+
+      expect(element().textContent).not.toContain(connection);
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      expect(dialogText('.warning-consequence')).not.toBe('');
+      expect(document.querySelector('.cdk-overlay-container')?.textContent).not.toContain(connection);
+    });
+
+    it("nothing of the directory's connection is in the dialog that takes the word back", async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: vouched },
+        directories: [workspace],
+      });
+
+      expect(element().textContent).not.toContain(connection);
+      button('stop-vouching')?.click();
+      await turn();
+      expect(dialogText('.question')).not.toBe('');
+      expect(document.querySelector('.cdk-overlay-container')?.textContent).not.toContain(connection);
+    });
   });
 
   describe("links the count of the people directory only keeps out to the team's People page, filtered to them", () => {
