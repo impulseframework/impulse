@@ -3604,11 +3604,12 @@ The read also says what a page of the tenant's sign-in settings shows
 `DefaultRole`, the role a person gets the first time they sign in through it, in words;
 `Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
 that says how the caller signed in; `SessionDirectory`, the organization's directory the
-caller is signed in through; and `People`, how many people hold a role in the tenant
-(`Seated`) and how many of them the switch keeps out (`Outside`), counted as the warning
-counts them. The generated rules are told who counts (`CountedBy`): each auth's identity
-client answers how many people the tenant seats (`SeatedCount`) and who the switch keeps
-out (`DirectoryOutsiders`).
+caller is signed in through; and `People`, how many people the tenant's list holds
+(`Seated`: who holds a role in the tenant, and who signs in through its directory) and
+how many of them the switch keeps out (`Outside`), counted as the warning counts them.
+The generated rules are told who counts (`CountedBy`): each auth's identity client
+answers how many people its list of the tenant holds (`SeatedCount`) and who the switch
+keeps out (`DirectoryOutsiders`).
 
 The tenant's own list of its people (section 21) holds everyone who holds a role in the
 tenant, whether or not they can sign in, so a person the flag keeps out stays in it with

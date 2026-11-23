@@ -797,12 +797,13 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
-// SeatedCount counts the people of the Members auth who hold a role in the
-// sector, in it or in every sector: the rows of the sector's own list of its people
-// (MembersSectorUser) for it, one row a person, the list DirectoryOutsiders reads, in the
-// caller's transaction. The read of the sector's directory-only switch says it beside
-// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
-// page that shows the switch says how many of the sector's people it keeps out.
+// SeatedCount counts the people of the Members auth in the sector's own
+// list of its people (MembersSectorUser): who holds a role in the sector, in it or in
+// every sector, and, where the sector has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the sector's directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the sector's people it keeps out.
 func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
 	query := membersresources.NewMembersSectorUserQuery().
 		AddColumns(membersresources.NewMembersSectorUserColumns().ID()).

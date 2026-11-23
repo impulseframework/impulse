@@ -338,9 +338,9 @@ or one per domain), loaded on demand and cached for the session.
   `defaultRole`, the role a person gets the first time they sign in through it, in words;
   `passwords`, whether the reader's auth has a password method; `signedIn`, a sentence
   that says how the reader signed in; `sessionDirectory`, the organization's directory the
-  reader is signed in through; and `people`, how many people hold a role in the tenant
-  (`seated`) and how many of them the switch keeps out (`outside`), counted as the warning
-  counts them. While the switch is off and the tenant has a directory, the read says what
+  reader is signed in through; and `people`, how many people the tenant's list holds
+  (`seated`: who holds a role in the tenant, and who signs in through its directory) and
+  how many of them the switch keeps out (`outside`), counted as the warning counts them. While the switch is off and the tenant has a directory, the read says what
   turning it on takes of the person asking (`conditions`): each in the sentence the
   server's refusal opens with (`sentence`), whether they meet it (`met`), and what they do
   where they do not (`toDo`). A page shows these and writes none of its own, so what it

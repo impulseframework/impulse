@@ -18,8 +18,9 @@ type (
 	// the password it has signs the person in, and their sessions stand, until the
 	// link is used. The link works once and the message says who asked. The answer
 	// says whether the link went (Sent) and, where it did not, why (Reason): the
-	// account has no password to reset or no confirmed address, or the address was
-	// mailed too often.
+	// account has no password to reset or no confirmed address, its password is
+	// disabled by its organization's sign-in settings, or the address was mailed too
+	// often.
 	//
 	// It is a tenant's method: served under the address of one Tenant, it names a
 	// row of StaffTenantUser, the tenant's own list of the auth's people. A person who is no

@@ -69,10 +69,11 @@ type DirectoryOnlyState struct {
 	Conditions []DirectoryOnlyCondition `json:"conditions,omitempty"`
 }
 
-// DirectoryOnlyCount is how many people hold a role in a tenant, Seated, and how many
-// of them the tenant's directory-only switch keeps out, Outside: the people who have
-// never signed in through the tenant's directory, counted as the warning that turns the
-// switch on counts them (DirectoryOutsiders), so the two always say the same number.
+// DirectoryOnlyCount is how many people a tenant's list of its people holds, Seated (who
+// holds a role there, and who signs in through its directory), and how many of them the
+// tenant's directory-only switch keeps out, Outside: the people who have never signed in
+// through the tenant's directory, counted as the warning that turns the switch on counts
+// them (DirectoryOutsiders), so the two always say the same number.
 type DirectoryOnlyCount struct {
 	Seated  int `json:"seated"`
 	Outside int `json:"outside"`
@@ -788,13 +789,14 @@ func turnsOn(value any) bool {
 // transaction, with what a page of the tenant's sign-in settings says of how the tenant
 // stands: its directory as people know it, the role a person gets the first time they
 // sign in through it, in words, whether the caller's auth has passwords, how the caller
-// signed in, and how many people the tenant seats and how many of them the switch keeps
-// out (CountedBy), counted as the warning counts them. While the switch is off it also
-// says what turning it on takes of the caller (DirectoryOnlyState.Conditions): each
-// condition the call would hold them to, whether they meet it, and what they do where
-// they do not, in the words the call refuses in. A tenant with no directory is refused
-// before anything is asked of the person, so no condition is said for it, and nobody is
-// counted. A tenant the record does not hold is NotFound.
+// signed in, and how many people the tenant's list holds and how many of them the
+// switch keeps out (CountedBy), counted as the warning counts them. While the switch is
+// off it also says what turning it on takes of the caller
+// (DirectoryOnlyState.Conditions): each condition the call would hold them to, whether
+// they meet it, and what they do where they do not, in the words the call refuses in. A
+// tenant with no directory is refused before anything is asked of the person, so no
+// condition is said for it, and nobody is counted. A tenant the record does not hold is
+// NotFound.
 func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyState, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {

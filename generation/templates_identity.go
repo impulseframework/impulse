@@ -1835,12 +1835,13 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
-// SeatedCount counts the people of the {{ .Auth }} auth who hold a role in the
-// {{ .TenantWord }}, in it or in every {{ .TenantWord }}: the rows of the {{ .TenantWord }}'s own list of its people
-// ({{ .TenantUser }}) for it, one row a person, the list DirectoryOutsiders reads, in the
-// caller's transaction. The read of the {{ .TenantWord }}'s directory-only switch says it beside
-// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
-// page that shows the switch says how many of the {{ .TenantWord }}'s people it keeps out.
+// SeatedCount counts the people of the {{ .Auth }} auth in the {{ .TenantWord }}'s own
+// list of its people ({{ .TenantUser }}): who holds a role in the {{ .TenantWord }}, in it or in
+// every {{ .TenantWord }}, and, where the {{ .TenantWord }} has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the {{ .TenantWord }}'s directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the {{ .TenantWord }}'s people it keeps out.
 func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
 	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
