@@ -135,7 +135,9 @@ func (d *TenantDeclaration) declares(directory Directory) bool {
 // must not have side effects outside it.
 type DeclarationReader[Tx any] func(ctx context.Context, tx Tx, tenant accesstypes.Domain) (*TenantDeclaration, error)
 
-// TenantPolicyOption refines the tenant policy.
+// TenantPolicyOption refines the tenant policy. PasswordsDisabledByTenants takes none,
+// since no option changes whether a sign-in with a password is refused as directory
+// only: an option that could must be taken by it too, or the check and the policy part.
 type TenantPolicyOption func(settings *tenantPolicySettings)
 
 // tenantPolicySettings are the tenant policy's options.
