@@ -722,11 +722,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	//
 	// The Auth is built knowing who holds the Super Administrator role
 	// (session.SuperAdministratorsBy, an argument no Auth is built without): a holder
-	// signs in with a second factor whatever the sign-in rule set below asks of anyone
-	// else, held for the mailed code by a rule of the library's own after the crew's.
-	// Here the crew's rule asks everyone already, so the library's changes nothing a
-	// person sees; it is what keeps the factor on a super administrator if the crew's
-	// rule is ever relaxed.
+	// signs in with a second factor whatever the crew's sign-in setting says, held for
+	// the mailed code by a rule of the library's own after the crew's. While the setting
+	// requires a second factor of everyone, the library's rule changes nothing a person
+	// sees; it is what keeps the factor on a super administrator once Headquarters turns
+	// the setting off.
 	sessionStore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation), sessionstorage.WithAuthEvents(events))
 	crewSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionStore,

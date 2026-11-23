@@ -756,7 +756,7 @@ const passwordDisabledCheck = "\n" +
 func TestTenancyApply_oneSignInRule(t *testing.T) {
 	t.Parallel()
 
-	twoRules := "pkg/auth/staff/staff.go: New set a sign-in rule before this change, in a form the tool does not read, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, and the rule that stood chained after it with .Then"
+	twoRules := "pkg/auth/staff/staff.go: New set a sign-in rule before this change, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, and the rule that stood chained after it with .Then"
 	base := staffPackage(t, "staff.go")
 	if n := strings.Count(base, ".SetSignInPolicy("); n != 0 {
 		t.Fatalf("the base's auth package sets a sign-in rule %d time(s), want none: the fixture of this test", n)

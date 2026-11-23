@@ -316,7 +316,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Administrator role (session.SuperAdministratorsBy), as every auth with roles is.
 	// The library's own second factor for a holder holds nobody here: every member
 	// signs in through the directory, which writes the roles, and there the directory is
-	// the authority. The members' own rule, set below, asks its factor of every member.
+	// the authority. While the members' sign-in setting requires a second factor, it is
+	// asked of every member.
 	membersSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,

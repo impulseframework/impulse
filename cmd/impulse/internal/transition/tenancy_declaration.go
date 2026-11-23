@@ -413,10 +413,11 @@ func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, ser
 // reports whether it was set. An Auth has one sign-in rule, and a second SetSignInPolicy
 // call panics when the auth opens. An auth package rendered for an application without
 // tenants sets none, so the tenant policy is written as the Auth's rule, and the comment
-// saying it sets none (authpkg.NoSignInRule) is taken out. Where New set a rule already, both calls stand and the change says they must become one; where New
-// does not end as the skeleton's does, no rule is written and the change says which to
-// set. admission says the directory admission is set beside the rule, and
-// admitWithoutTenant that the auth's people create a tenant of their own.
+// saying it sets none (authpkg.NoSignInRule) is taken out. Where New set a rule already,
+// both calls stand and the change says they must become one; where New does not end as
+// the skeleton's does, no rule is written and the change says which to set. admission
+// says the directory admission is set beside the rule, and admitWithoutTenant that the
+// auth's people create a tenant of their own.
 func (tn Tenancy) setRule(rel string, edited []byte, session string, admission, admitWithoutTenant bool, ch *Change) (out []byte, set bool) {
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
@@ -431,7 +432,7 @@ func (tn Tenancy) setRule(rel string, edited []byte, session string, admission, 
 		return edited, false
 	}
 	if bytes.Contains(edited, []byte(session+".SetSignInPolicy(")) {
-		ch.skipf("%s: New set a sign-in rule before this change, in a form the tool does not read, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, and the rule that stood chained after it with .Then", rel)
+		ch.skipf("%s: New set a sign-in rule before this change, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, and the rule that stood chained after it with .Then", rel)
 	}
 	policy := signInRule(session, tn.oneLower(), admission, admitWithoutTenant, tn.NoDirectories)
 	edited = append(edited[:loc[0]:loc[0]], append([]byte(policy), edited[loc[0]:]...)...)
