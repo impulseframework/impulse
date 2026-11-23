@@ -424,11 +424,17 @@ const (
 	// person whose every tenant admits its people through its own directory only, none
 	// of which is the directory the sign-in came through.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
-	// RefusedDirectoryOnly is the code for a sign-in with a password, or a session the
-	// application starts itself, by a person whose account a directory-only tenant's
-	// directory signs in, or whose every tenant admits its people through its own
-	// directory only, under the tenant policy.
+	// RefusedDirectoryOnly is the code for a sign-in with a password by a person whose
+	// account a directory-only tenant's directory signs in, or whose every tenant admits
+	// its people through its own directory only, under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
+	// RefusedDirectoryOnlySession is the code for a session the application starts
+	// itself, with no password and through no directory, for a person whose account a
+	// directory-only tenant's directory signs in, or whose every tenant admits its people
+	// through its own directory only, under the tenant policy. It is told apart from
+	// RefusedDirectoryOnly so that a login page speaks of no password where the person
+	// typed none.
+	RefusedDirectoryOnlySession LoginRefusalCode = "directory_only_session"
 	// RefusedDirectoryOnlyPersonalAccount is the code for a sign-in with a personal
 	// account (through Google or Microsoft, with an account that is in no
 	// organization's directory) by a person whose account a directory-only tenant's

@@ -43,6 +43,36 @@ var (
 	lakesideEntra     = Directory{Method: sessioninfo.MethodAzure, Connection: "tid-lakeside"}
 )
 
+// TestClosedTo pins the code a sign-in that came through none of the directories the
+// person's tenants keep their people to is refused with: each says what is true of how
+// the person signed in, and every one but the organization's directory has the cause
+// ErrDirectoryOnly.
+func TestClosedTo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		identity  *sessioninfo.Identity
+		wantCode  sessioninfo.LoginRefusalCode
+		wantCause error
+	}{
+		{name: "through an organization's directory: connection_not_in_tenant", identity: entraIdentity, wantCode: sessioninfo.RefusedConnectionNotInTenant, wantCause: ErrConnectionNotInTenant},
+		{name: "a directory method with a personal account: directory_only_personal_account", identity: &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: GoogleAnyAccountConnection}, wantCode: sessioninfo.RefusedDirectoryOnlyPersonalAccount, wantCause: ErrDirectoryOnly},
+		{name: "the password method: directory_only", identity: passwordIdentity, wantCode: sessioninfo.RefusedDirectoryOnly, wantCause: ErrDirectoryOnly},
+		{name: "a session the application starts itself: directory_only_session", identity: ownIdentity, wantCode: sessioninfo.RefusedDirectoryOnlySession, wantCause: ErrDirectoryOnly},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			decision := closedTo(tt.identity.Method, tt.identity.Connection)
+			if decision.Outcome() != DenySignIn || decision.Refusal() != tt.wantCode || !errors.Is(decision.Cause(), tt.wantCause) {
+				t.Errorf("closedTo(%q, %q) = %v %q (%v), want a refusal %q (%v)", tt.identity.Method, tt.identity.Connection, decision.Outcome(), decision.Refusal(), decision.Cause(), tt.wantCode, tt.wantCause)
+			}
+		})
+	}
+}
+
 func TestTenantDeclaration_Admits(t *testing.T) {
 	t.Parallel()
 
@@ -370,7 +400,7 @@ func TestTenantPolicy(t *testing.T) {
 			identity:     ownIdentity,
 			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
 			wantOutcome:  DenySignIn,
-			wantCode:     sessioninfo.RefusedDirectoryOnly,
+			wantCode:     sessioninfo.RefusedDirectoryOnlySession,
 			wantCause:    ErrDirectoryOnly,
 			wantRead:     []accesstypes.Domain{"lakeside"},
 		},
@@ -549,12 +579,12 @@ func TestTenantPolicy(t *testing.T) {
 			wantRead:    []accesstypes.Domain{"lakeside"},
 		},
 		{
-			name:        "a session the application starts itself is held to directory only like a password",
+			name:        "a session the application starts itself is held to directory only like a password, under a code that names none",
 			held:        accesstypes.RoleCollection{lakeside: member},
 			identity:    ownIdentity,
 			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
 			wantOutcome: DenySignIn,
-			wantCode:    sessioninfo.RefusedDirectoryOnly,
+			wantCode:    sessioninfo.RefusedDirectoryOnlySession,
 			wantCause:   ErrDirectoryOnly,
 			wantRead:    []accesstypes.Domain{"lakeside"},
 		},
@@ -592,7 +622,7 @@ func TestTenantPolicy(t *testing.T) {
 			identity:    ownIdentity,
 			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
 			wantOutcome: DenySignIn,
-			wantCode:    sessioninfo.RefusedDirectoryOnly,
+			wantCode:    sessioninfo.RefusedDirectoryOnlySession,
 			wantCause:   ErrDirectoryOnly,
 			wantRead:    []accesstypes.Domain{"lakeside"},
 		},

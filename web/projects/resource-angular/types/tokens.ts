@@ -262,6 +262,9 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
     'Your organization does not sign in the way you just tried. Please sign in the way your organization has set up.',
   directory_only:
     'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
+  // The same refusal for a session the application starts itself: the person typed no password, so none is named.
+  directory_only_session:
+    'Your organization admits only people who sign in through its own directory. Please sign in the way your organization has set up.',
   // The same refusal after Google or Microsoft with a personal account: the person used no password, so none is named.
   directory_only_personal_account:
     "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",

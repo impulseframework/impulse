@@ -240,10 +240,11 @@ type tenantPolicy[Tx any] struct {
 //     refused. A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect
 //     provider) is refused with connection_not_in_tenant, a sign-in with a personal
 //     account (through Google or Microsoft, with an account that is in no
-//     organization's directory) with directory_only_personal_account, and any other, a
-//     password or a session the application starts itself, with directory_only. The
-//     codes are apart so that a login page says what is true of how the person signed
-//     in: a person who used no password is not told to stop using one.
+//     organization's directory) with directory_only_personal_account, a password with
+//     directory_only, and any other, a session the application starts itself, with
+//     directory_only_session. The codes are apart so that a login page says what is
+//     true of how the person signed in: a person who used no password is not told to
+//     stop using one.
 //
 // A refusal is a sessioninfo.LoginRefusal with its code, and errors.Is matches
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
@@ -401,8 +402,9 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 // closedTo is the refusal of a sign-in that came through none of the directories the
 // tenants keep their people to, with the code that is true of how the person signed
 // in: connection_not_in_tenant through an organization's directory,
-// directory_only_personal_account with a personal account, and directory_only for
-// anything else, a password or a session the application starts itself.
+// directory_only_personal_account with a personal account, directory_only for a
+// password, and directory_only_session for anything else, a session the application
+// starts itself.
 func closedTo(method sessioninfo.AuthMethod, connection string) *Decision {
 	if throughDirectory(method, connection) {
 		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant)
@@ -412,8 +414,12 @@ func closedTo(method sessioninfo.AuthMethod, connection string) *Decision {
 	if method.ThroughDirectory() {
 		return denyBecause(sessioninfo.RefusedDirectoryOnlyPersonalAccount, ErrDirectoryOnly)
 	}
+	if method == sessioninfo.MethodPassword {
+		return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly)
+	}
 
-	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly)
+	// The person typed no password: the code says so.
+	return denyBecause(sessioninfo.RefusedDirectoryOnlySession, ErrDirectoryOnly)
 }
 
 // membership reads the person's memberships: outside when a role is held outside any
