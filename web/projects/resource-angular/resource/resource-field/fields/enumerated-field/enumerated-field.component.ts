@@ -186,8 +186,9 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /**
    * How the picker presents the source's rows: the field's configuration, and where it
    * names no display of its own (a form drawn from the metadata alone), the field the
-   * source's metadata says its rows are called by (`nameField`: a tenant's name), so a
-   * picker over a record keyed by an id lists names and never ids.
+   * source's metadata says its rows are called by (`nameField`: the field marked `@name`,
+   * or the tenant record's `@tenantName`), so a picker over a record keyed by an id lists
+   * names and never ids.
    */
   private picker = computed((): EnumeratedConfig => {
     const config = this.fieldConfig().enumeratedConfig;
