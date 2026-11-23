@@ -21,12 +21,18 @@ type (
 	// ended, or has not begun, is not one of its people, whether or not the role's row
 	// still stands. MembersSectorUserRole lists a role that has not begun, with its period.
 	//
-	// Two columns are facts about the person that no table holds, each under the name a
+	// Four columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. A role file
+	// (heldGlobally) says the person holds a role for the whole application. HeldHere
+	// (heldHere) says the person holds something in this tenant itself, a role of their own
+	// or a place in one of its groups: a person listed only through a role held in every
+	// tenant, or through a group kept for the whole application, holds nothing here, and
+	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
+	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
+	// how the application's own staff come to be among each tenant's people. A role file
 	// uses them to say what a tenant may see and do of a person who is not the tenant's
-	// alone. The list filters and sorts by the username and by the two facts; the
+	// alone. The list filters and sorts by the username and by the four facts; the
 	// account's other columns are no filter keys, so a role file may grant any of them
 	// under a condition at no cost to a page.
 	//
@@ -63,9 +69,13 @@ type (
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
-		HeldGlobally     bool    `spanner:"HeldGlobally"     index:"true"`
-		OutsideDirectory bool    `spanner:"OutsideDirectory" index:"true"`
-		CannotEnter      *string `spanner:"CannotEnter"`
+		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
+		// @attribute(heldHere)
+		HeldHere bool `spanner:"HeldHere" index:"true"`
+		// @attribute(heldInEveryTenant)
+		HeldInEveryTenant bool    `spanner:"HeldInEveryTenant" index:"true"`
+		OutsideDirectory  bool    `spanner:"OutsideDirectory"  index:"true"`
+		CannotEnter       *string `spanner:"CannotEnter"`
 	}
 )
 
@@ -99,6 +109,16 @@ SELECT
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldHere,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldInEveryTenant,
   (td.SectorId IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM MembersSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection

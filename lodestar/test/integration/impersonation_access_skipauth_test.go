@@ -68,6 +68,8 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 	switch act {
 	case "AssignRole", "RemoveRole":
 		return fmt.Appendf(nil, `{"userId":%q,"role":"Cadet"}`, userID)
+	case "RemoveUser":
+		return fmt.Appendf(nil, `{"userId":%q}`, userID)
 	case "TakeRole":
 		return fmt.Appendf(nil, `{"domain":%q,"role":"Cadet","length":"1 hour","reason":"taken under a mask"}`, anvil)
 	case "CreateGroup":

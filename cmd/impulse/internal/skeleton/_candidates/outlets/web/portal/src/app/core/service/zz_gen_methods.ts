@@ -343,6 +343,15 @@ export interface RemoveMembersTenantRole {
 /** The statuses RemoveMembersTenantRole declares; the method chooses one per response. */
 export type RemoveMembersTenantRoleStatus = 204;
 
+export interface RemoveMembersTenantUserConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveMembersTenantUser {
+  userId: string;
+}
+/** The statuses RemoveMembersTenantUser declares; the method chooses one per response. */
+export type RemoveMembersTenantUserStatus = 204;
+
 export interface RenameMembersTenantUserConfig {
   userId: string | FieldPointer;
   username: string | FieldPointer;
@@ -940,6 +949,16 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'groupId', displayType: 'string' },
+    ],
+  },
+  [Methods.RemoveMembersTenantUser]: {
+    route: 'remove-members-tenant-user',
+    target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'remove' },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RenameMembersTenantUser]: {

@@ -228,6 +228,8 @@ export interface CrewSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  heldHere?: boolean;
+  heldInEveryTenant?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
   administratorWithPassword?: boolean;
@@ -540,6 +542,8 @@ export interface MembersSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  heldHere?: boolean;
+  heldInEveryTenant?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
 }
@@ -1404,6 +1408,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'administratorWithPassword', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
@@ -1859,6 +1865,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],

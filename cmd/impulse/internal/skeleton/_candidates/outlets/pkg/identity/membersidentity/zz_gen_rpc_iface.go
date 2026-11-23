@@ -16,12 +16,12 @@ type Method interface {
 		EndMembersUserSessions | GiveMembersGroupRole | GiveMembersTenantGroupRole |
 		InviteMembersTenantUser | InviteMembersUser | RemoveMembersGroupMember |
 		RemoveMembersRole | RemoveMembersTenantGroupMember | RemoveMembersTenantRole |
-		RenameMembersTenantUser | RenameMembersUser | RequireMembersSecondFactor |
-		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
-		RevokeMembersUserTrustedDevices | SetMembersRememberedBrowsers |
-		SetMembersTenantUserEmail | SetMembersTenantUserName | SetMembersUserEmail |
-		SetMembersUserName | StopRequiringMembersSecondFactor | TakeMembersGroupRole |
-		TakeMembersRole | TakeMembersTenantGroupRole | UnlinkMembersSessionIdentity |
-		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
-		WithdrawMembersTenantInvitation
+		RemoveMembersTenantUser | RenameMembersTenantUser | RenameMembersUser |
+		RequireMembersSecondFactor | RevokeMembersSessionToken |
+		RevokeMembersTenantUserTrustedDevices | RevokeMembersUserTrustedDevices |
+		SetMembersRememberedBrowsers | SetMembersTenantUserEmail | SetMembersTenantUserName |
+		SetMembersUserEmail | SetMembersUserName | StopRequiringMembersSecondFactor |
+		TakeMembersGroupRole | TakeMembersRole | TakeMembersTenantGroupRole |
+		UnlinkMembersSessionIdentity | UnlinkMembersTenantSessionIdentity |
+		UnlockMembersSignIn | WithdrawMembersInvitation | WithdrawMembersTenantInvitation
 }

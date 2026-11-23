@@ -627,6 +627,9 @@
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {
+              "resource": "RemoveStaffTenantUser"
+            },
+            {
               "resource": "RenameStaffTenantUser",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
@@ -723,6 +726,8 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "heldHere",
+                "heldInEveryTenant",
                 "outsideDirectory",
                 "cannotEnter"
               ]
@@ -892,6 +897,8 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "heldHere",
+                "heldInEveryTenant",
                 "cannotEnter"
               ]
             },

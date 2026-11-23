@@ -200,7 +200,7 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 	if judged.deletesAccount != deletesAccount {
 		return false, httpio.NewConflictMessage(leavingChangedMessage)
 	}
-	if err := m.applyLeaving(ctx, txn, userID, judged); err != nil {
+	if err := m.applyLeaving(ctx, txn, userID, judged, "they left the last "+m.tenantWord+" they were in"); err != nil {
 		return false, err
 	}
 	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own and %d place(s) in its groups are removed",
@@ -261,12 +261,14 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 	}
 }
 
-// applyLeaving buffers what a judged leaving takes: the account first where it goes
-// (deleteLeftWithNothing), read while it is still there, then each membership and each
-// place in the tenant, then each that had ended elsewhere and goes with the account.
-func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, judged *leaving) error {
+// applyLeaving buffers what a judged leaving takes, a person's own leaving
+// (LeaveTenant) or their removal (RemoveFromTenant): the account first where it goes
+// (deleteLeftWithNothing), read while it is still there, its deletion logged with
+// reason, then each membership and each place in the tenant, then each that had ended
+// elsewhere and goes with the account.
+func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, judged *leaving, reason string) error {
 	if judged.deletesAccount {
-		if err := m.deleteLeftWithNothing(ctx, txn, userID, "they left the last "+m.tenantWord+" they were in"); err != nil {
+		if err := m.deleteLeftWithNothing(ctx, txn, userID, reason); err != nil {
 			return err
 		}
 	}

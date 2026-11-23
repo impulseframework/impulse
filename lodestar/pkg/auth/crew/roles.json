@@ -1521,6 +1521,8 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "heldHere",
+                "heldInEveryTenant",
                 "outsideDirectory",
                 "cannotEnter"
               ]
@@ -1877,6 +1879,8 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "heldHere",
+                "heldInEveryTenant",
                 "cannotEnter"
               ]
             },
@@ -2333,6 +2337,9 @@
             {
               "resource": "DeleteCrewSectorUser",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RemoveCrewSectorUser"
             },
             {
               "resource": "RenameCrewSectorUser",

@@ -902,6 +902,10 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  ) OR EXISTS (",
 			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
 			"WHERE g.UserId = u.Id AND g.Kind = 'global'",
+			// What the person holds in the tenant itself, and a role held in every tenant at once.
+			"// @attribute(heldHere)\n\t\tHeldHere bool", "// @attribute(heldInEveryTenant)\n\t\tHeldInEveryTenant bool",
+			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldHere,",
+			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  )) AS HeldInEveryTenant\n",
 			"SELECT s.Id AS DomainId, m.UserId AS UserId\n  FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n",
 			"func (CrewShipUser) Subquery() (query string, params map[string]any) {",
@@ -959,6 +963,12 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		}
 	}
 
+	// The two facts of what the person holds in the tenant itself and in every tenant are
+	// the list of people's alone.
+	if content := readTreeFile(t, "internal/crewresources/crew_ship_identities.go"); strings.Contains(content, "HeldHere") || strings.Contains(content, "HeldInEveryTenant") {
+		t.Errorf("the list of identities carries a fact of the list of people's alone:\n%s", content)
+	}
+
 	// The generated file that stands beside a list's source goes with it.
 	beside := "pkg/identity/internal/crewresources/zz_gen_crew_ship_users.go"
 	if err := os.WriteFile(beside, []byte(generationHeader+"\n\npackage crewresources\n"), 0o600); err != nil {
@@ -1012,6 +1022,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/invite_crew_ship_user.go",
 		"crewidentity/remove_crew_ship_password.go",
 		"crewidentity/remove_crew_ship_role.go",
+		"crewidentity/remove_crew_ship_user.go",
 		"crewidentity/rename_crew_ship_user.go",
 		"crewidentity/require_crew_ship_password_change.go",
 		"crewidentity/revoke_crew_ship_user_trusted_devices.go",
@@ -1044,7 +1055,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 	guard := "if _, err := client.manager.Tenant(ctx); err != nil {"
 	for file, lines := range map[string][]string{
 		"crewidentity/disable_crew_ship_user.go": {
-			generationHeader, "// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)", "type DisableCrewShipUser struct {", "// @target(CrewShipUser)",
+			generationHeader, "// @rpc\n// @permissionScope(domain)\n// @notOnOwnAccount(ID)\n// @outlet(default)\n// @answers(204)", "type DisableCrewShipUser struct {", "// @target(CrewShipUser)",
 			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.DisableUser(ctx, txn, m.UserID)",
 		},
 		"crewidentity/require_crew_ship_password_change.go": {"type RequireCrewShipPasswordChange struct {", "// @target(CrewShipUser)", guard},

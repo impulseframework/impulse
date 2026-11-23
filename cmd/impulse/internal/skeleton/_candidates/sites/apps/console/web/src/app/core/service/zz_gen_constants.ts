@@ -98,6 +98,7 @@ export const Methods = {
   RemoveStaffTenantGroupMember: 'RemoveStaffTenantGroupMember' as Method,
   RemoveStaffTenantPassword: 'RemoveStaffTenantPassword' as Method,
   RemoveStaffTenantRole: 'RemoveStaffTenantRole' as Method,
+  RemoveStaffTenantUser: 'RemoveStaffTenantUser' as Method,
   RenameStaffTenantUser: 'RenameStaffTenantUser' as Method,
   RenameStaffUser: 'RenameStaffUser' as Method,
   RequireStaffPasswordChange: 'RequireStaffPasswordChange' as Method,
@@ -1019,6 +1020,8 @@ export namespace StaffTenantUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
+    heldHere: 'heldHere' as FieldName,
+    heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
@@ -1036,6 +1039,8 @@ export namespace StaffTenantUsers {
     emailVerifiedAt: 'StaffTenantUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'StaffTenantUsers.heldElsewhere' as Resource,
     heldGlobally: 'StaffTenantUsers.heldGlobally' as Resource,
+    heldHere: 'StaffTenantUsers.heldHere' as Resource,
+    heldInEveryTenant: 'StaffTenantUsers.heldInEveryTenant' as Resource,
     id: 'StaffTenantUsers.id' as Resource,
     lastSignInAt: 'StaffTenantUsers.lastSignInAt' as Resource,
     name: 'StaffTenantUsers.name' as Resource,
@@ -1365,6 +1370,12 @@ export namespace RemoveStaffTenantRole {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     groupId: 'groupId' as FieldName,
+  };
+}
+
+export namespace RemoveStaffTenantUser {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
   };
 }
 

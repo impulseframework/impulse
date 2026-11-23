@@ -38,6 +38,8 @@ type crewSectorUserRead struct {
 	LastSignInAt              *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere             bool         `json:"heldElsewhere"`
 	HeldGlobally              bool         `json:"heldGlobally"`
+	HeldHere                  bool         `json:"heldHere"`
+	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
 	OutsideDirectory          bool         `json:"outsideDirectory"`
 	CannotEnter               *string      `json:"cannotEnter"`
 	AdministratorWithPassword bool         `json:"administratorWithPassword"`
@@ -161,6 +163,8 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"HeldHere",
+		"HeldInEveryTenant",
 		"OutsideDirectory",
 		"CannotEnter",
 		"AdministratorWithPassword",
@@ -241,6 +245,18 @@ func (c *CrewSectorUserColumns) HeldGlobally() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) HeldHere() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "HeldHere")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) HeldInEveryTenant() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "HeldInEveryTenant")
+
+	return c
+}
+
 func (c *CrewSectorUserColumns) OutsideDirectory() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -289,6 +305,14 @@ func (p CrewSectorUserQueryPartialClause) HeldElsewhere() CrewSectorUserQueryIde
 
 func (p CrewSectorUserQueryPartialClause) HeldGlobally() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) HeldHere() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldHere", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) HeldInEveryTenant() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
 }
 
 func (p CrewSectorUserQueryPartialClause) OutsideDirectory() CrewSectorUserQueryIdent[bool] {
@@ -411,6 +435,14 @@ func (c *crewSectorUserSort) HeldElsewhere() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) HeldGlobally() *CrewSectorUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *crewSectorUserSort) HeldHere() *CrewSectorUserSort {
+	return c.addField("HeldHere")
+}
+
+func (c *crewSectorUserSort) HeldInEveryTenant() *CrewSectorUserSort {
+	return c.addField("HeldInEveryTenant")
 }
 
 func (c *crewSectorUserSort) OutsideDirectory() *CrewSectorUserSort {

@@ -408,6 +408,10 @@ func (a *App) RemoveCrewSectorRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RemoveCrewSectorRole()
 }
 
+func (a *App) RemoveCrewSectorUser() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).RemoveCrewSectorUser()
+}
+
 func (a *App) RenameCrewSectorUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RenameCrewSectorUser()
 }

@@ -15,8 +15,9 @@ type Method interface {
 		EndCrewUserSessions | GiveCrewGroupRole | GiveCrewSectorGroupRole | InviteCrewSector |
 		InviteCrewSectorUser | InviteCrewUser | MakeCrewInviteOnly | OpenCrewSignUp |
 		RemoveCrewGroupMember | RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
-		RemoveCrewSectorPassword | RemoveCrewSectorRole | RenameCrewSectorUser | RenameCrewUser |
-		RequireCrewPasswordChange | RequireCrewSecondFactor | RequireCrewSectorPasswordChange |
+		RemoveCrewSectorPassword | RemoveCrewSectorRole | RemoveCrewSectorUser |
+		RenameCrewSectorUser | RenameCrewUser | RequireCrewPasswordChange |
+		RequireCrewSecondFactor | RequireCrewSectorPasswordChange |
 		RevokeCrewSectorUserTrustedDevices | RevokeCrewSessionToken |
 		RevokeCrewUserTrustedDevices | SendCrewSectorUserPasswordResetLink |
 		SendCrewUserPasswordResetLink | SetCrewRememberedBrowsers | SetCrewSectorUserEmail |

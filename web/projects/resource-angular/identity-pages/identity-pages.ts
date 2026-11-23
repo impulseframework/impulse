@@ -4,6 +4,7 @@ import {
   IdentityDescriptor,
   IdentitySideDescriptor,
   quoteFilterValue,
+  rowCapabilities,
   ScopeKind,
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
@@ -331,11 +332,15 @@ class SideBuilder {
             ['outsideDirectory', 'Kept out by directory only'],
             ['cannotEnter', 'Cannot enter'],
           ]),
-          // Read with each row and not drawn: what the State column says besides Disabled.
-          ...this.known(
-            users,
-            this.stateLines().filter(([name]) => name !== 'disabled'),
-          ).map(([name]) => ({ id: name as FieldName, hidden: true })),
+          // Read with each row and not drawn: what the State column says besides Disabled,
+          // and on a tenant's side whether the person holds something in the tenant itself.
+          ...[
+            ...this.known(
+              users,
+              this.stateLines().filter(([name]) => name !== 'disabled'),
+            ).map(([name]) => name),
+            ...this.heldHere(users),
+          ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
         listMethods: this.present([
@@ -1108,10 +1113,11 @@ class SideBuilder {
         ['cannotEnter', 'Cannot enter'],
         ['createdAt', 'Created'],
       ]),
-      // Held by the form for the words above, and not drawn.
-      ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) =>
-        field({ name: name as FieldName, cols: 4, shouldRender: false }),
-      ),
+      // Held by the form for the words above and for the methods offered, and not drawn.
+      ...[
+        ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) => name),
+        ...this.heldHere(users),
+      ].map((name) => field({ name: name as FieldName, cols: 4, shouldRender: false })),
     ];
   }
 
@@ -1547,6 +1553,7 @@ class SideBuilder {
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
+    const removal = this.tenant ? methods.removeFromTenant : undefined;
     return this.present([
       [methods.assignRole, this.giveRole()],
       // A person has two names: the one people read, and the username they sign in under.
@@ -1619,12 +1626,31 @@ class SideBuilder {
           confirm: (row) => `Enable ${named(row)}? They can sign in again.`,
         },
       ],
+      // A tenant's administrator takes a person out of the tenant: the method warns in the
+      // server's words, so it carries no confirm of its own. A row that says the person
+      // holds nothing in the tenant itself does not offer it; a row without the field does.
+      [
+        methods.removeFromTenant,
+        {
+          label: `Remove from the ${this.tenantWord}`,
+          icon: 'person_remove',
+          when: (row) => row['heldHere'] !== false,
+        },
+      ],
+      // On a tenant's side that has the removal from the tenant, the page does not draw
+      // Delete on a row whose answer lists the removal: on this side the removal stands in
+      // Delete's place. Where such a row says the person holds nothing in the tenant itself
+      // the page draws neither, since there is nothing of the tenant's to take. A row whose
+      // answer does not list the removal keeps Delete.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           confirm: (row) => `Delete ${named(row)}? The account, its sign-ins and its sessions are removed.`,
+          ...(removal === undefined
+            ? {}
+            : { when: (row: RecordData) => !(rowCapabilities(row)?.Execute ?? []).includes(removal) }),
         },
       ],
     ]);
@@ -1965,9 +1991,10 @@ class SideBuilder {
    * The fields a person's state is said from on this side, each with the line a row
    * says where the field is true, in the order the lines are said: Disabled; Must change
    * password, where the side has a password method; and on a tenant's side that another
-   * tenant also holds the person, or that they hold a role in the whole application,
-   * which keeps Disable and Delete from the tenant's administrator as a shared person
-   * does.
+   * tenant also holds the person, that they hold a role in every tenant at once (In every
+   * tenant, in the application's word, short enough for the State column), or that they
+   * hold a role in the whole application, which keeps Disable and Delete from the
+   * tenant's administrator as a shared person does.
    */
   private stateLines(): Named[] {
     const password = this.side.methods.requirePasswordChange !== undefined;
@@ -1977,6 +2004,7 @@ class SideBuilder {
       ...(this.tenant
         ? ([
             ['heldElsewhere', `Also in another ${this.tenantWord}`],
+            ['heldInEveryTenant', `In every ${this.tenantWord}`],
             ['heldGlobally', 'Also holds a role in the whole application'],
           ] as Named[])
         : []),
@@ -1986,7 +2014,9 @@ class SideBuilder {
   /**
    * What a person's row says of their state, a line each (stateLines): a line for each
    * field the row holds as true, so a field the reader's role leaves out of the row says
-   * nothing. Empty when all is well, and for no row.
+   * nothing. A row that says the person holds a role in every tenant does not also say
+   * they are in another: the first says the second. Empty when all is well, and for no
+   * row.
    */
   private statesOf(row: RecordData | undefined): string[] {
     if (!row) {
@@ -1994,7 +2024,17 @@ class SideBuilder {
     }
     return this.stateLines()
       .filter(([name]) => row[name] === true)
+      .filter(([name]) => !(name === 'heldElsewhere' && row['heldInEveryTenant'] === true))
       .map(([, line]) => line);
+  }
+
+  /**
+   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * whether the person holds something in the tenant itself, by which the removal from
+   * the tenant is offered. Only where the list has it.
+   */
+  private heldHere(resource: Resource): string[] {
+    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -2072,6 +2112,7 @@ const doneWords: Partial<Record<MethodKind, string>> = {
   disable: 'The account is disabled.',
   enable: 'The account is enabled.',
   delete: 'The account was deleted.',
+  removeFromTenant: 'The person was removed.',
   rename: 'The username was changed.',
   setName: 'The name was changed.',
   requirePasswordChange: 'The person is asked for a new password.',

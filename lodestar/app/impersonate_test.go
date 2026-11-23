@@ -48,9 +48,7 @@ var credentialActions = []accesstypes.Resource{
 // role and take it, send and withdraw an invitation, the one that makes a sector among
 // them, and open a sign-in method to sign-up or make it invite only, for the whole
 // application and for a sector; the
-// setting that lets people ask for a reset link at the sign-in page; the three that
-// require a second factor at sign-in, stop requiring it and set how long a browser is
-// remembered, for the crew and for the members; the four methods
+// setting that lets people ask for a reset link at the sign-in page; the four methods
 // the generator writes for the sector record's directory, which open it to the
 // directory's people with a role and make it invite only again, and which make the
 // sector sign in with its directory alone and end that; CreateSector, the action of the
@@ -85,14 +83,9 @@ var accessActions = []accesstypes.Resource{
 	"RemoveCrewRole",
 	"RemoveCrewSectorGroupMember",
 	"RemoveCrewSectorRole",
-	"RequireCrewSecondFactor",
-	"RequireMembersSecondFactor",
-	"SetCrewRememberedBrowsers",
+	"RemoveCrewSectorUser",
 	"SetCrewSelfServiceReset",
-	"SetMembersRememberedBrowsers",
 	"SetSectorPilotClearance",
-	"StopRequiringCrewSecondFactor",
-	"StopRequiringMembersSecondFactor",
 	"TakeCrewGroupRole",
 	"TakeCrewRole",
 	"TakeCrewSectorGroupRole",

@@ -44,11 +44,13 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	"RenameUser":                changesSignIn,
 	"SetUserEmail":              changesSignIn,
 
-	// What a person may do: the roles they hold, and the groups that hold roles for the
-	// people in them. A group made is a new way to hold roles and one deleted takes its
-	// roles from everyone in it.
+	// What a person may do: the roles they hold, one at a time or all of their own in a
+	// tenant at once (a tenant's RemoveUser, with their places in its groups), and the
+	// groups that hold roles for the people in them. A group made is a new way to hold
+	// roles and one deleted takes its roles from everyone in it.
 	"AssignRole":        changesAccess,
 	"RemoveRole":        changesAccess,
+	"RemoveUser":        changesAccess,
 	"CreateGroup":       changesAccess,
 	"DeleteGroup":       changesAccess,
 	"AddGroupMember":    changesAccess,
@@ -235,10 +237,12 @@ func Test_prepareIdentity_classedMethods(t *testing.T) {
 }
 
 // wantAccessMethods are the methods of the fixture's two auths that carry the class
-// access, by act: the whole application's and one tenant's of each.
+// access, by act: the whole application's and one tenant's of each, and a tenant's alone
+// of the removal of a person from it.
 var wantAccessMethods = map[string][]string{
 	"AssignRole":            {"AssignCrewRole", "AssignCrewShipRole", "AssignMembersRole", "AssignMembersShipRole"},
 	"RemoveRole":            {"RemoveCrewRole", "RemoveCrewShipRole", "RemoveMembersRole", "RemoveMembersShipRole"},
+	"RemoveUser":            {"RemoveCrewShipUser", "RemoveMembersShipUser"},
 	"CreateGroup":           {"CreateCrewGroup", "CreateCrewShipGroup", "CreateMembersGroup", "CreateMembersShipGroup"},
 	"DeleteGroup":           {"DeleteCrewGroup", "DeleteCrewShipGroup", "DeleteMembersGroup", "DeleteMembersShipGroup"},
 	"AddGroupMember":        {"AddCrewGroupMember", "AddCrewShipGroupMember", "AddMembersGroupMember", "AddMembersShipGroupMember"},

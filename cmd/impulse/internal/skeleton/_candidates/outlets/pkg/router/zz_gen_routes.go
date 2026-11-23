@@ -201,6 +201,8 @@ type GeneratedHandlers interface {
 
 	RemoveStaffTenantRole() http.HandlerFunc
 
+	RemoveStaffTenantUser() http.HandlerFunc
+
 	RenameStaffTenantUser() http.HandlerFunc
 
 	RenameStaffUser() http.HandlerFunc
@@ -488,6 +490,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/tenants/{tenantID}/remove-staff-tenant-password", domainGuard(h.RemoveStaffTenantPassword()))
 
 	asked.Post("/console/api/tenants/{tenantID}/remove-staff-tenant-role", domainGuard(h.RemoveStaffTenantRole()))
+
+	asked.Post("/console/api/tenants/{tenantID}/remove-staff-tenant-user", domainGuard(h.RemoveStaffTenantUser()))
 
 	asked.Post("/console/api/tenants/{tenantID}/rename-staff-tenant-user", domainGuard(h.RenameStaffTenantUser()))
 
@@ -973,6 +977,8 @@ type GeneratedPortalHandlers interface {
 
 	RemoveMembersTenantRole() http.HandlerFunc
 
+	RemoveMembersTenantUser() http.HandlerFunc
+
 	RenameMembersTenantUser() http.HandlerFunc
 
 	RenameMembersUser() http.HandlerFunc
@@ -1334,6 +1340,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/tenants/{tenantID}/remove-members-tenant-group-member", domainGuard(h.RemoveMembersTenantGroupMember()))
 
 	asked.Post("/portal/api/tenants/{tenantID}/remove-members-tenant-role", domainGuard(h.RemoveMembersTenantRole()))
+
+	asked.Post("/portal/api/tenants/{tenantID}/remove-members-tenant-user", domainGuard(h.RemoveMembersTenantUser()))
 
 	asked.Post("/portal/api/tenants/{tenantID}/rename-members-tenant-user", domainGuard(h.RenameMembersTenantUser()))
 

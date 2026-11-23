@@ -170,6 +170,8 @@ type GeneratedHandlers interface {
 
 	RemoveStaffTenantRole() http.HandlerFunc
 
+	RemoveStaffTenantUser() http.HandlerFunc
+
 	RenameStaffTenantUser() http.HandlerFunc
 
 	RenameStaffUser() http.HandlerFunc
@@ -457,6 +459,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/api/tenants/{tenantID}/remove-staff-tenant-password", domainGuard(h.RemoveStaffTenantPassword()))
 
 	asked.Post("/api/tenants/{tenantID}/remove-staff-tenant-role", domainGuard(h.RemoveStaffTenantRole()))
+
+	asked.Post("/api/tenants/{tenantID}/remove-staff-tenant-user", domainGuard(h.RemoveStaffTenantUser()))
 
 	asked.Post("/api/tenants/{tenantID}/rename-staff-tenant-user", domainGuard(h.RenameStaffTenantUser()))
 

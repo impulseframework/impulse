@@ -265,6 +265,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/remove-members-role", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-group-member", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-role", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/rename-members-user", method: http.MethodPost},
 		{url: "/console/api/require-members-second-factor", method: http.MethodPost},
@@ -447,6 +448,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/rename-staff-user", method: http.MethodPost},
 		{url: "/portal/api/require-staff-password-change", method: http.MethodPost},
@@ -775,12 +777,14 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/remove-members-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-group-member", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/remove-staff-group-member", method: http.MethodPost},
 		{url: "/devices/remove-staff-password", method: http.MethodPost},
 		{url: "/devices/remove-staff-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-user", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/rename-members-user", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-staff-tenant-user", method: http.MethodPost},
@@ -2631,6 +2635,10 @@ func (s *generatedHandlersStub) RemoveStaffTenantRole() http.HandlerFunc {
 	return s.record("RemoveStaffTenantRole")
 }
 
+func (s *generatedHandlersStub) RemoveStaffTenantUser() http.HandlerFunc {
+	return s.record("RemoveStaffTenantUser")
+}
+
 func (s *generatedHandlersStub) RenameStaffTenantUser() http.HandlerFunc {
 	return s.record("RenameStaffTenantUser")
 }
@@ -3333,6 +3341,10 @@ func (s *generatedHandlersStub) RemoveMembersTenantGroupMember() http.HandlerFun
 
 func (s *generatedHandlersStub) RemoveMembersTenantRole() http.HandlerFunc {
 	return s.record("RemoveMembersTenantRole")
+}
+
+func (s *generatedHandlersStub) RemoveMembersTenantUser() http.HandlerFunc {
+	return s.record("RemoveMembersTenantUser")
 }
 
 func (s *generatedHandlersStub) RenameMembersTenantUser() http.HandlerFunc {
