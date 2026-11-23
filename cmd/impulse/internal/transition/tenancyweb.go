@@ -756,17 +756,17 @@ func mergeImport(text, statement string) (string, bool) {
 	}
 	for _, at := range importStatement.FindAllStringIndex(text, -1) {
 		held := namedImportRE.FindStringSubmatch(text[at[0]:at[1]])
-		if held == nil || held[2] != adding[2] {
+		if len(held) < 3 || held[2] != adding[2] {
 			continue
 		}
-		names := importNames(held[1])
+		joined := importNames(held[1])
 		for _, name := range importNames(adding[1]) {
-			if !slices.Contains(names, name) {
-				names = append(names, name)
+			if !slices.Contains(joined, name) {
+				joined = append(joined, name)
 			}
 		}
 
-		return text[:at[0]] + importOf(names, adding[2]) + text[at[1]:], true
+		return text[:at[0]] + importOf(joined, adding[2]) + text[at[1]:], true
 	}
 
 	return text, false
@@ -774,25 +774,25 @@ func mergeImport(text, statement string) (string, bool) {
 
 // importNames are the names of an import statement's braces, in order.
 func importNames(list string) []string {
-	var names []string
+	var found []string
 	for _, name := range strings.Split(list, ",") {
 		if name = strings.TrimSpace(name); name != "" {
-			names = append(names, name)
+			found = append(found, name)
 		}
 	}
 
-	return names
+	return found
 }
 
 // importOf is the import statement of the names from the module as prettier writes it
 // at the skeletons' width: on one line where it fits, else a name a line.
-func importOf(names []string, module string) string {
-	line := fmt.Sprintf("import { %s } from '%s';", strings.Join(names, ", "), module)
+func importOf(imported []string, module string) string {
+	line := fmt.Sprintf("import { %s } from '%s';", strings.Join(imported, ", "), module)
 	if len(line) <= skeletonPrintWidth {
 		return line + "\n"
 	}
 
-	return fmt.Sprintf("import {\n  %s,\n} from '%s';\n", strings.Join(names, ",\n  "), module)
+	return fmt.Sprintf("import {\n  %s,\n} from '%s';\n", strings.Join(imported, ",\n  "), module)
 }
 
 // The frame's configuration as an untenanted skeleton renders it: one place, so no

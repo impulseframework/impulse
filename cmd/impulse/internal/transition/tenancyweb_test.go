@@ -71,22 +71,25 @@ func wantNoSignInPageOfItsOwn(t *testing.T, a *app.App) {
 	if _, err := os.Stat(a.Abs("web/console/src/app/components/ui/sign-in")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("web/console/src/app/components/ui/sign-in/ was written (stat error %v): the library draws the tenant's Sign-in settings page", err)
 	}
+	var written []string
 	err := filepath.WalkDir(a.Abs("web"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(d.Name(), "tenant-sign-in") || strings.Contains(string(data), "tenant-sign-in") {
-			t.Errorf("%s is or names a tenant sign-in page of the application's own", p)
+		if err == nil && !d.IsDir() {
+			written = append(written, p)
 		}
 
-		return nil
+		return err
 	})
 	if err != nil {
 		t.Fatalf("filepath.WalkDir() error = %v", err)
+	}
+	for _, p := range written {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("os.ReadFile() error = %v", err)
+		}
+		if strings.Contains(filepath.Base(p), "tenant-sign-in") || strings.Contains(string(data), "tenant-sign-in") {
+			t.Errorf("%s is or names a tenant sign-in page of the application's own", p)
+		}
 	}
 }
 

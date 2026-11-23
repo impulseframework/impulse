@@ -63,7 +63,7 @@ func Test_namedDirectoryRules(t *testing.T) {
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
 		},
 		{
-			name: "the auths whose client answers who the switch keeps out count the tenant's people, in declaration order",
+			name:  "the auths whose client answers who the switch keeps out count the tenant's people, in declaration order",
 			auths: []string{"Staff", "Members", "Guests"}, counting: []string{"Staff", "Guests"}, structs: []string{"Harbor", "HarborDirectory"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.MembersIdentity().DirectoryName", "a.GuestsIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)",
