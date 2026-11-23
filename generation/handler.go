@@ -63,6 +63,10 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 		return errors.Wrap(err, "generateDirectoryFactor()")
 	}
 
+	if err := r.generateTenantSignInSettings(); err != nil {
+		return errors.Wrap(err, "generateTenantSignInSettings()")
+	}
+
 	if err := r.generateDecoders(); err != nil {
 		return errors.Wrap(err, "generateDecoders()")
 	}

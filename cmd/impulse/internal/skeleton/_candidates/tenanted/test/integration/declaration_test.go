@@ -342,7 +342,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// state reads the switch as it stands. What the read says turning it on takes of
 	// the reader (its conditions) is left out here, and held where it is asked below.
 	state := func(b *browser, tenant string) (int, string) {
-		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only", nil)
+		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/sign-in-settings", nil)
 		var read struct {
 			DirectoryOnly *bool `json:"directoryOnly"`
 		}
@@ -451,7 +451,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 			ToDo     string `json:"toDo"`
 		} `json:"conditions"`
 	}
-	if status, body := organizer.do(ctx, http.MethodGet, "/api/tenants/"+north+"/directory-only", nil); status != http.StatusOK || json.Unmarshal(body, &asked) != nil {
+	if status, body := organizer.do(ctx, http.MethodGet, "/api/tenants/"+north+"/sign-in-settings", nil); status != http.StatusOK || json.Unmarshal(body, &asked) != nil {
 		t.Fatalf("reading north's switch as the organizer: status %d: %s", status, body)
 	}
 	if len(asked.Conditions) != 2 {

@@ -5512,9 +5512,9 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusOK},
 		},
 		{
-			name:         "DirectoryOnly denied",
+			name:         "TenantSignInSettings denied",
 			method:       http.MethodGet,
-			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/directory-only",
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sign-in-settings",
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{

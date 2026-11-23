@@ -136,7 +136,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// state reads the switch as it stands. What the read says turning it on takes of
 	// the reader (its conditions) is left out here: the library's own tests hold it.
 	state := func(b *browser, tenant string) (int, string) {
-		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only", nil)
+		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/sign-in-settings", nil)
 		var read struct {
 			DirectoryOnly *bool `json:"directoryOnly"`
 		}

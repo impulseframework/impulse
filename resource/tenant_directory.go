@@ -130,9 +130,9 @@ type DirectoryCounter struct {
 // one entry for each: the readers of whom the directory-only switch keeps out and of who
 // keeps the administrators' way in, how many people the tenant seats, and the tenant's
 // lists that decide whether a caller is told who they are (DirectoryPeople). The read of
-// a tenant's switch (State) says the counts from them before anyone turns it on, and the
-// warning that turns it on (DirectoryOnlyWarning) reads the same entries, so the two
-// always say the same number. The generated frames of a tenant's own methods pass each
+// a tenant's sign-in settings (SignInSettings) says the counts from them before anyone
+// turns it on, and the warning that turns it on (DirectoryOnlyWarning) reads the same
+// entries, so the two always say the same number. The generated frames of a tenant's own methods pass each
 // auth's generated identity client's readers. Rules built without entries count nobody:
 // the read says no number, and the warning says who will lose access without one.
 func (r *TenantDirectoryRules) CountedBy(people ...DirectoryPeople) *TenantDirectoryRules {

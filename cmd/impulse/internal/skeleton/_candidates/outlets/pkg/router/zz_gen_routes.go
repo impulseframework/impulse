@@ -149,7 +149,7 @@ type GeneratedHandlers interface {
 
 	DescribeStaffTenantGroup() http.HandlerFunc
 
-	DirectoryOnly() http.HandlerFunc
+	TenantSignInSettings() http.HandlerFunc
 	MakeTenantDirectoryOnly() http.HandlerFunc
 	EndTenantDirectoryOnly() http.HandlerFunc
 	OpenTenantToDirectory() http.HandlerFunc
@@ -431,7 +431,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/tenants/{tenantID}/describe-staff-tenant-group", domainGuard(h.DescribeStaffTenantGroup()))
 
-	bounded.Get("/console/api/tenants/{tenantID}/directory-only", domainGuard(h.DirectoryOnly()))
+	bounded.Get("/console/api/tenants/{tenantID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
 
 	asked.Post("/console/api/tenants/{tenantID}/make-tenant-directory-only", domainGuard(h.MakeTenantDirectoryOnly()))
 

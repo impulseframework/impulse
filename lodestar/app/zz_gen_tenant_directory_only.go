@@ -179,15 +179,3 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		return httpio.NewEncoder(w).Ok(nil)
 	})
 }
-
-// DirectoryOnly serves a sector's directory-only switch as it stands, GET
-// <prefix>/sectors/{sectorID}/directory-only: what the sector's Sign-in page shows the person
-// who may turn it, who does not read the global Sector record. It is asked under the
-// grant of either method that turns it, Execute on MakeSectorDirectoryOnly or on EndSectorDirectoryOnly in the
-// sector, and writes nothing (resource.DirectoryOnlyStateHandler). It is given the
-// rules the two methods are given, each auth's answer about the caller's password
-// with them, so it says what turning the switch on takes of the caller in the words
-// the method refuses in.
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Crew", List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword, Administrators: a.CrewIdentity().DirectoryAdministrators, InvitationList: "CrewSectorInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.CrewIdentity().DirectoryInvitations}, resource.DirectoryPeople{Label: "Members", List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword}).SecondFactorsBy(a.CrewIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor), a.UserPermissions, router.Domain, "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly")
-}

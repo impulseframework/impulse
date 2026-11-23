@@ -3233,8 +3233,8 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
-			handlerFunc: "DirectoryOnly",
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sign-in-settings", method: http.MethodGet,
+			handlerFunc: "TenantSignInSettings",
 			parameters:  map[string]string{},
 		},
 		{
@@ -3732,8 +3732,8 @@ func (s *generatedHandlersStub) DescribeCrewSectorGroup() http.HandlerFunc {
 	return s.record("DescribeCrewSectorGroup")
 }
 
-func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
-	return s.record("DirectoryOnly")
+func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
+	return s.record("TenantSignInSettings")
 }
 
 func (s *generatedHandlersStub) MakeSectorDirectoryOnly() http.HandlerFunc {

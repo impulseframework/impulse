@@ -459,8 +459,8 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 }
 
 // switchDirectoryRules is the expression of the rules the frame of a tenant's
-// directory-only switch asks, and the read of the switch as it stands with it, which
-// says the same things to the caller before they try: the named rules
+// directory-only switch asks, and the read of the tenant's sign-in settings with it,
+// which says the same things to the caller before they try: the named rules
 // (namedDirectoryRules), told what each of the program's auths says of the caller's
 // password (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the
 // generated identity client of every auth whose management the program generates, in
@@ -469,14 +469,15 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 // directoryOnlyPeople), in the same order: what a page calls them, the tenant's list of
 // them with the fields that name a person, how many of them the tenant seats, who of
 // them the switch keeps out, and who keeps the administrators' way in. The read of the
-// switch counts them and the warning reads them from the same entries, so the two say
-// the same number. The switch is turned on by a person who has a password, where their
-// auth has passwords. Where the directories record carries the second-factor column
-// (@directorySecondFactor), the rules are last told what each auth's sign-in settings
-// ask (resource.TenantDirectoryRules.SecondFactorsBy), the AuthSecondFactor of every
-// generated identity client, in declaration order: a tenant vouches for its directory's
-// own second factor only where the application asks somebody for one. A program that
-// generates no auth's management asks nothing and counts nobody.
+// tenant's sign-in settings counts them and the warning reads them from the same
+// entries, so the two say the same number. The switch is turned on by a person who has
+// a password, where their auth has passwords. Where the directories record carries the
+// second-factor column (@directorySecondFactor), the rules are last told what each
+// auth's sign-in settings ask (resource.TenantDirectoryRules.SecondFactorsBy), the
+// AuthSecondFactor of every generated identity client, in declaration order: a tenant
+// vouches for its directory's own second factor only where the application asks
+// somebody for one. A program that generates no auth's management asks nothing and
+// counts nobody.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {

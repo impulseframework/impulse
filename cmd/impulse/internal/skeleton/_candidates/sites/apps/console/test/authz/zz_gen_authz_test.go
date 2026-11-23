@@ -1990,9 +1990,9 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK},
 		},
 		{
-			name:         "DirectoryOnly denied",
+			name:         "TenantSignInSettings denied",
 			method:       http.MethodGet,
-			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only",
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/sign-in-settings",
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{

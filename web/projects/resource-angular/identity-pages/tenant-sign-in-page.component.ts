@@ -6,9 +6,6 @@ import {
   AnyResourceHandle,
   CreatePermission,
   DeletePermission,
-  DirectoryOnlyCondition,
-  DirectoryOnlyState,
-  directoryOnlyState,
   Domain,
   ExecutePermission,
   ListPermission,
@@ -16,6 +13,9 @@ import {
   methodHandle,
   Permission,
   Resource,
+  TenantSignInCondition,
+  TenantSignInSettings,
+  tenantSignInSettings,
 } from '@impulseframework/resource';
 import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
@@ -37,13 +37,13 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * they sign in through it in plain words, and whether the tenant is directory only, with
  * how many of its people that keeps out, a count that opens those people on the People page.
  *
- * What it says comes from two reads: the read of the tenant's directory-only switch,
- * asked where the digest grants either method that turns it, which says it all in the
- * server's words for the person reading; and the list of the tenant's directories, asked
- * where the digest grants List on it, which says only whether there is one. A tenant has
- * one directory, and nobody types one in: a person who may create it and is signed in
- * through an organization's directory makes that one the tenant's, and the request names
- * none. Everything else the page changes is one of the tenant's own methods, run through
+ * What it says comes from two reads: the read of the tenant's sign-in settings, asked
+ * where the digest grants any of the tenant's own sign-in methods the route names, which
+ * says it all in the server's words for the person reading; and the list of the tenant's
+ * directories, asked where the digest grants List on it, which says only whether there is
+ * one. A tenant has one directory, and nobody types one in: a person who may create it and
+ * is signed in through an organization's directory makes that one the tenant's, and the
+ * request names none. Everything else the page changes is one of the tenant's own methods, run through
  * the library's method dialog; a method that warns is asked for its warning first, so a
  * refusal is shown on the page in the server's words and no dialog opens. After a write
  * the page reads both again.
@@ -101,13 +101,17 @@ export class TenantSignInPageComponent {
   readonly canEndOnly = computed(() => this.grants('endDirectoryOnly'));
 
   /**
-   * The tenant's directory-only switch as it stands, read under the grant of either method
-   * that turns it: everything the page says in the server's words for the person reading.
+   * The tenant's sign-in settings as they stand, read under the grant of any of the
+   * tenant's own sign-in methods the route names: everything the page says in the server's
+   * words for the person reading.
    */
   private readonly read = resource({
-    params: () => ({ tenant: this.tenant(), readable: this.canMakeOnly() || this.canEndOnly() }),
-    loader: ({ params }): Promise<DirectoryOnlyState | undefined> =>
-      params.readable && params.tenant ? directoryOnlyState(this.client, params.tenant) : Promise.resolve(undefined),
+    params: () => ({
+      tenant: this.tenant(),
+      readable: this.canOpen() || this.canInviteOnly() || this.canMakeOnly() || this.canEndOnly(),
+    }),
+    loader: ({ params }): Promise<TenantSignInSettings | undefined> =>
+      params.readable && params.tenant ? tenantSignInSettings(this.client, params.tenant) : Promise.resolve(undefined),
   });
 
   /** The tenant's rows of the directories record, listed where the digest grants List. */
@@ -118,9 +122,20 @@ export class TenantSignInPageComponent {
     defaultValue: [],
   });
 
-  /** The read of the switch, where it has answered. */
-  readonly facts = computed((): DirectoryOnlyState | undefined =>
+  /** The read of the tenant's sign-in settings, where it has answered. */
+  readonly facts = computed((): TenantSignInSettings | undefined =>
     this.read.hasValue() ? this.read.value() : undefined,
+  );
+
+  /**
+   * The read, where the part headed Directory only is drawn: it has answered and the route
+   * names a method of the switch. An application whose tenant has no switch draws no such
+   * part.
+   */
+  readonly switchFacts = computed((): TenantSignInSettings | undefined =>
+    this.signIn.methods.makeDirectoryOnly !== undefined || this.signIn.methods.endDirectoryOnly !== undefined
+      ? this.facts()
+      : undefined,
   );
 
   /** The tenant's directory: a tenant has one, so the one row the list holds, or none. */
@@ -155,7 +170,7 @@ export class TenantSignInPageComponent {
     }),
   );
 
-  /** Whether the reader may know anything here: the read of the switch or the list. */
+  /** Whether the reader may know anything here: the read of the sign-in settings or the list. */
   readonly reads = computed(() => this.facts() !== undefined || this.canList());
 
   /** Whether the tenant has a directory, as far as the reader may know it. */
@@ -248,7 +263,7 @@ export class TenantSignInPageComponent {
   readonly keptOutFilter = filterQueryParams([{ field: 'outsideDirectory', operator: 'eq', value: 'true' }]);
 
   /** What turning directory only takes of the person reading that they do not meet, in the server's sentences. */
-  readonly unmet = computed((): DirectoryOnlyCondition[] =>
+  readonly unmet = computed((): TenantSignInCondition[] =>
     (this.facts()?.conditions ?? []).filter((condition) => !condition.met),
   );
 

@@ -35,7 +35,7 @@ func TestDirectoryOnlyState_saysHowTheSectorStands(t *testing.T) {
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
 
-	status, body := governor.do(ctx, http.MethodGet, sectorPath(cinder, "directory-only"), nil)
+	status, body := governor.do(ctx, http.MethodGet, sectorPath(cinder, "sign-in-settings"), nil)
 	var read struct {
 		Directory string `json:"directory"`
 	}
@@ -62,7 +62,7 @@ func TestDirectoryOnlyState_saysHowTheSectorStands(t *testing.T) {
 		t.Fatalf("confirming the governor's directory sign-in with his password: status %d: %s", status, body)
 	}
 
-	status, body = through.do(ctx, http.MethodGet, sectorPath(cinder, "directory-only"), nil)
+	status, body = through.do(ctx, http.MethodGet, sectorPath(cinder, "sign-in-settings"), nil)
 	var counted struct {
 		People *struct {
 			Seated  int `json:"seated"`

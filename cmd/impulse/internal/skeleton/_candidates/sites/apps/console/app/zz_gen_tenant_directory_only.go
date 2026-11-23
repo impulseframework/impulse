@@ -179,15 +179,3 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		return httpio.NewEncoder(w).Ok(nil)
 	})
 }
-
-// DirectoryOnly serves a tenant's directory-only switch as it stands, GET
-// <prefix>/tenants/{tenantID}/directory-only: what the tenant's Sign-in page shows the person
-// who may turn it, who does not read the global Tenant record. It is asked under the
-// grant of either method that turns it, Execute on MakeTenantDirectoryOnly or on EndTenantDirectoryOnly in the
-// tenant, and writes nothing (resource.DirectoryOnlyStateHandler). It is given the
-// rules the two methods are given, each auth's answer about the caller's password
-// with them, so it says what turning the switch on takes of the caller in the words
-// the method refuses in.
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffTenantUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword, Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffTenantInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations}).SecondFactorsBy(a.StaffIdentity().AuthSecondFactor), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
-}

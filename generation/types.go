@@ -255,25 +255,28 @@ const (
 	// directories record carries the column; a singular stem like the roster's.
 	tenantDirectoryFactorOutputName = "tenant_directory_factor"
 	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
-	// tenant record's directory-only switch: the method that turns it and its two
-	// reads, written where the record declares the switch; a singular stem like the
-	// roster's.
+	// tenant record's directory-only switch: the two methods that turn it, written
+	// where the record declares the switch; a singular stem like the roster's.
 	tenantDirectoryOnlyOutputName = "tenant_directory_only"
 	// tenantDirectoryRoleOutputName names the handler package's file carrying the two
 	// methods that say how a tenant admits its directory's people, written where the
 	// directories record carries a default seat; a singular stem like the roster's.
 	tenantDirectoryRoleOutputName = "tenant_directory_role"
-	permissionsOutputName         = "permissions"
-	liveOutputName                = "live"
-	liveDerivationsOutputName     = "live_derivations"
-	decodersOutputName            = "decoders"
-	appContractOutputName         = "app_contract"
-	routesOutputName              = "routes"
-	routerTestOutputName          = "routes_test"
-	servedRouterOutputName        = "router"
-	servedRouterTestOutputName    = "router_test"
-	consolidatedHandlerOutputName = "consolidated_handler"
-	collectionOutputName          = "collection"
+	// tenantSignInSettingsOutputName names the handler package's file carrying the read
+	// of a tenant's sign-in settings, written where an outlet serves one of the
+	// tenant's own sign-in methods; a singular stem like the roster's.
+	tenantSignInSettingsOutputName = "tenant_sign_in_settings"
+	permissionsOutputName          = "permissions"
+	liveOutputName                 = "live"
+	liveDerivationsOutputName      = "live_derivations"
+	decodersOutputName             = "decoders"
+	appContractOutputName          = "app_contract"
+	routesOutputName               = "routes"
+	routerTestOutputName           = "routes_test"
+	servedRouterOutputName         = "router"
+	servedRouterTestOutputName     = "router_test"
+	consolidatedHandlerOutputName  = "consolidated_handler"
+	collectionOutputName           = "collection"
 	// releaseOutputName is the stem of the router package's release file,
 	// resource.ReleaseFileName, which names each outlet's oldest answered release.
 	releaseOutputName = "release"
@@ -314,6 +317,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	tenantDirectoryOnlyOutputName:   {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
 	tenantDirectoryRoleOutputName:   {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
 	tenantDirectoryFactorOutputName: {file: generatedGoFileName(tenantDirectoryFactorOutputName), carries: "the handlers of a tenant's word for its directory's second factor"},
+	tenantSignInSettingsOutputName:  {file: generatedGoFileName(tenantSignInSettingsOutputName), carries: "the read of a tenant's sign-in settings"},
 	permissionsOutputName:           {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
 	liveOutputName:                  {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
 	decodersOutputName:              {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},

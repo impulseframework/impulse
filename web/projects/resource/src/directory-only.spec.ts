@@ -2,11 +2,12 @@ import { describe, expect, it } from 'bun:test';
 import { Domain, Method } from './brands';
 import { createClient, methodHandle } from './client';
 import { ApiDescriptor } from './descriptor';
-import { DirectoryOnlyState, directoryOnlyState } from './directory-only';
+import { TenantSignInSettings, tenantSignInSettings } from './directory-only';
 import { ApiError, warningHeader } from './transport';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 
-// A tenant's directory-only switch is read as it stands under the tenant's own route.
+// A tenant's sign-in settings, its directory-only switch among them, are read as they
+// stand under the tenant's own route.
 // What turning it on would do is the warning of the method that turns it on, asked of
 // the method's own handle in the tenant: the server's sentence, the people it names and
 // the words for the button, or the server's refusal with its own sentence.
@@ -33,19 +34,44 @@ const warning = {
   confirm: 'Admit only people who sign in through acme.example',
 };
 
-describe('directoryOnlyState', () => {
-  it("reads the switch as it stands under the tenant's route", async () => {
+describe('tenantSignInSettings', () => {
+  it("reads the sign-in settings as they stand under the tenant's route", async () => {
     const transport = scriptedTransport({ status: 200, body: { directoryOnly: true } });
     const client = createClient(descriptor, { baseUrl: '/api', transport });
 
-    expect(await directoryOnlyState(client, 'acme co' as Domain)).toEqual({ directoryOnly: true });
+    expect(await tenantSignInSettings(client, 'acme co' as Domain)).toEqual({ directoryOnly: true });
     expect(transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
-      'GET /api/tenants/acme%20co/directory-only',
+      'GET /api/tenants/acme%20co/sign-in-settings',
     ]);
   });
 
+  it("answers the second factor's part, with what saying the word takes of the person asking", async () => {
+    const settings: TenantSignInSettings = {
+      directoryOnly: false,
+      directory: 'acme.example',
+      secondFactor: {
+        vouched: false,
+        asked: true,
+        says: 'People who sign in through acme.example are asked for a code mailed to their address, as everyone is.',
+        conditions: [
+          {
+            sentence: 'Saying so is for a person signed in through acme.example.',
+            met: false,
+            toDo: 'Sign in through acme.example, then try again.',
+          },
+        ],
+      },
+    };
+    const transport = scriptedTransport({ status: 200, body: settings });
+    const client = createClient(descriptor, { baseUrl: '/api', transport });
+
+    const read = await tenantSignInSettings(client, 'acme' as Domain);
+    expect(read).toEqual(settings);
+    expect(read.secondFactor?.conditions?.map((condition) => condition.met)).toEqual([false]);
+  });
+
   it("answers the count auth by auth, each auth's share with its label and its list of people", async () => {
-    const counted: DirectoryOnlyState = {
+    const counted: TenantSignInSettings = {
       directoryOnly: false,
       people: {
         seated: 17,
@@ -59,7 +85,7 @@ describe('directoryOnlyState', () => {
     const transport = scriptedTransport({ status: 200, body: counted });
     const client = createClient(descriptor, { baseUrl: '/api', transport });
 
-    const state = await directoryOnlyState(client, 'acme' as Domain);
+    const state = await tenantSignInSettings(client, 'acme' as Domain);
     expect(state).toEqual(counted);
     expect(state.people?.shares?.map((share) => share.label)).toEqual(['Crew', 'Staff']);
   });
@@ -68,7 +94,7 @@ describe('directoryOnlyState', () => {
     const transport = scriptedTransport();
     const client = createClient({ ...descriptor, domainRoute: undefined }, { baseUrl: '/api', transport });
 
-    expect(() => directoryOnlyState(client, 'acme' as Domain)).toThrow("served under a tenant's route");
+    expect(() => tenantSignInSettings(client, 'acme' as Domain)).toThrow("served under a tenant's route");
     expect(transport.requests).toEqual([]);
   });
 });

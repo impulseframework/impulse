@@ -1,4 +1,4 @@
-import { ApiDescriptor, DirectoryOnlyState, Method, Resource } from '@impulseframework/resource';
+import { ApiDescriptor, Method, Resource, TenantSignInSettings } from '@impulseframework/resource';
 import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
 import {
   TenantSignIn,
@@ -12,7 +12,8 @@ import {
 // A tenant's Sign-in settings page is placed from the API's description alone: the
 // tenant's side of an Auth names the directories record and the tenant's methods that
 // set how its people enter. The page's first line and its line on the people the
-// directory-only switch keeps out are said from the read of the switch, as two tables.
+// directory-only switch keeps out are said from the read of the tenant's sign-in
+// settings, as two tables.
 
 const side = (scope: 'global' | 'domain', lists: Record<string, string>, methods: Record<string, string> = {}) => ({
   scope,
@@ -110,7 +111,7 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
 });
 
 describe('tenantStandsLine', () => {
-  const said = (facts: DirectoryOnlyState | undefined, lists = false, row = false): string =>
+  const said = (facts: TenantSignInSettings | undefined, lists = false, row = false): string =>
     tenantStandsLine({ word: 'team', name: 'Riverside', facts, lists, row });
   const off = { directoryOnly: false };
   const workspace = 'Google Workspace riverside.example';

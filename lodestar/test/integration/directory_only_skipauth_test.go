@@ -189,7 +189,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// state reads the switch as it stands. What the read says turning it on takes of
 	// the reader (its conditions) is left out here, and held where it is asked below.
 	state := func(b *browser, sector string) (int, string) {
-		status, body := b.do(ctx, http.MethodGet, sectorPath(sector, "directory-only"), nil)
+		status, body := b.do(ctx, http.MethodGet, sectorPath(sector, "sign-in-settings"), nil)
 		var read struct {
 			DirectoryOnly *bool `json:"directoryOnly"`
 		}
@@ -248,7 +248,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 		"turning it on":        func() (int, []byte) { return turn(rigger, bastion, true) },
 		"asking for a warning": func() (int, []byte) { return warns(rigger, bastion) },
 		"reading the switch": func() (int, []byte) {
-			return rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil)
+			return rigger.do(ctx, http.MethodGet, sectorPath(bastion, "sign-in-settings"), nil)
 		},
 	} {
 		if status, body := call(); status != http.StatusNotFound || strings.Contains(string(body), "Persona") {
@@ -370,7 +370,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status, body := warns(rookie, bastion); status != http.StatusForbidden || saysTheRule(body) {
 		t.Errorf("asking what directory only would do as the rookie: status %d, want 403 that says nothing of the rule: %s", status, body)
 	}
-	if status, body := rookie.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusForbidden || saysTheRule(body) {
+	if status, body := rookie.do(ctx, http.MethodGet, sectorPath(bastion, "sign-in-settings"), nil); status != http.StatusForbidden || saysTheRule(body) {
 		t.Errorf("reading Bastion's switch as the rookie: status %d, want 403 that says nothing of the switch: %s", status, body)
 	}
 	for name, call := range map[string]func() (int, []byte){
@@ -424,7 +424,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 			ToDo     string `json:"toDo"`
 		} `json:"conditions"`
 	}
-	if status, body := warden.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || json.Unmarshal(body, &asked) != nil {
+	if status, body := warden.do(ctx, http.MethodGet, sectorPath(bastion, "sign-in-settings"), nil); status != http.StatusOK || json.Unmarshal(body, &asked) != nil {
 		t.Fatalf("reading Bastion's switch as the warden: status %d: %s", status, body)
 	}
 	if len(asked.Conditions) != 2 {

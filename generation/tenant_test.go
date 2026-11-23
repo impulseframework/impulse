@@ -63,6 +63,7 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Harbors":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "DirectoryOnly": plain}},
 		"HarborDirectories": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain, "DefaultSeat": nullable, "AsksSecondFactor": plain}, Indexes: directoryIndexes},
 		"Landings":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain, "AsksSecondFactor": plain}, Indexes: directoryIndexes},
+		"Moles":             {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain, "DefaultSeat": nullable}, Indexes: directoryIndexes},
 		"Causeways":         {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}, Indexes: []indexMeta{byDirectory}},
 		"Seawalls":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: []indexMeta{byTenant, byTenantAndDirectory}},
 		"Pontoons":          {PkCount: 1, Columns: map[string]columnMeta{"Name": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},

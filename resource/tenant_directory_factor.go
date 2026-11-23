@@ -28,6 +28,22 @@ import (
 // directory's people for its own.
 const VouchForDirectoryWord = "vouch"
 
+// DirectorySecondFactor is the second factor's part of a tenant's sign-in settings:
+// whether the tenant says its directory asks its people for a second factor of its own
+// (Vouched), whether the caller's auth asks everyone for one now (Asked; true where no
+// auth answers), the one sentence a page shows for the two (Says), and, while the tenant
+// has not said so and the application asks, what saying so takes of the caller
+// (Conditions).
+type DirectorySecondFactor struct {
+	Vouched bool   `json:"vouched"`
+	Says    string `json:"says"`
+	Asked   bool   `json:"asked"`
+	// Conditions holds the one thing saying the word takes of the caller, said for them
+	// in the words the method refuses in (VouchForDirectory). There is none while the
+	// tenant vouches, and none while the application asks nobody.
+	Conditions []TenantSignInCondition `json:"conditions,omitempty"`
+}
+
 // AuthSecondFactor answers, for one auth, whether its sign-in settings ask everyone for
 // a second factor now, in the caller's transaction. applies is false where the auth asks
 // nothing of the request: a call outside any request, or a request that came through
@@ -146,19 +162,64 @@ func (r *TenantDirectoryRules) mayVouch(ctx context.Context, txn ReadWriteTransa
 		return err
 	}
 	if !asked {
-		return httpio.NewConflictMessagef("This application asks nobody for a second factor now, so there is nothing to turn off for people who sign in through %s.", r.directoryWords(directory.Directory))
+		return httpio.NewConflictMessage(r.asksNobody(directory.Directory))
 	}
 
 	return nil
+}
+
+// asksNobody says that the application asks nobody for a second factor now, so a
+// tenant's word for directory has nothing to stop: the refusal of the word (mayVouch)
+// and what the tenant's sign-in settings say of a tenant that has not said it
+// (secondFactorPart) are this one sentence.
+func (r *TenantDirectoryRules) asksNobody(directory signin.Directory) string {
+	return fmt.Sprintf("This application asks nobody for a second factor now, so there is nothing to turn off for people who sign in through %s.", r.directoryWords(directory))
+}
+
+// secondFactorPart says the second factor's part of tenant's sign-in settings for the
+// caller (DirectorySecondFactor): nil where the directories record carries no
+// second-factor column or the tenant has no directory. While the tenant has not said the
+// word and the application asks somebody, the part holds what saying it takes of the
+// caller (vouchesThroughDirectory), the value the method's refusal is built from.
+func (r *TenantDirectoryRules) secondFactorPart(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectorySecondFactor, error) {
+	if r.columns.SecondFactorColumn == "" {
+		return nil, nil
+	}
+	directory, err := r.directoryRow(ctx, txn, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if directory == nil {
+		return nil, nil
+	}
+	asked, err := r.secondFactorAsked(ctx, txn)
+	if err != nil {
+		return nil, err
+	}
+	through := r.directoryWords(directory.Directory)
+	part := &DirectorySecondFactor{Vouched: directory.SecondFactor, Asked: asked}
+	switch {
+	case asked && !directory.SecondFactor:
+		part.Says = fmt.Sprintf("People who sign in through %s are asked for a code mailed to their address, as everyone is.", through)
+		part.Conditions = []TenantSignInCondition{r.vouchesThroughDirectory(ctx, directory.Directory)}
+	case asked:
+		part.Says = fmt.Sprintf("This %s says that %s asks its people for a second factor when they sign in, so they are not asked for a code.", r.word, through)
+	case !directory.SecondFactor:
+		part.Says = r.asksNobody(directory.Directory)
+	default:
+		part.Says = fmt.Sprintf("This %s says that %s asks its people for a second factor when they sign in. This application asks nobody for a second factor now.", r.word, through)
+	}
+
+	return part, nil
 }
 
 // vouchesThroughDirectory is what saying the word takes of the caller, said for them:
 // that they are signed in through directory, the tenant's own. Nothing checks the
 // tenant's word, so it is said by a person the directory itself let in. A caller who is
 // not is told how they did sign in, and to sign in through the directory.
-func (r *TenantDirectoryRules) vouchesThroughDirectory(ctx context.Context, directory signin.Directory) DirectoryOnlyCondition {
+func (r *TenantDirectoryRules) vouchesThroughDirectory(ctx context.Context, directory signin.Directory) TenantSignInCondition {
 	name := r.directoryName(directory)
-	condition := DirectoryOnlyCondition{
+	condition := TenantSignInCondition{
 		Sentence: fmt.Sprintf("Only a person who is signed in through this %s's directory, %s, can say that it asks its people for a second factor.", r.word, name),
 	}
 	session := sessioninfo.DataFromCtx(ctx)

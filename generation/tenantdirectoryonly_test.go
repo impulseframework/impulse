@@ -108,7 +108,8 @@ func Test_tenantRecord_switchIsOutputOnly(t *testing.T) {
 // the frame hands the warning none of; the one that turns it off declares no warning
 // and refuses a request for one; each asks the rules of the switch and then writes the
 // flag through the record's update patch, reloads the roster and signals the tenants
-// kind; and the read of the switch is the library's, asked under either method's grant.
+// kind. The file holds no read: how the switch stands is said by the read of the
+// tenant's sign-in settings, which has a file of its own.
 func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -116,7 +117,6 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		return &directoryOnlyData{
 			Source: "resources", Package: "app", Name: "Harbor", Word: "harbor", Field: "DirectoryOnly",
 			Make: tenantOwnMethod{Name: "MakeHarborDirectoryOnly", Typed: "close"}, End: tenantOwnMethod{Name: "EndHarborDirectoryOnly"},
-			StateFunc: "DirectoryOnly", StateRoute: "directory-only",
 			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
 			SwitchRules:         "NewHarborDirectoryRules()",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
@@ -132,10 +132,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
 	)
 	// The frame that turns the switch asks each auth's client whether the caller has a
-	// password, and so does the read of the switch as it stands, which says what turning
-	// it on takes of the caller before they try.
-	// Both, and the warning, read the auths' people from the rules' entries, which say
-	// what a page calls each auth's people.
+	// password, and its warning reads the auths' people from the rules' entries, which
+	// say what a page calls each auth's people.
 	const switchRules = namedRules + ".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)" +
 		`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword}, ` +
 		`resource.DirectoryPeople{Label: "Member", List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword})`
@@ -177,18 +175,20 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"return httpio.NewEncoder(w).Ok(warning)",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
-				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				"return resource.DirectoryOnlyStateHandler(a.ResourceClient(), " + switchRules + `, a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
 			},
 			wantContains: []string{
 				"POST <prefix>/harbors/{harborID}/make-harbor-directory-only",
 				"POST <prefix>/harbors/{harborID}/end-harbor-directory-only",
-				"GET\n// <prefix>/harbors/{harborID}/directory-only",
 				`which a person types "close" under`,
 			},
 			// The read of what turning the switch on would do is the method's warning now,
 			// and the frame hands the warning no people of its own: the rules hold them.
-			wantNotContains: []string{"DirectoryOnlyConsequence", "SetHarborDirectoryOnly", "req.Turn()", "DirectoryOnlyWarning(ctx, txn, domain,"},
+			// The read of how the switch stands is the read of the tenant's sign-in
+			// settings, in its own file.
+			wantNotContains: []string{
+				"DirectoryOnlyConsequence", "SetHarborDirectoryOnly", "req.Turn()", "DirectoryOnlyWarning(ctx, txn, domain,",
+				"TenantSignInSettingsHandler", "func (a *App) DirectoryOnly() http.HandlerFunc", "GET\n// <prefix>", "GET <prefix>",
+			},
 		},
 		{
 			name:            "a program that generates no auth's management counts and names no person",
@@ -223,9 +223,12 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		})
 	}
 
-	// The tenants file no longer carries a read of the switch: the switch has its own file.
-	if strings.Contains(tenantsTemplate, "DirectoryOnlyHandler") || strings.Contains(tenantsTemplate, "DirectoryOnlyStateHandler") {
-		t.Error("tenantsTemplate still serves a read of the directory-only switch")
+	// Neither the tenants file nor the switch's carries the read of the tenant's sign-in
+	// settings: it has its own file.
+	for name, template := range map[string]string{"tenantsTemplate": tenantsTemplate, "tenantDirectoryOnlyTemplate": tenantDirectoryOnlyTemplate} {
+		if strings.Contains(template, "TenantSignInSettingsHandler") || strings.Contains(template, "{{ .StateFunc }}") {
+			t.Errorf("%s still serves a read of the tenant's sign-in settings", name)
+		}
 	}
 }
 
@@ -368,9 +371,10 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 }
 
 // Test_directoryOnlyRoutes pins where the tenant's own methods are served and what
-// registers them. The switch's two methods and its read are under the tenant's own
-// route, behind the domain guard, on every session outlet the tenant record is on and
-// on no API-key outlet. The two methods that say how the tenant admits its directory's
+// registers them. Each is under the tenant's own route, behind the domain guard, and
+// the read of the tenant's sign-in settings comes first on every outlet that serves
+// any of them. The switch's two methods are on every session outlet the tenant record
+// is on and on no API-key outlet. The two methods that say how the tenant admits its directory's
 // people are served where the session outlets that serve the directories record are
 // all of one Auth whose management the program generates and whose roles are given by
 // hand, and nowhere otherwise. The two methods of the tenant's word for its directory's
@@ -428,9 +432,13 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			ReadsDryRunAndWarning: true,
 		}
 	}
+	readUnder := func(prefix string) []*generatedRoute {
+		return []*generatedRoute{
+			{Method: "GET", Path: "/" + prefix + "/harbors/{harborID}/sign-in-settings", HandlerFunc: "TenantSignInSettings", DomainScoped: true, TestURL: "/" + prefix + "/harbors/" + domainTestValue + "/sign-in-settings"},
+		}
+	}
 	switchUnder := func(prefix string) []*generatedRoute {
 		return []*generatedRoute{
-			{Method: "GET", Path: "/" + prefix + "/harbors/{harborID}/directory-only", HandlerFunc: "DirectoryOnly", DomainScoped: true, TestURL: "/" + prefix + "/harbors/" + domainTestValue + "/directory-only"},
 			post(prefix, "MakeHarborDirectoryOnly", "make-harbor-directory-only"),
 			post(prefix, "EndHarborDirectoryOnly", "end-harbor-directory-only"),
 		}
@@ -456,8 +464,11 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 
 		return cases
 	}
+	readCase := func(prefix string) []string {
+		return []string{"GET /" + prefix + "/harbors/" + domainTestValue + "/sign-in-settings"}
+	}
 	switchCases := func(prefix string) []string {
-		return append([]string{"GET /" + prefix + "/harbors/" + domainTestValue + "/directory-only"}, methodCases(prefix, "make-harbor-directory-only", "end-harbor-directory-only")...)
+		return methodCases(prefix, "make-harbor-directory-only", "end-harbor-directory-only")
 	}
 	roleCases := func(prefix string) []string {
 		return methodCases(prefix, "open-harbor-to-directory", "make-harbor-invite-only")
@@ -466,14 +477,15 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		return methodCases(prefix, "vouch-for-harbor-directory-second-factor", "stop-vouching-for-harbor-directory-second-factor")
 	}
 	// The fixture's HarborDirectory record carries the second-factor column, so every
-	// case on it serves the two methods of the word after the switch's and the role's.
+	// case on it serves the two methods of the word after the switch's and the role's,
+	// each outlet's after the read of the tenant's sign-in settings.
 	switchAndFactor := func() map[string][]*generatedRoute {
 		return map[string][]*generatedRoute{
-			defaultOutletName: slices.Concat(switchUnder("api"), factorUnder("api")),
-			"members":         slices.Concat(switchUnder("members"), factorUnder("members")),
+			defaultOutletName: slices.Concat(readUnder("api"), switchUnder("api"), factorUnder("api")),
+			"members":         slices.Concat(readUnder("members"), switchUnder("members"), factorUnder("members")),
 		}
 	}
-	switchAndFactorCases := slices.Concat(switchCases("api"), switchCases("members"), factorCases("api"), factorCases("members"))
+	switchAndFactorCases := slices.Concat(readCase("api"), switchCases("api"), factorCases("api"), readCase("members"), switchCases("members"), factorCases("members"))
 	handlers := func(routes []*generatedRoute) []string {
 		var names []string
 		for _, route := range routes {
@@ -519,10 +531,13 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			auths:    []string{staffAuth},
 			identity: []*identityInstance{staff(false)},
 			wantRoutes: map[string][]*generatedRoute{
-				defaultOutletName: slices.Concat(switchUnder("api"), roleUnder("api"), factorUnder("api")),
-				"members":         slices.Concat(switchUnder("members"), roleUnder("members"), factorUnder("members")),
+				defaultOutletName: slices.Concat(readUnder("api"), switchUnder("api"), roleUnder("api"), factorUnder("api")),
+				"members":         slices.Concat(readUnder("members"), switchUnder("members"), roleUnder("members"), factorUnder("members")),
 			},
-			wantCases: slices.Concat(switchCases("api"), switchCases("members"), roleCases("api"), roleCases("members"), factorCases("api"), factorCases("members")),
+			wantCases: slices.Concat(
+				readCase("api"), switchCases("api"), roleCases("api"), factorCases("api"),
+				readCase("members"), switchCases("members"), roleCases("members"), factorCases("members"),
+			),
 			wantMethods: execute(
 				"EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "MakeHarborInviteOnly", "OpenHarborToDirectory",
 				"StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor",
@@ -582,8 +597,8 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			structs:     []string{"Harbor", "Breakwater"},
 			auths:       []string{staffAuth},
 			identity:    []*identityInstance{staff(false)},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: slices.Concat(readUnder("api"), switchUnder("api")), "members": slices.Concat(readUnder("members"), switchUnder("members"))},
+			wantCases:   slices.Concat(readCase("api"), switchCases("api"), readCase("members"), switchCases("members")),
 			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
 		},
 	}
@@ -594,14 +609,15 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			r := generator(t, tt.auths, tt.identity, tt.structs...)
 			if tt.structs[0] == "Sector" {
 				// The Sector fixture record declares no switch; the default role's
-				// methods are still served where its directories record is.
+				// methods are still served where its directories record is, and so is
+				// the read of the tenant's sign-in settings.
 				tt.wantRoutes = map[string][]*generatedRoute{}
 				for _, prefix := range []string{"api", "members"} {
 					name := prefix
 					if prefix == "api" {
 						name = defaultOutletName
 					}
-					routes := slices.Concat(roleUnder(prefix), factorUnder(prefix))
+					routes := slices.Concat(readUnder(prefix), roleUnder(prefix), factorUnder(prefix))
 					for _, route := range routes {
 						route.HandlerFunc = strings.Replace(route.HandlerFunc, "Harbor", "Sector", 1)
 						route.Path = strings.NewReplacer("harbors/{harborID}", r.domainRouteSegment+"/{"+r.domainRouteParam+"}", "-harbor-", "-sector-").Replace(route.Path)
@@ -630,9 +646,9 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 					t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
 				}
 			} else if got := handlers(gotRoutes[defaultOutletName]); len(gotRoutes) != 2 || !slices.Equal(got, []string{
-				"OpenSectorToDirectory", "MakeSectorInviteOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
+				"TenantSignInSettings", "OpenSectorToDirectory", "MakeSectorInviteOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			}) {
-				t.Errorf("registered routes = %v, want the two methods of the default role and the two of the word for the second factor on both session outlets and nothing of a switch", got)
+				t.Errorf("registered routes = %v, want the read of the tenant's sign-in settings, the two methods of the default role and the two of the word for the second factor on both session outlets and nothing of a switch", got)
 			}
 			if got := len(testRoutes); got != registered {
 				t.Errorf("the dispatch test takes %d routes, want every registered one, %d", got, registered)
@@ -657,8 +673,8 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				if diff := cmp.Diff(tt.wantCases, gotCases); diff != "" {
 					t.Errorf("the matrix's cases mismatch (-want +got):\n%s", diff)
 				}
-			} else if len(gotCases) != 24 {
-				t.Errorf("the matrix carries %d cases, want 24: each of the four methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
+			} else if len(gotCases) != 26 {
+				t.Errorf("the matrix carries %d cases, want 26: the read of the tenant's sign-in settings, and each of the four methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
 			}
 
 			b := resource.NewCollectionBuilder()

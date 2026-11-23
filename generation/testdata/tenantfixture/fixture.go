@@ -283,6 +283,24 @@ type (
 		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
 	}
 
+	// Mole is a well-formed directories record with the default seat column and without
+	// the harbor's word for its directory's second factor.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Mole struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directoryDefaultSeat
+		DefaultSeat *string `spanner:"DefaultSeat"`
+	}
+
 	// Breakwater is a well-formed directories record without the default seat column:
 	// every harbor admits the strangers its directories vouch for by invitation only.
 	//

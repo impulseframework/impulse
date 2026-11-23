@@ -8,8 +8,6 @@ import {
   ApiDescriptor,
   ClientBase,
   createClient,
-  DirectoryOnlyCondition,
-  DirectoryOnlyState,
   Domain,
   Method,
   MethodMeta,
@@ -17,6 +15,8 @@ import {
   PermissionDigest,
   PermissionDigestState,
   Resource,
+  TenantSignInCondition,
+  TenantSignInSettings,
   TransportRequest,
   TransportResponse,
 } from '@impulseframework/resource';
@@ -172,37 +172,37 @@ const administrator: PermissionDigest = {
 const lister: PermissionDigest = { TeamDirectories: { List: 'granted' } };
 
 /** What turning directory only takes of the person reading, as the server says it. */
-const throughTheDirectory: DirectoryOnlyCondition = {
+const throughTheDirectory: TenantSignInCondition = {
   sentence:
     "Directory only is turned on by a person who is signed in through this team's directory, Google Workspace riverside.example: that shows the directory works, and that you will not shut yourself out.",
   met: true,
 };
-const hasAPassword: DirectoryOnlyCondition = {
+const hasAPassword: TenantSignInCondition = {
   sentence:
     'Directory only is turned on by a person who has a password: an administrator of this team enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.',
   met: true,
 };
-const notThroughTheDirectory: DirectoryOnlyCondition = {
+const notThroughTheDirectory: TenantSignInCondition = {
   ...throughTheDirectory,
   met: false,
   toDo: 'Sign in through Google Workspace riverside.example, then try again.',
 };
 
-/** The read of the switch for a team with no directory, by a person signed in through Workspace. */
-const noDirectoryThroughWorkspace: DirectoryOnlyState = {
+/** The read of the sign-in settings for a team with no directory, by a person signed in through Workspace. */
+const noDirectoryThroughWorkspace: TenantSignInSettings = {
   directoryOnly: false,
   passwords: true,
   signedIn: 'You signed in through Google Workspace riverside.example.',
   sessionDirectory: directory,
 };
 /** The same, by a person signed in with a password. */
-const noDirectoryByPassword: DirectoryOnlyState = {
+const noDirectoryByPassword: TenantSignInSettings = {
   directoryOnly: false,
   passwords: true,
   signedIn: 'You signed in with a password.',
 };
-/** The read of the switch for a team with its directory, invitation only, off, by a person who meets both conditions. */
-const withDirectory: DirectoryOnlyState = {
+/** The read of the sign-in settings for a team with its directory, invitation only, off, by a person who meets both conditions. */
+const withDirectory: TenantSignInSettings = {
   directoryOnly: false,
   directory,
   passwords: true,
@@ -213,7 +213,7 @@ const withDirectory: DirectoryOnlyState = {
 };
 
 /** The same, by a person signed in with a password, who is not signed in through the directory. */
-const withDirectoryByPassword: DirectoryOnlyState = {
+const withDirectoryByPassword: TenantSignInSettings = {
   directoryOnly: false,
   directory,
   passwords: true,
@@ -242,14 +242,14 @@ interface World {
   /** The grants in the team. */
   digest: PermissionDigest;
   session?: object;
-  /** The read of the switch; a team with no directory, off, unless given. */
-  state?: DirectoryOnlyState;
+  /** The read of the sign-in settings; a team with no directory, off, unless given. */
+  state?: TenantSignInSettings;
   directories?: RecordData[];
   /** The server's answer to a write. */
   write?: TransportResponse;
   /** The server's answer to a request for a method's warning; the warnings above unless given. */
   warning?: TransportResponse;
-  /** Where given, the server answers a read of the switch once this settles. */
+  /** Where given, the server answers a read of the sign-in settings once this settles. */
   held?: Promise<void>;
   /** The names the page's route carries; the library's placing unless given. */
   route?: TenantSignIn;
@@ -281,7 +281,7 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
         return { status: 200, body: url.searchParams.get('domain') === team ? world.digest : {} };
       case '/api/user-domains':
         return { status: 200, body: [{ domain: team, name: 'Riverside' }] };
-      case `/api/teams/${team}/directory-only`: {
+      case `/api/teams/${team}/sign-in-settings`: {
         const read: TransportResponse = { status: 200, body: world.state ?? { directoryOnly: false } };
         return world.held ? world.held.then(() => read) : read;
       }
@@ -380,9 +380,9 @@ describe('TenantSignInPageComponent', () => {
     sent(route)
       .filter((request) => request.kind === 'call')
       .map((request) => request.body);
-  /** How many times the page read the switch. */
-  const readsOfTheSwitch = (): number =>
-    transport.requests.filter((r) => r.url.replace(/\?.*$/, '') === `/api/teams/${team}/directory-only`).length;
+  /** How many times the page read the sign-in settings. */
+  const readsOfTheSettings = (): number =>
+    transport.requests.filter((r) => r.url.replace(/\?.*$/, '') === `/api/teams/${team}/sign-in-settings`).length;
 
   it('is headed Sign-in settings, with a heading for each part, and names its elements for the page', async () => {
     await pageFor({ digest: administrator, session: throughWorkspace, state: withDirectory, directories: [workspace] });
@@ -409,7 +409,7 @@ describe('TenantSignInPageComponent', () => {
     expect(element().querySelector('.impulse-tenant-sign-in-how-to-set')).toBeNull();
     // No field takes a method or a connection: a directory is never typed in.
     expect(element().querySelectorAll('input, form').length).toBe(0);
-    expect(readsOfTheSwitch()).toBe(1);
+    expect(readsOfTheSettings()).toBe(1);
 
     button('make-directory')?.click();
     await turn();
@@ -417,8 +417,8 @@ describe('TenantSignInPageComponent', () => {
     // The server sets the directory the session came through, so the create carries nothing.
     expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
     expect(texts('.impulse-tenant-sign-in-refusal')).toEqual([]);
-    // After the write the page reads the switch again.
-    expect(readsOfTheSwitch()).toBe(2);
+    // After the write the page reads the sign-in settings again.
+    expect(readsOfTheSettings()).toBe(2);
   });
 
   it('stays drawn while it reads again after a write, and the new answer replaces the old one', async () => {
@@ -441,9 +441,9 @@ describe('TenantSignInPageComponent', () => {
     await drawn();
     await drawn();
     await drawn();
-    // The write succeeded and the switch is read again; until the server answers, the page says what it said.
+    // The write succeeded and the sign-in settings are read again; until the server answers, the page says what it said.
     expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
-    expect(readsOfTheSwitch()).toBe(2);
+    expect(readsOfTheSettings()).toBe(2);
     expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
       'People enter Riverside with a password or by invitation. No directory is set.',
     ]);
@@ -928,8 +928,8 @@ describe('TenantSignInPageComponent', () => {
     // Nothing would stand under a heading: the list does not name the directory, and the reader may not remove it.
     expect(texts('h2')).toEqual([]);
     expect(element().querySelectorAll('button').length).toBe(0);
-    // The read of the switch is asked only under the grant of a method that turns it.
-    expect(readsOfTheSwitch()).toBe(0);
+    // The read of the sign-in settings is asked only under the grant of one of the team's own sign-in methods.
+    expect(readsOfTheSettings()).toBe(0);
   });
 
   it('a reader who may not set a directory, of a team with none, gets no Directory heading', async () => {
@@ -943,6 +943,62 @@ describe('TenantSignInPageComponent', () => {
       'People enter Riverside with a password or by invitation. No directory is set.',
     ]);
     expect(texts('h2')).toEqual(['Directory only']);
+  });
+
+  it('a reader who holds only the method that opens the team to its directory is served the read once, and sees the role that stands', async () => {
+    await pageFor({
+      digest: { OpenTeamToDirectory: { Execute: 'granted' } },
+      session: throughWorkspace,
+      state: { ...withDirectory, defaultRole: 'Editor' },
+    });
+
+    expect(readsOfTheSettings()).toBe(1);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
+    expect(texts('.impulse-tenant-sign-in-default-role')).toEqual(['Editor']);
+    expect(texts('.impulse-tenant-sign-in-change-role')).toEqual(['Change the role']);
+    // The Directory only part says how the team stands, with no button to turn it.
+    expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+      'Off: a person who holds a role here enters however they signed in.',
+    ]);
+    expect(button('make-only')).toBeNull();
+    expect(button('end-only')).toBeNull();
+  });
+
+  it("a reader who holds none of the team's own sign-in methods is served no read of the sign-in settings", async () => {
+    await pageFor({
+      digest: {
+        TeamDirectories: { List: 'granted', Create: 'granted', Delete: 'granted' },
+        StaffTeamDirectoryRoles: { List: 'granted' },
+      },
+      session: throughWorkspace,
+      state: withDirectory,
+      directories: [workspace],
+    });
+
+    expect(readsOfTheSettings()).toBe(0);
+    expect(texts('.impulse-tenant-sign-in-stands')).toEqual(['This team has a directory.']);
+    expect(element().querySelector('.impulse-tenant-sign-in-default-role')).toBeNull();
+  });
+
+  it('where the route names neither method of the switch, no part is headed Directory only, though the read answers', async () => {
+    await pageFor({
+      digest: administrator,
+      session: throughWorkspace,
+      state: withDirectory,
+      directories: [workspace],
+      route: {
+        ...signIn,
+        methods: {
+          openToDirectory: signIn.methods.openToDirectory,
+          makeDirectoryInviteOnly: signIn.methods.makeDirectoryInviteOnly,
+        },
+      },
+    });
+
+    expect(readsOfTheSettings()).toBe(1);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
+    expect(texts('h2')).toEqual(['Directory', 'The role a person gets the first time they sign in through it']);
+    expect(element().querySelector('.impulse-tenant-sign-in-directory-only')).toBeNull();
   });
 
   it('a reader without the grants is told their role does not cover the page, and nothing is requested under the team', async () => {

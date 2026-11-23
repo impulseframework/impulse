@@ -138,7 +138,7 @@ and `MakeTenantInviteOnly` clears it. Two turn directory only:
 `MakeTenantDirectoryOnly` (`POST /api/tenants/{tenantID}/make-tenant-directory-only`)
 and `EndTenantDirectoryOnly`; the `Tenants` record, which the application's
 `Administrator` writes, shows the flag and takes no write of it, and the page reads the
-switch in the tenant (`GET /api/tenants/{tenantID}/directory-only`). The server allows
+switch in the tenant (`GET /api/tenants/{tenantID}/sign-in-settings`). The server allows
 turning it on only once the tenant has its directory, and only to a person who is signed
 in through that directory themselves and has a password of their own, which is their way
 back in if the directory has a problem: a person who has only ever signed in through a

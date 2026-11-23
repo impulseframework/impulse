@@ -15,7 +15,7 @@ export type { TenantSignIn, TenantStands } from './tenant-sign-in-says';
 // methods that say how the directory's people enter: the role a person gets the first
 // time they sign in through it, and whether the tenant is directory only. These functions
 // place the page that shows and sets them; the page reads the rest at run time, from the
-// read of the tenant's directory-only switch and the digest of the tenant.
+// read of the tenant's sign-in settings and the digest of the tenant.
 
 /** Which Auth's tenant side the Sign-in settings page is for. */
 export interface TenantSignInOptions {
