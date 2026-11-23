@@ -13,9 +13,12 @@ import (
 
 // TestFirstPassword_signsInWithItAndThroughTheDirectory proves on the served stack that a
 // person who signed in through their directory alone, and then chose a first password,
-// signs in anew with that password and anew through the directory as before. Before the
-// password, a password login refuses him; after it, a session the password opens names no
-// directory, and one the directory opens names the persona provider.
+// signs in anew with that password and anew through the directory as before. The sector
+// whose directory he signs in through is not directory only here: the governor turns that
+// off first, since a directory-only sector leaves its directory's accounts no password to
+// choose. Before the password, a password login refuses him; after it, a session the
+// password opens names no directory, and one the directory opens names the persona
+// provider.
 func TestFirstPassword_signsInWithItAndThroughTheDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -23,6 +26,14 @@ func TestFirstPassword_signsInWithItAndThroughTheDirectory(t *testing.T) {
 	s := newServedWith(ctx, t, servedOptions{persona: &auth.Persona{Issuer: "https://persona.example.com", ClientID: "lodestar-pr12"}})
 	if _, err := s.crew.SeedCast(ctx, io.Discard); err != nil {
 		t.Fatalf("SeedCast() error = %v", err)
+	}
+	// The seed makes Bastion directory only, and its directory is the one the warden signs
+	// in through: while that holds, his account has no password to choose. The governor
+	// turns it off first, so what follows is a person whose sector takes a password too.
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
+		t.Fatalf("turning Bastion's directory only off as the governor: status %d, want 200: %s", status, body)
 	}
 	warden := newBrowser(t, s, consoleAPI)
 	warden.signInAsPersona(ctx, "warden")
