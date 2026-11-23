@@ -1352,16 +1352,11 @@ An application whose rows restrict refuses the parent's delete in the kind's mas
   `pkg/jobs` with `cmd/jobs` runs the orphaned-file cleanup over both
   ([`filestore.cleanup`](pkg/jobs/cleanup.go))
   ([`@file.released`](pkg/resources/mission_documents.go),
-  [`@file.replaced`](pkg/rpc/replace_mission_document.go)). A `@file` table whose rows
-  the database deletes by cascade releases nothing, since its rows never pass through
-  the patch machinery, and the generator's audit pass names such tables without saying
-  so on every run: `RefitTask.PhotoKey` stores a task photo on a table interleaved in
-  Refits `ON DELETE CASCADE`
-  ([`audit.cascade-release`](pkg/resources/refit_tasks.go)), and `MissionDocument`
-  stores its file on a table that references Missions with the delete rule, so `go run
-  ./cmd/generate/resourcegenerator -audit` prints the two `Audit:` lines naming them
-  after the nine `Warning:` lines, `go generate ./...` prints the nine alone, and
-  `cmd/generate/audit_test.go` pins the findings as typed values.
+  [`@file.replaced`](pkg/rpc/replace_mission_document.go)). No `@file` table's rows are
+  deleted by the database, so every deleted row's object is released; `go run
+  ./cmd/generate/resourcegenerator -audit` prints the nine `Warning:` lines and no
+  `Audit:` line, `go generate ./...` prints the nine alone, and
+  `cmd/generate/audit_test.go` pins that the audit pass reports nothing.
 - `pkg/telemetry`: the droid link's own package, the one package the generator writes
   into without reading a resource from it: `cmd/generate` names it with `WithTypes`, so
   the frame type a `DroidReports` column holds gets its JSON and Spanner methods generated

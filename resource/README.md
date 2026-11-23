@@ -2528,18 +2528,16 @@ keeps its objects, since the rows may hold them, and logs the keys for the clean
   is a row of its own, a table with `@file`, that the other rows reference by foreign
   key; the foreign-key refusal protects it while anything references it, and its own
   delete releases the object.
-- Rows the database deletes by cascade (`ON DELETE CASCADE`, an interleaved child) or
-  by a row deletion policy never pass through the patch machinery; their objects are the
-  orphaned-file cleanup's. An application that cares deletes the children by patch
-  first. The audit pass names the cascade tables.
+- Rows the database deletes by a row deletion policy never pass through the patch
+  machinery; their objects are the orphaned-file cleanup's. No table's rows go by a
+  cascade: rows are deleted in code only (`impulse check`, `no-delete-cascade`).
 - A crash between the commit and the delete leaves an object no row claims; the
   cleanup's.
 - A reader that located the row before the delete committed may find the object gone;
   the `@file` route answers 404 as for any absent object.
 
-**The audit pass.** The generator can tell you which `@file` tables the cascade
-limitation applies to. A finding of that kind is advisory, a shape the framework handles
-under a stated limitation, and raising it as a warning would print it on every
+**The audit pass.** A finding of the audit pass is advisory, a shape the framework
+handles under a stated limitation, and raising it as a warning would print it on every
 generation of every application that carries the shape, so the generator reports it
 through a separate pass instead: `Generator.Audit()` returns the findings of the last
 `Generate()` (a `[]Finding`, each a sealed kind beside `Warnings()`; nil before a run),
@@ -2547,22 +2545,12 @@ and a normal generation never prints them. An application's generate program pri
 on demand: `go run ./cmd/generate/resourcegenerator -audit` in Lodestar, which prints
 the warnings as `Warning: <text>` and then each finding as `Audit: <text>`, one per line
 (`impulse audit` runs the same for a skeleton application once it lands); `go generate
-./...` passes no flag and prints no finding. The first finding, `CascadeReleaseFinding`,
-names a resource that stores files on a table whose rows the database deletes by cascade,
-because the table is an interleaved child declared `ON DELETE CASCADE` (the finding
-names the parent) or a foreign key on it carries the `CASCADE` delete rule (the finding
-names the column), one finding per cause, in resource order: a cascade releases none of
-their objects and the orphaned-file cleanup removes them. The facts ride the table map the schema read
-records, `INFORMATION_SCHEMA.TABLES.ON_DELETE_ACTION` and
-`REFERENTIAL_CONSTRAINTS.DELETE_RULE`, so a cached schema audits like a fresh one.
-Further findings of this class arrive with their own register items. Example:
-[RefitTask.PhotoKey](../lodestar/pkg/resources/refit_tasks.go), interleaved in Refits on
-cascade.
+./...` passes no flag and prints no finding. No shape is reported today.
 
 **The orphaned-file cleanup.** An object no row holds is left behind only by a crash
-between the stream and the commit, a cascade, or a row deletion policy, and the
-framework ships the command that removes it: `filestore.Cleanup`, run as a command of
-the application's job process, one store per run. It lists the store's objects older
+between the stream and the commit or by a row deletion policy, and the framework ships
+the command that removes it: `filestore.Cleanup`, run as a command of the application's
+job process, one store per run. It lists the store's objects older
 than the window whose names are UUIDs, the keys the frame mints, keeps every key the
 store's `@file` columns hold, and deletes the rest. The keys come from the holders the
 generator writes into each resources package, `FileHolders()` in `zz_gen_file_holders.go`:

@@ -306,7 +306,6 @@ var Demonstrations = []Demonstration{
 	{"warning.required-field", "The role file's validation (ValidateRoles, and access.New through WithDefaultRoles) warns where a role may create a resource and none of its Create grants there covers a field every create must be given by the client (the column takes no NULL and nothing fills it): no holder of that role alone can create a row. The generated collection names those fields (RequiredTags)."},
 	{"warning.tenant-index", "Generation warns, naming the CREATE INDEX it wants, where a listed resource with a bare @domain and an @order has no index leading with the tenant column and then the order columns: every page would sort the tenant's partition."},
 	{"warning.join-path-list", "Generation warns where a listed resource resolves its tenant through @domain(via: ...): its lists scan the whole table, every tenant, and no index on it changes that."},
-	{"audit.cascade-release", "The audit pass names a @file table whose rows the database deletes by cascade: the release never runs for them and their objects are the orphaned-file cleanup's. Generator.Audit() reports it after a run, a normal generation never prints it, and the generate program prints it under -audit."},
 	{"paging.nullable-sort", "A nullable sort column walked across the NULL boundary in both directions."},
 	{"paging.survives-writes", "A walk that sees each row once across inserts and deletes before its position."},
 	{"paging.sealed-cursor", "The cursor is a sealed token carrying nothing readable."},

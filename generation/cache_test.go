@@ -498,3 +498,65 @@ func copyFixtureMigrations(t *testing.T) string {
 
 	return "file://" + dir
 }
+
+// deleteRuleTables is a synthetic schema carrying the delete facts the schema read
+// records: a parent, children interleaved in it on cascade and on no action, and foreign
+// keys to it with each delete rule, on the column and on the key whole.
+func deleteRuleTables() map[string]*tableMetadata {
+	pk := columnMeta{IsPrimaryKey: true}
+	key := func(ordinal int64) columnMeta {
+		return columnMeta{IsPrimaryKey: true, OrdinalPosition: ordinal, KeyOrdinalPosition: ordinal}
+	}
+	foreignKey := func(ordinal int64, rule string) columnMeta {
+		return columnMeta{IsForeignKey: true, ReferencedTable: "Parents", ReferencedColumn: "Id", DeleteRule: rule, OrdinalPosition: ordinal}
+	}
+	toParent := func(name, column, rule string) []foreignKeyMeta {
+		return []foreignKeyMeta{{Name: name, Columns: []string{column}, ReferencedTable: "Parents", ReferencedColumns: []string{"Id"}, DeleteRule: rule}}
+	}
+
+	return map[string]*tableMetadata{
+		"Parents": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
+		"Interleaveds": {PkCount: 2, IsInterleaved: true, ParentTable: "Parents", OnDeleteCascade: true, Columns: map[string]columnMeta{
+			"Id": key(0), "Sequence": key(1),
+		}},
+		"Retaineds": {PkCount: 2, IsInterleaved: true, ParentTable: "Parents", Columns: map[string]columnMeta{
+			"Id": key(0), "Sequence": key(1),
+		}},
+		"Referencings": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "ParentId": foreignKey(1, "CASCADE"),
+		}, ForeignKeys: toParent("FK_Referencings_Parents", "ParentId", "CASCADE")},
+		"Plains": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "ParentId": foreignKey(1, "NO ACTION"),
+		}, ForeignKeys: toParent("FK_Plains_Parents", "ParentId", "NO ACTION")},
+	}
+}
+
+// Test_tableMap_cacheRoundTrip pins that the delete facts ride the table map through the
+// generation cache: a table map stored and loaded again carries each interleaved child's
+// delete action and each foreign key's delete rule, so a cached schema describes a
+// delete like a freshly read one (deletecascade.go).
+func Test_tableMap_cacheRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	genCache, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := genCache.Close(); err != nil {
+			t.Errorf("cache.Cache.Close() error = %v", err)
+		}
+	})
+	stored := deleteRuleTables()
+	if err := genCache.Store("spanner/test", tableMapCache, stored); err != nil {
+		t.Fatalf("cache.Store() error = %v", err)
+	}
+	loaded := make(map[string]*tableMetadata)
+	if ok, err := genCache.Load("spanner/test", tableMapCache, &loaded); err != nil || !ok {
+		t.Fatalf("cache.Load() = %v, %v; want loaded", ok, err)
+	}
+
+	if diff := cmp.Diff(stored, loaded); diff != "" {
+		t.Errorf("table map after the round trip mismatch (-stored +loaded):\n%s", diff)
+	}
+}

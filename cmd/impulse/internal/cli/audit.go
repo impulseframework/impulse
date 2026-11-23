@@ -17,9 +17,8 @@ func newAudit() *cobra.Command {
 		Long: `audit runs every generator program of the application with -audit, from the module
 root, and prints what each raised: the schema warnings a generation always prints, and
 the audit pass's findings, advisory findings about shapes the framework handles under a
-stated limitation (a table storing files whose rows the database deletes by cascade),
-which a normal generation never prints. Findings never fail the command; a program that
-fails, or does not take -audit, does.
+stated limitation, which a normal generation never prints (no shape is reported today).
+Findings never fail the command; a program that fails, or does not take -audit, does.
 
 It regenerates the tree like go generate does, so it needs the Spanner emulator. Run it
 by decision, not on every change: before a release, after a schema change to a table

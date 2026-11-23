@@ -201,10 +201,9 @@ templates, this README, and the tool's source.
   warnings test pins the accepted set as typed values, so a new warning fails the
   application's CI until it is fixed or pinned.
 - **Audit finding**: an advisory finding about a shape the framework handles under a
-  stated limitation (a table storing files whose rows the database deletes by cascade),
-  printed as an `Audit:` line only when asked: the generate program's `-audit` flag, or
-  `impulse audit`, which runs every program that way. A normal generation never prints
-  one, and no test pins them.
+  stated limitation, printed as an `Audit:` line only when asked: the generate program's
+  `-audit` flag, or `impulse audit`, which runs every program that way. A normal
+  generation never prints one, and no test pins them. No shape is reported today.
 
 ## impulse new
 
@@ -743,11 +742,8 @@ reason).
 `audit` runs every generator program of the application with `-audit`, from the module
 root, and prints what each raised: the schema warnings a generation always prints, and
 the audit pass's findings, advisory findings about shapes the framework handles under a
-stated limitation, which a normal generation never prints. Today's one finding names a
-resource that stores files on a table whose rows the database deletes by cascade
-(`ON DELETE CASCADE` on an interleave or a foreign key): those rows never pass through
-the patch machinery, so the release of their objects never runs for them and the
-application's sweep removes the objects later. The section is one heading per program,
+stated limitation, which a normal generation never prints. No shape is reported today.
+The section is one heading per program,
 `cmd/generate/resourcegenerator/generator.go (go run ./cmd/generate/resourcegenerator -audit)`,
 with the lines beneath it or `no findings`. A section, `feature flags`, lists every
 declared flag with its description and where it is used: the resources, fields and

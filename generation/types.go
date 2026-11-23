@@ -393,8 +393,7 @@ type tableMetadata struct {
 	// ParentTable is the table this one is interleaved in, "" for a top-level table.
 	ParentTable string
 	// OnDeleteCascade marks an interleaved child declared ON DELETE CASCADE: the
-	// database deletes its rows with the parent's, outside the patch machinery. The
-	// audit pass reads it for a table that stores files (CascadeReleaseFinding).
+	// database deletes its rows with the parent's, outside the patch machinery.
 	OnDeleteCascade bool
 	// Indexes is the table's index composition as the information schema reports it:
 	// the primary key (PRIMARY_KEY), every declared index, and the indexes Spanner
@@ -462,8 +461,7 @@ type columnMeta struct {
 	ReferencedColumn   string
 	// DeleteRule is the foreign key's delete rule as REFERENTIAL_CONSTRAINTS spells it,
 	// CASCADE or NO ACTION, on a foreign-key column; "" otherwise. A CASCADE deletes the
-	// row with the referenced one, outside the patch machinery, which the audit pass
-	// reads for a table that stores files (CascadeReleaseFinding).
+	// row with the referenced one, outside the patch machinery.
 	DeleteRule string
 	// Default is the column's DEFAULT expression as INFORMATION_SCHEMA.COLUMNS spells
 	// it, without the parentheses the DDL wraps it in ("TRUE", "false", "0"); "" where
