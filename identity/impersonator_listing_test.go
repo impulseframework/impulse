@@ -76,6 +76,11 @@ var guardedMethods = map[string]subjectRule{
 	"Tenant.RemovalWarning":         {subject: true},
 	"Tenant.RemovePerson":           {subject: true},
 
+	// A person named by the id of their account, in the warning before they are taken
+	// out of a group.
+	"Manager.GroupMemberRemovalWarning": {subject: true},
+	"Tenant.GroupMemberRemovalWarning":  {subject: true},
+
 	// A person reached by another key: the account a sign-in identity or a token
 	// belongs to, a session of theirs, the name their failed sign-ins are counted
 	// under, and the address an invitation is mailed to.

@@ -2518,6 +2518,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveMembersGroupMember (portal) warning denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/remove-members-group-member",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveMembersRole (portal) denied",
 			method:       http.MethodPost,
 			target:       "/portal/api/remove-members-role",
@@ -2553,6 +2561,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-group-member",
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RemoveMembersTenantGroupMember (portal) warning denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-group-member",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
@@ -2617,6 +2633,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveStaffGroupMember warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/remove-staff-group-member",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveStaffPassword denied",
 			method:       http.MethodPost,
 			target:       "/console/api/remove-staff-password",
@@ -2667,6 +2691,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member",
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RemoveStaffTenantGroupMember warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{

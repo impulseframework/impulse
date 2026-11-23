@@ -147,7 +147,12 @@
             </div>
           </button>
           <mat-menu #rowMethodsMenu="matMenu">
-            @for (method of rowMethods(); track method.method) {
+            @let offered = rowMethods();
+            @for (method of offered; track method.method) {
+              <!-- A line above an entry whose group is not the one of the entry before it. -->
+              @if (!$first && method.presentation?.group !== offered[$index - 1].presentation?.group) {
+                <mat-divider></mat-divider>
+              }
               @if (method.says) {
                 <!-- What the row says where the method would be: words, and nothing to run. -->
                 <button type="button" mat-menu-item class="row-method row-method-says" disabled>

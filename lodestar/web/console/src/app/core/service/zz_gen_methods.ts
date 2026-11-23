@@ -1783,6 +1783,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.CrewGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },
@@ -1815,6 +1816,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.CrewSectorGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },

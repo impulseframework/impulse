@@ -31,16 +31,32 @@ import (
 // administrator roles there, a row offers it only to a caller whose session enters the
 // tenant (@callerEnters); the method refuses anyone else.
 //
+// The method declares a warning with no word to type: asked first, the server says who
+// leaves which group, and, where the place is the last thing the person holds, that the
+// account is deleted with it.
+//
 // @rpc
 // @callerEnters
 // @outlet(portal)
 // @answers(204)
+// @warning
 // @class(access)
 type RemoveMembersGroupMember struct {
 	// @target(MembersGroupUser, key: GroupID)
 	GroupID impulse.UUID
 	// @target(MembersGroupUser, key: UserID)
 	UserID impulse.UUID
+}
+
+// Warning says who would leave which group, and whether the account goes with it. It
+// writes nothing.
+func (m *RemoveMembersGroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	warning, err := client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.GroupMemberRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

@@ -291,14 +291,18 @@ class SideBuilder {
       routeData: { route: this.route('users', this.tenant ? 'people' : 'accounts'), hasViewRoute: true },
       parentConfig: listViewConfig({
         title: this.tenant ? 'People' : `${this.identity.label} accounts`,
-        // A tenant's people are those who hold a role in it: the last role taken away
-        // takes the person off the list, and the list says so.
-        ...(this.tenant
-          ? {
-              rowGone: (row: RecordData): string =>
-                `${String(row['username'] ?? 'This person')} no longer holds a role here.`,
-            }
-          : {}),
+        // What the list says of a person who left it while their page was open. A tenant's
+        // people are those who hold a role in it: the last role taken away takes the person
+        // off the list. An account that left the whole application's list was deleted: by
+        // its own Delete, or with the last thing it held.
+        rowGone: this.tenant
+          ? (row: RecordData): string => `${String(row['username'] ?? 'This person')} no longer holds a role here.`
+          : (row: RecordData): string => {
+              const username = row['username'];
+              return typeof username === 'string' && username !== ''
+                ? `${username}'s account was deleted.`
+                : 'This account was deleted.';
+            },
         primaryResource: users,
         showRowCount: true,
         // A person's page is headed by the person.
@@ -1286,7 +1290,7 @@ class SideBuilder {
     });
   }
 
-  /** The people in a group, under the group's row. */
+  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group, and whether the account goes with it. */
   private peopleOfGroup(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.groupUsers) {
@@ -1311,8 +1315,6 @@ class SideBuilder {
           {
             label: 'Remove from the group',
             icon: 'person_remove',
-            confirm: (row) =>
-              `Remove ${String(row['username'] ?? 'this person')} from the group? They keep the roles they hold themselves and lose the group's.`,
           },
         ],
       ]),
@@ -1547,16 +1549,18 @@ class SideBuilder {
         };
   }
 
-  /** How the methods that run against a person are presented. */
+  /** How the methods that run against a person are presented, in four groups a menu draws apart: the roles, who the person is, how they sign in, and the account itself. */
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
     const removal = this.tenant ? methods.removeFromTenant : undefined;
     return this.present([
-      [methods.assignRole, this.giveRole()],
+      // The group is the menu entry's alone: giveRole() draws the button above the person's
+      // roles too, which is in no menu.
+      [methods.assignRole, { ...this.giveRole(), group: 'roles' }],
       // A person has two names: the one people read, and the username they sign in under.
-      [methods.setName, { label: 'Change the name', icon: 'person' }],
-      [methods.rename, { label: 'Change the username', icon: 'edit' }],
+      [methods.setName, { label: 'Change the name', icon: 'person', group: 'person' }],
+      [methods.rename, { label: 'Change the username', icon: 'edit', group: 'person' }],
       // An address changes when the person confirms it from the new mailbox, and a reset
       // link changes nothing until it is used: each answers whether its message went.
       [
@@ -1564,6 +1568,7 @@ class SideBuilder {
         {
           label: 'Change the email address',
           icon: 'mail',
+          group: 'person',
           answered: mailed(
             'A link to confirm the new address is on its way to it. The account keeps its address until the link is used.',
           ),
@@ -1574,6 +1579,7 @@ class SideBuilder {
         {
           label: 'Send a password reset link',
           icon: 'lock_reset',
+          group: 'sign-in',
           confirm:
             'A link to choose a new password is mailed to the email address on the account. Nothing changes until the link is used.',
           answered: mailed('The reset link is on its way.'),
@@ -1584,17 +1590,19 @@ class SideBuilder {
         {
           label: 'Require a new password',
           icon: 'lock_reset',
+          group: 'sign-in',
           confirm: (row) =>
             `Make ${named(row)} choose a new password? They are asked at once, in any session they have open, and can do nothing else until they have.`,
         },
       ],
       // Offered above the ways the person signs in, on the person's page.
-      [methods.removePassword, { hidden: true }],
+      [methods.removePassword, { hidden: true, group: 'sign-in' }],
       [
         methods.endUserSessions,
         {
           label: 'Sign out everywhere',
           icon: 'logout',
+          group: 'sign-in',
           confirm: (row) => `Sign ${named(row)} out of every browser and device?`,
         },
       ],
@@ -1603,6 +1611,7 @@ class SideBuilder {
         {
           label: 'Forget trusted devices',
           icon: 'phonelink_erase',
+          group: 'sign-in',
           confirm: (row) => `Forget the devices ${named(row)} trusted? They are asked for a second factor again.`,
         },
       ],
@@ -1611,6 +1620,7 @@ class SideBuilder {
         {
           label: 'Disable',
           icon: 'block',
+          group: 'account',
           when: (row) => row['disabled'] === false,
           confirm: (row) => `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
         },
@@ -1620,6 +1630,7 @@ class SideBuilder {
         {
           label: 'Enable',
           icon: 'check_circle',
+          group: 'account',
           when: (row) => row['disabled'] === true,
           confirm: (row) => `Enable ${named(row)}? They can sign in again.`,
         },
@@ -1632,6 +1643,7 @@ class SideBuilder {
         {
           label: `Remove from the ${this.tenantWord}`,
           icon: 'person_remove',
+          group: 'account',
           when: (row) => row['heldHere'] !== false,
         },
       ],
@@ -1645,6 +1657,7 @@ class SideBuilder {
         {
           label: 'Delete',
           icon: 'delete',
+          group: 'account',
           confirm: (row) => `Delete ${named(row)}? The account, its sign-ins and its sessions are removed.`,
           ...(removal === undefined
             ? {}
