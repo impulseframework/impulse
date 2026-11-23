@@ -27,6 +27,12 @@ import (
 // DefaultSessionTimeout is the idle session timeout unless WithSessionTimeout sets one.
 const DefaultSessionTimeout = 10 * time.Minute
 
+// MaxSessionTimeout is the longest idle session timeout: a session's row is removed 30
+// days after its last activity, by the session table's row deletion policy on Spanner
+// and by the store on PostgreSQL, so a session idle longer than that is gone whatever
+// the timeout says.
+const MaxSessionTimeout = 30 * 24 * time.Hour
+
 // NewBaseSession builds the BaseSession a session type runs on, applying the
 // BaseSessionOptions and CookieOptions among options. Other options are left to the
 // caller. The cookie client is also returned, for the OIDC authenticators that write
@@ -53,6 +59,12 @@ func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, o
 				)
 			}
 		}
+	}
+	if baseSession.SessionTimeout > MaxSessionTimeout {
+		return nil, nil, errors.Newf(
+			"a session timeout of %s is longer than 30 days, and a session's row is removed 30 days after its last activity: "+
+				"pass session.WithSessionTimeout a timeout of 30 days or less", baseSession.SessionTimeout,
+		)
 	}
 	// The table-name options are applied here, through the store's setters, so a name
 	// that is not an identifier is refused under its option's name before any SQL.

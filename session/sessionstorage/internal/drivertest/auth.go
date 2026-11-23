@@ -577,6 +577,9 @@ type AuthHarness struct {
 	// MailLinkMailFailedAt reads the MailFailedAt of the mail link holding tokenHash
 	// directly: nil unless the link's message could not be mailed.
 	MailLinkMailFailedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// AttemptsEndsAt reads the EndsAt of the sign-in attempts row under name directly:
+	// the moment the database worked out that the row stops counting.
+	AttemptsEndsAt func(ctx context.Context, t *testing.T, raw any, name string) time.Time
 	// RequirePasswordChange sets the user's password change mark directly, bypassing
 	// the driver, as an application's account management does when an administrator
 	// requires a new password: the library reads the mark and clears it, and no write of
@@ -679,6 +682,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
 		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},
 		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
+		{name: "a sign-in attempts row stops counting at the end of its window or of its lock, whichever is later, as the database works it out", run: testSignInAttemptsEndsAt},
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
 		{name: "sign-in attempts are kept under a name exactly as it is spelled", run: testSignInAttemptsKeyedExactly},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},

@@ -113,6 +113,10 @@ CREATE INDEX CrewSessionsByUserId ON CrewSessions(UserId);
 
 CREATE INDEX CrewSessionsByProviderSessionId ON CrewSessions(ProviderSessionId);
 
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE CrewSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
+
 -- A sector's key is an id the create path generates, never a word a person types: it is
 -- written into every row the sector owns and is the domain of every role held in it, so
 -- it never changes and is never used twice. The name is what people call the sector,
@@ -270,6 +274,10 @@ CREATE INDEX MembersSessions_Expired_idx
 CREATE INDEX MembersSessionsByUserId ON MembersSessions(UserId);
 
 CREATE INDEX MembersSessionsByProviderSessionId ON MembersSessions(ProviderSessionId);
+
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE MembersSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
 
 CREATE TABLE MissionStatuses (
   Id STRING(64) NOT NULL,
@@ -1168,14 +1176,21 @@ CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSig
 -- Failures reached the limit, and the name is refused until then. A success, an MFA
 -- completion or a password change deletes the row. The mail the auth sends is counted
 -- here too, under the address. UpdatedAt takes the commit time; WindowEndsAt and
--- LockedUntil are deadlines, written as given.
+-- LockedUntil are deadlines, written as given. EndsAt is the moment the row stops
+-- counting: the end of its window or of its lock, whichever is later, worked out by the
+-- database.
 CREATE TABLE CrewSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE CrewSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The crew's sign-in methods: what an administrator chose, in the running application,
 -- for one sign-in method of the auth, keyed by the name the method is registered under
@@ -1259,6 +1274,9 @@ CREATE INDEX CrewSessionMailLinksByKind ON CrewSessionMailLinks(Kind, ConsumedAt
 -- that names no sector is not in it.
 CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
 
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE CrewSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The members' sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
 -- earned (the session library's SessionSignInAttempts migration, under the auth's
@@ -1268,14 +1286,21 @@ CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLink
 -- Failures reached the limit, and the name is refused until then. A success, an MFA
 -- completion or a password change deletes the row. The mail the auth sends is counted
 -- here too, under the address. UpdatedAt takes the commit time; WindowEndsAt and
--- LockedUntil are deadlines, written as given.
+-- LockedUntil are deadlines, written as given. EndsAt is the moment the row stops
+-- counting: the end of its window or of its lock, whichever is later, worked out by the
+-- database.
 CREATE TABLE MembersSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE MembersSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The members' sign-in methods: what an administrator chose, in the running application,
 -- for one sign-in method of the auth, keyed by the name the method is registered under
@@ -1358,6 +1383,9 @@ CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, Cons
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no sector is not in it.
 CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE MembersSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 -- The crew's tokens: the bearer credentials of the droids outlet (the session library's
 -- SessionTokens migration, under the auth's prefix). A row is one credential: an

@@ -87,6 +87,61 @@ email address" for the two shapes the address columns take, "A person's name" an
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
 
+**Rows that are over are removed.** Three tables would otherwise keep every row ever
+written, and each removes its own:
+
+- The sessions table removes a session 30 days after its last activity (`UpdatedAt`). A
+  session in use is never removed, and one idle that long is dead: `WithSessionTimeout`
+  takes at most 30 days, and a longer timeout is refused when the session is built.
+- The sign-in attempts table removes a row one day after it stopped counting: after the
+  end of its window or of its lock, whichever is later (`EndsAt`, a column the database
+  works out from `WindowEndsAt` and `LockedUntil`). A lock that still holds is never
+  removed, however long it lasts, and neither are the counts no time resets: the codes
+  entered for an invitation, for an address a person typed, and for an account's own
+  sign-in code.
+- The mail links table removes a link 30 days after it expired (`ExpiresAt`), used or
+  not.
+
+On Spanner the tables carry row deletion policies, and Spanner removes the rows in the
+background (its documentation says typically within 72 hours of the moment a row is
+due), with the rows that reference them by a cascading foreign key:
+
+```sql
+ALTER TABLE Sessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
+ALTER TABLE SessionSignInAttempts ADD COLUMN EndsAt TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED;
+ALTER TABLE SessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
+ALTER TABLE SessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+```
+
+PostgreSQL has no such policy, so the `Auth` store removes the rows as it writes: a
+sign-in removes the sessions that are due, a failed attempt removes the sign-in attempts
+rows that are due, and a link's insert removes the mail links that are due. Each write
+removes at most 100 rows, oldest first, and passes over a session, a sign-in attempts
+row or a link another transaction holds; nothing sweeps the tables. The removal is never
+the write's failure: one that fails is logged as an error, and the sign-in, the recorded
+failure or the link stands. A request that ends while its sign-in's removal runs is
+another matter: the sign-in fails with the request, as in any statement of its
+transaction, and a removal a deadline cut short is logged. Sessions are counted by the
+UTC day of their last activity (`UpdatedOn`, a column the database works out from
+`UpdatedAt`): a session goes once that day is more than 30 days back, so 30 to 31 days
+after its last activity and never sooner. The store reads the sessions that are due by
+an index on `UpdatedOn`, which changes once a day for a session in use, so the activity
+update most requests make writes no index while its row's page has room. Only a sign-in
+removes sessions. A session a `Preauth` store makes, one the application starts and an
+impersonated session remove nothing, so on PostgreSQL an application that only ever
+makes such sessions keeps every session row.
+
+The shipped sets carry all of this (`SessionRowRemoval`: on Spanner in the base set and
+in the auth set, on PostgreSQL in the auth set). A table named per group, or kept in the
+application's own migrations, needs the same statements under its name. On PostgreSQL
+the store reads `EndsAt` and `UpdatedOn`: without the column it removes no row of that
+table and logs an error at each write. A table of the application's that references the
+sessions table or the mail links table needs `ON DELETE CASCADE` on that foreign key, as
+the custom session data table has: on PostgreSQL a foreign key without it stops the
+removal from that table while a row it holds is due, logged at each write. On
+PostgreSQL the referencing column also needs an index, which the database does not make
+for a foreign key: without one, each row the removal deletes reads that table whole.
+
 ## Auth sessions (multiple sign-in methods)
 
 `Auth[SessionData, UserData, Tx]` is one session that any registered sign-in method can
@@ -157,9 +212,9 @@ first link written or read.
 The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
 null only for a role-principal impersonation), and deleting a user deletes its
 sessions, their auth events and its identity links; your custom data tables cascade
-from the session and user rows likewise. Sessions are marked expired, never deleted, by
-the library: retention is the application's policy, and auth events last exactly as
-long as their session rows.
+from the session and user rows likewise. A session that ends is marked expired, and its
+row stays until it has been idle 30 days (see "Rows that are over are removed" under
+"Schema"); auth events last exactly as long as their session rows.
 
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,

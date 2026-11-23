@@ -91,6 +91,10 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
+	// The links that expired more than 30 days ago go with a link's insert, the write that
+	// makes the table grow, in a statement of their own once the link is in: a live link
+	// is never among them.
+	mailLinksRemoval.remove(ctx, s.conn, s.mailLinksTable())
 
 	return nil
 }

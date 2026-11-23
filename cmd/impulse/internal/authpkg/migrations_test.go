@@ -76,3 +76,26 @@ func TestMigrations_listIndexes(t *testing.T) {
 		})
 	}
 }
+
+// TestMigrations_rowDeletionPolicies holds the row deletion policies of the three tables
+// that would otherwise keep every row ever written, and the column the sign-in attempts
+// table's policy is counted from: the same statements as the session library's shipped
+// sets, under the auth's prefix.
+func TestMigrations_rowDeletionPolicies(t *testing.T) {
+	t.Parallel()
+
+	var up strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+	}
+	for _, statement := range []string{
+		"ALTER TABLE StaffSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));",
+		"    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,\n) PRIMARY KEY (Name);",
+		"ALTER TABLE StaffSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));",
+		"ALTER TABLE StaffSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
+	} {
+		if !strings.Contains(up.String(), statement) {
+			t.Errorf("the migrations lack %q", statement)
+		}
+	}
+}
