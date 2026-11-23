@@ -18,6 +18,7 @@ import {
   FieldName,
   ListPermission,
   listViewConfig,
+  ListViewConfig,
   Method,
   MethodPresentation,
   multiColumnConfig,
@@ -760,6 +761,10 @@ class SideBuilder {
    * the caller may give a person directly, which is what the server lists; with tenants a
    * person who signs up creates a tenant of their own and gets no role here. While a
    * method is open the page says so above the list, in the warning colors.
+   *
+   * Where the description names the Auth's sign-in settings, the page opens with them,
+   * above the methods: whether everyone is asked for a second factor, and for how long a
+   * remembered browser skips it (secondFactor).
    */
   signIn(): RootConfig | undefined {
     const { lists, methods } = this.side;
@@ -768,6 +773,7 @@ class SideBuilder {
     }
     const resource = lists.signInMethods as Resource;
     const fromRow = (row: RecordData): Record<string, unknown> => ({ name: row['name'] });
+    const settings = lists.signInSettings ? { above: [this.secondFactor(lists.signInSettings as Resource)] } : {};
     return rootConfig({
       page: { label: 'Sign-in', icon: 'login' },
       routeData: { route: this.route('signIn', 'sign-in'), hasViewRoute: false },
@@ -776,6 +782,7 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: false,
+        ...settings,
         notice: openToSignUp,
         listColumns: [
           ...this.columns(resource, [
@@ -861,6 +868,75 @@ class SideBuilder {
         ]),
         elements: [],
       }),
+    });
+  }
+
+  /**
+   * The Sign-in page's first list, "Second factor": the Auth's sign-in settings as the
+   * server says them, one line whether everyone is asked for a second factor and one for
+   * how long a remembered browser skips it, each in a sentence. The second factor's line
+   * offers Stop requiring it while it is required, which the server's warning and typed
+   * word confirm, and Require it while it is not, which a plain question confirms; the
+   * remembered browser's line offers Change how long, picked from the lengths the server
+   * lists. The caller sees an action only while their roles grant the method. While the
+   * second factor is not required the list says so above it, in the warning colors.
+   */
+  private secondFactor(resource: Resource): ListViewConfig {
+    const { methods } = this.side;
+    return listViewConfig({
+      title: 'Second factor',
+      primaryResource: resource,
+      showViewButton: false,
+      showRowCount: false,
+      collapsible: false,
+      showSearchBox: false,
+      notice: secondFactorOff,
+      listColumns: [
+        ...this.columns(resource, [['says', 'What happens at sign-in']]).map((column) => ({
+          ...column,
+          filterable: false,
+          sortable: false,
+        })),
+        // Read with each row and not drawn: what the actions are offered by.
+        ...this.columns(resource, [
+          ['name', 'Name'],
+          ['requireSecondFactor', 'Second factor required'],
+          ['rememberBrowserDays', 'Days a browser is remembered'],
+        ]).map((column) => ({ ...column, hidden: true })),
+      ],
+      rowMethods: this.present([
+        [
+          methods.stopRequiringSecondFactor,
+          {
+            label: 'Stop requiring it',
+            icon: 'lock_open',
+            when: (row) => row['name'] === secondFactorLine && row['requireSecondFactor'] === true,
+            successMessage: 'A second factor is no longer required.',
+          },
+        ],
+        [
+          methods.requireSecondFactor,
+          {
+            label: 'Require it',
+            icon: 'lock',
+            when: (row) => row['name'] === secondFactorLine && row['requireSecondFactor'] !== true,
+            confirm:
+              'Everyone will be asked for a mailed code at their next sign-in, unless their directory already asked for one or their browser is remembered.',
+            successMessage: 'A second factor is required again.',
+          },
+        ],
+        [
+          methods.setRememberedBrowsers,
+          {
+            label: 'Change how long',
+            icon: 'schedule',
+            when: (row) => row['name'] === rememberedBrowserLine,
+            labels: { length: 'Remember a browser for' },
+            successMessage: 'How long a browser is remembered is changed.',
+          },
+        ],
+      ]),
+      elements: [],
     });
   }
 
@@ -2040,6 +2116,20 @@ function ownReset(row: RecordData): string {
     return '';
   }
   return row['selfServiceReset'] === true ? 'Yes' : 'No';
+}
+
+/** The Sign-in page's line that says whether everyone is asked for a second factor, by the name the server gives it. */
+const secondFactorLine = 'second-factor';
+/** The line that says for how long a remembered browser skips the second factor. */
+const rememberedBrowserLine = 'remembered-browser';
+
+/**
+ * The second factor's standing notice: one sentence while its line says it is not
+ * required, and nothing while it is.
+ */
+function secondFactorOff(rows: RecordData[]): string | undefined {
+  const off = rows.some((row) => row['name'] === secondFactorLine && row['requireSecondFactor'] === false);
+  return off ? 'A second factor is not required: people sign in with a password alone.' : undefined;
 }
 
 /** The words the server opens an open method's sentence with, which the notice says its own way. */

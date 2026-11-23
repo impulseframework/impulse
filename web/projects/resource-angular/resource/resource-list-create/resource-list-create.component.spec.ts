@@ -283,6 +283,94 @@ describe("ResourceListCreateComponent, the lists below a page's list", () => {
   });
 });
 
+// A page whose own list comes after what it must say first: the list a page is built on
+// draws the lists it names above it (`above`) before its own, and the ones below after.
+describe("ResourceListCreateComponent, the lists above a page's list", () => {
+  const settings = listViewConfig({
+    title: 'Settings',
+    primaryResource: 'Squadrons' as Resource,
+    filter: () => 'setting:eq:true',
+    showViewButton: false,
+    elements: [],
+    listColumns: [],
+  });
+  const ended = listViewConfig({
+    title: 'Ended',
+    primaryResource: 'Squadrons' as Resource,
+    filter: () => 'ended:eq:true',
+    showViewButton: false,
+    elements: [],
+    listColumns: [],
+  });
+  const heldNow = listViewConfig({
+    title: 'Held right now',
+    primaryResource: 'Squadrons' as Resource,
+    filter: () => 'ended:eq:false',
+    showViewButton: false,
+    above: [settings],
+    below: [ended],
+    elements: [],
+    listColumns: [],
+  });
+  // A page that names lists above its own and none under it.
+  const settingsOnly = listViewConfig({
+    title: 'Held right now',
+    primaryResource: 'Squadrons' as Resource,
+    filter: () => 'ended:eq:false',
+    showViewButton: false,
+    above: [settings],
+    elements: [],
+    listColumns: [],
+  });
+
+  async function draw(root: boolean, list = heldNow): Promise<ComponentFixture<ResourceListCreateComponent>> {
+    const transport = scriptedTransport({ status: 200, body: [] });
+    const page = rootConfig({ parentConfig: list, routeData: { route: 'squadrons', hasViewRoute: false } });
+    await TestBed.configureTestingModule({
+      imports: [ResourceListCreateComponent],
+      providers: [
+        provideResourceTesting({ transport }),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { config: page }, params: {}, queryParams: {} } } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ResourceListCreateComponent);
+    fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+    fixture.componentRef.setInput('isRootList', root);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+  const titles = (fixture: ComponentFixture<unknown>): (string | undefined)[] =>
+    Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('impulse-resource-list h1.impulse-resource-list-title'),
+    ).map((title) => title.textContent?.trim());
+
+  it("draws each list named above the page's own before it, and each named below after it", async () => {
+    const fixture = await draw(true);
+    expect(titles(fixture)).toEqual(['Settings', 'Held right now', 'Ended']);
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('impulse-resource-list-create.above')).toHaveLength(
+      1,
+    );
+    expect(fixture.componentInstance.above()).toEqual([settings]);
+  });
+
+  it('draws none above or under a list that is not the one its page is built on', async () => {
+    const fixture = await draw(false);
+    expect(titles(fixture)).toEqual(['Held right now']);
+    expect(fixture.componentInstance.above()).toEqual([]);
+    expect(fixture.componentInstance.below()).toEqual([]);
+  });
+
+  it("tells the lists above to read again once a method ran from the page's own list, where it names none under it", async () => {
+    const fixture = await draw(true, settingsOnly);
+    expect(titles(fixture)).toEqual(['Settings', 'Held right now']);
+    const before = fixture.componentInstance.store.rowChanges();
+    fixture.componentInstance.methodRan();
+    expect(fixture.componentInstance.store.rowChanges()).toBe(before + 1);
+  });
+});
+
 // The same page as an application's router opens it. A router that binds a routed
 // component's inputs (withComponentInputBinding) sets every input the route's data does
 // not name to undefined, the default of none of them kept: the page's list is handed

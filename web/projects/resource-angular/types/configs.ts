@@ -1114,6 +1114,14 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   below?: ListViewConfig[];
   /**
+   * Further lists drawn above this one on its page, in order, each a list of its own
+   * with its own title, rows and methods: `below`'s mirror, for a page whose own list
+   * comes after what it must say first (the settings every sign-in is under, above the
+   * ways to sign in). Only the list a page is built on draws them, with the same element
+   * and inputs as a list under it.
+   */
+  above?: ListViewConfig[];
+  /**
    * A standing notice above the list, drawn in the library's warning colors under a
    * warning icon: what the page must not let a person overlook for as long as it holds
    * (a sign-in method that is open to sign-up). It is said from the rows on the page,
@@ -1215,6 +1223,8 @@ export interface ListViewConfig extends BaseConfig {
   showRowCount: boolean;
   /** The lists drawn under this one on its page; see ListViewConfigOptions.below. */
   below?: ListViewConfig[];
+  /** The lists drawn above this one on its page; see ListViewConfigOptions.above. */
+  above?: ListViewConfig[];
   /** The page's standing notice; see ListViewConfigOptions.notice. */
   notice?: (rows: RecordData[]) => string | undefined;
   /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */
