@@ -1946,6 +1946,11 @@ How an address gets onto a user:
   link alone writes nothing. A sign-up's account is created with its address verified,
   by the link the person asked to be mailed.
 
+Either link is used and its address written in one transaction, which reads what the
+account holds then: a link followed twice at once writes once, a person who came to sign
+in through an organization's directory in that moment keeps the directory's address, and
+a failure in between leaves the link standing and the address as it was.
+
 **Two shapes.** An application declares on the password method whether the username
 is the email address (`session.UsernameIsEmail()`), and the users table takes the
 matching shape:
