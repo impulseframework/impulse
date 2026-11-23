@@ -23,7 +23,7 @@ func (a *App) Announcements() http.HandlerFunc {
 		TenantID   impulse.UUID `json:"tenantId"   index:"true"`
 		Title      string       `json:"title"      index:"true"`
 		Body       string       `json:"body"`
-		TenantName *string      `json:"tenantName" nameof:"TenantID"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID" index:"true"`
 	}
 
 	type response []map[string]any
