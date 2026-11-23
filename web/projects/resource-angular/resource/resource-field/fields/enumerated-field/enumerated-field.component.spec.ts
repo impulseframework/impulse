@@ -1245,11 +1245,16 @@ describe('EnumeratedFieldComponent over a source that says what its rows are kno
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
   let transport: ScriptedTransport;
+  /** The global permission digest the server answers, where a case loads one. */
+  let digest: PermissionDigest;
 
   // Hangars answer whole pages; codes answer two rows a page, the next behind a cursor,
   // and the box keeps the codes that hold the typed text.
   const server = (request: TransportRequest): TransportResponse => {
     const url = new URL(request.url, 'http://host.example');
+    if (url.pathname === '/api/permission-digest') {
+      return { status: 200, body: digest };
+    }
     const [, route, key] = url.pathname.match(/^\/api\/([a-z]+)(?:\/(.+))?$/) ?? [];
     if (route === 'hangars') {
       if (key) {
@@ -1287,12 +1292,17 @@ describe('EnumeratedFieldComponent over a source that says what its rows are kno
     fixture.detectChanges();
   };
 
-  /** The picker over one field of the ship, holding the value, as a form drawn from the metadata draws it unless a config is given. */
+  /**
+   * The picker over one field of the ship, holding the value, as a form drawn from the
+   * metadata draws it unless a config is given; with the digest loaded first where one is
+   * given, as the page's guard has by the time a form is drawn.
+   */
   const pickerOver = async (
     fieldName: string,
     value: string | null,
     editMode: 'view' | 'edit',
     config?: Parameters<typeof enumeratedConfig>[0],
+    entries?: PermissionDigest,
   ): Promise<void> => {
     transport = scriptedTransport(server);
     await TestBed.configureTestingModule({
@@ -1306,6 +1316,10 @@ describe('EnumeratedFieldComponent over a source that says what its rows are kno
         ResourceStore,
       ],
     }).compileComponents();
+    if (entries) {
+      digest = entries;
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    }
     fixture = TestBed.createComponent(EnumeratedFieldComponent);
     fixture.componentRef.setInput('meta', metas[ships]);
     fixture.componentRef.setInput(
@@ -1356,6 +1370,24 @@ describe('EnumeratedFieldComponent over a source that says what its rows are kno
     expect(offered()).toEqual([
       [anvil, 'Anvil Deck'],
       [bastion, 'Bastion Deck'],
+    ]);
+  });
+
+  it('over a source whose name the person may not list, shows the chosen row by its key and lists the keys, read and edited', async () => {
+    // The digest lets the person list the hangars and their zone, and not their name.
+    await pickerOver('hangarId', anvil, 'view', undefined, {
+      Hangars: { List: 'granted', Read: 'granted' },
+      'Hangars.zone': { List: 'granted' },
+    });
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe(anvil);
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    // The list is not asked for the name, which the server would refuse.
+    expect(requests().at(-1)).toBe('GET /api/hangars?columns=id&count=true');
+    expect(offered()).toEqual([
+      [anvil, anvil],
+      [bastion, bastion],
     ]);
   });
 

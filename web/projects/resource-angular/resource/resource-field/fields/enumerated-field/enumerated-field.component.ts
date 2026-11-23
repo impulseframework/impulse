@@ -188,12 +188,18 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    * names no display of its own (a form drawn from the metadata alone), the field the
    * source's metadata says its rows are called by (`nameField`: the field marked `@name`,
    * or the tenant record's `@tenantName`), so a picker over a record keyed by an id lists
-   * names and never ids.
+   * names and never ids. A person the digest does not let list that field (no grant on
+   * it, or a feature flag that is off) is shown the keys, as over a source that declares
+   * no name: the server refuses a list that asks for a field the person may not list.
    */
   private picker = computed((): EnumeratedConfig => {
     const config = this.fieldConfig().enumeratedConfig;
     const name = this.sourceMeta()?.nameField;
     if (!name || config.listDisplay.length > 0 || config.viewDisplay.length > 0) {
+      return config;
+    }
+    const listable = this.sourceListable();
+    if (listable !== undefined && !listable.has(name)) {
       return config;
     }
     return { ...config, viewDisplay: [name as FieldName] };
