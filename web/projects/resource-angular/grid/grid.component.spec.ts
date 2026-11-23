@@ -3683,6 +3683,138 @@ describe("the list's pager", () => {
   });
 });
 
+// A list is never taller than the room its page hands it (the library's frame measures it),
+// and one with more rows than fit scrolls inside its own frame. A list a person pages, sorts
+// or filters is shown from its first row: its frame, scrolled down and sideways, goes back to
+// the top and stays where it was sideways.
+describe('a list and the room its page has', () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }, { name: 'Debriefs' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('filterability', { name: 'always' });
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  const frame = (): HTMLElement => {
+    return element.querySelector('.impulse-grid-scroll') as HTMLElement;
+  };
+  /** The person has scrolled the frame down to a later row and sideways to a later column. */
+  const scrollAway = (): void => {
+    frame().scrollTop = 400;
+    frame().scrollLeft = 120;
+  };
+  const settle = async (): Promise<void> => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  };
+  /** Opens the name's filter menu by its header button and hands back the menu's panel in the overlay. */
+  const openMenu = async (): Promise<HTMLElement> => {
+    element.querySelector<HTMLButtonElement>('button.filter-trigger')?.click();
+    await settle();
+    const menu = document.body.querySelector<HTMLElement>('.cdk-overlay-container .impulse-grid-filter-menu');
+    if (!menu) {
+      throw new Error('no menu open');
+    }
+    return menu;
+  };
+  /** Presses the menu's button that says `words`. */
+  const press = async (menu: HTMLElement, words: string): Promise<void> => {
+    const button = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.trim() === words);
+    if (!button) {
+      throw new Error(`no ${words} button`);
+    }
+    button.click();
+    await settle();
+  };
+
+  it('is never taller than the room its page hands it, and as tall as its rows where nothing is handed', () => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .filter((text) => text.includes('.impulse-grid-host'))
+      .join('\n')
+      .replace(/@media print\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g, '');
+    const host = Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, named]) => named.replace(/\[_ngcontent[^\]]*\]/g, '').trim() === '.impulse-grid-host')
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+
+    expect(host).toMatch(/max-height:\s*var\(--impulse-list-max-height,\s*none\)/);
+  });
+
+  it('is shown from its first row after Next, where it stays scrolled sideways', () => {
+    const next = Array.from(element.querySelectorAll<HTMLButtonElement>('.pager-buttons button')).find((b) =>
+      b.textContent?.includes('Next'),
+    );
+    scrollAway();
+
+    next?.click();
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  it('is shown from its first row after a heading is pressed to sort it', () => {
+    scrollAway();
+
+    element.querySelector<HTMLButtonElement>('th button.header-label')?.click();
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  it('is shown from its first row after a filter is applied', async () => {
+    const menu = await openMenu();
+    const input = menu.querySelector('input') as HTMLInputElement;
+    input.value = 'Comm';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    scrollAway();
+
+    await press(menu, 'Apply');
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  it('is shown from its first row after a filter is cleared', async () => {
+    fixture.componentRef.setInput('filters', [{ field: 'name', operator: 'contains', value: 'Comm' }]);
+    const menu = await openMenu();
+    scrollAway();
+
+    await press(menu, 'Clear');
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  for (const words of ['Apply', 'Clear']) {
+    it(`stays where it was scrolled when a filter menu's ${words} has nothing to change`, async () => {
+      const asked: unknown[] = [];
+      fixture.componentInstance.filterChange.subscribe((filters) => asked.push(filters));
+      const menu = await openMenu();
+      scrollAway();
+
+      await press(menu, words);
+
+      expect(asked).toEqual([]);
+      expect(frame().scrollTop).toBe(400);
+      expect(frame().scrollLeft).toBe(120);
+    });
+  }
+});
+
 describe('a list on paper', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -3725,6 +3857,10 @@ describe('a list on paper', () => {
     expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])display:\s*block/);
     expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])height:\s*auto/);
     expect(onPaper('.impulse-grid-view')).toMatch(/(^|[;\s])display:\s*block/);
+  });
+
+  it('is as long as its rows whatever the room its page has on the screen', () => {
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])max-height:\s*none/);
   });
 
   it('scrolls nothing and cuts nothing off', () => {

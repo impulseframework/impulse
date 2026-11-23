@@ -1104,11 +1104,12 @@ export class AppGridComponent {
     return this.sorts().length > 1;
   }
 
-  /** A click makes the column the sort (asc, then desc, then none); shift-click adds it as a secondary. */
+  /** A click makes the column the sort (asc, then desc, then none); shift-click adds it as a secondary. Either shows the list from its first row. */
   toggleSort(col: ColumnConfig, event: MouseEvent): void {
     const field = col.id;
     const current = this.sorts();
 
+    this.showFirstRow();
     if (!event.shiftKey) {
       const isSoleSort = current.length === 1 && current[0].field === field;
       if (!isSoleSort) {
@@ -1246,6 +1247,7 @@ export class AppGridComponent {
       return;
     }
     this.filterChange.emit(next);
+    this.showFirstRow();
   }
 
   clearFilter(col: ColumnConfig): void {
@@ -1254,6 +1256,7 @@ export class AppGridComponent {
       return;
     }
     this.filterChange.emit(this.filters().filter((filter) => filter.field !== col.id));
+    this.showFirstRow();
   }
 
   /**
@@ -1384,5 +1387,17 @@ export class AppGridComponent {
 
   turn(direction: PageTurn): void {
     this.pageTurn.emit(direction);
+    this.showFirstRow();
+  }
+
+  /**
+   * The frame is scrolled back to the list's first row, as a list a person pages, sorts or
+   * filters is shown; how far it is scrolled sideways stays.
+   */
+  private showFirstRow(): void {
+    const frame = this.scrollContainer()?.nativeElement;
+    if (frame) {
+      frame.scrollTop = 0;
+    }
   }
 }

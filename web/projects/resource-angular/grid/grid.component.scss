@@ -11,6 +11,11 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  // Never taller than the room its page has, which the library's frame measures and hands
+  // down (or an application sets around a list it draws outside the frame): a list with
+  // more rows than fit scrolls inside its own frame, under its headings and over its
+  // pager. With nothing set, a list is as tall as its rows.
+  max-height: var(--impulse-list-max-height, none);
   border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   border-radius: 4px;
   overflow: clip;
@@ -643,6 +648,7 @@ a[mat-icon-button] {
   .impulse-grid-host {
     display: block;
     height: auto;
+    max-height: none;
     overflow: visible;
   }
 
