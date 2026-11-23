@@ -11,8 +11,9 @@ export const tenantSignInKey = 'impulseTenantSignIn';
 
 /**
  * What the Sign-in settings page reads from its route: the tenant record in words, the
- * record a tenant's one directory is a row of, and the tenant's methods that set how its
- * people enter, as the description names them (a method it does not name draws nothing).
+ * record a tenant's one directory is a row of, the record a tenant's people are rows of,
+ * and the tenant's methods that set how its people enter, as the description names them
+ * (a method it does not name draws nothing).
  */
 export interface TenantSignIn {
   /** The tenant record in words, lowercase ("team", "cost center"); "tenant" where the description names none. */

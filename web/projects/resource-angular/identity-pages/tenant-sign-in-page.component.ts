@@ -35,7 +35,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * reading can do about it right now. It says, in one line, how the tenant stands; then the
  * tenant's directory by the name people know it by, the role a person gets the first time
  * they sign in through it in plain words, and whether the tenant is directory only, with
- * how many of its people that keeps out.
+ * how many of its people that keeps out, a count that opens those people on the People page.
  *
  * What it says comes from two reads: the read of the tenant's directory-only switch,
  * asked where the digest grants either method that turns it, which says it all in the
@@ -66,7 +66,7 @@ export class TenantSignInPageComponent {
   private readonly dialog = inject(MatDialog);
   private readonly metaOf = inject(METHOD_META);
   private readonly resolvePage = pageRouteResolver();
-  /** The names the route carries: the tenant word, the directories record and the tenant's methods. */
+  /** The names the route carries: the tenant word, the directories record, the record of the tenant's people and the tenant's methods. */
   readonly signIn = inject(ActivatedRoute).snapshot.data[tenantSignInKey] as TenantSignIn;
   /**
    * The client's digest cache as a signal. The questions below read it, so they are asked
@@ -227,7 +227,10 @@ export class TenantSignInPageComponent {
   /**
    * The address of the tenant's People page, which the people line opens, or undefined: it
    * is drawn only where the read counts somebody directory only keeps out, the application
-   * mounts a page of the tenant's people, and the digest grants List on them in the tenant.
+   * mounts a page of the tenant's people, the digest grants List on them in the tenant, and
+   * the list will filter by the mark the link opens it at: the List names no field (nothing
+   * narrows the list) or names the mark as granted or conditional on time. A link is drawn
+   * only where it will open what it says.
    */
   readonly peopleLink = computed((): string | undefined => {
     const people = this.signIn.people;
@@ -235,7 +238,7 @@ export class TenantSignInPageComponent {
       return undefined;
     }
     const route = resourcePageRoute(people);
-    if (route === undefined || !this.allows(ListPermission, people)) {
+    if (route === undefined || !this.allows(ListPermission, people) || !this.filtersByMark(people)) {
       return undefined;
     }
     return '/' + this.resolvePage(route);
@@ -397,6 +400,24 @@ export class TenantSignInPageComponent {
     this.permissions();
     const tenant = this.tenant();
     return !!tenant && this.client.can(permission, target, tenant);
+  }
+
+  /**
+   * Whether the reader's list of the tenant's people filters by the mark of the people
+   * directory only keeps out: the digest's List on them names no field at all, or names the
+   * mark as granted or conditional on time, the states the server filters by.
+   */
+  private filtersByMark(people: Resource): boolean {
+    const states = this.auth.fieldPermissionStates({
+      resource: people,
+      permission: ListPermission,
+      domain: this.tenant(),
+    });
+    if (Object.keys(states).length === 0) {
+      return true;
+    }
+    const mark = states['outsideDirectory'];
+    return mark === 'granted' || mark === 'conditionalOnTime';
   }
 
   /** Whether the description names the tenant's method and the digest grants it. */

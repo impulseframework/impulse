@@ -15,6 +15,7 @@ import {
   MethodMeta,
   MethodWarning,
   PermissionDigest,
+  PermissionDigestState,
   Resource,
   TransportRequest,
   TransportResponse,
@@ -855,6 +856,67 @@ describe('TenantSignInPageComponent', () => {
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([
         '2 of 4 people here have never signed in through the directory and would be kept out.',
       ]);
+      expect(link()).toBeNull();
+    });
+
+    // The link opens the People page filtered by the mark, so it is drawn only where the
+    // list will filter by it: where the reader's List on the people names no field (nothing
+    // narrows the list), or names the mark as granted or conditional on time.
+    const listing = (fields: Record<string, PermissionDigestState>): PermissionDigest => {
+      const digest: PermissionDigest = { ...listsPeople };
+      for (const [field, state] of Object.entries(fields)) {
+        digest[`${people}.${field}`] = { List: state };
+      }
+      return digest;
+    };
+    const sentence = '2 of 4 people here have never signed in through the directory and would be kept out.';
+
+    it('where the List on the people names no field, the sentence is the link', async () => {
+      await pageFor({ digest: listing({}), state: withDirectory, directories: [workspace] });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+    });
+
+    it('where the List on the people names the mark as granted, the sentence is the link', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'granted' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+      expect(opens()).toEqual({ path: `/teams/${team}/people`, filters: ['outsideDirectory:eq:true'] });
+    });
+
+    it('where the List on the people names the mark as conditional on time, the sentence is the link', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'conditionalOnTime' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+    });
+
+    it('where the List on the people names other fields and not the mark, the sentence links nowhere', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', cannotEnter: 'granted' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([sentence]);
+      expect(link()).toBeNull();
+    });
+
+    it('where the List on the people names the mark as conditional, the sentence links nowhere', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'conditional' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([sentence]);
       expect(link()).toBeNull();
     });
   });
