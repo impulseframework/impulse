@@ -670,10 +670,10 @@ type SignInRules[Tx any] struct {
 	// NoPassword says the Auth registers no password method: a password an account
 	// holds then holds no sign-in for a confirmation, which no sign-in could give, and
 	// the account is decided as one with no password.
-	NoPassword  bool
-	Policy      signin.Policy[Tx]
-	Accept      signinflow.InvitationAcceptor[Tx]
-	SignUp      signinflow.SignUpSeater[Tx]
+	NoPassword bool
+	Policy     signin.Policy[Tx]
+	Accept     signinflow.InvitationAcceptor[Tx]
+	SignUp     signinflow.SignUpSeater[Tx]
 	// Directories is the reader of the tenants' directory declarations, nil for none.
 	// It also reads, for the sign-in policy, which tenants declare the directories the
 	// user's identity links came through (sessioninfo.SignInUser.Directories).

@@ -5,7 +5,9 @@ package drivertest
 // admission, the invitation's acceptance and the tenant policy together. A session
 // reaches every tenant that seats the person, except a tenant that is directory only
 // and whose directory is not the one the person signed in through; a tenant that sets
-// nothing admits everyone it seats, in an application that keeps declarations too.
+// nothing admits everyone it seats, in an application that keeps declarations too. An
+// account that signs in through a directory-only tenant's directory is the exception:
+// it signs in through that directory alone, whichever tenants seat the person.
 
 import (
 	"context"
@@ -33,7 +35,7 @@ type seats struct {
 }
 
 func newSeats() *seats {
-	return &seats{roleStore: roleStore{held: map[accesstypes.User]accesstypes.RoleCollection{}}}
+	return &seats{roleStore: roleStore{held: map[accesstypes.User]accesstypes.RoleCollection{}, administers: map[accesstypes.User][]accesstypes.Domain{}}}
 }
 
 // UserRoles answers the memberships the account holds, as the tenant policy asks.
@@ -65,6 +67,27 @@ func (s *seats) unseat(userID impulse.UUID, tenant accesstypes.Domain) {
 	defer s.mu.Unlock()
 
 	delete(s.held[accesstypes.User(userID.String())], accesstypes.DomainPolicyScope(tenant))
+}
+
+// administer seats the account as tenant's administrator: the administrator's role held
+// in the tenant, and the tenant among those the account administers.
+func (s *seats) administer(userID impulse.UUID, tenant accesstypes.Domain) {
+	s.give(userID, tenant, "TenantAdministrator")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	user := accesstypes.User(userID.String())
+	s.administers[user] = append(s.administers[user], tenant)
+}
+
+// TenantsAdministered answers the tenants the account administers, as the tenant
+// policy asks.
+func (s *seats) TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.roleStore.TenantsAdministered(ctx, user)
 }
 
 // tenants lists the tenants the account holds a role in, sorted.
@@ -183,6 +206,15 @@ func (w *doorWorld) directories(_ context.Context, _ HookTx, directory signin.Di
 	}
 
 	return declared, nil
+}
+
+// declare rewrites tenant's declaration between two sign-ins: the row the reader reads,
+// and what the case's reach asks.
+func (w *doorWorld) declare(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, tenant accesstypes.Domain, declaration *signin.TenantDeclaration) {
+	t.Helper()
+
+	w.declared[tenant] = declaration
+	h.Record(ctx, t, in.Raw, declarationKeyPrefix+string(tenant), declarationValue(declaration))
 }
 
 // remove deletes tenant: its declaration and its directory go, and so does every seat
@@ -319,11 +351,14 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 		}
 	})
 
-	t.Run("a person seated in a directory-only tenant and an open one reaches both through the directory and the open one alone by password", func(t *testing.T) {
+	t.Run("an account that signs in through a directory-only tenant's directory is refused a password, though an open tenant seats the person too", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true}}, nil)
+		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{
+			"lakeside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true},
+			"hilltop":  {Directories: []signin.Directory{hilltopDirectory}},
+		}, nil)
 		in := w.start(ctx, t, h)
 
 		const name = "kim@lakeside.edu"
@@ -339,20 +374,91 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 		}
 		assertReached(t, w, kim.ID, identity, "lakeside", "riverside")
 
-		if _, err := passwordSignIn(ctx, in, kim, sessioninfo.ReasonLogin); err != nil {
-			t.Errorf("password sign-in error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
-		}
-		assertReached(t, w, kim.ID, password(kim.ID), "riverside")
-
-		// The open tenant unseats her: the directory-only tenant is all that seats her, so
-		// a password reaches nothing and is refused, and the directory still enters.
-		w.seats.unseat(kim.ID, "riverside")
+		// Lakeside's directory signs her account in, so Riverside's seat opens no other
+		// way: a password, a personal account and another organization's directory are
+		// refused, each with the code that is true of it.
 		_, err := passwordSignIn(ctx, in, kim, sessioninfo.ReasonLogin)
 		assertRefused(t, err, sessioninfo.RefusedDirectoryOnly, signin.ErrDirectoryOnly)
+		personal := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection, Subject: "sub-kim-personal", Email: name, SignInName: name, EmailVerified: true}
+		mustLink(ctx, t, in.Driver, kim.ID, personal)
+		err = signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: personal})
+		assertRefused(t, err, sessioninfo.RefusedDirectoryOnlyPersonalAccount, signin.ErrDirectoryOnly)
+		hilltop := &sessioninfo.Identity{Method: hilltopDirectory.Method, Connection: hilltopDirectory.Connection, Subject: "sub-kim", Email: name, SignInName: name, EmailVerified: true}
+		mustLink(ctx, t, in.Driver, kim.ID, hilltop)
+		err = signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: hilltop})
+		assertRefused(t, err, sessioninfo.RefusedConnectionNotInTenant, signin.ErrConnectionNotInTenant)
+
+		// Lakeside unseats her: her account still signs in through Lakeside's directory,
+		// so the password is still refused, and the directory signs her in to Riverside.
+		w.seats.unseat(kim.ID, "lakeside")
+		_, err = passwordSignIn(ctx, in, kim, sessioninfo.ReasonLogin)
+		assertRefused(t, err, sessioninfo.RefusedDirectoryOnly, signin.ErrDirectoryOnly)
 		if err := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-kim", name)}); err != nil {
-			t.Errorf("sign-in through the directory after the open tenant unseated her error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
+			t.Errorf("sign-in through the directory after Lakeside unseated her error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
 		}
-		assertReached(t, w, kim.ID, identity, "lakeside")
+		assertReached(t, w, kim.ID, identity, "riverside")
+
+		// Lakeside turns directory only off: nothing was taken from her account, and the
+		// password signs her in again.
+		w.declare(ctx, t, h, in, "lakeside", &signin.TenantDeclaration{Directories: []signin.Directory{lakesideDirectory}})
+		if _, err := passwordSignIn(ctx, in, kim, sessioninfo.ReasonLogin); err != nil {
+			t.Errorf("password sign-in once Lakeside is not directory only error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
+		}
+		assertReached(t, w, kim.ID, password(kim.ID), "riverside")
+	})
+
+	t.Run("a person a directory-only tenant and an open one seat, whose account is linked through no directory, signs in with a password and reaches the open one alone", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true}}, nil)
+		in := w.start(ctx, t, h)
+
+		const name = "joe@lakeside.edu"
+		joe := passwordUser(ctx, t, in.Driver, name)
+		w.seats.give(joe.ID, "lakeside", "Member")
+		w.seats.give(joe.ID, "riverside", "Teacher")
+
+		if _, err := passwordSignIn(ctx, in, joe, sessioninfo.ReasonLogin); err != nil {
+			t.Errorf("password sign-in error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
+		}
+		assertReached(t, w, joe.ID, password(joe.ID), "riverside")
+
+		// The open tenant unseats him: the directory-only tenant is all that seats him, so
+		// a password reaches nothing and is refused.
+		w.seats.unseat(joe.ID, "riverside")
+		_, err := passwordSignIn(ctx, in, joe, sessioninfo.ReasonLogin)
+		assertRefused(t, err, sessioninfo.RefusedDirectoryOnly, signin.ErrDirectoryOnly)
+	})
+
+	t.Run("the directory-only tenant's own administrator keeps the password, held for the mailed code, and an administrator of another directory-only tenant does not", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{
+			"lakeside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true},
+			"hilltop":  {Directories: []signin.Directory{hilltopDirectory}, DirectoryOnly: true},
+		}, nil)
+		in := w.start(ctx, t, h)
+
+		// Ann administers Lakeside, whose directory signs her account in.
+		const annName = "ann@lakeside.edu"
+		ann := passwordUser(ctx, t, in.Driver, annName)
+		w.seats.administer(ann.ID, "lakeside")
+		mustLink(ctx, t, in.Driver, ann.ID, entra("oid-ann", annName))
+		_, err := passwordSignIn(ctx, in, ann, sessioninfo.ReasonLogin)
+		assertHeldForCode(t, err)
+
+		// Hal administers Hilltop, directory only with its own directory, and is a member
+		// of Lakeside, whose directory signs his account in: administering another tenant
+		// keeps no password for him.
+		const halName = "hal@lakeside.edu"
+		hal := passwordUser(ctx, t, in.Driver, halName)
+		w.seats.administer(hal.ID, "hilltop")
+		w.seats.give(hal.ID, "lakeside", "Member")
+		mustLink(ctx, t, in.Driver, hal.ID, entra("oid-hal", halName))
+		_, err = passwordSignIn(ctx, in, hal, sessioninfo.ReasonLogin)
+		assertRefused(t, err, sessioninfo.RefusedDirectoryOnly, signin.ErrDirectoryOnly)
 	})
 
 	t.Run("a tenant that sets nothing admits a seated person through each method, in an application whose other tenants declare", func(t *testing.T) {
@@ -376,12 +482,16 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 		}
 		assertReached(t, w, sam.ID, password(sam.ID), "riverside")
 
+		// Each identity is linked just before its own sign-in, and Hilltop's directory
+		// comes last: once Sam's account is linked through the directory of Hilltop,
+		// which is directory only, every other sign-in of his is refused, whichever
+		// tenants seat him.
 		through := []*sessioninfo.Identity{
 			entra("oid-sam", name),
 			lakeside("idp_sam"),
-			{Method: sessioninfo.MethodGoogle, Connection: "hilltop.example", Subject: "sub-sam", Email: name, SignInName: name, EmailVerified: true},
 			{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection, Subject: "sub-sam-personal", Email: name, SignInName: name, EmailVerified: true},
 			{Method: sessioninfo.MethodOIDC, Connection: "https://id.elsewhere.example", Subject: "sub-sam", Email: name, SignInName: name},
+			{Method: sessioninfo.MethodGoogle, Connection: "hilltop.example", Subject: "sub-sam", Email: name, SignInName: name, EmailVerified: true},
 		}
 		for _, identity := range through {
 			mustLink(ctx, t, in.Driver, sam.ID, identity)

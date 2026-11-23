@@ -52,9 +52,10 @@ type DirectorySeat struct {
 // TenantDeclaration is what a tenant declares about who may enter it: the directory
 // its people come through, and whether they come through it only. It is
 // configuration data of the tenant, kept by the application and read for the library
-// by a DeclarationReader. A tenant's declaration restricts that tenant's own door and
-// nobody else's: a tenant that declares nothing, a nil or an empty declaration, admits
-// everyone it seats, however they signed in.
+// by a DeclarationReader. A tenant's declaration restricts that tenant's own door, and,
+// while the tenant is directory only, how the accounts of its own directory sign in: a
+// tenant that declares nothing, a nil or an empty declaration, admits everyone it seats,
+// however they signed in.
 type TenantDeclaration struct {
 	// Directories are the directories the tenant admits its people through. A tenant
 	// has one directory, and a directory is one tenant's: the application's schema and
@@ -66,7 +67,9 @@ type TenantDeclaration struct {
 	// password, a personal account, any other sign-in that is not through a directory,
 	// and a sign-in through another organization's directory do not reach the tenant.
 	// The tenant's own administrators alone keep a way in beside the directory, with a
-	// password and a second factor (AdmitsAdministrator).
+	// password and a second factor (AdmitsAdministrator). An account that signs in
+	// through the tenant's directory is then refused every other sign-in, whichever
+	// tenants seat the person (TenantPolicy, rule 2).
 	DirectoryOnly bool
 }
 
@@ -168,9 +171,10 @@ type tenantPolicy[Tx any] struct {
 // The person's tenants are the domains where they hold a role, read through roles, the
 // access library's user manager, and what each tenant admits is its declaration
 // (TenantDeclaration), read through declarations in the sign-in's transaction. A
-// tenant's declaration restricts that tenant alone, so the policy refuses a person
-// only when every tenant that seats them is closed to the way they signed in. The
-// policy decides what the session may be; which of the person's tenants the session
+// tenant's declaration restricts that tenant's door, and a directory-only tenant also
+// keeps the accounts that sign in through its directory to that directory (rule 2);
+// beyond those accounts the policy refuses a person only when every tenant that seats
+// them is closed to the way they signed in. The policy decides what the session may be; which of the person's tenants the session
 // then reaches is decided again, tenant by tenant, where the session's tenant list is
 // computed, with TenantDeclaration.Admits over the session's first auth event, and
 // with TenantDeclaration.AdmitsAdministrator for the tenant's own administrators. It
@@ -187,7 +191,22 @@ type tenantPolicy[Tx any] struct {
 //     and the synchronization, which runs once the session stands, refuses a person
 //     with none); the application's own directories are admitted by the registration's
 //     organization slot already.
-//  2. A tenant's own administrators keep a way into their tenant: a person who signs
+//  2. A tenant that is directory only keeps the accounts that sign in through its
+//     directory to that directory. An account that holds an identity link through the
+//     directory of a directory-only tenant (sessioninfo.SignInUser.Directories, which
+//     the session library reads with the reader set with
+//     session.Auth.SetDirectoryAdmission) is refused every sign-in that tenant's
+//     declaration does not admit, whichever tenants the person holds roles in, a role
+//     outside any one tenant included: a password, a personal account, a session the
+//     application starts itself and a sign-in through another organization's
+//     directory, each with the code rule 7 gives it. The tenant's own administrators
+//     are the exception: a person who administers that tenant and signs in with a
+//     password is held for the mailed code, as in rule 3; an administrator of another
+//     tenant is not. Nothing is taken from the account: with the tenant's directory
+//     only turned off, the password signs the person in again. An Auth that sets no
+//     directory admission hands the policy no directories, and this rule then refuses
+//     nobody.
+//  3. A tenant's own administrators keep a way into their tenant: a person who signs
 //     in with a password and administers a tenant that is directory only
 //     (UserRoleManager.TenantsAdministered, TenantDeclaration.AdmitsAdministrator) is
 //     not refused, and the sign-in is held for the library's second factor, the code
@@ -203,19 +222,19 @@ type tenantPolicy[Tx any] struct {
 //     role in every tenant, or through a group kept for the whole application, is
 //     held to the declaration like anyone, and so is an administrator who signed in
 //     through another organization's directory or with a personal account.
-//  3. A person holding a role outside any one tenant is admitted: in the global
+//  4. A person holding a role outside any one tenant is admitted: in the global
 //     partition, which is no tenant's and which no declaration governs, or in every
 //     tenant domain, whose tenants the policy has no list of. It is no exemption: the
 //     session then reaches a tenant only where the tenant's declaration admits it, as
 //     anyone's does.
-//  4. A person who is a member of no tenant is refused (no_tenant), unless the policy
+//  5. A person who is a member of no tenant is refused (no_tenant), unless the policy
 //     was built with AdmitWithoutTenant.
-//  5. The sign-in is admitted when one of the person's tenants admits it
+//  6. The sign-in is admitted when one of the person's tenants admits it
 //     (TenantDeclaration.Admits): a tenant that is not directory only admits every
 //     sign-in, a password, a personal account, a session the application starts for a
 //     user it authenticated itself, and a sign-in through any directory; a tenant that
 //     is directory only admits a sign-in through its own directory alone.
-//  6. Otherwise every tenant of the person is directory only and none has the way they
+//  7. Otherwise every tenant of the person is directory only and none has the way they
 //     signed in as its directory: nothing would be reachable, and the sign-in is
 //     refused. A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect
 //     provider) is refused with connection_not_in_tenant, a sign-in with a personal
@@ -257,10 +276,11 @@ func TenantPolicy[Tx any](roles UserRoleManager, declarations DeclarationReader[
 
 // PasswordDisabledCheck answers whether the user's password is disabled: whether a
 // sign-in of theirs with a password would be refused because the tenants' sign-in
-// settings close every tenant of theirs to it, whether or not they hold one. A page
+// settings refuse it, whether or not they hold one. directories are the directories
+// the user's account signs in through (sessioninfo.SignInUser.Directories). A page
 // asks it to know whether to offer a password at all. PasswordsDisabledByTenants
 // builds the library's own.
-type PasswordDisabledCheck func(ctx context.Context, userID impulse.UUID) (bool, error)
+type PasswordDisabledCheck func(ctx context.Context, userID impulse.UUID, directories []sessioninfo.UserDirectory) (bool, error)
 
 // outsideSignIn is the transaction the tenant policy is asked under outside a sign-in:
 // there is none, and the reader PasswordsDisabledByTenants is given takes none.
@@ -269,14 +289,18 @@ type outsideSignIn struct{}
 // PasswordsDisabledByTenants is the tenant policy's own decision for a sign-in with a
 // password, asked for one person outside any sign-in: the check answers true exactly
 // when TenantPolicy, over the same role store and the same declarations, would refuse
-// that person's sign-in with a password as directory_only, so when every tenant that
-// seats them is directory only. It answers false for a super administrator, for an
-// administrator of a directory-only tenant of theirs (the administrators' way in, held
-// for the mailed code), for a person who holds a role outside any one tenant, for a
-// person a tenant that is not directory only seats, and for a person who is a member of
-// no tenant (no_tenant is another refusal, and with AdmitWithoutTenant no refusal). It
-// is decide itself, asked with a password identity, not a second statement of the
-// rules, so the answer follows the policy wherever the policy changes.
+// that person's sign-in with a password as directory_only, so when a directory-only
+// tenant's directory signs their account in and they do not administer that tenant, or
+// when every tenant that seats them is directory only. It answers false for a super
+// administrator, for an administrator of a directory-only tenant of theirs (the
+// administrators' way in, held for the mailed code), for a person who holds a role
+// outside any one tenant, for a person a tenant that is not directory only seats and
+// whose account no directory-only tenant's directory signs in, and for a person who is
+// a member of no tenant (no_tenant is another refusal, and with AdmitWithoutTenant no
+// refusal). It is decide itself, asked with a password identity, not a second statement
+// of the rules, so the answer follows the policy wherever the policy changes. The Auth
+// hands the check the account's directories (sessionstorage.AuthStore.UserDirectories),
+// as a sign-in hands them to the policy.
 //
 // roles is the access library's user manager, as for TenantPolicy; declarations reads
 // a tenant's declaration with no sign-in transaction, answering nil for a tenant that
@@ -305,8 +329,12 @@ func PasswordsDisabledByTenants(
 		},
 	}
 
-	return func(ctx context.Context, userID impulse.UUID) (bool, error) {
-		req := &sessioninfo.NewSessionRequest{UserID: userID, Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword}}
+	return func(ctx context.Context, userID impulse.UUID, directories []sessioninfo.UserDirectory) (bool, error) {
+		req := &sessioninfo.NewSessionRequest{
+			UserID:   userID,
+			User:     &sessioninfo.SignInUser{ID: userID, Directories: directories},
+			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword},
+		}
 		decision, err := p.decide(ctx, outsideSignIn{}, req)
 		if err != nil {
 			return false, err
@@ -329,7 +357,15 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 		return Allow(), nil
 	}
 	method, connection := establishment(req)
-	enters, err := p.administratorsWayIn(ctx, tx, req, method)
+	reads := newDecisionReads(p, tx, req.UserID)
+	kept, err := reads.keptToDirectory(ctx, req.User, method, connection)
+	if err != nil {
+		return nil, err
+	}
+	if kept != nil {
+		return kept, nil
+	}
+	enters, err := reads.administratorsWayIn(ctx, method)
 	if err != nil {
 		return nil, err
 	}
@@ -349,52 +385,34 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	}
 
 	for _, tenant := range tenants {
-		declaration, err := p.declarations(ctx, tx, tenant)
+		declaration, err := reads.declaration(ctx, tenant)
 		if err != nil {
-			return nil, errors.Wrapf(err, "DeclarationReader(%q)", tenant)
+			return nil, err
 		}
 		if declaration.Admits(method, connection) {
 			return Allow(), nil
 		}
 	}
+
+	return closedTo(method, connection), nil
+}
+
+// closedTo is the refusal of a sign-in that came through none of the directories the
+// tenants keep their people to, with the code that is true of how the person signed
+// in: connection_not_in_tenant through an organization's directory,
+// directory_only_personal_account with a personal account, and directory_only for
+// anything else, a password or a session the application starts itself.
+func closedTo(method sessioninfo.AuthMethod, connection string) *Decision {
 	if throughDirectory(method, connection) {
-		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant), nil
+		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant)
 	}
 	// A directory method that came through no directory a tenant can declare is a
 	// personal account: the person used no password, and the code says so.
 	if method.ThroughDirectory() {
-		return denyBecause(sessioninfo.RefusedDirectoryOnlyPersonalAccount, ErrDirectoryOnly), nil
+		return denyBecause(sessioninfo.RefusedDirectoryOnlyPersonalAccount, ErrDirectoryOnly)
 	}
 
-	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly), nil
-}
-
-// administratorsWayIn reports whether the sign-in is one the administrators' way in
-// admits once it carries a second factor: a sign-in by the password method of a person
-// who administers a tenant that is directory only. The tenants the person administers
-// are read through the role store, and each one's declaration decides
-// (TenantDeclaration.AdmitsAdministrator, the decision the session's reach into the
-// tenant asks again with the session's own second factor). A sign-in by any other
-// method reads nothing: the way in is the password.
-func (p *tenantPolicy[Tx]) administratorsWayIn(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest, method sessioninfo.AuthMethod) (bool, error) {
-	if method != sessioninfo.MethodPassword {
-		return false, nil
-	}
-	administered, err := p.roles.TenantsAdministered(ctx, accesstypes.User(req.UserID.String()))
-	if err != nil {
-		return false, errors.Wrap(err, "UserRoleManager.TenantsAdministered()")
-	}
-	for _, tenant := range administered {
-		declaration, err := p.declarations(ctx, tx, tenant)
-		if err != nil {
-			return false, errors.Wrapf(err, "DeclarationReader(%q)", tenant)
-		}
-		if declaration.AdmitsAdministrator(method, true, true) {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly)
 }
 
 // membership reads the person's memberships: outside when a role is held outside any
@@ -428,4 +446,135 @@ func establishment(req *sessioninfo.NewSessionRequest) (method sessioninfo.AuthM
 	}
 
 	return req.Identity.Method, req.Identity.Connection
+}
+
+// decisionReads are what one decision reads beyond the memberships, each read once and
+// kept for the rules after the one that read it: a tenant's declaration, and the
+// tenants the person administers.
+type decisionReads[Tx any] struct {
+	policy *tenantPolicy[Tx]
+	tx     Tx
+	user   accesstypes.User
+	// declared are the declarations read, nil kept for a tenant that declares nothing.
+	declared map[accesstypes.Domain]*TenantDeclaration
+	// administered are the tenants the person administers, once administeredRead.
+	administered     []accesstypes.Domain
+	administeredRead bool
+}
+
+// newDecisionReads starts the reads of one decision of p, in tx, about the person
+// whose account is userID.
+func newDecisionReads[Tx any](p *tenantPolicy[Tx], tx Tx, userID impulse.UUID) *decisionReads[Tx] {
+	return &decisionReads[Tx]{
+		policy:   p,
+		tx:       tx,
+		user:     accesstypes.User(userID.String()),
+		declared: map[accesstypes.Domain]*TenantDeclaration{},
+	}
+}
+
+// declaration is tenant's declaration, read through the policy's reader the first
+// time it is asked for and answered from what was read after.
+func (r *decisionReads[Tx]) declaration(ctx context.Context, tenant accesstypes.Domain) (*TenantDeclaration, error) {
+	if declaration, read := r.declared[tenant]; read {
+		return declaration, nil
+	}
+	declaration, err := r.policy.declarations(ctx, r.tx, tenant)
+	if err != nil {
+		return nil, errors.Wrapf(err, "DeclarationReader(%q)", tenant)
+	}
+	r.declared[tenant] = declaration
+
+	return declaration, nil
+}
+
+// tenantsAdministered are the tenants the person administers, read through the role
+// store the first time they are asked for and answered from what was read after.
+func (r *decisionReads[Tx]) tenantsAdministered(ctx context.Context) ([]accesstypes.Domain, error) {
+	if r.administeredRead {
+		return r.administered, nil
+	}
+	administered, err := r.policy.roles.TenantsAdministered(ctx, r.user)
+	if err != nil {
+		return nil, errors.Wrap(err, "UserRoleManager.TenantsAdministered()")
+	}
+	r.administered, r.administeredRead = administered, true
+
+	return administered, nil
+}
+
+// keptToDirectory is rule 2: the decision for an account that signs in through the
+// directory of a directory-only tenant, nil when the rule does not decide. The tenants
+// that keep the account to their directory are the tenants user.Directories names (a
+// nil user names none) whose declaration is directory only and lists that directory,
+// each read once, in the order the request names them; the closed ones are those whose
+// declaration does not admit this sign-in. With none closed the rules after it decide.
+// Otherwise a sign-in by the password method of a person who administers every closed
+// tenant is held for the mailed code, and every other sign-in is refused as rule 7
+// refuses it (closedTo). What the person administers is read for a password sign-in
+// alone.
+func (r *decisionReads[Tx]) keptToDirectory(ctx context.Context, user *sessioninfo.SignInUser, method sessioninfo.AuthMethod, connection string) (*Decision, error) {
+	if user == nil {
+		return nil, nil
+	}
+	var closed []accesstypes.Domain
+	for _, directory := range user.Directories {
+		for _, tenant := range directory.Tenants {
+			declaration, err := r.declaration(ctx, tenant)
+			if err != nil {
+				return nil, err
+			}
+			if declaration == nil || !declaration.DirectoryOnly || !declaration.declares(Directory{Method: directory.Method, Connection: directory.Connection}) {
+				continue
+			}
+			if !declaration.Admits(method, connection) {
+				closed = append(closed, tenant)
+			}
+		}
+	}
+	if len(closed) == 0 {
+		return nil, nil
+	}
+	if method == sessioninfo.MethodPassword {
+		administered, err := r.tenantsAdministered(ctx)
+		if err != nil {
+			return nil, err
+		}
+		notAdministered := func(tenant accesstypes.Domain) bool {
+			return !slices.Contains(administered, tenant)
+		}
+		if !slices.ContainsFunc(closed, notAdministered) {
+			return RequireMFA(sessioninfo.MethodEmailCode), nil
+		}
+	}
+
+	return closedTo(method, connection), nil
+}
+
+// administratorsWayIn reports whether the sign-in is one the administrators' way in
+// admits once it carries a second factor: a sign-in by the password method of a person
+// who administers a tenant that is directory only. The tenants the person administers
+// are read through the role store, and each one's declaration decides
+// (TenantDeclaration.AdmitsAdministrator, the decision the session's reach into the
+// tenant asks again with the session's own second factor). A sign-in by any other
+// method reads nothing: the way in is the password.
+func (r *decisionReads[Tx]) administratorsWayIn(ctx context.Context, method sessioninfo.AuthMethod) (bool, error) {
+	if method != sessioninfo.MethodPassword {
+		return false, nil
+	}
+	administered, err := r.tenantsAdministered(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, tenant := range administered {
+		declaration, err := r.declaration(ctx, tenant)
+		if err != nil {
+			return false, err
+		}
+		if declaration.AdmitsAdministrator(method, true, true) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

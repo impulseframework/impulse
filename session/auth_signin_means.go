@@ -33,9 +33,9 @@ type SignInMeans struct {
 	DirectoryAddress bool `json:"directoryAddress"`
 	// PasswordDisabled reports that a password does not sign the user in, whether or not
 	// they hold one, because the tenants' sign-in settings refuse it: the Auth's check
-	// (SetPasswordDisabledCheck) says every tenant that seats them is directory only. A
-	// page then draws no Password line, and the first password is refused. It is false
-	// on an Auth with no check or no password method.
+	// (SetPasswordDisabledCheck) says the tenant policy would refuse it. A page then
+	// draws no Password line, and the first password is refused. It is false on an Auth
+	// with no check or no password method.
 	PasswordDisabled bool `json:"passwordDisabled"`
 }
 
@@ -204,13 +204,23 @@ func (a *Auth[S, U, Tx]) signInMeans(ctx context.Context, userID impulse.UUID, l
 
 // passwordDisabled answers whether the tenants' sign-in settings disable userID's
 // password: the Auth's check (SetPasswordDisabledCheck), and false, with nothing asked,
-// on an Auth that holds no check or registers no password method. The read of what a
-// person signs in with and the first password ask it.
+// on an Auth that holds no check or registers no password method. The check is handed
+// the directories the account signs in through, read with the Auth's directory reader
+// (SetDirectoryAdmission), and none, with the store not asked, on an Auth that holds
+// no reader. The read of what a person signs in with and the first password ask it.
 func (a *Auth[S, U, Tx]) passwordDisabled(ctx context.Context, userID impulse.UUID) (bool, error) {
 	if a.passwordDisabledCheck == nil || !a.registered().passwordRegistered() {
 		return false, nil
 	}
-	disabled, err := a.passwordDisabledCheck(ctx, userID)
+	var directories []sessioninfo.UserDirectory
+	if a.directories != nil {
+		read, err := a.storage.UserDirectories(ctx, userID, a.directories)
+		if err != nil {
+			return false, errors.Wrap(err, "sessionstorage.AuthStore.UserDirectories()")
+		}
+		directories = read
+	}
+	disabled, err := a.passwordDisabledCheck(ctx, userID, directories)
 	if err != nil {
 		return false, errors.Wrap(err, "signin.PasswordDisabledCheck()")
 	}

@@ -571,10 +571,13 @@ func (a *Auth[SessionData, UserData, Tx]) SetOwnTenants(hook OwnTenantsHook) {
 // signin.PasswordsDisabledByTenants over the role store and the declarations the policy
 // reads. With it, what a person signs in with (SignInMeans) says so (PasswordDisabled),
 // so their account page draws no Password line, and the person is refused a first
-// password (FirstPassword(), 403); a password their account holds stays. Without it,
-// and on an Auth with no password method, nobody's password is disabled. Set it after
-// NewAuth and before serving the first request; a nil check, a second check, or a check
-// set once the Auth is in use is a wiring mistake and panics, as SetOwnTenants does.
+// password (FirstPassword(), 403); a password their account holds stays. The check is
+// handed the directories the account signs in through, read with the reader set with
+// SetDirectoryAdmission, and none on an Auth that sets no directory admission. Without
+// the check, and on an Auth with no password method, nobody's password is disabled. Set
+// it after NewAuth and before serving the first request; a nil check, a second check, or
+// a check set once the Auth is in use is a wiring mistake and panics, as SetOwnTenants
+// does.
 func (a *Auth[SessionData, UserData, Tx]) SetPasswordDisabledCheck(check signin.PasswordDisabledCheck) {
 	if check == nil {
 		panic("session: SetPasswordDisabledCheck was given nil: pass signin.PasswordsDisabledByTenants over the role store and the declarations the tenant policy reads, or set none")
@@ -886,10 +889,17 @@ type DirectorySeatedHook[Tx any] struct {
 // other sign-in under the name is refused as a stranger is, and says nothing of the
 // account. A directory no tenant declares, and a personal
 // account, which is no organization's directory (signin.Directory.PersonalAccounts),
-// fall to the sign-in method's choice as without them. Set the two after
-// NewAuth and before serving the first request; a nil reader, a hook missing either
-// function, a second call, or a call once the Auth is in use is a wiring mistake and
-// panics, as SetSignInPolicy does.
+// fall to the sign-in method's choice as without them.
+//
+// The reader also tells the sign-in policy which tenant's directory an account signs
+// in through: at each sign-in the library reads the directories of the account's
+// identity links and the tenants that declare each (sessioninfo.SignInUser.Directories),
+// by which the tenant policy keeps a directory-only tenant's directory people to that
+// directory.
+//
+// Set the two after NewAuth and before serving the first request; a nil reader, a hook
+// missing either function, a second call, or a call once the Auth is in use is a wiring
+// mistake and panics, as SetSignInPolicy does.
 func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], hook DirectorySeatedHook[Tx]) {
 	if reader == nil {
 		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
