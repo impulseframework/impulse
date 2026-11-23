@@ -77,7 +77,11 @@ type memStore struct {
 	invitations map[impulse.UUID]bool
 	granted     map[string][]string
 	// methods are the rows of the sign-in methods table, by registration name.
-	methods  map[string]*dbtype.SignInMethod
+	methods map[string]*dbtype.SignInMethod
+	// settings is the row of the sign-in settings table, nil for none: newMemStore's
+	// asks nobody for a second factor, so a sign-in the rules let through gets its
+	// session.
+	settings *dbtype.SignInSettings
 	sessions int
 	steps    []string
 	next     []commitOutcome
@@ -90,6 +94,7 @@ func newMemStore() *memStore {
 	return &memStore{
 		users: map[impulse.UUID]*memUser{}, links: map[string]impulse.UUID{}, invitations: map[impulse.UUID]bool{},
 		granted: map[string][]string{}, methods: map[string]*dbtype.SignInMethod{},
+		settings: &dbtype.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: dbtype.DefaultRememberBrowserDays},
 	}
 }
 
@@ -402,6 +407,10 @@ func (d *memDriver) SignInMethodIn(_ context.Context, tx *memTx, name string) (*
 	d.store.notef("method %s read in run %d", name, tx.run)
 
 	return d.store.methods[name], nil
+}
+
+func (d *memDriver) SignInSettingsIn(context.Context, *memTx) (*dbtype.SignInSettings, error) {
+	return d.store.settings, nil
 }
 
 // roleHooks are the two hooks as an application writes them: each buffers what it

@@ -305,16 +305,18 @@ type db interface {
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID, now time.Time) error
 	// InsertTrustedDevice inserts d.
 	InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error
-	// TrustedDeviceByToken returns the device holding tokenHash that is live at now, or NotFound.
-	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error)
+	// TrustedDeviceByToken returns the device holding tokenHash that is live at now and
+	// was remembered after rememberedAfter, or NotFound.
+	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error)
 	// TouchTrustedDevice moves the LastUsedAt of the live device id to the database's time.
 	TouchTrustedDevice(ctx context.Context, id impulse.UUID, now time.Time) error
 	// RevokeTrustedDevice revokes the live device holding tokenHash; NotFound when it is not live.
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
-	// TrustedDeviceCount returns how many of userID's devices are live at now.
-	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error)
+	// TrustedDeviceCount returns how many of userID's devices are live at now and were
+	// remembered after rememberedAfter.
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error)
 	// OwnSessions returns userID's own live sessions used at activeSince or later, newest use first: no session that
 	// carries an impersonation record. Without the auth schema it is an error.
 	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)

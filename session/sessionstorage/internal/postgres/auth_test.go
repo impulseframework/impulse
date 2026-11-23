@@ -81,6 +81,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	}
 
 	drivertest.SeedSignInMethod(ctx, t, d, cfg)
+	drivertest.SeedSignInSettings(ctx, t, d, schema, cfg)
 
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Pool,
@@ -93,7 +94,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		Addresses:     drivertest.NewAddresses(d),
 
 		ConfirmAddressByLink: drivertest.NewConfirmAddressByLink(d),
-		SignInSettingsIn:     drivertest.NewSignInSettingsIn(d, d.SignInSettingsIn),
+		SignInSettingsIn:     drivertest.NewSignInSettingsIn(d),
 	}
 }
 

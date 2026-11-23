@@ -1502,33 +1502,33 @@ func (mr *MockdbMockRecorder) TouchUserSignIn(ctx, userID any) *gomock.Call {
 }
 
 // TrustedDeviceByToken mocks base method.
-func (m *Mockdb) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error) {
+func (m *Mockdb) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TrustedDeviceByToken", ctx, tokenHash, now)
+	ret := m.ctrl.Call(m, "TrustedDeviceByToken", ctx, tokenHash, now, rememberedAfter)
 	ret0, _ := ret[0].(*dbtype.TrustedDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // TrustedDeviceByToken indicates an expected call of TrustedDeviceByToken.
-func (mr *MockdbMockRecorder) TrustedDeviceByToken(ctx, tokenHash, now any) *gomock.Call {
+func (mr *MockdbMockRecorder) TrustedDeviceByToken(ctx, tokenHash, now, rememberedAfter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceByToken", reflect.TypeOf((*Mockdb)(nil).TrustedDeviceByToken), ctx, tokenHash, now)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceByToken", reflect.TypeOf((*Mockdb)(nil).TrustedDeviceByToken), ctx, tokenHash, now, rememberedAfter)
 }
 
 // TrustedDeviceCount mocks base method.
-func (m *Mockdb) TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error) {
+func (m *Mockdb) TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TrustedDeviceCount", ctx, userID, now)
+	ret := m.ctrl.Call(m, "TrustedDeviceCount", ctx, userID, now, rememberedAfter)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // TrustedDeviceCount indicates an expected call of TrustedDeviceCount.
-func (mr *MockdbMockRecorder) TrustedDeviceCount(ctx, userID, now any) *gomock.Call {
+func (mr *MockdbMockRecorder) TrustedDeviceCount(ctx, userID, now, rememberedAfter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceCount", reflect.TypeOf((*Mockdb)(nil).TrustedDeviceCount), ctx, userID, now)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrustedDeviceCount", reflect.TypeOf((*Mockdb)(nil).TrustedDeviceCount), ctx, userID, now, rememberedAfter)
 }
 
 // UnlinkIdentity mocks base method.

@@ -107,14 +107,14 @@ type AuthDriver interface {
 	RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error)
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID, now time.Time) error
 	InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error
-	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error)
+	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error)
 	TouchTrustedDevice(ctx context.Context, id impulse.UUID, now time.Time) error
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
 	// FactorCodeState and TrustedDeviceState read a row whatever its state.
 	FactorCodeState(ctx context.Context, id impulse.UUID) (*dbtype.FactorCode, error)
 	TrustedDeviceState(ctx context.Context, tokenHash []byte) (*dbtype.TrustedDevice, error)
-	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error)
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error)
 	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)
 	DestroyOtherOwnSessions(ctx context.Context, userID, keep impulse.UUID, activeSince time.Time) (int, error)
 	DestroySession(ctx context.Context, sessionID impulse.UUID) error
@@ -207,7 +207,29 @@ type AuthConfig struct {
 	// Admission is what a tenanted application gives a person's first sign-in through
 	// a tenant's directory; nil for none.
 	Admission *DirectoryAdmission
+	// Settings is the sign-in settings row the instance starts with, which the harness
+	// writes with SeedSignInSettings before the instance is used. The zero value asks
+	// nobody for a second factor, so a sign-in the rules let through gets its session.
+	Settings SettingsRow
+	// RememberedBrowser has the instance's SignIn run with a trusted-device check that
+	// says yes for everyone: the browser signing in is one the person asked to be
+	// remembered (signinflow.Rules.TrustedDevice).
+	RememberedBrowser bool
 }
+
+// SettingsRow is the row of the sign-in settings table an instance starts with.
+type SettingsRow uint8
+
+const (
+	// NotRequiredRow is a row that asks nobody for a second factor: what every case
+	// that is not about the setting starts with.
+	NotRequiredRow SettingsRow = iota
+	// NoSettingsRow is no row, which asks everyone for a second factor: what an Auth
+	// starts with.
+	NoSettingsRow
+	// RequiredRow is a row that asks everyone for a second factor.
+	RequiredRow
+)
 
 // MethodName is the name an instance's sign-in method is registered under: the key of
 // its row in the sign-in methods table.
@@ -544,6 +566,12 @@ func newSignIn[Tx any](
 			return cfg.Policy(ctx, adapt(tx), req)
 		}
 	}
+	var trusted signinflow.TrustedDeviceCheck
+	if cfg.RememberedBrowser {
+		trusted = func(context.Context, impulse.UUID) (bool, error) {
+			return true, nil
+		}
+	}
 	directories, seat, onlyIn := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	signUp := adaptSignUp(cfg, adapt)
@@ -555,7 +583,7 @@ func newSignIn[Tx any](
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
 			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: proof, NoPassword: cfg.NoPassword,
-			ConfirmAddress: cfg.ConfirmAddress, CodeAddress: claim, NewAccount: account,
+			ConfirmAddress: cfg.ConfirmAddress, CodeAddress: claim, NewAccount: account, TrustedDevice: trusted,
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -631,6 +659,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "the sign-in settings are one row for the whole Auth, absent until a setting is written: each write sets its one field and leaves the other as it stands, a write with no row makes it with the other field at its default, and a sign-in's transaction reads what a plain read does", run: testSignInSettingsOneField},
 		{name: "a driver whose sign-in settings table is not there says so: both reads fail with an error naming the table, never a row read as absent", run: testSignInSettingsMissingTable},
+		{name: "the sign-in settings decide after the sign-in rule: while they ask everyone for a second factor, a sign-in the rule allows, or any where there is no rule, is held for the mailed code, as it is with no row; a refusal and the rule's own hold stand either way", run: testSecondFactorSetting},
+		{name: "the setting is read at each sign-in: turned off between two sign-ins the second gets its session, and turned on again the next is held", run: testSecondFactorSettingTurnedOffAndOn},
+		{name: "while a second factor is required, the directory's attestation, a remembered browser and the completion that carries the mailed code each pass it, and a remembered browser is recorded on the session", run: testSecondFactorRequiredPassed},
+		{name: "a session that continues one already decided is not held for a second factor however the setting stands", run: testSecondFactorSettingUndecidedReason},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person whose account was created ahead is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
 		{name: "a row opens its method for the audience it was opened for alone: a registration widened or narrowed in code since refuses a stranger and writes nothing, at a sign-in and at a password sign-up, and a row that names no audience opens nothing", run: testOpenRowOfAnotherAudience},
@@ -753,6 +785,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "of factor codes inserted at once for one pending sign-in, one stands and every other is consumed", run: testFactorCodesInsertedAtOnce},
 		{name: "taking a user's address off ends the live factor codes of the user's pending sign-ins and no other user's", run: testAddressTakenOffEndsCodes},
 		{name: "a trusted device is read back by its token hash while it is live, touched at the database's time, revoked once by its token and all at once by its user", run: testTrustedDeviceLifecycle},
+		{name: "a trusted device is found and counted only while it was remembered after the cut a read is given, and one past its end date however early the cut", run: testTrustedDeviceRememberedAfter},
 		{name: "a factor code goes with its pending sign-in and a trusted device with its user", run: testFactorsCascade},
 	}
 	for _, tt := range tests {

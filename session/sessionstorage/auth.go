@@ -7,6 +7,7 @@ import (
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
@@ -464,8 +465,9 @@ type AuthStore[Tx any] interface {
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID) error
 	// InsertTrustedDevice inserts d, giving it its ID.
 	InsertTrustedDevice(ctx context.Context, d *TrustedDevice) error
-	// TrustedDevice returns the device holding tokenHash that is live (not revoked,
-	// not expired), or NotFound.
+	// TrustedDevice returns the device holding tokenHash that is live (not revoked, not
+	// expired, and remembered within the period the sign-in settings say now), or
+	// NotFound. Where browsers are not remembered (0 days), every device is NotFound.
 	TrustedDevice(ctx context.Context, tokenHash []byte) (*TrustedDevice, error)
 	// TouchTrustedDevice moves the LastUsedAt of the live device id to the database's
 	// time.
@@ -476,8 +478,10 @@ type AuthStore[Tx any] interface {
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet: an
 	// administrator's reset of the person's factors.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
-	// TrustedDeviceCount returns how many of userID's devices are live (not revoked,
-	// not expired): the browsers the second factor remembers for the person.
+	// TrustedDeviceCount returns how many of userID's devices are live (not revoked, not
+	// expired, and remembered within the period the sign-in settings say now): the
+	// browsers the second factor remembers for the person, none where browsers are not
+	// remembered (0 days).
 	TrustedDeviceCount(ctx context.Context, userID impulse.UUID) (int, error)
 	// OwnSessions returns the person's own live sessions, as their account page lists
 	// them: userID's sessions that are not expired and were used at activeSince or
@@ -1175,17 +1179,42 @@ func (a *Auth[Tx]) InsertTrustedDevice(ctx context.Context, d *TrustedDevice) er
 	return nil
 }
 
-// TrustedDevice implements AuthStore.
+// TrustedDevice implements AuthStore. The sign-in settings are read once for the call,
+// outside any transaction: a device stands in only while it is inside both the end date
+// written when it was remembered and the period as it is now.
 func (a *Auth[Tx]) TrustedDevice(ctx context.Context, tokenHash []byte) (*TrustedDevice, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	d, err := a.db.TrustedDeviceByToken(ctx, tokenHash, time.Now())
+	now := time.Now()
+	rememberedAfter, remembers, err := a.rememberedAfter(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	if !remembers {
+		return nil, httpio.NewNotFoundMessage("no live trusted device")
+	}
+	d, err := a.db.TrustedDeviceByToken(ctx, tokenHash, now, rememberedAfter)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.TrustedDeviceByToken()")
 	}
 
 	return d, nil
+}
+
+// rememberedAfter reads the sign-in settings and answers the moment a browser must
+// have been remembered after to stand in at now: now less the period. remembers is
+// false where browsers are not remembered (0 days), and then no browser stands in.
+func (a *Auth[Tx]) rememberedAfter(ctx context.Context, now time.Time) (after time.Time, remembers bool, err error) {
+	settings, err := a.db.SignInSettings(ctx)
+	if err != nil {
+		return time.Time{}, false, errors.Wrap(err, "db.SignInSettings()")
+	}
+	if settings.RememberDays() == 0 {
+		return time.Time{}, false, nil
+	}
+
+	return now.Add(-settings.RememberPeriod()), true, nil
 }
 
 // TouchTrustedDevice implements AuthStore.
@@ -1224,12 +1253,21 @@ func (a *Auth[Tx]) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID
 	return nil
 }
 
-// TrustedDeviceCount implements AuthStore.
+// TrustedDeviceCount implements AuthStore. The sign-in settings are read once for the
+// call, outside any transaction, as TrustedDevice reads them.
 func (a *Auth[Tx]) TrustedDeviceCount(ctx context.Context, userID impulse.UUID) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	count, err := a.db.TrustedDeviceCount(ctx, userID, time.Now())
+	now := time.Now()
+	rememberedAfter, remembers, err := a.rememberedAfter(ctx, now)
+	if err != nil {
+		return 0, err
+	}
+	if !remembers {
+		return 0, nil
+	}
+	count, err := a.db.TrustedDeviceCount(ctx, userID, now, rememberedAfter)
 	if err != nil {
 		return 0, errors.Wrap(err, "db.TrustedDeviceCount()")
 	}

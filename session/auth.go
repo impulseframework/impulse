@@ -495,7 +495,10 @@ func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Optio
 // known and before any session exists, for every sign-in method and for a session the
 // application starts for a user it authenticated itself (AuthAPI.StartAuthenticatedSession),
 // with signin.Allow, signin.Deny or signin.RequireMFA. Without a policy the library's
-// own checks decide. Set it after NewAuth and before serving the first request; a nil
+// own checks decide. After the policy, or in its place where there is none, the Auth's
+// sign-in settings are read: while they ask everyone for a second factor, a sign-in the
+// policy allows is held for the library's mailed code (AuthAPI.SetSecondFactorRequired).
+// Set it after NewAuth and before serving the first request; a nil
 // policy, a second policy, or a policy set once the Auth is in use is a wiring
 // mistake and panics, as a misregistered sign-in method does.
 func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[Tx]) {
