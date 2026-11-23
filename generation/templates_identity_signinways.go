@@ -61,11 +61,14 @@ import (
 // filters by the person's id (userId:eq:<id>), as a list drawn under the person's row
 // does; a request that names nobody lists nobody's ways, and one that names people any
 // other way is refused. The role file grants it like any resource, to whoever reads the
-// identities of the auth's people.
+// identities of the auth's people. A change to an account or to an
+// identity{{ if .ForTenant }}, or to who holds a role where,{{ end }} tells the list's open pages,
+// which read it again: the tables are declared (@changedBy), since no query names them.
 //
 // @computed` + identityTenantScope + `
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
+// @changedBy({{ .Tables.Users }}, {{ .Tables.Identities }}{{ if .ForTenant }}, {{ .Policy.UserRoles }}{{ if .KeepsGroups }}, {{ .Policy.Groups }}, {{ .Policy.GroupMembers }}, {{ .Policy.GroupRoles }}{{ end }}{{ end }})
 // @order(Password desc, Through asc)
 // @rowWord(way to sign in, plural: ways to sign in)
 type {{ .SignInWay }} struct {

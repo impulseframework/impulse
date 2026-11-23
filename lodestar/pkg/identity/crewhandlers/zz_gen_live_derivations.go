@@ -4,20 +4,24 @@
 package crewhandlers
 
 import (
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/crewresources"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource/live"
 )
 
-// LiveDerivations records, for each view the Crew auth's generated management
-// declares (the lists a tenant keeps of the auth's people), the tables whose changes
-// change it: a change to one reaches every subscriber of the view as one resource
-// document, in every tenant when the table is global. Each set is read off the view's
-// query. The views are declared in the tree's internal declarations package; their
-// record is here, in the package the application's generated handlers reach the tree
-// through. Every table is named by the generated Resource method of the type over it,
-// so a renamed or dropped table fails to compile here. The application's generated
-// handlers assemble this value with their own packages' into the one they hand to every
+// LiveDerivations records, for each published resource the Crew auth's generated
+// management declares, the tables whose changes change it: a change to one reaches
+// every subscriber of the resource as one resource document, in every tenant when the
+// table is global. A view (a list such as the roles a person holds, or a tenant's
+// people) is declared in the tree's internal declarations package, and its set is read
+// off its query. A computed resource (a list of how a person signs in) is declared in
+// the methods package, beside the function that lists it, and has no query, so it
+// declares its tables (@changedBy). Each entry says which. The record of both is here,
+// in the package the application's generated handlers reach the tree through. Every
+// resource and every table is named by the generated Resource method of its type, so a
+// renamed or dropped one fails to compile here. The application's generated handlers
+// assemble this value with their own packages' into the one they hand to every
 // publish, and hand that one to the handlers of this package too.
 var LiveDerivations = &live.Derivations{
 	Resources: []live.DerivedResource{
@@ -92,6 +96,15 @@ var LiveDerivations = &live.Derivations{
 		{Resource: crewresources.CrewSectorInvitation{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
 		}},
+		// CrewSectorSignInWays: the tables declared with @changedBy.
+		{Resource: crewidentity.CrewSectorSignInWay{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+		}},
 		// CrewSectorUsers: the tables its query reads.
 		{Resource: crewresources.CrewSectorUser{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
@@ -116,6 +129,11 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 			{Name: resources.Sector{}.Resource(), Global: true},
+		}},
+		// CrewSignInWays: the tables declared with @changedBy.
+		{Resource: crewidentity.CrewSignInWay{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
 		// CrewTakenRoles: the tables its query reads.
 		{Resource: crewresources.CrewTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{

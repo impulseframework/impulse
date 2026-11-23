@@ -10,9 +10,9 @@ import (
 
 // liveDerivations is the application's live derivations: the LiveDerivations of every
 // package holding a published virtual or computed resource, generated next to the
-// resources, and of every auth whose generated management declares views, generated in
-// the auth's handlers package, merged into the one value the generated handlers hand to
-// every publish.
+// resources, and of every auth whose generated management declares published
+// resources of its own, generated in the auth's handlers package, merged into the one
+// value the generated handlers hand to every publish.
 var liveDerivations = live.Merge(
 	staffhandlers.LiveDerivations,
 )
