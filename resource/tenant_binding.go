@@ -165,9 +165,15 @@ func keySpelling(key map[string]any) (string, error) {
 // ownColumn answers a column of one row, which row is its key as rowMatchKey spells it,
 // from what the transaction's patches buffered for that row, newest first: a write that
 // set the column answers its value as held, a create that did not answers nil, and an
-// update or an insert-or-update that did not is passed over. known is false when no
-// buffered write of the row says.
+// update or an insert-or-update that did not is passed over. A row the transaction made
+// afresh answers from its image (rowImage), the column's value or nil: an
+// insert-or-update that wrote the row after a delete made it as a create does, and a
+// delete is not among the writes, so a write from before it would answer for a row that
+// is gone. known is false when no buffered write of the row says.
 func (t *transactionRows) ownColumn(table, row, column string) (value any, known bool) {
+	if image, ok := t.images[table][row]; ok && image.state == rowCreated {
+		return image.columns[column], true
+	}
 	writes := t.writes[table]
 	for i := len(writes) - 1; i >= 0; i-- {
 		if writes[i].row != row {

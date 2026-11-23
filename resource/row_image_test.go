@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // TestTransactionRows_noteImage pins the image a transaction keeps of a row: what each
@@ -103,5 +104,30 @@ func TestTransactionRows_image(t *testing.T) {
 	}
 	if _, ok := rows.image(table, "2:Id=3:n-2;"); ok {
 		t.Error("image() found an image of a row no patch wrote")
+	}
+}
+
+// TestPatchSet_laidOver_null pins how a NULL an earlier patch of the transaction buffered
+// reads back as an old value: the image holds it as the untyped nil, and it reads as the
+// field's own nil, as the stored row gives it, so a patch that gives the field no value
+// again changes nothing there.
+func TestPatchSet_laidOver_null(t *testing.T) {
+	t.Parallel()
+
+	var none *string
+	p := changePatch[changeBerth](UpdatePatchType, "berth-1", map[accesstypes.Field]any{"DockID": none, "Name": "Renamed"})
+	image := &rowImage{state: rowCreated, upserted: false, columns: map[string]any{"Id": "berth-1", "DockId": nil, "Name": "First"}}
+
+	old, err := p.laidOver(new(changeBerth), image, SpannerDBType)
+	if err != nil {
+		t.Fatalf("laidOver() error = %v", err)
+	}
+	got, err := p.diffValues(old, nil)
+	if err != nil {
+		t.Fatalf("diffValues() error = %v", err)
+	}
+	want := map[accesstypes.Field]DiffElem{"Name": {Old: "First", New: "Renamed"}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("change set mismatch (-want +got):\n%s", diff)
 	}
 }
