@@ -41,18 +41,29 @@ func (p labeledPatch) recordLabel() string {
 	return p.label
 }
 
-// clientUpdate is one update of Clients by a patch whose record's struct is Client.
-var clientUpdate = labeledPatch{recordedPatch{"Clients", UpdatePatchType}, "Client"}
+// labeled is a buffered patch of res whose record's struct is label.
+func labeled(res accesstypes.Resource, typ PatchType, label string) labeledPatch {
+	return labeledPatch{recordedPatch{res, typ}, label}
+}
 
-// The ruled sentences, each named once so the tables below read as shapes.
-const (
-	hangarsDeleteSentence  = "Hangars: this record cannot be deleted while other records still reference it."
-	shipsReferencedMissing = "Ships: a referenced record does not exist, or a value is too long for its field."
+// The stand-ins a case says a record of by its struct's name.
+var (
+	clientUpdate = labeled("Clients", UpdatePatchType, "Client")
+	hangarDelete = labeled("Hangars", DeletePatchType, "Hangar")
+	shipCreate   = labeled("Ships", CreatePatchType, "Ship")
 )
 
-// TestBufferedPatches_referentialMessage pins the ruled wording of a referential refusal
-// over what the transaction buffered: one sentence per shape, resources in first-buffered
-// order, the change-event rows of a tracked resource never counted.
+// The sentences, each named once so the tables below read as shapes.
+const (
+	hangarDeleteSentence  = "This hangar cannot be deleted while other records still refer to it."
+	shipReferencedMissing = "This ship refers to a record that does not exist, or holds a value that is too long for its field."
+)
+
+// TestBufferedPatches_referentialMessage pins the sentences of a referential refusal over
+// what the transaction buffered: one sentence per shape, one record said by its struct's
+// name in words and several by their resources' names in words, each once in
+// first-buffered order, one or several counted over the patches, the change-event rows of
+// a tracked resource never counted.
 func TestBufferedPatches_referentialMessage(t *testing.T) {
 	t.Parallel()
 
@@ -62,39 +73,54 @@ func TestBufferedPatches_referentialMessage(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "deletes on one resource name the resource and the record",
+			name:    "one delete says the record by its struct's name in words",
+			patches: []PatchSetMetadata{hangarDelete},
+			want:    hangarDeleteSentence,
+		},
+		{
+			name:    "one delete by a patch that gives no label says this record",
 			patches: []PatchSetMetadata{recordedPatch{"Hangars", DeletePatchType}},
-			want:    hangarsDeleteSentence,
+			want:    "This record cannot be deleted while other records still refer to it.",
 		},
 		{
-			name:    "several deletes of one resource are still one resource",
-			patches: []PatchSetMetadata{recordedPatch{"Hangars", DeletePatchType}, recordedPatch{"Hangars", DeletePatchType}},
-			want:    hangarsDeleteSentence,
+			name:    "two deletes of one resource are several",
+			patches: []PatchSetMetadata{hangarDelete, hangarDelete},
+			want:    "One of the hangars this request deletes cannot be deleted while other records still refer to it.",
 		},
 		{
-			name:    "deletes on several resources list them in buffering order",
-			patches: []PatchSetMetadata{recordedPatch{"Hangars", DeletePatchType}, recordedPatch{"Ships", DeletePatchType}, recordedPatch{"Hangars", DeletePatchType}},
-			want:    "Hangars, Ships: a record cannot be deleted while other records still reference it.",
+			name:    "deletes on two resources say each once in words in buffering order",
+			patches: []PatchSetMetadata{hangarDelete, labeled("Ships", DeletePatchType, "Ship"), hangarDelete},
+			want:    "One of the hangars or ships this request deletes cannot be deleted while other records still refer to it.",
 		},
 		{
-			name:    "a create names a referenced record that does not exist or a value too long",
-			patches: []PatchSetMetadata{recordedPatch{"Ships", CreatePatchType}},
-			want:    shipsReferencedMissing,
+			name:    "deletes on three resources say all three in words",
+			patches: []PatchSetMetadata{hangarDelete, recordedPatch{"Ships", DeletePatchType}, recordedPatch{"Refits", DeletePatchType}},
+			want:    "One of the hangars, ships or refits this request deletes cannot be deleted while other records still refer to it.",
 		},
 		{
-			name:    "an update is a write",
-			patches: []PatchSetMetadata{recordedPatch{"Ships", UpdatePatchType}},
-			want:    shipsReferencedMissing,
+			name:    "one create says the record that refers to a record that does not exist or holds a value too long",
+			patches: []PatchSetMetadata{shipCreate},
+			want:    shipReferencedMissing,
 		},
 		{
-			name:    "a create-or-update is a write",
-			patches: []PatchSetMetadata{recordedPatch{"Ships", CreateOrUpdatePatchType}},
-			want:    shipsReferencedMissing,
+			name:    "one update is a write",
+			patches: []PatchSetMetadata{labeled("Ships", UpdatePatchType, "Ship")},
+			want:    shipReferencedMissing,
 		},
 		{
-			name:    "writes on several resources share the write sentence",
-			patches: []PatchSetMetadata{recordedPatch{"Ships", CreatePatchType}, recordedPatch{"Missions", UpdatePatchType}},
-			want:    "Ships, Missions: a referenced record does not exist, or a value is too long for its field.",
+			name:    "one create-or-update is a write",
+			patches: []PatchSetMetadata{labeled("Ships", CreateOrUpdatePatchType, "Ship")},
+			want:    shipReferencedMissing,
+		},
+		{
+			name:    "a create and an update on two resources are what this request adds or changes",
+			patches: []PatchSetMetadata{shipCreate, labeled("Missions", UpdatePatchType, "Mission")},
+			want:    "One of the ships or missions this request adds or changes refers to a record that does not exist, or holds a value that is too long for its field.",
+		},
+		{
+			name:    "two updates on two resources are what this request changes",
+			patches: []PatchSetMetadata{labeled("Ships", UpdatePatchType, "Ship"), labeled("Missions", UpdatePatchType, "Mission")},
+			want:    "One of the ships or missions this request changes refers to a record that does not exist, or holds a value that is too long for its field.",
 		},
 		{
 			name:    "deletes and writes together fall back to the sentence covering both causes",
@@ -112,14 +138,14 @@ func TestBufferedPatches_referentialMessage(t *testing.T) {
 			want:    referentialRefusalFallback,
 		},
 		{
-			name:    "a tracked resource's change event is not a buffered patch",
-			patches: []PatchSetMetadata{recordedPatch{"Ships", DeletePatchType}, &DataChangeEvent{TableName: "Ships"}},
-			want:    "Ships: this record cannot be deleted while other records still reference it.",
+			name:    "a tracked delete beside its change event is one delete",
+			patches: []PatchSetMetadata{labeled("Ships", DeletePatchType, "Ship"), &DataChangeEvent{TableName: "Ships"}},
+			want:    "This ship cannot be deleted while other records still refer to it.",
 		},
 		{
-			name:    "a tracked create names the resource, not its change event",
-			patches: []PatchSetMetadata{recordedPatch{"Missions", CreatePatchType}, &DataChangeEvent{TableName: "Missions"}},
-			want:    "Missions: a referenced record does not exist, or a value is too long for its field.",
+			name:    "a tracked create beside its change event is one write",
+			patches: []PatchSetMetadata{labeled("Missions", CreatePatchType, "Mission"), &DataChangeEvent{TableName: "Missions"}},
+			want:    "This mission refers to a record that does not exist, or holds a value that is too long for its field.",
 		},
 	}
 
@@ -160,59 +186,66 @@ func TestTranslateCommitError(t *testing.T) {
 		{
 			name:        "FailedPrecondition over a delete answers 409 with the delete sentence",
 			err:         status.Error(codes.FailedPrecondition, "Foreign key constraint `FK_Ships_HangarId` is violated on table `Ships`."),
-			patches:     []PatchSetMetadata{recordedPatch{"Hangars", DeletePatchType}},
+			patches:     []PatchSetMetadata{hangarDelete},
 			wantStatus:  http.StatusConflict,
-			wantMessage: hangarsDeleteSentence,
+			wantMessage: hangarDeleteSentence,
 		},
 		{
 			name:        "FailedPrecondition over a create answers 409 with the broadened write sentence",
 			err:         status.Error(codes.FailedPrecondition, "New value exceeds the maximum size limit for this column"),
-			patches:     []PatchSetMetadata{recordedPatch{"Ships", CreatePatchType}},
+			patches:     []PatchSetMetadata{shipCreate},
 			wantStatus:  http.StatusConflict,
-			wantMessage: shipsReferencedMissing,
+			wantMessage: shipReferencedMissing,
 		},
 		{
 			name:        "the code reads through go-playground wrapping",
 			err:         errors.Wrap(errors.Wrap(status.Error(codes.FailedPrecondition, "refused"), "inner"), "outer"),
-			patches:     []PatchSetMetadata{recordedPatch{"Hangars", DeletePatchType}},
+			patches:     []PatchSetMetadata{hangarDelete},
 			wantStatus:  http.StatusConflict,
-			wantMessage: hangarsDeleteSentence,
+			wantMessage: hangarDeleteSentence,
 		},
 		// AlreadyExists: a create cannot tell a taken key from a duplicate unique value.
 		{
-			name:        "AlreadyExists over a create answers 409 naming the key or a unique value",
+			name:        "AlreadyExists over a create answers 409 saying the record exists or holds another's unique value",
 			err:         status.Error(codes.AlreadyExists, "Row [a0…, 2] in table RefitTasks already exists"),
-			patches:     []PatchSetMetadata{recordedPatch{"RefitTasks", CreatePatchType}},
+			patches:     []PatchSetMetadata{labeled("RefitTasks", CreatePatchType, "RefitTask")},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "RefitTasks: a record with this key or a unique value already exists.",
+			wantMessage: "This refit task already exists, or it has a value that must be unique and another record already has it.",
 		},
 		{
 			name:        "AlreadyExists over a create-or-update is the create shape",
 			err:         status.Error(codes.AlreadyExists, "Unique index violation on index ShipsByRegistry"),
-			patches:     []PatchSetMetadata{recordedPatch{"Ships", CreateOrUpdatePatchType}},
+			patches:     []PatchSetMetadata{labeled("Ships", CreateOrUpdatePatchType, "Ship")},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Ships: a record with this key or a unique value already exists.",
+			wantMessage: "This ship already exists, or it has a value that must be unique and another record already has it.",
 		},
 		{
-			name:        "AlreadyExists over updates only answers 409 naming another record's unique value",
+			name:        "AlreadyExists over updates only answers 409 saying another record has the unique value",
 			err:         status.Error(codes.AlreadyExists, "Unique index violation on index ClientsByName"),
-			patches:     []PatchSetMetadata{recordedPatch{"Clients", UpdatePatchType}},
+			patches:     []PatchSetMetadata{clientUpdate},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Clients: a unique value already exists on another record.",
+			wantMessage: "This client has a value that must be unique, and another record already has it.",
 		},
 		{
 			name:        "AlreadyExists over an update and a create on two resources is the create shape in buffering order",
 			err:         status.Error(codes.AlreadyExists, "already exists"),
-			patches:     []PatchSetMetadata{recordedPatch{"Clients", UpdatePatchType}, recordedPatch{"Ships", CreatePatchType}},
+			patches:     []PatchSetMetadata{clientUpdate, shipCreate},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Clients, Ships: a record with this key or a unique value already exists.",
+			wantMessage: "One of the clients or ships this request adds or changes already exists, or it has a value that must be unique and another record already has it.",
+		},
+		{
+			name:        "AlreadyExists over two updates on two resources is what this request changes",
+			err:         status.Error(codes.AlreadyExists, "already exists"),
+			patches:     []PatchSetMetadata{clientUpdate, labeled("Ships", UpdatePatchType, "Ship")},
+			wantStatus:  http.StatusConflict,
+			wantMessage: "One of the clients or ships this request changes has a value that must be unique, and another record already has it.",
 		},
 		{
 			name:        "AlreadyExists ignores deletes buffered beside the writes",
 			err:         status.Error(codes.AlreadyExists, "already exists"),
-			patches:     []PatchSetMetadata{recordedPatch{"Sorties", DeletePatchType}, recordedPatch{"Clients", UpdatePatchType}},
+			patches:     []PatchSetMetadata{recordedPatch{"Sorties", DeletePatchType}, clientUpdate},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Clients: a unique value already exists on another record.",
+			wantMessage: "This client has a value that must be unique, and another record already has it.",
 		},
 		{
 			name:        "AlreadyExists over nothing buffered answers 409 with the covering sentence",
@@ -222,18 +255,25 @@ func TestTranslateCommitError(t *testing.T) {
 		},
 		// OutOfRange: a CHECK constraint, 400 for any write.
 		{
-			name:        "OutOfRange over an update answers 400 naming the range",
+			name:        "OutOfRange over an update answers 400 saying the range",
 			err:         status.Error(codes.OutOfRange, "Check constraint `Missions`.`CK_Missions_Hazard` is violated."),
-			patches:     []PatchSetMetadata{recordedPatch{"Missions", UpdatePatchType}},
+			patches:     []PatchSetMetadata{labeled("Missions", UpdatePatchType, "Mission")},
 			wantStatus:  http.StatusBadRequest,
-			wantMessage: "Missions: a value is outside the range the record allows.",
+			wantMessage: "This mission has a value that is outside the range allowed.",
 		},
 		{
 			name:        "OutOfRange over a create answers 400 with the same sentence",
 			err:         status.Error(codes.OutOfRange, "Check constraint violated"),
-			patches:     []PatchSetMetadata{recordedPatch{"Missions", CreatePatchType}, &DataChangeEvent{TableName: "Missions"}},
+			patches:     []PatchSetMetadata{labeled("Missions", CreatePatchType, "Mission"), &DataChangeEvent{TableName: "Missions"}},
 			wantStatus:  http.StatusBadRequest,
-			wantMessage: "Missions: a value is outside the range the record allows.",
+			wantMessage: "This mission has a value that is outside the range allowed.",
+		},
+		{
+			name:        "OutOfRange over a create and an update on two resources is what this request adds or changes",
+			err:         status.Error(codes.OutOfRange, "Check constraint violated"),
+			patches:     []PatchSetMetadata{shipCreate, labeled("Missions", UpdatePatchType, "Mission")},
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "One of the ships or missions this request adds or changes has a value that is outside the range allowed.",
 		},
 		{
 			name:        "OutOfRange over nothing buffered answers 400 with the covering sentence",
@@ -294,16 +334,16 @@ func TestTranslateCommitError(t *testing.T) {
 		{
 			name:        "NotFound over a create answers 409 for the referenced parent",
 			err:         status.Error(codes.NotFound, "Parent row for row [p404, n9] in table Nested is missing."),
-			patches:     []PatchSetMetadata{recordedPatch{"RefitTasks", CreatePatchType}},
+			patches:     []PatchSetMetadata{labeled("RefitTasks", CreatePatchType, "RefitTask")},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "RefitTasks: a referenced record does not exist.",
+			wantMessage: "This refit task refers to a record that does not exist.",
 		},
 		{
 			name:        "NotFound over an update beside a create is the create shape",
 			err:         status.Error(codes.NotFound, "missing"),
 			patches:     []PatchSetMetadata{recordedPatch{"Refits", UpdatePatchType}, recordedPatch{"RefitTasks", CreateOrUpdatePatchType}},
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Refits, RefitTasks: a referenced record does not exist.",
+			wantMessage: "One of the refits or refit tasks this request adds or changes refers to a record that does not exist.",
 		},
 		{
 			name:        "NotFound ignores deletes buffered beside the update",

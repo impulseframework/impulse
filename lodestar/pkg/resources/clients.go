@@ -19,7 +19,7 @@ type (
 	// and updated under unconditional grants, so an update reads nothing before the
 	// commit: renaming one client to another's name is refused there as a duplicate
 	// unique value (409), and an update under an id that does not exist is refused there
-	// as a missing row (404), both in the resource's name.
+	// as a missing row (404), each in a sentence that says the client in words.
 	//
 	// Insured records whether the outfit carries salvage cover: unknown until the booking
 	// desk hears from the underwriter, then yes or no, recorded by headquarters from the
