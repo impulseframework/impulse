@@ -313,11 +313,13 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 		name string
 		// vouches is the tenant's word on its directory; policy the sign-in rule's
 		// answer, nil for an Auth with no rule; row the sign-in settings row; password
-		// signs in with a password in place of the directory.
-		vouches  bool
-		policy   *signin.Decision
-		row      SettingsRow
-		password bool
+		// signs in with a password in place of the directory; roleNames are the role
+		// names the sign-in's method asserted, nil for a method that synchronizes none.
+		vouches   bool
+		policy    *signin.Decision
+		row       SettingsRow
+		password  bool
+		roleNames []string
 		// wantEvents are the session's events, nil for a sign-in that is held for
 		// wantFactors; wantUnread says the directory reader is not asked.
 		wantEvents  []sessioninfo.AuthEvent
@@ -353,6 +355,11 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 			vouches: true, row: RequiredRow, password: true,
 			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}, wantUnread: true,
 		},
+		{
+			name:    "a sign-in through a method whose directory writes the roles while the tenant vouches: held for the mailed code, and the word is not read",
+			vouches: true, row: RequiredRow, roleNames: []string{"Teacher"},
+			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}, wantUnread: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -383,7 +390,9 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 			} else {
 				user = createUser(ctx, t, in.Driver, "jane@lakeside.edu")
 				mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
-				id, _, err = signIn(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonLogin)
+				identity := lakeside("idp_jane")
+				req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: identity.Email, Identity: identity, RoleNames: tt.roleNames}
+				id, err = in.SignIn(ctx, newInsertSession(identity.Email), req)
 			}
 			if tt.wantEvents == nil {
 				heldFor(t, err, user, tt.wantFactors...)

@@ -2958,7 +2958,9 @@ func (v verdict) err() error {
 // code, as signin.RequireMFA(sessioninfo.MethodEmailCode) holds it, unless the tenant
 // whose directory the sign-in came through vouches for the directory's own second
 // factor (vouched), in which case the sign-in goes ahead and records a
-// vouched-by-tenant event; an allow of a sign-in that already carries one stands, and
+// vouched-by-tenant event (the tenant is not asked at a sign-in through a method whose
+// directory writes the roles, req.RoleNames, where this hold is the one that asks a
+// super administrator); an allow of a sign-in that already carries one stands, and
 // a refusal and a hold are left as they are, so a hold of the rule's own waits for the
 // factors it names. A sign-in the policy does not apply to goes ahead. The verdict is a
 // refusal, an MFA wait or the go-ahead; the transaction commits on each. err is the
@@ -2997,7 +2999,12 @@ func decideSignIn(
 	}
 	if required && decision.Outcome() == signin.AllowSignIn && !carriesSecondFactor(req.AuthEvents) {
 		vouches := false
-		if vouched != nil {
+		// A tenant's word is not read at a sign-in through a method whose directory
+		// writes the roles (the request carries the role names it asserted): the
+		// library's hold of a super administrator stands down there
+		// (signin.SuperAdministratorFactor), so this hold is the one that asks them for
+		// the code, and no tenant's word lifts it.
+		if vouched != nil && req.RoleNames == nil {
 			var err error
 			if vouches, err = vouched(ctx); err != nil {
 				return verdict{}, errors.Wrap(err, "vouched()")

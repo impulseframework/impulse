@@ -83,10 +83,12 @@ type TenantSignInSettings struct {
 type DirectoryOnlyCount struct {
 	Seated  int `json:"seated"`
 	Outside int `json:"outside"`
-	// Shares says the count auth by auth, one entry for each auth whose people the rules
-	// count, in the order the rules were given them. The totals above are their sums. A
-	// page that links the count to one auth's people reads that auth's share, so a link
-	// never says more people than it opens.
+	// Shares says the count auth by auth, one entry for each auth whose entry of the
+	// rules names its list of people (DirectoryPeople.List), in the order the rules were
+	// given them. The totals above are their sums where every entry names its list, as
+	// the generated rules' do; an entry that names none is counted in the totals and has
+	// no share. A page that links the count to one auth's people reads that auth's share,
+	// so a link never says more people than it opens.
 	Shares []DirectoryOnlyShare `json:"shares,omitempty"`
 }
 

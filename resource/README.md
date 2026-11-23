@@ -3655,7 +3655,10 @@ people who sign in through that directory for its mailed code. The sign-in reads
 column in its own transaction, for the directory the person signed in through, so it
 holds in every tenant that gave the person a role and a word taken back holds from the
 next sign-in. It is the tenant's word and nothing checks it: a super administrator, and
-a sign-in an application's own rule holds, are asked as before. The generator writes two
+a sign-in an application's own rule holds, are asked as before. An auth whose directory
+writes its roles is not reached by it: such an auth sets no directory admission, no
+tenant's word is read at a sign-in through a method that synchronizes roles, and its
+people are asked as its own setting says. The generator writes two
 methods in the tenant's scope for a record that carries the column, served on every
 session outlet that serves the directories record:
 `VouchFor<Record>DirectorySecondFactor`, at

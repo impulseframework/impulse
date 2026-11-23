@@ -1347,6 +1347,9 @@ directory the person signed in through, before any tenant comes into it, so it h
 every tenant that gave the person a role. It is the tenant's word and the library cannot
 check it, so it stands in for the setting alone: a hold the policy answers stands, a
 super administrator's among them, and so does the code that confirms a person's address.
+At a sign-in through a method whose directory writes the roles the word is not read:
+there the setting is what asks a super administrator, and it asks everyone as it stands,
+whatever a tenant says.
 
 1. **The connection attests.** A sign-in's connection says what it can about a second
    factor (`sessioninfo.Identity.Attestation`), and the Auth records it as the
@@ -1566,11 +1569,12 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   user was found. A pending identity has no session row, so it has no custom data.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
   method (with its connection and the IdP's `amr`), the attestation its connection
-  makes (`attested-by-evidence`, `attested-by-declaration`) or its tenant's word
-  (`vouched-by-tenant`), then any `link-confirmation`, `trusted-device` and MFA steps
-  (`email-code`, or the application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
+  makes (`attested-by-evidence`, `attested-by-declaration`), then any
+  `link-confirmation`, `trusted-device` and MFA steps (`email-code`, or the
+  application's own), and last its tenant's word (`vouched-by-tenant`) where that stood
+  in for the mailed code. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
   application authenticated itself, recording its events, which name steps of its own
-  (an event under `email-code`, `trusted-device` or an attestation's method, which the
+  (an event under `email-code`, `trusted-device`, an attestation's method or `vouched-by-tenant`, which the
   library records itself, is refused, and so is one under the name of a sign-in the
   library runs: a password's, a directory method's, a registration's); it is decided like a login:
   the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
