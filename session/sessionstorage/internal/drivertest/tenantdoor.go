@@ -455,5 +455,56 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 			t.Errorf("sign-in after the tenant was deleted is user %s, want the same account %s", again.UserID, first.UserID)
 		}
 		assertReached(t, w, first.UserID, identity, "riverside")
+		// The link stands and the directory is still listed, now with no tenant.
+		assertDirectories(t, again, sessioninfo.UserDirectory{Method: lakesideDirectory.Method, Connection: lakesideDirectory.Connection})
 	})
+
+	t.Run("the sign-in's rule is told the directories an account signs in through", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{
+			"lakeside": {Directories: []signin.Directory{lakesideDirectory}},
+			"hilltop":  {Directories: []signin.Directory{hilltopDirectory}},
+		}, nil)
+		in := w.start(ctx, t, h)
+
+		const name = "ana@elsewhere.example"
+		ana := passwordUser(ctx, t, in.Driver, name)
+		w.seats.give(ana.ID, "riverside", "Teacher")
+		const issuer = "https://id.elsewhere.example"
+		for _, identity := range []*sessioninfo.Identity{
+			entra("oid-ana", name),
+			entra("oid-ana-2", name),
+			{Method: hilltopDirectory.Method, Connection: hilltopDirectory.Connection, Subject: "sub-ana", Email: name, SignInName: name, EmailVerified: true},
+			{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection, Subject: "sub-ana-personal", Email: name, SignInName: name, EmailVerified: true},
+			{Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "sub-ana", Email: name, SignInName: name},
+		} {
+			mustLink(ctx, t, in.Driver, ana.ID, identity)
+		}
+
+		req, err := passwordSignIn(ctx, in, ana, sessioninfo.ReasonLogin)
+		if err != nil {
+			t.Fatalf("password sign-in error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
+		}
+		assertDirectories(t, req,
+			sessioninfo.UserDirectory{Method: lakesideDirectory.Method, Connection: lakesideDirectory.Connection, Tenants: []accesstypes.Domain{"lakeside"}},
+			sessioninfo.UserDirectory{Method: hilltopDirectory.Method, Connection: hilltopDirectory.Connection, Tenants: []accesstypes.Domain{"hilltop"}},
+			sessioninfo.UserDirectory{Method: sessioninfo.MethodOIDC, Connection: issuer},
+		)
+	})
+}
+
+// assertDirectories fails unless the sign-in told its policy want, in any order, as the
+// directories the account signs in through.
+func assertDirectories(t *testing.T, req *sessioninfo.NewSessionRequest, want ...sessioninfo.UserDirectory) {
+	t.Helper()
+
+	if req.User == nil {
+		t.Fatal("the sign-in's request has no user, want one with the account's directories")
+	}
+	byConnection := cmpopts.SortSlices(func(a, b sessioninfo.UserDirectory) bool { return a.Connection < b.Connection })
+	if diff := cmp.Diff(want, req.User.Directories, byConnection, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("directories the sign-in told its policy (-want +got):\n%s", diff)
+	}
 }
