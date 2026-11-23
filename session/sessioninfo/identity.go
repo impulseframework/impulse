@@ -418,18 +418,22 @@ const (
 	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
 	// built with signin.AdmitWithoutTenant.
 	RefusedNoTenant LoginRefusalCode = "no_tenant"
-	// RefusedConnectionNotInTenant is the code for a sign-in through a directory by a
+	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
+	// the tenant policy refuses: by a person whose account a directory-only tenant's
+	// directory signs in, when the sign-in came through another directory, or by a
 	// person whose every tenant admits its people through its own directory only, none
-	// of which is the directory the sign-in came through, under the tenant policy.
+	// of which is the directory the sign-in came through.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
 	// RefusedDirectoryOnly is the code for a sign-in with a password, or a session the
-	// application starts itself, by a person whose every tenant admits its people
-	// through its own directory only, under the tenant policy.
+	// application starts itself, by a person whose account a directory-only tenant's
+	// directory signs in, or whose every tenant admits its people through its own
+	// directory only, under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
 	// RefusedDirectoryOnlyPersonalAccount is the code for a sign-in with a personal
 	// account (through Google or Microsoft, with an account that is in no
-	// organization's directory) by a person whose every tenant admits its people
-	// through its own directory only, under the tenant policy. It is told apart from
+	// organization's directory) by a person whose account a directory-only tenant's
+	// directory signs in, or whose every tenant admits its people through its own
+	// directory only, under the tenant policy. It is told apart from
 	// RefusedDirectoryOnly so that a login page says what is true of how the person
 	// signed in: they used no password, and are asked for their organization's account.
 	// The code names nothing of the person or of their tenants.

@@ -466,9 +466,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// administrator who signs in with a password is not refused either: the sign-in is
 	// held for the mailed code, and the session then enters that tenant
 	// (access.WithTenantAdministratorRoles names the roles).
-	// An account that signs in through a directory-only tenant's directory signs in
-	// through that directory alone, whichever tenants seat the person: a password or
-	// any other sign-in is refused, but for that tenant's own administrators.
+	// One part of a declaration reaches past its own tenant: an account that signs in
+	// through a directory-only tenant's directory signs in through that directory
+	// alone, whichever tenants seat the person. A password or any other sign-in is
+	// refused, but for that tenant's own administrators.
 	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a
 	// person who signs up through a sign-in method an administrator opened signs in
 	// first and creates a Tenant of their own, and keeps their account when the method

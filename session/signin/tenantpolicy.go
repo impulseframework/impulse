@@ -174,10 +174,11 @@ type tenantPolicy[Tx any] struct {
 // tenant's declaration restricts that tenant's door, and a directory-only tenant also
 // keeps the accounts that sign in through its directory to that directory (rule 2);
 // beyond those accounts the policy refuses a person only when every tenant that seats
-// them is closed to the way they signed in. The policy decides what the session may be; which of the person's tenants the session
-// then reaches is decided again, tenant by tenant, where the session's tenant list is
-// computed, with TenantDeclaration.Admits over the session's first auth event, and
-// with TenantDeclaration.AdmitsAdministrator for the tenant's own administrators. It
+// them is closed to the way they signed in. The policy decides what the session may
+// be; which of the person's tenants the session then reaches is decided again, tenant
+// by tenant, where the session's tenant list is computed, with
+// TenantDeclaration.Admits over the session's first auth event, and with
+// TenantDeclaration.AdmitsAdministrator for the tenant's own administrators. It
 // never writes. Set it with session.Auth.SetSignInPolicy; Then chains the
 // application's own rule after it, which still refuses whom it refuses.
 //
