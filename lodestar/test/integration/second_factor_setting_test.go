@@ -50,16 +50,18 @@ const (
 // remembering, a browser that asks for it all the same is not remembered, and its next
 // sign-in is asked again; with 7 days, a browser remembered then skips the code. Each
 // case puts the setting back as it starts, required with a browser remembered for 30
-// days, when it ends.
+// days, when it ends. Each case has a served stack of its own, so the cases run side by
+// side.
 //
 // Demonstrates: auth.second-factor.
 func TestSecondFactorSetting(t *testing.T) {
 	t.Parallel()
 
-	ctx := t.Context()
-	s := newServed(ctx, t)
-
 	t.Run("stopped, a password sign-in gets its session with no code", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		s := newServed(ctx, t)
 		hq := settingCase(ctx, t, s)
 
 		held := primedBrowser(ctx, t, s)
@@ -93,6 +95,10 @@ func TestSecondFactorSetting(t *testing.T) {
 	})
 
 	t.Run("stopped, a super administrator and a directory-only sector's own marshal are still asked", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		s := newServed(ctx, t)
 		hq := settingCase(ctx, t, s)
 		atBastion := jsonBody(t, map[string]any{"userId": crewUserID(ctx, t, hq, "rigger").String(), "role": "SectorMarshal", "domain": bastion})
 		if status, body := hq.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), atBastion); status != http.StatusNoContent {
@@ -109,6 +115,10 @@ func TestSecondFactorSetting(t *testing.T) {
 	})
 
 	t.Run("each change is kept with who made it", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		s := newServed(ctx, t)
 		hq := settingCase(ctx, t, s)
 		governorID := crewAccountID(ctx, t, hq, "governor")
 		before := len(changeSources(ctx, t, s, crewSignInSettingsTable))
@@ -133,6 +143,10 @@ func TestSecondFactorSetting(t *testing.T) {
 	})
 
 	t.Run("a person whose roles grant none of the methods is refused each", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		s := newServed(ctx, t)
 		settingCase(ctx, t, s)
 		cadet := newBrowser(t, s, consoleAPI)
 		cadet.signIn(ctx, "cadet")
@@ -156,6 +170,10 @@ func TestSecondFactorSetting(t *testing.T) {
 	})
 
 	t.Run("not remembered, a browser is asked each time; 7 days, a remembered browser is not", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		s := newServed(ctx, t)
 		hq := settingCase(ctx, t, s)
 		remembering := func(b *browser) {
 			t.Helper()
@@ -213,6 +231,9 @@ func settingCase(ctx context.Context, t *testing.T, s *served) *browser {
 	hq := newBrowser(t, s, consoleAPI)
 	hq.signIn(ctx, "governor")
 	t.Cleanup(func() {
+		// The case's context ends before its cleanups run; the stack serves until its own
+		// cleanup, which was registered first and runs after this one.
+		ctx := context.WithoutCancel(ctx)
 		for _, call := range []struct{ route, body string }{
 			{requireCrewFactorRoute, `{}`},
 			{crewRememberedBrowsersRoute, `{"length":"30 days"}`},
