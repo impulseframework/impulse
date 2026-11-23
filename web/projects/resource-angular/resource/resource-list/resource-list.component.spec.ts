@@ -2373,6 +2373,20 @@ describe('ResourceListComponent', () => {
       expect(shipsFilters()).toEqual([null, 'statusId:in:(docked,in_refit)']);
     });
 
+    it('opened at an address filtering a role column by a role its metadata does not list, asks once with it, keeps it, and says nothing', async () => {
+      // The metadata lists two roles; a role made while the application runs is in none.
+      await create(
+        { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, { id: 'dutyRole' as FieldName }] },
+        [{ id: 's-1', name: 'Kestrel', dutyRole: 'Quartermaster' }],
+      );
+      await TestBed.inject(Router).navigateByUrl('/?filter=dutyRole:eq:Quartermaster');
+      fixture.detectChanges();
+      await settle();
+      expect(shipsFilters()).toEqual(['dutyRole:eq:Quartermaster']);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['dutyRole:eq:Quartermaster']);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
     it("takes the notice away at the person's next commit", async () => {
       await open('/?filter=registry:eq:Civil');
       expect(leftOutNotice()).toBe(leftOutWords);

@@ -730,6 +730,22 @@ export class ResourceListComponent implements OnInit {
   filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns(), this.foundRoles()));
 
   /**
+   * The values a filter from the page's address may take on each column (takeAddress): the
+   * choices the menu offers (filterChoices), less every column whose field holds a role's
+   * name (`roles` in the metadata and no enumeration). A role made while the application
+   * runs is in no metadata, so such a column's choices are an open set and any role an
+   * address names stands there, as any value does on a column with no choices.
+   */
+  private readonly addressChoices = computed(() => {
+    const roleFields = new Set(
+      (this.meta()?.fields ?? [])
+        .filter((field) => field.roles !== undefined && field.enumeration === undefined)
+        .map((field) => field.fieldName),
+    );
+    return Object.fromEntries(Object.entries(this.filterChoices()).filter(([column]) => !roleFields.has(column)));
+  });
+
+  /**
    * The roles each role column's rows were found to hold beyond those the metadata lists,
    * by column id, in the order found, with what they were found under (the store's
    * besidePageScope): the route, the tenant and the page's own filter. They stand while
@@ -968,7 +984,7 @@ export class ResourceListComponent implements OnInit {
       externalFields: this.configFilterFields(),
       searches: this.searches(),
       inputs: this.filterInputs(),
-      choices: this.filterChoices(),
+      choices: this.addressChoices(),
       boxActive: this.boxActive(),
     });
     if (!sameFilters(standing, held)) {
