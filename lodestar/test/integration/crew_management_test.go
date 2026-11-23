@@ -21,9 +21,10 @@ import (
 
 // The application-wide lists of the crew auth's generated management, by route.
 const (
-	crewAccountsPath  = "crew-session-users"
-	crewRolesHeldPath = "crew-user-roles"
-	crewMailLinksPath = "crew-session-mail-links"
+	crewAccountsPath       = "crew-session-users"
+	crewListedAccountsPath = "crew-listed-users"
+	crewRolesHeldPath      = "crew-user-roles"
+	crewMailLinksPath      = "crew-session-mail-links"
 )
 
 // crewMethod is the console's route of an application-wide method of the crew's
