@@ -95,7 +95,7 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 			ctx:   func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
 			held:  []access.MembershipKey{erinSteward},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
-			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role",
+			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super administrator role, and you are not one.",
 		},
 		{
 			name:  "a caller cannot give themselves the role they do not hold",
@@ -118,7 +118,7 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 			},
 			held:  []access.MembershipKey{erinSuper, danaSteward},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
-			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role",
+			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super administrator role, and you are not one.",
 		},
 		{
 			name: "a person who views as a super administrator does not give the role to themselves: nobody is the subject of what they do while they act as someone else",
@@ -236,7 +236,7 @@ func TestManager_Invite_superAdministrator(t *testing.T) {
 		wantRows int
 	}{
 		{name: "a super administrator invites a person to the role", held: []access.MembershipKey{erinSuper}, wantRows: 1},
-		{name: "a caller who does not hold the role is refused", held: []access.MembershipKey{erinSteward}, wantErr: httpio.HasForbidden, wantSays: "Only a super administrator invites a person to the Super Administrator role"},
+		{name: "a caller who does not hold the role is refused", held: []access.MembershipKey{erinSteward}, wantErr: httpio.HasForbidden, wantSays: "Only a super administrator invites a person to the Super administrator role, and you are not one."},
 		{name: "an invitation into a tenant never gives it", held: []access.MembershipKey{erinSuper}, domain: &alpha, wantErr: httpio.HasBadRequest, wantSays: `role "Super administrator" does not exist where the invitation gives it`},
 	}
 	for _, tt := range tests {
@@ -289,7 +289,7 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		return m.DeleteUser(ctx, txn, userID)
 	}
 	removed := "delete membership " + membershipText(&danaSuper)
-	const last = "This person is the last super administrator who can sign in: give another person the Super Administrator role before you "
+	const last = "This person is the last super administrator who can sign in. Give another person the Super administrator role before you "
 
 	tests := []struct {
 		name string
@@ -318,17 +318,17 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		{
 			name: "a caller who does not hold the role takes it from nobody",
 			act:  remove, caller: erin, held: []access.MembershipKey{danaSuper, erinSteward},
-			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator takes the Super Administrator role away, and you do not hold the Super Administrator role",
+			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator takes the Super administrator role away, and you are not one.",
 		},
 		{
 			name: "the last holder does not give the role up",
 			act:  remove, caller: dana, held: []access.MembershipKey{danaSuper, erinSteward},
-			wantErr: httpio.HasForbidden, wantSays: "You are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own",
+			wantErr: httpio.HasForbidden, wantSays: "You are the last super administrator who can sign in. Give another person the Super administrator role before you remove your own.",
 		},
 		{
 			name: "another holder whose account cannot sign in does not take it from the last who can",
 			act:  remove, caller: erin, held: []access.MembershipKey{danaSuper, erinSuper}, erinDisabled: true,
-			wantErr: httpio.HasForbidden, wantSays: last + "take the role from them",
+			wantErr: httpio.HasForbidden, wantSays: last + "take the role from them.",
 		},
 		{
 			name: "the last holder does not give the role up while the other holder cannot sign in",
@@ -338,7 +338,7 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		{
 			name: "the application outside any request does not take it from the last holder either",
 			act:  remove, held: []access.MembershipKey{danaSuper},
-			wantErr: httpio.HasForbidden, wantSays: last + "take the role from them",
+			wantErr: httpio.HasForbidden, wantSays: last + "take the role from them.",
 		},
 		{
 			name: "a holder who cannot sign in is nobody's way back in: the role is taken from them",
@@ -349,7 +349,7 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		{
 			name: "a holder's account is disabled by a super administrator alone: an administrator who holds the grant is refused",
 			act:  disable, caller: erin, held: []access.MembershipKey{danaSuper, erinSteward},
-			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator disables a super administrator's account, and you do not hold the Super Administrator role",
+			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator disables a super administrator's account, and you are not one.",
 		},
 		{
 			name: "an administrator is refused a holder's account while another holder can sign in too",
@@ -359,12 +359,12 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		{
 			name: "the last holder's account is disabled by nobody: another holder who cannot sign in",
 			act:  disable, caller: erin, held: []access.MembershipKey{danaSuper, erinSuper}, erinDisabled: true,
-			wantErr: httpio.HasForbidden, wantSays: last + "disable their account",
+			wantErr: httpio.HasForbidden, wantSays: last + "disable their account.",
 		},
 		{
 			name: "the last holder's account is disabled by nobody: the application outside any request",
 			act:  disable, held: []access.MembershipKey{danaSuper},
-			wantErr: httpio.HasForbidden, wantSays: last + "disable their account",
+			wantErr: httpio.HasForbidden, wantSays: last + "disable their account.",
 		},
 		{
 			name: "a holder's account is disabled while another holder can sign in",
@@ -380,12 +380,12 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		{
 			name: "the last holder's account is deleted by nobody: another holder who cannot sign in",
 			act:  deleteUser, caller: erin, held: []access.MembershipKey{danaSuper, erinSuper}, erinDisabled: true,
-			wantErr: httpio.HasForbidden, wantSays: last + "delete their account",
+			wantErr: httpio.HasForbidden, wantSays: last + "delete their account.",
 		},
 		{
 			name: "the last holder's account is deleted by nobody: the application outside any request",
 			act:  deleteUser, held: []access.MembershipKey{danaSuper},
-			wantErr: httpio.HasForbidden, wantSays: last + "delete their account",
+			wantErr: httpio.HasForbidden, wantSays: last + "delete their account.",
 		},
 		{
 			name: "a holder's account is deleted by another super administrator who can sign in",
@@ -597,7 +597,7 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 
 					return
 				}
-				want := "Only a super administrator " + act.says + ", and you do not hold the Super Administrator role"
+				want := "Only a super administrator " + act.says + ", and you are not one."
 				if !httpio.HasForbidden(err) || httpio.Message(err) != want {
 					t.Fatalf("error = %v, want the refusal reading %q", err, want)
 				}
@@ -831,7 +831,7 @@ func TestManager_EnableUser_superAdministrator(t *testing.T) {
 			name:     "an administrator who does not hold the role is refused a holder's account",
 			ctx:      func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
 			held:     []access.MembershipKey{danaSuper, erinSteward},
-			wantSays: "Only a super administrator enables a super administrator's account, and you do not hold the Super Administrator role",
+			wantSays: "Only a super administrator enables a super administrator's account, and you are not one.",
 		},
 		{
 			name: "a person who views as a super administrator is refused: the session's actor is judged",

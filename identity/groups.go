@@ -403,7 +403,7 @@ func (m *Manager) refuseLeavingAsLastAdministrator(
 	for i := range roles {
 		gone := &removal{
 			user: user, role: roles[i].Role, group: GroupID(groupID), kept: &kept, wholeGroup: false,
-			unnamed: "you cannot take yourself out of a group that gives you a role in a " + m.tenantWord,
+			unnamed: "You cannot take yourself out of a group that gives you a role in " + withArticle(m.tenantWord) + ".",
 			before:  "leave the group that gives you yours",
 		}
 		scope, err := roles[i].Scope()
@@ -442,7 +442,7 @@ func (m *Manager) refuseShorterPlace(ctx context.Context, txn resource.ReadWrite
 func (m *Manager) groupRoleGone(caller accesstypes.User, groupID impulse.UUID, kept *accesstypes.PolicyScope, role accesstypes.Role) *removal {
 	return &removal{
 		user: caller, role: role, group: GroupID(groupID), kept: kept, wholeGroup: true,
-		unnamed: "you cannot take a role away from a group you are in, where the group holds it in a " + m.tenantWord,
+		unnamed: "You cannot take a role away from a group you are in, where the group holds it in " + withArticle(m.tenantWord) + ".",
 		before:  "take it from the group that gives you yours",
 	}
 }

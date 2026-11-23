@@ -148,7 +148,7 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 		return errors.Wrap(err, "access.UserManager.Membership()")
 	}
 	if role == accesstypes.SuperAdministrator {
-		if err := m.requireSuperAdministrator(ctx, txn, "gives the Super Administrator role"); err != nil {
+		if err := m.requireSuperAdministrator(ctx, txn, "gives the Super administrator role"); err != nil {
 			return err
 		}
 	}
@@ -230,7 +230,7 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	}
 	switch {
 	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
-		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super Administrator role away"); err != nil {
+		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super administrator role away"); err != nil {
 			return err
 		}
 		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
