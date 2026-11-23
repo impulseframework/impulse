@@ -4,15 +4,17 @@ package integration
 // This suite pins what a commit Spanner refuses answers: a 4xx with a message the resource
 // library composes from the records the transaction buffered, said in words, decided on the
 // gRPC code alone. A delete of a record with rows under it does not reach the commit's refusal
-// here: a record that lists what goes with it (@deleteCascade) deletes those rows in code, a
-// kind it lists under refusedBy refuses it before the commit, in a sentence that counts them
-// (TestDeleteRefusal), and a delete that would take a row the caller may not delete is refused
-// before anything is deleted (TestDeleteAlone_refusesWhatTheCallerMayNotTake). The referential
-// refusal (409) is reproduced by a create naming a client that does not exist, and beside a
-// delete the same request makes, by the sentence covering both causes. A mission deleted and
-// then the squadron it is assigned to succeed in one transaction; the squadron deleted first,
-// while the mission still names it, is refused before the commit, since a squadron lists a
-// mission under refusedBy. A refit task created under a task number the refit already holds (a
+// here. A ship and a squadron declare nothing of their delete, and the rows in their way
+// refuse it before the commit, in a sentence that counts them (TestDeleteRefusal). A wing and
+// a hangar declare what goes with them (@deleteCascade), which is deleted in code, and list
+// under refusedBy the kinds that refuse them before the commit; a delete that would take a
+// row the caller may not delete is refused before anything is deleted
+// (TestDeleteAlone_refusesWhatTheCallerMayNotTake). The referential refusal (409) is
+// reproduced by a create naming a client that does not exist, and beside a delete the same
+// request makes, by the sentence covering both causes. A squadron and the one mission
+// assigned to it, deleted in one transaction, succeed in either order: the squadron declares
+// nothing, so its count runs once the request's deletes are buffered and leaves the mission
+// out. A refit task created under a task number the refit already holds (a
 // client-supplied compound key) and a ship created under a seeded registry (ShipsByRegistry)
 // are the duplicate-key and duplicate-unique-value refusals on a create (409); a client renamed
 // to another client's name is the duplicate unique value on an update (409); a client updated
@@ -105,14 +107,12 @@ func TestCommitRefusal(t *testing.T) {
 		},
 		{
 			// The patrol is the one mission assigned to Portcullis, in Bastion: the
-			// squadron goes first, while the mission still names it, and a squadron lists
-			// a mission under refusedBy, so its delete is refused as it is buffered. The
-			// caller may list no mission, so the sentence counts none.
-			name:        "the row another names, then the row that names it, in one transaction: the first is refused",
-			target:      "/console/api/resources",
-			ops:         "[" + removeIn(bastion, "squadrons/"+squadronPortcullisID) + "," + removeIn(bastion, "missions/"+missionPatrolID) + "]",
-			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has records under it that you can't see, so it can't be deleted.",
+			// squadron goes first, while the mission still names it, and the commit
+			// finds nothing left that does.
+			name:       "the row another names, then the row that names it, in one transaction succeed",
+			target:     "/console/api/resources",
+			ops:        "[" + removeIn(bastion, "squadrons/"+squadronPortcullisID) + "," + removeIn(bastion, "missions/"+missionPatrolID) + "]",
+			wantStatus: http.StatusOK,
 		},
 		{
 			// The Good Samaritan's refit already has task 2: the client-supplied compound
@@ -198,7 +198,7 @@ func TestCommitRefusal(t *testing.T) {
 // as its own delete would check it, so the first the caller may not delete refuses the whole
 // delete, plain or saying it takes everything, and nothing is deleted: the hangar, its passes,
 // its ships, their refits and the task stand, as does the hangar across the dock. The caller
-// may list none of the kinds, so the sentence names none (TestDeleteCascade_sixRecords takes a
+// may list none of the kinds, so the sentence names none (TestDeleteCascade_fourRecords takes a
 // hangar's rows as a caller who may).
 func TestDeleteAlone_refusesWhatTheCallerMayNotTake(t *testing.T) {
 	t.Parallel()

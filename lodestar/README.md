@@ -596,9 +596,13 @@ it goes with its hangar and with the squadron it is issued to.
 A record that declares what goes with it is deleted another way
 ([`@deleteCascade`](pkg/resources/missions.go)): the library finds the rows under it and
 deletes each in code, by that row's own delete, once the request says it takes them. A
-mission declares its sorties, their expenses and its documents; a client its contacts,
-with a mission or a consignment refusing its delete; a distress call the relays passed
-along about it; a relay the relays that answer it. A delete of such a record that has
+mission declares its sorties, their expenses and its documents; a wing its squadrons
+with their memberships and hangar passes, with a mission assigned to one of them
+refusing its delete; a hangar its passes and its ships with their refits and tasks, with
+a sortie or a droid report on one of its ships refusing it; a refit its tasks; a sortie
+its expenses; a client its contacts, with a mission or a consignment refusing its
+delete; a distress call the relays passed along about it; a relay the relays that answer
+it. A delete of such a record that has
 rows under it deletes nothing at first. It is answered 428 with the question a person is
 asked ("Delete this mission and everything under it: 2 sorties, 1 mission document, 1
 sortie expense. This can't be undone."), which counts each kind the person may list and

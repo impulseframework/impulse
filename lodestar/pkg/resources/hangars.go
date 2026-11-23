@@ -23,7 +23,7 @@ type (
 	// with the ships' refits and their tasks, each through its own delete, and a sortie
 	// flown or a droid report filed on one of its ships refuses it.
 	//
-	// Demonstrates: @domain, consolidation.exclusion, commit.referential-refusal, search.prefix.
+	// Demonstrates: @domain, consolidation.exclusion, search.prefix.
 	//
 	// @resource
 	// @permissionScope(domain)

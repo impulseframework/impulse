@@ -5,8 +5,8 @@ package integration
 // names its sorties, their expenses and its documents as going with it; a client names
 // its contacts, and a mission or a consignment as refusing its delete. The generator
 // holds each list to the schema and writes the description the first test reads. A
-// wing, a squadron, a hangar, a ship, a refit and a sortie declare theirs too
-// (TestDeleteCascade_sixRecords).
+// wing, a hangar, a refit and a sortie declare theirs too
+// (TestDeleteCascade_fourRecords).
 //
 // The rest is the delete itself on the served routes. A delete of a mission with rows
 // under it deletes nothing unless the request says it takes them: it is answered 428
@@ -48,7 +48,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// TestDeleteCascade_description reads the descriptions the generator wrote for the two
+// TestDeleteCascade_description reads the descriptions the generator wrote for two of the
 // records that declare one: the kinds taken in delete order, deepest first, with each
 // kind's way up to the record, and the kinds that refuse the delete.
 func TestDeleteCascade_description(t *testing.T) {
@@ -427,7 +427,7 @@ func TestDeleteCascade_takesWhatIsUnder(t *testing.T) {
 	})
 }
 
-// takenRow is a row a case of TestDeleteCascade_sixRecords reads back: its table, its
+// takenRow is a row a case of TestDeleteCascade_fourRecords reads back: its table, its
 // key and a column of the table.
 type takenRow struct {
 	table  string
@@ -440,18 +440,17 @@ func rowByID(table, id string) takenRow {
 	return takenRow{table: table, key: spanner.Key{id}, column: "Id"}
 }
 
-// TestDeleteCascade_sixRecords pins the declared deletes (@deleteCascade) of a wing, a
-// squadron, a hangar, a ship, a refit and a sortie, on the served routes: a wing takes
-// its squadrons with their memberships and the hangar passes they hold, a squadron its
-// memberships and passes, a hangar its passes and its ships with their refits and tasks,
-// a ship its refits and their tasks, a refit its tasks, and a sortie its expenses. A
-// delete with rows under the record is asked first, with a count of each kind, and
-// deletes nothing; the same delete saying it takes them deletes every row through its
-// own delete, so a task's photo is released, an expense's rule is asked and a tracked
-// row's change record is written. A kind the record lists under refusedBy refuses its
-// delete whatever the request says. Each case writes the rows it deletes, in Anvil, and
-// the person may delete and list every kind.
-func TestDeleteCascade_sixRecords(t *testing.T) {
+// TestDeleteCascade_fourRecords pins the declared deletes (@deleteCascade) of a wing, a
+// hangar, a refit and a sortie, on the served routes: a wing takes its squadrons with
+// their memberships and the hangar passes they hold, a hangar its passes and its ships
+// with their refits and tasks, a refit its tasks, and a sortie its expenses. A delete
+// with rows under the record is asked first, with a count of each kind, and deletes
+// nothing; the same delete saying it takes them deletes every row through its own
+// delete, so a task's photo is released, an expense's rule is asked and a tracked row's
+// change record is written. An expense's rule refuses its sortie's delete whatever the
+// request says. Each case writes the rows it deletes, in Anvil, and the person may
+// delete and list every kind.
+func TestDeleteCascade_fourRecords(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -463,7 +462,7 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	stores := newTestStores()
 	h := router.NewTestRouter(newAppWithStores(db, &staticAccess{g: grants{
 		accesstypes.Delete: {"Wings", "Squadrons", "SquadronMemberships", "HangarPasses", "Hangars", "Ships", "Refits", "RefitTasks", "Sorties", "SortieExpenses"},
-		accesstypes.List:   {"Squadrons", "SquadronMemberships", "HangarPasses", "Ships", "Refits", "RefitTasks", "Sorties", "SortieExpenses", "DroidReports", missionsResource},
+		accesstypes.List:   {"Squadrons", "SquadronMemberships", "HangarPasses", "Ships", "Refits", "RefitTasks", "Sorties", "SortieExpenses"},
 	}}, stores))
 	const (
 		batch   = "/console/api/resources"
@@ -613,26 +612,18 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	taskRow := func(refitID string, n int64) takenRow {
 		return takenRow{table: "RefitTasks", key: spanner.Key{refitID, n}, column: "Id"}
 	}
-	// mission is a stood-down mission, assigned to the squadron where one is given.
-	mission := func(missionID, squadronID string) *spanner.Mutation {
-		row := map[string]any{
+	// mission is a stood-down mission, assigned to no squadron.
+	mission := func(missionID string) *spanner.Mutation {
+		return spanner.InsertMap("Missions", map[string]any{
 			"Id": missionID, "SectorId": anvil, "ClientId": clientHalvardID, "KindId": "courier", "Title": "Cascade run", "Hazard": 1,
 			"Fee": *big.NewRat(100, 1), "Deadline": time.Now().Add(24 * time.Hour), "BookedByUserId": marshal, "BookedByName": "marshal", "StatusId": "stood_down",
-		}
-		if squadronID != "" {
-			row["AssignedSquadronId"] = squadronID
-		}
-
-		return spanner.InsertMap("Missions", row)
+		})
 	}
 	sortie := func(sortieID, missionID, shipID string) *spanner.Mutation {
 		return spanner.InsertMap("Sorties", map[string]any{"Id": sortieID, "MissionId": missionID, "ShipId": shipID, "PilotUserId": marshal, "LaunchedAt": time.Now().UTC()})
 	}
 	expense := func(expenseID, sortieID, category string) *spanner.Mutation {
 		return spanner.InsertMap("SortieExpenses", map[string]any{"Id": expenseID, "SortieId": sortieID, "Category": category, "Amount": big.NewRat(750, 1)})
-	}
-	droidReport := func(reportID, shipID string) *spanner.Mutation {
-		return spanner.InsertMap("DroidReports", map[string]any{"Id": reportID, "SectorId": anvil, "ShipId": shipID, "Subsystem": "hull", "Reading": 0.5, "RecordedAt": time.Now().UTC()})
 	}
 
 	t.Run("a refit's tasks are asked about, then taken, and a task's photo is released", func(t *testing.T) {
@@ -658,7 +649,7 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 		t.Parallel()
 
 		run, flight, fuel, supplies := id("8d0"), id("9d0"), id("9d1"), id("9d1")
-		write(t, mission(run, ""), sortie(flight, run, shipLanternID), expense(fuel, flight, "fuel"), expense(supplies, flight, "supplies"))
+		write(t, mission(run), sortie(flight, run, shipLanternID), expense(fuel, flight, "fuel"), expense(supplies, flight, "supplies"))
 
 		askedThenTaken(t, batch, opPath(anvil, "sorties/"+flight), "Delete this sortie and everything under it: 2 sortie expenses. This can't be undone.",
 			[]takenRow{rowByID("Sorties", flight), rowByID("SortieExpenses", fuel), rowByID("SortieExpenses", supplies)})
@@ -672,32 +663,6 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 			[]takenRow{rowByID("Sorties", fined), rowByID("SortieExpenses", penalty)})
 	})
 
-	t.Run("a ship's refits and their tasks are asked about, then taken, and a sortie or a droid report refuses it", func(t *testing.T) {
-		t.Parallel()
-
-		hull, bay := id("7d0"), id("ad0")
-		write(t, ship(hull, hangarAnvilDockID), refit(bay, hull), task(bay, 1, ""))
-
-		askedThenTaken(t, batch, opPath(anvil, "ships/"+hull), "Delete this ship and everything under it: 1 refit, 1 refit task. This can't be undone.",
-			[]takenRow{rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
-		if got := changes(t, "Ships", hull); got != 1 {
-			t.Errorf("the ship's delete wrote %d change records for the ship, want 1", got)
-		}
-		if got := changes(t, "Refits", bay); got != 1 {
-			t.Errorf("the ship's delete wrote %d change records for its refit, want 1", got)
-		}
-
-		flown, run, flight := id("7d0"), id("8d0"), id("9d0")
-		write(t, ship(flown, hangarAnvilDockID), mission(run, ""), sortie(flight, run, flown))
-		refused(t, opPath(anvil, "ships/"+flown), http.StatusConflict, "This ship has 1 sortie, so it can't be deleted.",
-			[]takenRow{rowByID("Ships", flown), rowByID("Sorties", flight)})
-
-		read, report := id("7d0"), id("cd0")
-		write(t, ship(read, hangarAnvilDockID), droidReport(report, read))
-		refused(t, opPath(anvil, "ships/"+read), http.StatusConflict, "This ship has 1 droid report, so it can't be deleted.",
-			[]takenRow{rowByID("Ships", read), rowByID("DroidReports", report)})
-	})
-
 	t.Run("a hangar's pass and its ship, with the ship's refit and task, are asked about with every count, then taken", func(t *testing.T) {
 		t.Parallel()
 
@@ -709,21 +674,6 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 		if !stands(t, rowByID("Ships", shipStubbornMuleID)) {
 			t.Error("a ship of Anvil Dock One is gone with another hangar")
 		}
-	})
-
-	t.Run("a squadron's membership and pass are asked about, then taken, and a mission assigned to it refuses it", func(t *testing.T) {
-		t.Parallel()
-
-		flight, visit := id("5d0"), id("6d1")
-		write(t, squadron(flight, wingForgeID), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
-
-		askedThenTaken(t, batch, opPath(anvil, "squadrons/"+flight), "Delete this squadron and everything under it: 1 squadron membership, 1 hangar pass. This can't be undone.",
-			[]takenRow{rowByID("Squadrons", flight), membershipRow(flight), rowByID("HangarPasses", visit)})
-
-		assigned, run := id("5d0"), id("8d0")
-		write(t, squadron(assigned, wingForgeID), membership(assigned), mission(run, assigned))
-		refused(t, opPath(anvil, "squadrons/"+assigned), http.StatusConflict, "This squadron has 1 mission, so it can't be deleted.",
-			[]takenRow{rowByID("Squadrons", assigned), membershipRow(assigned), rowByID("Missions", run)})
 	})
 
 	t.Run("a wing's squadron, with its membership and pass, is asked about, then taken", func(t *testing.T) {

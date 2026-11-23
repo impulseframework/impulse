@@ -29,11 +29,10 @@ func (Ship) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "HangarID", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
-// DeleteTree describes what a delete of a Ship takes with it and what refuses
-// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
-// first, each with its ways up to the Ship and what the delete of one of its
-// rows costs. The kinds under Under are the ones with a row directly under a Ship
-// that the database does not remove with it.
+// DeleteTree describes what keeps a Ship from being deleted: the kinds with a
+// row directly under a Ship that the database does not remove with it, each
+// with the columns that name the Ship. A delete of a Ship with
+// such a row is refused in a sentence that says what is in the way.
 func (Ship) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "Ships",
@@ -41,71 +40,6 @@ func (Ship) DeleteTree() *resource.DeleteTree {
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
 		Tenant: &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
-		Taken: []resource.DeleteKind{
-			{
-				Resource: "RefitTasks",
-				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
-				Key:      []string{"Id", "TaskNumber"},
-				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
-				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
-						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
-					},
-				},
-				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[RefitTask], caller *resource.Caller) {
-					patch := &RefitTaskDeletePatch{patchSet: patchSet}
-					if !caller.IsZero() {
-						patch.Enforce(caller)
-					}
-				}),
-			},
-			{
-				Resource: "Refits",
-				Words:    resource.DeleteWords{One: "refit", Many: "refits"},
-				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
-				Tenant:   &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
-					},
-				},
-				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Refit], caller *resource.Caller) {
-					patch := &RefitDeletePatch{patchSet: patchSet}
-					if !caller.IsZero() {
-						patch.Enforce(caller)
-					}
-				}),
-			},
-		},
-		RefusedBy: []resource.DeleteKind{
-			{
-				Resource: "Sorties",
-				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
-				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
-				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
-					},
-				},
-			},
-			{
-				Resource: "DroidReports",
-				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
-				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
-				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
-					},
-				},
-			},
-		},
 		Under: []resource.DeleteKind{
 			{
 				Resource: "DroidReports",
@@ -1021,17 +955,6 @@ func NewShipDeletePatch(id impulse.UUID) *ShipDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &ShipDeletePatch{patchSet: patchSet}
-}
-
-// WithEverythingUnder says the delete takes the rows under the Ship with it:
-// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. Without it, a delete of a Ship that has such rows
-// deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
-func (p *ShipDeletePatch) WithEverythingUnder() *ShipDeletePatch {
-	p.patchSet.DeleteEverythingUnder()
-
-	return p
 }
 
 func (p *ShipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

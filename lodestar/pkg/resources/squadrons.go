@@ -22,15 +22,18 @@ type (
 	// slice would fail the client's first read and is refused at generation naming the
 	// plain slice.
 	//
-	// A squadron's delete is declared (@deleteCascade): its memberships and the hangar
-	// passes it holds go with it, each through its own delete, and a mission assigned to
-	// it refuses the delete until the mission is moved or deleted.
+	// A squadron declares no delete of what is under it, so nothing goes with it: its
+	// memberships, the hangar passes it holds and the missions assigned to it refuse its
+	// delete before the commit, in a sentence that counts what is in the way ("This
+	// squadron has 8 missions. Move or delete them first." where only missions are: a
+	// mission may be assigned to no squadron, so the missions can be moved). The rows and
+	// the squadron deleted in one request go through, in either order. A wing's delete
+	// takes its squadrons with their memberships and passes (Wing declares it).
 	//
 	// Demonstrates: @domain.join-path, @attribute, decode.nullable-slice, delete.rows-under-refusal.
 	//
 	// @resource
 	// @permissionScope(domain)
-	// @deleteCascade(SquadronMembership, HangarPass, refusedBy: Mission)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Squadron struct {
