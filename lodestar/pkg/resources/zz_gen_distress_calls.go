@@ -75,7 +75,6 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
 					},
 				},
-				RemovedWith: []string{"Sectors"},
 			},
 		},
 	}

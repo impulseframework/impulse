@@ -30,17 +30,11 @@ type (
 	// documents' keys are typed resource.Key[Documents] and live in the Documents store:
 	// the photographer's AttachRefitPhoto, an @upload with no store argument, streams
 	// to the default store and sets this column. Nullable, it leaves Create ordinary,
-	// and no seeded task carries one. It is also here for the audit pass: RefitTasks is
-	// interleaved in Refits ON DELETE CASCADE, so a refit deleted by patch takes its
-	// tasks with it through the database, never through the patch machinery, and the
-	// release that deletes a stored object after the commit never runs for them; their
-	// photos are the orphaned-file cleanup's (cmd/jobs cleanup-files). A normal
-	// generation says nothing about that, since it would say so on every run;
-	// `go run ./cmd/generate/resourcegenerator -audit` prints the finding that names
-	// this table and its parent, beside the one for the mission documents, and
-	// cmd/generate/audit_test.go pins the two.
+	// and no seeded task carries one. A refit's delete takes its tasks in code
+	// (Refit's @deleteCascade): each task goes through its own delete, so the photo of a
+	// task deleted with its refit is released after the commit like any other.
 	//
-	// Demonstrates: interleaved-table, compound-key, client-supplied-key, @stateRoot, @domain.join-path, create-under-parent, index.trailing-key, commit.constraint-refusal, audit.cascade-release, filestore.named, batch.patch-or-add, batch.add-or-skip.
+	// Demonstrates: interleaved-table, compound-key, client-supplied-key, @stateRoot, @domain.join-path, create-under-parent, index.trailing-key, commit.constraint-refusal, filestore.named, batch.patch-or-add, batch.add-or-skip.
 	//
 	// @resource
 	// @permissionScope(domain)

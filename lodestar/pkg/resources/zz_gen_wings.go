@@ -28,6 +28,108 @@ func (Wing) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "SectorID"}
 }
 
+// DeleteTree describes what a delete of a Wing takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Wing and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Wing
+// that the database does not remove with it.
+func (Wing) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Wings",
+		Words:  resource.DeleteWords{One: "wing", Many: "wings"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+					patch := &HangarPassDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "SquadronMemberships",
+				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
+				Key:      []string{"SquadronId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SquadronId", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SquadronMembership], caller *resource.Caller) {
+					patch := &SquadronMembershipDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Squadron], caller *resource.Caller) {
+					patch := &SquadronDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		RefusedBy: []resource.DeleteKind{
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows, sorts by and filters by. A name is
 // looked up in the pointed-to table by the id; it is no column of this resource.
@@ -557,6 +659,17 @@ func NewWingDeletePatch(id impulse.UUID) *WingDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &WingDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Wing with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Wing that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *WingDeletePatch) WithEverythingUnder() *WingDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *WingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

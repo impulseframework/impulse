@@ -41,6 +41,19 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 		Tenant: &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		Under: []resource.DeleteKind{
 			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+				RemovedWith: []string{"CrewGroups"},
+			},
+			{
 				Resource: "Missions",
 				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
 				Key:      []string{"Id"},
@@ -51,7 +64,18 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 					},
 				},
-				RemovedWith: []string{"Sectors"},
+			},
+			{
+				Resource: "SquadronMemberships",
+				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
+				Key:      []string{"SquadronId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SquadronId", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+					},
+				},
 			},
 		},
 	}

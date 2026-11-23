@@ -14,9 +14,8 @@ type (
 	// wire can never write it. KindId references the AnnouncementKinds enum table the
 	// shared generator (pkg/sharedresources) emits for every site.
 	//
-	// The rows go with their tenant: the table's foreign key to the tenant table carries
-	// ON DELETE CASCADE (the migration), so deleting a tenant removes its announcements
-	// in the same transaction. A tenant-scoped table copied from this one keeps the rule.
+	// The rows go with their tenant. A tenant's delete takes the table's rows in code,
+	// each through its resource's own delete; the foreign key carries no delete rule.
 	//
 	// A list without a sort comes in title order (@order), so a paged request is never
 	// refused for want of one; the index on (TenantId, Title) serves every page.

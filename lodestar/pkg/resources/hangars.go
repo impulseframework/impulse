@@ -10,12 +10,6 @@ type (
 	// Zone is the attribute Ship reaches through a one-hop join path (hangarZone !=
 	// 'quarantine').
 	//
-	// A hangar's ships go with it: a ship reaches its sector through its hangar, and every
-	// link of a table's way to its sector carries the delete rule, so a sector that is
-	// deleted takes them. A sortie and a droid's report name a ship from outside that way
-	// and say nothing of a delete, so deleting a hangar whose ships have flown is refused
-	// at commit; the refusal answers 409 naming Hangars, never the ships or the sorties.
-	//
 	// Name carries the prefix fact alone: a stored LOWER(Name) column sits after SectorId
 	// in HangarsBySectorIdNameLower, so `name:startswith:anvil` seeks
 	// that index with the sector bound, case-folded, and the field answers nothing else;
@@ -25,10 +19,15 @@ type (
 	// against the two sets the hangar passes yield (hangar IN subject.hangarsOpen, hangar
 	// IN subject.hangarsRun; HangarPass).
 	//
-	// Demonstrates: @domain, consolidation.exclusion, commit.referential-refusal, search.prefix.
+	// A hangar's delete is declared (@deleteCascade): its passes and its ships go with it,
+	// with the ships' refits and their tasks, each through its own delete, and a sortie
+	// flown or a droid report filed on one of its ships refuses it.
+	//
+	// Demonstrates: @domain, consolidation.exclusion, search.prefix.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(HangarPass, Ship, Refit, RefitTask, refusedBy: Sortie, DroidReport)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Hangar struct {

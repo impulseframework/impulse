@@ -58,17 +58,17 @@ import (
 // standing is read through. What stays a stated limit is the one
 // RefuseImpersonatorAsSubject names, a role given to a group the person is in.
 //
-// A row removed with its parent, which may name the person, is a limit of its own. The
-// database removes the row when the parent's row is deleted (an interleaved table or a
-// foreign key declared ON DELETE CASCADE: a pass goes with the place it opens). No
-// write of the row is made, so the rule is not asked about the person it names, and a
-// mask that refuses the row's own writes does not refuse the parent's delete. An
-// application closes it under the mask by refusing each request that removes a row
-// above it: the parent's delete (accesstypes.RefusePermission(accesstypes.Delete,
-// parent)); the delete of each record further up while the cascade goes on, since the
-// grandparent's delete removes the parent and the row with it; and an action that
-// removes one of those rows in its own body, by name (accesstypes.RefuseAction),
-// because an action is asked for Execute on its name and not for Delete on the record.
+// A row removed with its parent, which may name the person, is a limit of its own. A
+// row taken with the record it is under (the record's @deleteCascade, or its tenant's
+// delete) is deleted by the library and not through the row's own route, so the rule is
+// not asked about the person it names, and a mask that refuses the row's own writes
+// does not refuse the parent's delete. An application closes it under the mask by
+// refusing each request that removes a row above it: the parent's delete
+// (accesstypes.RefusePermission(accesstypes.Delete, parent)); the delete of each record
+// further up while the cascade goes on, since the grandparent's delete removes the
+// parent and the row with it; and an action that removes one of those rows in its own
+// body, by name (accesstypes.RefuseAction), because an action is asked for Execute on
+// its name and not for Delete on the record.
 // PostgreSQL has referential actions that change the row where it stands, again with
 // no write of it. ON DELETE SET NULL and ON DELETE SET DEFAULT rewrite the column that
 // named the parent when the parent is deleted, and the same refusals close them. ON
