@@ -172,7 +172,7 @@ func TestManager_Invite(t *testing.T) {
 			inv:  Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward", "Reader"}},
 			wantErr: func(err error) bool {
 				return httpio.HasBadRequest(err) &&
-					strings.Contains(httpio.Message(err), `"Reader" is a role held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant`)
+					httpio.Message(err) == "The role Reader is held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant."
 			},
 		},
 		{
@@ -182,7 +182,7 @@ func TestManager_Invite(t *testing.T) {
 			custom: map[access.RoleKey]bool{everyNightShiftLead: true},
 			wantErr: func(err error) bool {
 				return httpio.HasBadRequest(err) &&
-					strings.Contains(httpio.Message(err), `"Night shift lead" is a role held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant`) &&
+					httpio.Message(err) == "The role Night shift lead is held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant." &&
 					strings.Contains(err.Error(), `"NightShiftLead" is a role held in a tenant`)
 			},
 		},
@@ -196,7 +196,7 @@ func TestManager_Invite(t *testing.T) {
 			name: "a global role is no role of every tenant",
 			inv:  Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Steward"}},
 			wantErr: func(err error) bool {
-				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "does not exist where the invitation gives it")
+				return httpio.HasBadRequest(err) && httpio.Message(err) == "The role Steward does not exist where the invitation gives it. Choose one of the roles the picker lists."
 			},
 		},
 		{

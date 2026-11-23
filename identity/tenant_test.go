@@ -164,12 +164,12 @@ func TestTenant_RemoveRole(t *testing.T) {
 			wantWrites:  []string{"delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
-			name:        "a role held in every tenant alone is not the tenant's to take, in a sentence that names the person by username",
+			name:        "a role held in every tenant alone is not the tenant's to take",
 			caller:      erin,
 			role:        "NightShiftLead",
 			memberships: []access.MembershipKey{membership(everyScope, dana, "NightShiftLead")},
 			wantErr:     httpio.HasConflict,
-			wantMessage: "dana holds the role Night shift lead in every tenant, which is not one tenant's to take away",
+			wantMessage: "This person holds the role Night shift lead in every tenant, which is not one tenant's to take away.",
 		},
 		{
 			name:        "a role held in another tenant is not this tenant's: nothing is written",

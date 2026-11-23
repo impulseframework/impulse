@@ -244,28 +244,28 @@ func TestManager_TakeRole(t *testing.T) {
 		},
 		{
 			name: "a length that is not offered", ctx: asDana, scope: alphaScope, role: "Reader", length: "2 days", reason: why,
-			refused: httpio.HasBadRequest, wantSays: "2 days",
+			refused: httpio.HasBadRequest, wantSays: `A role is taken for 1 hour, 4 hours, 8 hours or 1 day, and "2 days" is none of them. A longer need is an ordinary role with an end, given from the people pages.`,
 		},
 		{
 			name: "no length", ctx: asDana, scope: alphaScope, role: "Reader", length: "", reason: why,
-			refused: httpio.HasBadRequest, wantSays: "is none of them",
+			refused: httpio.HasBadRequest, wantSays: `A role is taken for 1 hour, 4 hours, 8 hours or 1 day, and "" is none of them. A longer need is an ordinary role with an end, given from the people pages.`,
 		},
 		{
 			name: "no reason", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: "",
-			refused: httpio.HasBadRequest, wantSays: "say why you need the role",
+			refused: httpio.HasBadRequest, wantSays: "Say why you need the role. A role taken for a set time carries a reason, one line that the people it is taken with can read.",
 		},
 		{
 			name: "a reason of spaces alone", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: "  \t ",
-			refused: httpio.HasBadRequest, wantSays: "say why you need the role",
+			refused: httpio.HasBadRequest, wantSays: "Say why you need the role. A role taken for a set time carries a reason, one line that the people it is taken with can read.",
 		},
 		{
 			name: "a reason of two lines", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: "covering\nthe night desk",
-			refused: httpio.HasBadRequest, wantSays: "one line of plain text",
+			refused: httpio.HasBadRequest, wantSays: "The reason is one line of plain text, and this one holds a line break or a character that cannot be shown. Type it again as one line.",
 		},
 		{
 			name: "a caller who may not give themselves the role", ctx: asDana, scope: alphaScope, role: "NightShiftLead", length: TakeOneHour, reason: why,
 			grants:  &fakeGrants{noGive: []accesstypes.Role{"NightShiftLead"}},
-			refused: httpio.HasForbidden, wantSays: "you may not give yourself the role Night shift lead there", wantAsked: []string{"give " + membershipText(&lead)},
+			refused: httpio.HasForbidden, wantSays: "You may not give yourself the role Night shift lead there, so you cannot take it. Someone who may give the role gives it to you.", wantAsked: []string{"give " + membershipText(&lead)},
 		},
 		{
 			name: "a manager built with no role grants cannot judge, and does not pass", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
@@ -361,7 +361,11 @@ func TestManager_TakeRole(t *testing.T) {
 				return m.TakeRole(tt.ctx(ctx), txn, tt.scope, tt.role, tt.length, tt.reason)
 			})
 			if tt.refused != nil {
-				if !tt.refused(err) || !strings.Contains(err.Error(), tt.wantSays) {
+				says := httpio.Message(err)
+				if says == "" {
+					says = err.Error()
+				}
+				if !tt.refused(err) || !strings.Contains(says, tt.wantSays) {
 					t.Fatalf("TakeRole() error = %v, want the refusal saying %q", err, tt.wantSays)
 				}
 				if engine.changed != 0 {

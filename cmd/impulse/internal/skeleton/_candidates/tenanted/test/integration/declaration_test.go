@@ -212,7 +212,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	open := func(b *browser, role string, headers map[string]string) (int, []byte) {
 		return b.doWith(ctx, http.MethodPost, "/api/tenants/"+south+"/open-tenant-to-directory", []byte(`{"role":"`+role+`"}`), headers)
 	}
-	if status, body := open(admin, "Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this tenant") {
+	if status, body := open(admin, "Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "Nobody is not a role of this tenant. Choose one of the roles the picker lists.") {
 		t.Errorf("opening south with a role it does not have: status %d, want 400 saying so: %s", status, body)
 	}
 	// The role is picked from the roles the caller may give in the tenant, and no other

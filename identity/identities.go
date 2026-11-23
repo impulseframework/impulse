@@ -259,11 +259,11 @@ func PersonNamed(list accesstypes.Resource, named []resource.Condition) (userID 
 		return impulse.NilUUID, false, nil
 	}
 	if len(named) != 1 || named[0].Operator != filterEquals {
-		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time: filter it by the person's id alone (userId:eq:<id>)", list)
+		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time. Filter it by the person's id alone (userId:eq:<id>).", list)
 	}
 	userID, isID := named[0].Value.(impulse.UUID)
 	if !isID {
-		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time: the filter on userId carries no id", list)
+		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time, and the filter on userId carries no id. Filter it by the person's id (userId:eq:<id>).", list)
 	}
 
 	return userID, true, nil

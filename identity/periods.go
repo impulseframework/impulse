@@ -115,7 +115,7 @@ type GroupPeriods struct {
 func RequestPeriod(startsAt, endsAt *time.Time) (accesstypes.Period, error) {
 	period, err := accesstypes.NewPeriod(startsAt, endsAt)
 	if err != nil {
-		return accesstypes.Period{}, httpio.NewBadRequestMessage(err.Error())
+		return accesstypes.Period{}, httpio.NewBadRequestMessageWithError(err, access.PeriodNeverCountsMessage)
 	}
 
 	return period, nil
@@ -125,8 +125,11 @@ func RequestPeriod(startsAt, endsAt *time.Time) (accesstypes.Period, error) {
 // count for nothing from the start. what names the assignment in the refusal.
 func refuseEnded(period accesstypes.Period, what string) error {
 	if period.Ended(time.Now()) {
-		return httpio.NewBadRequestMessagef("the period ended at %s, which is past, so %s would count for nothing: give a later end, or take it away to end it now",
-			period.End.Format(time.RFC3339), what)
+		return httpio.NewBadRequestMessageWithErrorf(
+			errors.Newf("the period ended at %s, which is past, so %s would count for nothing: give a later end, or take it away to end it now",
+				period.End.Format(time.RFC3339), what),
+			"The period has already ended, so %s would count for nothing. Give a later end, or take it away to end it now.", what,
+		)
 	}
 
 	return nil

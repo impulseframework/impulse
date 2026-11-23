@@ -38,7 +38,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	name := strings.TrimSpace(username)
 	if name == "" {
-		return httpio.NewBadRequestMessage("a username is required")
+		return httpio.NewBadRequestMessage("The username is empty. Type a username.")
 	}
 	if err := sessioninfo.UsernameRefusal(name); err != nil {
 		return err
@@ -274,7 +274,7 @@ func (m *Manager) UnlockSignIn(ctx context.Context, txn resource.ReadWriteTransa
 	defer span.End()
 
 	if strings.TrimSpace(name) == "" {
-		return httpio.NewBadRequestMessage("a name is required: the name the failed sign-ins are counted under")
+		return httpio.NewBadRequestMessage("No name is given. Give the name the failed sign-ins are counted under.")
 	}
 	if err := m.refuseImpersonatorsName(ctx, txn, name); err != nil {
 		return err

@@ -87,7 +87,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	// the refusal says what to choose. Were it sent, nobody could accept it: the
 	// acceptance gives a role in the place the invitation keeps and nowhere else.
 	// The refusal names the first role that is a sector's in words.
-	const noSector = ` is a role held in a sector, and this invitation names none. Choose the sector it is for, or every sector`
+	const noSector = " is held in a sector, and this invitation names none. Choose the sector it is for, or every sector."
 	for roles, words := range map[string]string{`["SectorMarshal"]`: `Sector marshal`, `["ClientBrowser","Pilot"]`: `Pilot`} {
 		status, respBody := hq.do(ctx, http.MethodPost, consoleAPI+"/invite-crew-user", []byte(`{"email":"ensign@example.com","roles":`+roles+`}`))
 		if status != http.StatusBadRequest {
@@ -95,8 +95,8 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 
 			continue
 		}
-		if got, want := refusalMessage(t, respBody), `"`+words+`"`+noSector; !strings.HasPrefix(got, want) {
-			t.Errorf("an invitation of %s with no sector named says %q, want it to open %q", roles, got, want)
+		if got, want := refusalMessage(t, respBody), "The role "+words+noSector; got != want {
+			t.Errorf("an invitation of %s with no sector named says %q, want %q", roles, got, want)
 		}
 	}
 	for _, message := range s.mail.Messages() {

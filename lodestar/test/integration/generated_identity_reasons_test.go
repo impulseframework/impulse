@@ -219,15 +219,15 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 		name, body, says string
 	}{
 		{name: "no reason", body: fmt.Sprintf(`{"domain":%q,"role":"Engineer","length":"1 hour"}`, anvil)},
-		{name: "a reason of spaces alone", body: taking("Engineer", "1 hour", "   "), says: "say why you need the role"},
+		{name: "a reason of spaces alone", body: taking("Engineer", "1 hour", "   "), says: "Say why you need the role. A role taken for a set time carries a reason, one line that the people it is taken with can read."},
 		{name: "a reason of two lines", body: taking("Engineer", "1 hour", "Inspecting\nthe hangar"), says: "The reason is one line of plain text, and this one holds a line break or a character that cannot be shown. Type it again as one line."},
-		{name: "a length that is not offered", body: taking("Engineer", "2 days", why), says: "a longer need is an ordinary role with an end"},
+		{name: "a length that is not offered", body: taking("Engineer", "2 days", why), says: `A role is taken for 1 hour, 4 hours, 8 hours or 1 day, and "2 days" is none of them. A longer need is an ordinary role with an end, given from the people pages.`},
 		{name: "the Super Administrator role", body: fmt.Sprintf(`{"domain":%q,"role":%q,"length":"1 hour","reason":%q}`, anvil, accesstypes.SuperAdministrator, why)},
 	} {
 		status, body = take("governor", tt.body)
 		assertStatus(t, status, http.StatusBadRequest, body)
-		if !strings.Contains(string(body), tt.says) {
-			t.Errorf("%s: the refusal = %s, want it to say %q", tt.name, body, tt.says)
+		if got := refusalMessage(t, body); !strings.Contains(got, tt.says) {
+			t.Errorf("%s: the refusal says %q, want %q", tt.name, got, tt.says)
 		}
 	}
 	if _, _, held := engineerAtAnvil(t, w.db, governor.String()); held {
@@ -370,7 +370,7 @@ func TestGeneratedIdentityTakeRoleNeedsTheGiving(t *testing.T) {
 			if held != (tt.want == http.StatusNoContent) {
 				t.Errorf("hana holds the Engineer's role at Anvil: %v, and the taking was answered %d", held, status)
 			}
-			if tt.want == http.StatusForbidden && !strings.Contains(string(body), "you may not give yourself the role Engineer there") {
+			if tt.want == http.StatusForbidden && !strings.Contains(string(body), "You may not give yourself the role Engineer there, so you cannot take it. Someone who may give the role gives it to you.") {
 				t.Errorf("the refusal = %s, want it to say she may not give herself the role", body)
 			}
 		})

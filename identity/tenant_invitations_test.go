@@ -157,7 +157,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			maker:  &fakeMaker{seats: true},
 			wantErr: func(err error) bool {
 				return httpio.HasBadRequest(err) &&
-					httpio.Message(err) == `role "Night shift lead" is no role of a tenant: the people of the new tenant's directory start with one of its roles`
+					httpio.Message(err) == "Night shift lead is not a role of a tenant. The people of the new tenant's directory start with one of its roles, so choose one of those."
 			},
 			wantAsked: 1,
 		},
@@ -178,7 +178,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			caller: dana,
 			maker:  &fakeMaker{seats: true},
 			wantErr: func(err error) bool {
-				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "the Super administrator role is held for the whole application alone")
+				return httpio.HasBadRequest(err) && httpio.Message(err) == "The Super administrator role is held for the whole application alone, and is never the role a tenant's people start with. Choose another role, or none."
 			},
 			wantAsked: 1,
 		},
