@@ -197,6 +197,9 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 // one transaction does not see the first, as no read sees a buffered write, so the
 // account is deleted only when one call removes the last role. Remove one role of a
 // person per transaction.
+//
+// RoleRemovalWarning answers what a call would do, from the same judgment, and writes
+// nothing.
 func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -217,44 +220,11 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 }
 
 // removeMembership buffers the removal of a membership the person holds, under the
-// rules of RemoveRole, and has the permission engine told once the transaction has
-// committed. key is the membership, read as held by the caller.
+// rules of RemoveRole as its judgment holds them (judgeRoleRemoval), and has the
+// permission engine told once the transaction has committed. key is the membership, read
+// as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	// A membership whose period is over makes nobody a tenant's administrator, and its
-	// removal is not the directory-only tenant's to hold.
-	ended, err := m.membershipEnded(ctx, txn, userID, key)
-	if err != nil {
-		return err
-	}
-	if !ended {
-		if err := m.requireEnteringToChange(ctx, scope, key.Role, nil); err != nil {
-			return err
-		}
-	}
-	switch {
-	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
-		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super administrator role away"); err != nil {
-			return err
-		}
-		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
-			return err
-		}
-	case !ended && m.callerIs(ctx, userID):
-		if err := m.refuseLastAdministrator(ctx, txn, scope, ownRoleGone(key)); err != nil {
-			return err
-		}
-	}
-	// What the person holds beside the membership: the roles of their own and the
-	// groups they are in. Where they belong is read from what has not ended (holds);
-	// the account is kept by every row that stands in the tables, ended or not (keeps).
-	all, err := m.holds(ctx, txn, userID)
-	if err != nil {
-		return err
-	}
-	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
-		return err
-	}
-	kept, err := m.keeps(ctx, txn, userID)
+	removal, err := m.judgeRoleRemoval(ctx, txn, scope, userID, key)
 	if err != nil {
 		return err
 	}
@@ -262,13 +232,12 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	// is still there to read it from.
 	// A membership whose period is over gave the person nothing: its removal is no
 	// removal from a tenant.
-	if !ended {
-		deleted := !slices.ContainsFunc(kept, func(k access.MembershipKey) bool { return k != *key })
-		if err := m.noticeRemoval(ctx, txn, userID, &taken{own: key, group: impulse.NilUUID, groupRole: nil}, []access.MembershipKey{*key}, deleted); err != nil {
+	if !removal.ended {
+		if err := m.noticeRemoval(ctx, txn, userID, &taken{own: key, group: impulse.NilUUID, groupRole: nil}, []access.MembershipKey{*key}, removal.last); err != nil {
 			return err
 		}
 	}
-	if err := m.deleteWithLastRole(ctx, txn, userID, kept, key); err != nil {
+	if err := m.deleteWithLastRole(ctx, txn, userID, removal.kept, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
