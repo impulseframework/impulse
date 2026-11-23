@@ -4588,7 +4588,7 @@ Everything an impersonated session touches names the actor and the principal:
 
 | Evidence | Where |
 | --- | --- |
-| The record (actor, realm, source session, principal, mask, reason, started/expires/ended, end reason) | The impersonation table, durable |
+| The record (actor, realm, source session, principal, the principal's username, mask, reason, started/expires/ended, end reason). PrincipalUsername is the username of the person the session is held as, as it was when the session began; empty for a session held as a role. | The impersonation table, durable |
 | `impersonation.actor`, `.actor_realm`, `.principal_kind`, `.principal`, `.mask`, `.session_id`, `.source_session_id` | The request-level log entry and every line logged within the request (constants in `sessioninfo`) |
 | `principal.kind`, `principal` — when a `WithPrincipalResolver` changed the request's subject | The request-level log entry and every line logged within the request |
 | `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, span events (`impersonation.Started`, …) on the current trace span, plus the `WithImpersonationAudit` hook |

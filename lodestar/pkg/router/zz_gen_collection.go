@@ -1760,6 +1760,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "principalKind", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "principalRole", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "principalUserId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "principalUsername", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "reason", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "sessionId"},
 					{Name: "sourceSessionId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},

@@ -15,6 +15,7 @@ CREATE TABLE "SessionImpersonations"
     "SourceSessionId" UUID,
     "PrincipalKind" character varying(16) NOT NULL,
     "PrincipalUserId" character varying,
+    "PrincipalUsername" character varying,
     "PrincipalRole" character varying,
     "Mask" character varying,
     "Reason" character varying,

@@ -6,6 +6,7 @@ CREATE TABLE SessionImpersonations (
     SourceSessionId  STRING(36),
     PrincipalKind    STRING(16) NOT NULL,
     PrincipalUserId  STRING(MAX),
+    PrincipalUsername STRING(MAX),
     PrincipalRole    STRING(MAX),
     Mask             STRING(MAX),
     Reason           STRING(MAX),

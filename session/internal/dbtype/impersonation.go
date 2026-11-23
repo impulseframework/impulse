@@ -18,36 +18,38 @@ const (
 // Impersonation is the impersonation record row shared by the drivers.
 // Nullable columns are pointers; a nil Mask is the unrestricted mask.
 type Impersonation struct {
-	SessionID       impulse.UUID
-	ActorUsername   string
-	ActorUserID     *impulse.UUID
-	ActorRealm      *string
-	SourceSessionID *impulse.UUID
-	PrincipalKind   string
-	PrincipalUserID *string
-	PrincipalRole   *string
-	Mask            *string
-	Reason          *string
-	StartedAt       time.Time
-	ExpiresAt       time.Time
-	EndedAt         *time.Time
-	EndReason       *string
+	SessionID         impulse.UUID
+	ActorUsername     string
+	ActorUserID       *impulse.UUID
+	ActorRealm        *string
+	SourceSessionID   *impulse.UUID
+	PrincipalKind     string
+	PrincipalUserID   *string
+	PrincipalUsername *string
+	PrincipalRole     *string
+	Mask              *string
+	Reason            *string
+	StartedAt         time.Time
+	ExpiresAt         time.Time
+	EndedAt           *time.Time
+	EndReason         *string
 }
 
 // InsertImpersonation is the caller-supplied part of a new impersonation record; the
 // driver assigns SessionID and writes StartedAt with the database's time at commit.
 // ExpiresAt is the caller's deadline.
 type InsertImpersonation struct {
-	ActorUsername   string
-	ActorUserID     *impulse.UUID
-	ActorRealm      *string
-	SourceSessionID *impulse.UUID
-	PrincipalKind   string
-	PrincipalUserID *string
-	PrincipalRole   *string
-	Mask            *string
-	Reason          *string
-	ExpiresAt       time.Time
+	ActorUsername     string
+	ActorUserID       *impulse.UUID
+	ActorRealm        *string
+	SourceSessionID   *impulse.UUID
+	PrincipalKind     string
+	PrincipalUserID   *string
+	PrincipalUsername *string
+	PrincipalRole     *string
+	Mask              *string
+	Reason            *string
+	ExpiresAt         time.Time
 }
 
 // NewInsertImpersonation renders a sessioninfo.Impersonation into its insert
