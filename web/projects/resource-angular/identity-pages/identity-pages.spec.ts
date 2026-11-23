@@ -500,8 +500,8 @@ describe("identityPages, the whole application's side", () => {
 
   it('lists the accounts by the columns the schema carries and offers each method under plain words', () => {
     expect(visibleColumns(list(people))).toEqual([
-      ['username', 'Username'],
       ['name', 'Name'],
+      ['username', 'Username'],
       ['email', 'Email'],
       ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
@@ -1039,8 +1039,8 @@ describe("identityPages, a tenant's side", () => {
 
   it('names the tenant record in its words and leaves out what the side does not have', () => {
     expect(visibleColumns(list(people))).toEqual([
-      ['username', 'Username'],
       ['name', 'Name'],
+      ['username', 'Username'],
       ['email', 'Email'],
       ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
@@ -1582,6 +1582,103 @@ describe('identityRoutes', () => {
   });
 });
 
+// A page of the whole application's side is headed by what it lists, and by the Auth's
+// label before it only where the description manages more than one Auth: with one there is
+// no other Auth's page to tell it from.
+describe("identityPages, the headings of the whole application's pages", () => {
+  const titles = (on: ApiDescriptor): [string | undefined, string][] =>
+    identityPages(on, resourceMeta, { auth: 'Crew', scope: 'global' })
+      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins'].includes(config.page?.label ?? ''))
+      .map((config) => [config.page?.label, list(config).title]);
+
+  it('are the words alone where the application manages one auth', () => {
+    expect(titles({ ...descriptor, identity: [crew] } as ApiDescriptor)).toEqual([
+      ['Mailed links', 'Mailed links'],
+      ['Sessions', 'Sessions'],
+      ['Failed sign-ins', 'Failed sign-ins'],
+    ]);
+  });
+
+  it("keep the auth's label where the application manages several", () => {
+    expect(titles(descriptor)).toEqual([
+      ['Mailed links', 'Crew mailed links'],
+      ['Sessions', 'Crew sessions'],
+      ['Failed sign-ins', 'Crew failed sign-ins'],
+    ]);
+  });
+
+  it("leave a tenant's headings as they are", () => {
+    const tenant = identityPages({ ...descriptor, identity: [crew] } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'domain',
+    });
+    expect(tenant.map((config) => list(config).title)).toEqual(
+      identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' }).map((config) => list(config).title),
+    );
+  });
+});
+
+// A list of people leads with the person's name, which is the link to the person's page:
+// the username stands in for a person with no name, and where the list has no name the
+// username leads.
+describe("identityPages, the people lists lead with the person's name", () => {
+  const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
+  const sides: [string, RootConfig][] = [
+    ['the Accounts list', accounts],
+    ['the People list', people],
+  ];
+
+  for (const [side, config] of sides) {
+    it(`${side} leads with Name, the column that opens the row, then Username and Email`, () => {
+      expect(visibleColumns(list(config)).slice(0, 3)).toEqual([
+        ['name', 'Name'],
+        ['username', 'Username'],
+        ['email', 'Email'],
+      ]);
+      const name = columnOf(list(config), 'name');
+      expect(name.opensRow).toBe(true);
+      expect(
+        list(config)
+          .listColumns.filter((column) => column.opensRow)
+          .map((column) => column.id),
+      ).toEqual(['name']);
+    });
+
+    it(`${side} names a person by the name, and by the username where there is none`, () => {
+      const cell = columnOf(list(config), 'name').valueGetter as (row: RecordData) => string;
+      expect(cell({ name: 'Ada Lovelace', username: 'ada' })).toBe('Ada Lovelace');
+      expect(cell({ name: '', username: 'ada' })).toBe('ada');
+      expect(cell({ username: 'ada' })).toBe('ada');
+      expect(cell({})).toBe('');
+    });
+  }
+
+  it('leads with the username, the column that opens the row, where the list has no name', () => {
+    const nameless = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSessionUsers' ? fields('id', 'username', 'email', 'disabled') : metas[resource];
+    // A description of its own: the same request answers the same pages.
+    const [bare] = identityPages({ ...descriptor }, nameless, { auth: 'Crew', scope: 'global' });
+    expect(visibleColumns(list(bare))).toEqual([
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['disabled', 'State'],
+    ]);
+    expect(columnOf(list(bare), 'username').opensRow).toBe(true);
+    expect(columnOf(list(bare), 'email').opensRow).toBeUndefined();
+  });
+
+  it("is headed Accounts where the application manages one auth, and by the auth's label beside others", () => {
+    const [alone] = identityPages({ ...descriptor, identity: [crew] } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'global',
+    });
+    expect(list(alone).title).toBe('Accounts');
+    expect(list(accounts).title).toBe('Crew accounts');
+    expect(list(people).title).toBe('People');
+  });
+});
+
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.
@@ -1692,6 +1789,12 @@ describe('identityPages, an Auth that keeps groups', () => {
       'Sign-in',
     ]);
     expect(children(without[0]).map((child) => child.title)).toEqual(['Roles held', 'Sign-in identities', 'Sessions']);
+  });
+
+  it('heads the Groups page by its words alone where the application manages one auth', () => {
+    const alone = { ...descriptor, identity: [grouped] } as ApiDescriptor;
+    expect(list(identityPages(alone, groupMeta, { auth: 'Crew', scope: 'global' })[1]).title).toBe('Groups');
+    expect(list(identityPages(alone, groupMeta, { auth: 'Crew', scope: 'domain' })[1]).title).toBe('Groups');
   });
 
   it("lists the whole application's groups with where each is kept, and offers the methods that run against a group", () => {

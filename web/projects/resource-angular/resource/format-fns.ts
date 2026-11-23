@@ -79,6 +79,13 @@ export function formatByteSize(bytes: number): string {
   return `${value.toFixed(1).replace(/\.0$/, '')} ${units[unit]}`;
 }
 
+/**
+ * How a cell writes a moment (a `date`, a `time.Time` on the server): the day and the time
+ * of day, in the viewer's time zone (`11/23/2026 3:15 PM`). A day alone (a `civildate`) is
+ * written M/d/yyyy.
+ */
+export const MOMENT_CELL_FORMAT = 'M/d/yyyy h:mm a';
+
 /** The most characters an object's one-line JSON takes in a grid cell before it is cut. */
 export const OBJECT_CELL_LENGTH = 80;
 
@@ -87,10 +94,11 @@ export const OBJECT_CELL_LENGTH = 80;
  * base64), an array its elements each formatted by the element type and joined with
  * `, `, `object` a place in words where the value is one (placeWords: a GeoJSON point
  * reads `34.0522° N, 118.2437° W`, never its JSON) and otherwise its JSON on one line cut
- * at OBJECT_CELL_LENGTH with an ellipsis, `date` and `civildate` as M/d/yyyy, and
- * everything else `String(value)`. Null and undefined are the empty string, so a
- * column's `emptyDataValue` applies. A grid cell shows the size of a bytes value, never
- * the base64 and never a download; the download is the view's.
+ * at OBJECT_CELL_LENGTH with an ellipsis, `date` (a moment) by MOMENT_CELL_FORMAT in the
+ * viewer's time zone, `civildate` (a day) as M/d/yyyy, and everything else
+ * `String(value)`. Null and undefined are the empty string, so a column's
+ * `emptyDataValue` applies. A grid cell shows the size of a bytes value, never the base64
+ * and never a download; the download is the view's.
  */
 export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, value: unknown): string {
   if (value === null || value === undefined) {
@@ -118,6 +126,7 @@ export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, 
       return json.length > OBJECT_CELL_LENGTH ? `${json.slice(0, OBJECT_CELL_LENGTH - 1)}…` : json;
     }
     case 'date':
+      return formatDateString(MOMENT_CELL_FORMAT, String(value));
     case 'civildate':
       return formatDateString('M/d/yyyy', String(value));
     default:

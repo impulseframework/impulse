@@ -1,7 +1,13 @@
 import { Component, effect } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { ColumnConfig, iconCellKey, RecordData, RowAction } from '@impulseframework/resource-angular/types';
+import {
+  ColumnConfig,
+  iconCellKey,
+  linkCellKey,
+  RecordData,
+  RowAction,
+} from '@impulseframework/resource-angular/types';
 
 import { AppGridComponent, MIN_TEXT_COLUMN_WIDTH } from './grid.component';
 import { ColumnFilter, ColumnFilterChoices, ColumnFilterInputs, RowKey } from './grid-types';
@@ -1262,6 +1268,131 @@ describe("a row's buttons", () => {
     expect(button).toBeDefined();
     button?.click();
     expect(deleted).toEqual([{ id: 'm-1', name: 'Anvil run', opensAt: '/sectors/anvil/missions/m-1' }]);
+  });
+});
+
+// A column that opens its row draws its words as the row's link, to the address the list
+// wrote on the display row under the column's link key; a row with no address, and a cell
+// with no words, draw the words alone.
+describe('a column that opens its row', () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+
+  const notes = 'Hold at the outer marker until the convoy clears, then follow the tender in on the night side.';
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [
+      { id: 'p-1', name: 'Armorer Arlo', notes, [linkCellKey('name')]: '/crew-accounts/p-1' },
+      { id: 'p-2', name: 'Rigger Rook', notes: 'None' },
+      { id: 'p-3', name: '', notes: 'None', [linkCellKey('name')]: '/crew-accounts/p-3' },
+    ]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name', opensRow: true }, { id: 'notes' }]);
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  /** The name's cell of each row, in order. */
+  const nameCells = (): HTMLElement[] => {
+    return Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row')).map(
+      (row) => row.querySelector('td.data-col') as HTMLElement,
+    );
+  };
+
+  it("draws a row's words as the link to the address the row carries, found by its words", () => {
+    const link = byRole(element, 'link', 'Armorer Arlo');
+
+    expect(link?.getAttribute('href')).toBe('/crew-accounts/p-1');
+    expect(link?.classList.contains('cell-link')).toBe(true);
+    // The link is the cell's one element: the cell is read and cut short by its words.
+    expect(nameCells()[0].children).toHaveLength(1);
+  });
+
+  it('draws the words alone in a row that carries no address', () => {
+    expect(byRole(element, 'link', 'Rigger Rook')).toBeUndefined();
+    expect(nameCells()[1].textContent?.trim()).toBe('Rigger Rook');
+    expect(nameCells()[1].children).toHaveLength(0);
+  });
+
+  it('draws no link in a cell with no words', () => {
+    expect(nameCells()[2].querySelector('a')).toBeNull();
+    expect(element.querySelectorAll('a.cell-link')).toHaveLength(1);
+  });
+
+  describe('cut short', () => {
+    const settle = async (): Promise<void> => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    };
+    /** Says how wide the text is and how wide the box that holds it, as a browser's layout would. */
+    const measured = (text: HTMLElement, textWidth: number, boxWidth: number): HTMLElement => {
+      Object.defineProperty(text, 'scrollWidth', { configurable: true, value: textWidth });
+      Object.defineProperty(text, 'clientWidth', { configurable: true, value: boxWidth });
+      return text;
+    };
+    /** The words of the tooltip that is open, null while none is. */
+    const tooltip = (): string | null => {
+      return (
+        document.body
+          .querySelector<HTMLElement>('.cdk-overlay-container .mat-mdc-tooltip-show .mat-mdc-tooltip-surface')
+          ?.textContent?.trim() ?? null
+      );
+    };
+    /** The browser's next frame, in which a text the focus arrived on is offered. */
+    const nextFrame = async (): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          resolve();
+        });
+      });
+      await settle();
+    };
+    /** The Tab key pressed with the focus somewhere on the page, outside the list. */
+    const tab = async (): Promise<void> => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      await settle();
+    };
+    const link = (): HTMLElement => {
+      return nameCells()[0].querySelector('a.cell-link') as HTMLElement;
+    };
+
+    it('shows its whole words while the pointer is on its link', async () => {
+      measured(nameCells()[0], 620, 48);
+
+      link().dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await settle();
+
+      expect(tooltip()).toBe('Armorer Arlo');
+    });
+
+    it('shows its whole words when its link takes the focus', async () => {
+      measured(nameCells()[0], 620, 48);
+
+      link().focus();
+      link().dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextFrame();
+
+      expect(tooltip()).toBe('Armorer Arlo');
+    });
+
+    it('is no stop of the Tab key, since its link is, where a cut cell of words alone is one', async () => {
+      const words = (row: number): HTMLElement => {
+        return element.querySelectorAll('tr.impulse-row')[row].querySelectorAll<HTMLElement>('td.data-col')[1];
+      };
+      measured(nameCells()[0], 620, 48);
+      measured(words(0), 620, 180);
+
+      await tab();
+
+      expect(nameCells()[0].hasAttribute('tabindex')).toBe(false);
+      expect(words(0).getAttribute('tabindex')).toBe('0');
+    });
   });
 });
 
@@ -3683,6 +3814,140 @@ describe("the list's pager", () => {
   });
 });
 
+// A list is never taller than the room its page hands it (the library's frame measures it),
+// and one with more rows than fit scrolls inside its own frame. A list a person pages, sorts
+// or filters is shown from its first row: its frame, scrolled down and sideways, goes back to
+// the top and stays where it was sideways.
+describe('a list and the room its page has', () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }, { name: 'Debriefs' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('filterability', { name: 'always' });
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  const frame = (): HTMLElement => {
+    return element.querySelector('.impulse-grid-scroll') as HTMLElement;
+  };
+  /** The person has scrolled the frame down to a later row and sideways to a later column. */
+  const scrollAway = (): void => {
+    frame().scrollTop = 400;
+    frame().scrollLeft = 120;
+  };
+  const settle = async (): Promise<void> => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  };
+  /** Opens the name's filter menu by its header button and hands back the menu's panel in the overlay. */
+  const openMenu = async (): Promise<HTMLElement> => {
+    element.querySelector<HTMLButtonElement>('button.filter-trigger')?.click();
+    await settle();
+    const menu = document.body.querySelector<HTMLElement>('.cdk-overlay-container .impulse-grid-filter-menu');
+    if (!menu) {
+      throw new Error('no menu open');
+    }
+    return menu;
+  };
+  /** Presses the menu's button that says `words`. */
+  const press = async (menu: HTMLElement, words: string): Promise<void> => {
+    const button = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.trim() === words);
+    if (!button) {
+      throw new Error(`no ${words} button`);
+    }
+    button.click();
+    await settle();
+  };
+
+  it('is never taller than the room its page hands it, its border included, and as tall as its rows where nothing is handed', () => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .filter((text) => text.includes('.impulse-grid-host'))
+      .join('\n')
+      .replace(/@media print\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g, '');
+    const host = Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, named]) => named.replace(/\[_ngcontent[^\]]*\]/g, '').trim() === '.impulse-grid-host')
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+
+    expect(host).toMatch(/max-height:\s*var\(--impulse-list-max-height,\s*none\)/);
+    // The room is the list's whole box: its border is inside it, as the frame counts it.
+    expect(host).toMatch(/box-sizing:\s*border-box/);
+  });
+
+  it('is shown from its first row after Next, where it stays scrolled sideways', () => {
+    const next = Array.from(element.querySelectorAll<HTMLButtonElement>('.pager-buttons button')).find((b) =>
+      b.textContent?.includes('Next'),
+    );
+    scrollAway();
+
+    next?.click();
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  it('is shown from its first row after a heading is pressed to sort it', () => {
+    scrollAway();
+
+    element.querySelector<HTMLButtonElement>('th button.header-label')?.click();
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  it('is shown from its first row after a filter is applied', async () => {
+    const menu = await openMenu();
+    const input = menu.querySelector('input') as HTMLInputElement;
+    input.value = 'Comm';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    scrollAway();
+
+    await press(menu, 'Apply');
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  it('is shown from its first row after a filter is cleared', async () => {
+    fixture.componentRef.setInput('filters', [{ field: 'name', operator: 'contains', value: 'Comm' }]);
+    const menu = await openMenu();
+    scrollAway();
+
+    await press(menu, 'Clear');
+
+    expect(frame().scrollTop).toBe(0);
+    expect(frame().scrollLeft).toBe(120);
+  });
+
+  for (const words of ['Apply', 'Clear']) {
+    it(`stays where it was scrolled when a filter menu's ${words} has nothing to change`, async () => {
+      const asked: unknown[] = [];
+      fixture.componentInstance.filterChange.subscribe((filters) => asked.push(filters));
+      const menu = await openMenu();
+      scrollAway();
+
+      await press(menu, words);
+
+      expect(asked).toEqual([]);
+      expect(frame().scrollTop).toBe(400);
+      expect(frame().scrollLeft).toBe(120);
+    });
+  }
+});
+
 describe('a list on paper', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -3725,6 +3990,10 @@ describe('a list on paper', () => {
     expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])display:\s*block/);
     expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])height:\s*auto/);
     expect(onPaper('.impulse-grid-view')).toMatch(/(^|[;\s])display:\s*block/);
+  });
+
+  it('is as long as its rows whatever the room its page has on the screen', () => {
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])max-height:\s*none/);
   });
 
   it('scrolls nothing and cuts nothing off', () => {
