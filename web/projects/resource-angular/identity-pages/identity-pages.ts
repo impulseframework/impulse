@@ -12,6 +12,8 @@ import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular
 import {
   ChildResourceConfig,
   ColumnConfig,
+  computedDisplayField,
+  ConfigElement,
   field,
   FieldName,
   ListPermission,
@@ -268,23 +270,13 @@ class SideBuilder {
    * to say (statesOf): Disabled, Must change password, and on a tenant's list that
    * another tenant or the whole application also holds the person. It is blank when all
    * is well. Its words come from several fields, so the column neither sorts nor filters.
+   * A person's page is headed by the person (personTitle), and says the same state on
+   * one line, where there is any, and whether the email address is confirmed
+   * (personFields).
    */
   people(): RootConfig {
     const { lists, methods } = this.side;
-    const password = methods.requirePasswordChange !== undefined;
     const users = lists.users as Resource;
-    const fields: Named[] = [
-      ['username', 'Username'],
-      ['name', 'Name'],
-      ['email', 'Email'],
-      ['disabled', 'Disabled'],
-      ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
-      ['lastSignInAt', 'Last sign-in'],
-      ['heldElsewhere', `Also in another ${this.tenantWord}`],
-      ['cannotEnter', 'Cannot enter'],
-      ['emailVerifiedAt', 'Email verified'],
-      ['createdAt', 'Created'],
-    ];
     const related = [
       this.rolesOf(),
       this.rolesThroughGroupsOf(),
@@ -307,6 +299,8 @@ class SideBuilder {
           : {}),
         primaryResource: users,
         showRowCount: true,
+        // A person's page is headed by the person.
+        rowTitle: (row: RecordData) => this.personTitle(row),
         listColumns: [
           ...this.columns(users, [
             ['username', 'Username'],
@@ -349,9 +343,7 @@ class SideBuilder {
         elements: [
           section({
             label: this.tenant ? 'Person' : 'Account',
-            children: this.known(users, fields).map(([name, label]) =>
-              field({ name: name as FieldName, label, cols: 4 }),
-            ),
+            children: this.personFields(users),
           }),
         ],
       }),
@@ -979,6 +971,69 @@ class SideBuilder {
         elements: [],
       }),
     });
+  }
+
+  /**
+   * What a person's page is headed by: the name with the username beside it ("Ada
+   * Lovelace (ada)"), the one of the two the row holds where it holds one, and the page's
+   * word, "Person" or "Account", where the reader is shown neither.
+   */
+  private personTitle(row: RecordData): string {
+    const name = typeof row['name'] === 'string' ? row['name'] : '';
+    const username = typeof row['username'] === 'string' ? row['username'] : '';
+    if (name !== '' && username !== '') {
+      return `${name} (${username})`;
+    }
+    return name || username || (this.tenant ? 'Person' : 'Account');
+  }
+
+  /**
+   * The fields of a person's page, each where the schema carries the field it reads. The
+   * page says the state as the list does (statesOf), on one line, drawn only where there
+   * is something to say, and whether the email address is confirmed (emailConfirmed). The
+   * fields those two read are held by the page's form and not drawn: a field the page
+   * says in words reads the form's values, and the form holds a field the page names.
+   */
+  private personFields(users: Resource): ConfigElement[] {
+    const drawn = (named: Named[]): ConfigElement[] =>
+      this.known(users, named).map(([name, label]) => field({ name: name as FieldName, label, cols: 4 }));
+    return [
+      ...drawn([
+        ['username', 'Username'],
+        ['name', 'Name'],
+        ['email', 'Email'],
+      ]),
+      ...(this.has(users, 'emailVerifiedAt')
+        ? [
+            computedDisplayField({
+              label: 'Email confirmed',
+              cols: 4,
+              calculatedValue: (values: RecordData | undefined) => emailConfirmed(values),
+              shouldRender: (values: RecordData | undefined) => emailConfirmed(values) !== '',
+            }),
+          ]
+        : []),
+      // The state, where the schema carries the field the list's State column is on.
+      ...(this.has(users, 'disabled')
+        ? [
+            computedDisplayField({
+              label: 'State',
+              cols: 4,
+              calculatedValue: (values: RecordData | undefined) => this.statesOf(values).join(', '),
+              shouldRender: (values: RecordData | undefined) => this.statesOf(values).length > 0,
+            }),
+          ]
+        : []),
+      ...drawn([
+        ['lastSignInAt', 'Last sign-in'],
+        ['cannotEnter', 'Cannot enter'],
+        ['createdAt', 'Created'],
+      ]),
+      // Held by the form for the words above, and not drawn.
+      ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) =>
+        field({ name: name as FieldName, cols: 4, shouldRender: false }),
+      ),
+    ];
   }
 
   /**
@@ -2112,6 +2167,33 @@ function lastDay(end: unknown): string {
  * in the viewer's time zone. A role taken for an hour ends at a time, not on a day.
  */
 const dayAndTime = 'M/d/yyyy h:mm a';
+
+/**
+ * How a page writes the day of an instant, in the viewer's time zone and with the year,
+ * so a day of last year is not read as one of this year: "Nov 15, 2026".
+ */
+const dayWithYear = 'MMM d, yyyy';
+
+/**
+ * Whether a person's email address is confirmed, as their page says it: the day it was
+ * ("Nov 15, 2026"); "Not confirmed" beside an address with no such day; and nothing where
+ * the page holds neither, as a page holds a field the reader's role does not show, and
+ * before the page's form is made.
+ */
+function emailConfirmed(values: RecordData | undefined): string {
+  if (!values) {
+    return '';
+  }
+  const at = values['emailVerifiedAt'];
+  if (typeof at === 'string' || at instanceof Date) {
+    const instant = new Date(at);
+    if (!Number.isNaN(instant.getTime())) {
+      return format(instant, dayWithYear);
+    }
+  }
+  const email = values['email'];
+  return typeof email === 'string' && email !== '' ? 'Not confirmed' : '';
+}
 
 /**
  * When a role held for a set time ends and how long is left, as a list says it in one

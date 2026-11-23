@@ -250,6 +250,39 @@ const columnOf = (config: ListViewConfig, id: string): ColumnConfig => {
   }
   return found;
 };
+/** A child of a row page's section, as the spec reads it. */
+interface PageField {
+  type: string;
+  name?: string;
+  label: string;
+  cols: number;
+  shouldRender: boolean | ((values: RecordData | undefined) => boolean);
+  calculatedValue?: (values: RecordData | undefined) => string;
+}
+/** The section a person's row page draws their fields in. */
+const personSection = (config: RootConfig): { label: string; children: PageField[] } =>
+  list(config).elements[0] as unknown as { label: string; children: PageField[] };
+/**
+ * Each field of a row page's section: what it is, its field or its words, and whether it
+ * is drawn, which a field the page says in words decides from the form's values.
+ */
+const pageFields = (config: RootConfig): [string, string, boolean | 'when there is something to say'][] =>
+  personSection(config).children.map((child) => [
+    child.type,
+    child.name ?? child.label,
+    typeof child.shouldRender === 'function' ? 'when there is something to say' : child.shouldRender,
+  ]);
+/** A field a row page says in words, by its label; one the section does not have fails the spec. */
+const sayingOf = (config: RootConfig, label: string): ((values: RecordData | undefined) => [string, boolean]) => {
+  const found = personSection(config).children.find(
+    (child) => child.type === 'computedDisplayField' && child.label === label,
+  );
+  if (!found?.calculatedValue || typeof found.shouldRender !== 'function') {
+    throw new Error(`no field that says ${label}`);
+  }
+  const { calculatedValue, shouldRender } = found;
+  return (values) => [calculatedValue(values), shouldRender(values)];
+};
 /** What a person's State cell says of a row: the lines its column reads off the row. */
 const stateOf = (config: ListViewConfig): ((row: RecordData) => string[]) =>
   columnOf(config, 'disabled').valueGetter as (row: RecordData) => string[];
@@ -635,27 +668,71 @@ describe("identityPages, the whole application's side", () => {
   });
 
   it("draws a person's row page from the account's fields, with the roles, the identities and the sessions under it", () => {
-    const section = list(people).elements[0] as unknown as {
-      label: string;
-      children: { name: string; label: string }[];
-    };
+    const section = personSection(people);
     expect(section.label).toBe('Account');
-    expect(section.children.map((child) => [child.name, child.label])).toEqual([
-      ['username', 'Username'],
-      ['name', 'Name'],
-      ['email', 'Email'],
-      ['disabled', 'Disabled'],
-      ['passwordChangeRequired', 'Must change password'],
-      ['lastSignInAt', 'Last sign-in'],
-      ['emailVerifiedAt', 'Email verified'],
-      ['createdAt', 'Created'],
+    // The state and the email confirmation are said in words, from fields the form holds
+    // and does not draw.
+    expect(pageFields(people)).toEqual([
+      ['field', 'username', true],
+      ['field', 'name', true],
+      ['field', 'email', true],
+      ['computedDisplayField', 'Email confirmed', 'when there is something to say'],
+      ['computedDisplayField', 'State', 'when there is something to say'],
+      ['field', 'lastSignInAt', true],
+      ['field', 'createdAt', true],
+      ['field', 'disabled', false],
+      ['field', 'passwordChangeRequired', false],
+      ['field', 'emailVerifiedAt', false],
     ]);
+    expect(section.children.filter((child) => child.shouldRender !== false).map((child) => child.label)).toEqual([
+      'Username',
+      'Name',
+      'Email',
+      'Email confirmed',
+      'State',
+      'Last sign-in',
+      'Created',
+    ]);
+    expect(section.children.every((child) => child.cols === 4)).toBe(true);
     expect(
       children(people).map((child) => [child.title, child.primaryResource, child.parentRelation, child.showViewButton]),
     ).toEqual([
       ['Roles held', 'CrewUserRoles', { parentKey: 'id', childKey: 'userId' }, false],
       ['Sign-in identities', 'CrewSessionIdentities', { parentKey: 'id', childKey: 'userId' }, false],
       ['Sessions', 'CrewSessions', { parentKey: 'id', childKey: 'userId' }, false],
+    ]);
+  });
+
+  it("heads a person's page by the person: the name with the username beside it", () => {
+    const titled = list(people).rowTitle as (row: RecordData) => string;
+    expect(titled({ name: 'Ada Lovelace', username: 'ada' })).toBe('Ada Lovelace (ada)');
+    expect(titled({ username: 'ada' })).toBe('ada');
+    expect(titled({ name: '', username: 'ada' })).toBe('ada');
+    expect(titled({ name: 'Ada Lovelace' })).toBe('Ada Lovelace');
+    expect(titled({})).toBe('Account');
+  });
+
+  it("says on a person's page whether the email address is confirmed and the state, in words, and draws neither with nothing to say", () => {
+    const confirmed = sayingOf(people, 'Email confirmed');
+    // A day picked in the viewer's time zone, so it is the 15th wherever the suite runs.
+    const day = new Date(2026, 10, 15, 12).toISOString();
+    expect(confirmed({ email: 'ada@example.com', emailVerifiedAt: day })).toEqual(['Nov 15, 2026', true]);
+    expect(confirmed({ email: 'ada@example.com', emailVerifiedAt: null })).toEqual(['Not confirmed', true]);
+    // A row that shows no address and no day, as for a reader whose role shows neither, says nothing.
+    expect(confirmed({ email: null, emailVerifiedAt: null })).toEqual(['', false]);
+    // Before the form is made there is nothing to say.
+    expect(confirmed(undefined)).toEqual(['', false]);
+    const state = sayingOf(people, 'State');
+    expect(state({ disabled: false, passwordChangeRequired: false })).toEqual(['', false]);
+    expect(state({ disabled: true, passwordChangeRequired: true })).toEqual(['Disabled, Must change password', true]);
+    expect(state(undefined)).toEqual(['', false]);
+    // An Auth whose schema keeps no confirmation has nothing to say of one.
+    const [membersPeople] = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });
+    expect(pageFields(membersPeople)).toEqual([
+      ['field', 'username', true],
+      ['computedDisplayField', 'State', 'when there is something to say'],
+      ['field', 'lastSignInAt', true],
+      ['field', 'disabled', false],
     ]);
   });
 
@@ -932,6 +1009,30 @@ describe("identityPages, a tenant's side", () => {
         : metas[resource];
     const [unsharedPeople] = identityPages({ ...descriptor }, unshared, { auth: 'Crew', scope: 'domain' });
     expect(hiddenColumns(list(unsharedPeople))).toEqual(['heldElsewhere']);
+  });
+
+  it("heads a person's page by the person, and says there that another sector also holds them", () => {
+    expect(personSection(people).label).toBe('Person');
+    expect((list(people).rowTitle as (row: RecordData) => string)({})).toBe('Person');
+    expect(pageFields(people)).toEqual([
+      ['field', 'username', true],
+      ['field', 'name', true],
+      ['field', 'email', true],
+      ['computedDisplayField', 'State', 'when there is something to say'],
+      ['field', 'lastSignInAt', true],
+      ['field', 'disabled', false],
+      ['field', 'heldElsewhere', false],
+      ['field', 'heldGlobally', false],
+    ]);
+    const state = sayingOf(people, 'State');
+    expect(state({ disabled: false, heldElsewhere: true, heldGlobally: false })).toEqual([
+      'Also in another sector',
+      true,
+    ]);
+    expect(state({ disabled: true, heldElsewhere: true, heldGlobally: true })).toEqual([
+      'Disabled, Also in another sector, Also holds a role in the whole application',
+      true,
+    ]);
   });
 
   it("leaves a tenant's methods to their target rows: nothing is filled", () => {
