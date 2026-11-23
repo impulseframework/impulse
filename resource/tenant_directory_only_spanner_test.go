@@ -770,14 +770,30 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		}
 
 		granted := &switchPermissions{}
-		for station, want := range map[string]string{"alpha": `{"directoryOnly":true}`, "gamma": `{"directoryOnly":false}`} {
+		const alphaOn = `{"directoryOnly":true,"directory":"Google Workspace frontier.example","signedIn":"You signed in with a password."}`
+		for station, want := range map[string]string{"alpha": alphaOn, "gamma": `{"directoryOnly":false,"signedIn":"You signed in with a password."}`} {
 			if rr := serve(password, granted, station+"/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != want {
 				t.Errorf("the switch of %s: status = %d, body %q, want 200 %s", station, rr.Code, rr.Body.String(), want)
 			}
 		}
+		// The read says how the station stands, beside the switch: its directory as
+		// people know it, how the caller signed in and through which directory, whether
+		// the caller's auth has passwords, and how many people the switch keeps out.
+		counted := rules.PasswordsBy(func(context.Context, ReadWriteTransaction) (bool, bool, error) {
+			return true, true, nil
+		}).CountedBy(DirectoryCounter{
+			Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
+				return 12, nil
+			},
+			Outsiders: reader(zed, amy),
+		})
+		const alphaStands = `{"directoryOnly":true,"directory":"Google Workspace frontier.example","passwords":true,"signedIn":"You signed in through your organization's Microsoft directory.","sessionDirectory":"your organization's Microsoft directory","people":{"seated":12,"outside":2}}`
+		if rr := serveBy(through(entra), counted, granted, "alpha/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != alphaStands {
+			t.Errorf("the switch of alpha, read with its people counted: status = %d, body %q, want 200 %s", rr.Code, rr.Body.String(), alphaStands)
+		}
 		// A station that could be turned directory only says what that takes of the
 		// caller beside the switch.
-		const offWithConditions = `{"directoryOnly":false,"conditions":[{"sentence":"Directory only is turned on by a person who is signed in through this station`
+		const offWithConditions = `{"directoryOnly":false,"directory":"your organization's Microsoft directory","signedIn":"You signed in with a password.","conditions":[{"sentence":"Directory only is turned on by a person who is signed in through this station`
 		if rr := serve(password, granted, "beta/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || !strings.HasPrefix(rr.Body.String(), offWithConditions) {
 			t.Errorf("the switch of beta: status = %d, body %q, want 200 with the switch off and what turning it on takes", rr.Code, rr.Body.String())
 		}
@@ -814,7 +830,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			"the method that turns it on alone":  {denied: []accesstypes.Resource{endMethod}},
 			"one on a condition, the other held": {conditional: []accesstypes.Resource{makeMethod}},
 		} {
-			if rr := serve(password, perms, "alpha/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"directoryOnly":true}` {
+			if rr := serve(password, perms, "alpha/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != alphaOn {
 				t.Errorf("%s: status = %d, body %q, want 200 with the switch", name, rr.Code, rr.Body.String())
 			}
 		}
@@ -999,4 +1015,154 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestTenantDirectoryRules_state proves what the read of a tenant's directory-only switch
+// says of how the tenant stands, over the emulator: its directory by the name people know
+// it, on or off; the role a person gets the first time they sign in through it, in words;
+// whether the caller's auth has passwords; how the caller signed in, and through which
+// organization's directory; and how many people the tenant seats and how many of them the
+// switch keeps out, summed over the counters the rules were given.
+func TestTenantDirectoryRules_state(t *testing.T) {
+	t.Parallel()
+
+	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
+	entra := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}
+	provider := signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "id.delta.example"}
+	db, client := tenantDatabase(t, "directory-only-state", "alpha", "beta", "gamma", "delta")
+	// alpha has the Workspace and is directory only; beta has the Entra tenant and admits
+	// its people by invitation only; gamma has no directory; delta has an organization's
+	// own OpenID Connect provider, open to it with a role.
+	declareStation(t, db, "alpha", true, workspace)
+	declareStation(t, db, "beta", false, entra)
+	declareStation(t, db, "delta", false, provider)
+	seatStationDirectory(t, db, "delta", 0, "NightShiftLead")
+
+	password := establishedBy(sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword})
+	throughEntra := establishedBy(sessioninfo.AuthEvent{Method: entra.Method, Connection: entra.Connection})
+	counter := func(seated int, outsiders ...DirectoryOutsider) DirectoryCounter {
+		return DirectoryCounter{
+			Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
+				return seated, nil
+			},
+			Outsiders: func(context.Context, ReadWriteTransaction, accesstypes.Domain) ([]DirectoryOutsider, error) {
+				return outsiders, nil
+			},
+		}
+	}
+	zed := DirectoryOutsider{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-00000000000a")), Username: "zed"}
+	amy := DirectoryOutsider{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-00000000000b")), Username: "Amy"}
+	hasPassword := func(context.Context, ReadWriteTransaction) (bool, bool, error) {
+		return true, true, nil
+	}
+	counted := stationRules().CountedBy(counter(12, zed, amy))
+	noSeat := *stationColumns
+	noSeat.DefaultSeatColumn = ""
+
+	const (
+		byPassword  = "You signed in with a password."
+		entraName   = "your organization's Microsoft directory"
+		throughName = "You signed in through your organization's Microsoft directory."
+	)
+	tests := []struct {
+		name    string
+		rules   *TenantDirectoryRules
+		ctx     context.Context
+		station accesstypes.Domain
+		want    DirectoryOnlyState
+		// wantConditions says whether the read says what turning the switch on takes; the
+		// conditions' words are pinned where the conditions are.
+		wantConditions bool
+	}{
+		{
+			name: "a station with no directory names none and counts nobody", rules: counted, ctx: password, station: "gamma",
+			want: DirectoryOnlyState{SignedIn: byPassword},
+		},
+		{
+			name: "a station open to its directory with a role names the directory and the role in words", rules: counted, ctx: password, station: "delta",
+			want:           DirectoryOnlyState{Directory: "OpenID Connect provider id.delta.example", DefaultRole: "Night shift lead", SignedIn: byPassword, People: &DirectoryOnlyCount{Seated: 12, Outside: 2}},
+			wantConditions: true,
+		},
+		{
+			name: "a station that admits its directory's people by invitation only names no role", rules: counted, ctx: password, station: "beta",
+			want:           DirectoryOnlyState{Directory: entraName, SignedIn: byPassword, People: &DirectoryOnlyCount{Seated: 12, Outside: 2}},
+			wantConditions: true,
+		},
+		{
+			name: "a station that is directory only names its directory and counts its people, and asks nothing", rules: counted, ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword, People: &DirectoryOnlyCount{Seated: 12, Outside: 2}},
+		},
+		{
+			name: "a caller signed in through the station's directory is told so, with the directory", rules: counted, ctx: throughEntra, station: "beta",
+			want:           DirectoryOnlyState{Directory: entraName, SignedIn: throughName, SessionDirectory: entraName, People: &DirectoryOnlyCount{Seated: 12, Outside: 2}},
+			wantConditions: true,
+		},
+		{
+			name: "a caller signed in through another station's directory is told which", rules: counted, ctx: throughEntra, station: "gamma",
+			want: DirectoryOnlyState{SignedIn: throughName, SessionDirectory: entraName},
+		},
+		{
+			name: "rules that count nobody say no number", rules: stationRules(), ctx: password, station: "beta",
+			want:           DirectoryOnlyState{Directory: entraName, SignedIn: byPassword},
+			wantConditions: true,
+		},
+		{
+			name: "two counters are summed, and a nil reader counts nobody", rules: stationRules().CountedBy(counter(3, zed), counter(4, amy), DirectoryCounter{}), ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword, People: &DirectoryOnlyCount{Seated: 7, Outside: 2}},
+		},
+		{
+			name: "a caller whose auth has passwords is told so, with the switch on or off", rules: counted.PasswordsBy(hasPassword), ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", Passwords: true, SignedIn: byPassword, People: &DirectoryOnlyCount{Seated: 12, Outside: 2}},
+		},
+		{
+			name: "a station with no directory says whether the caller's auth has passwords", rules: counted.PasswordsBy(hasPassword), ctx: password, station: "gamma",
+			want: DirectoryOnlyState{Passwords: true, SignedIn: byPassword},
+		},
+		{
+			name: "rules over a record that declares no default seat answer, naming no role", rules: NewTenantDirectoryRules(stationsTable, stationsKey, &noSeat, "station"), ctx: password, station: "delta",
+			want:           DirectoryOnlyState{Directory: "OpenID Connect provider id.delta.example", SignedIn: byPassword},
+			wantConditions: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var state *DirectoryOnlyState
+			if err := client.ExecuteFunc(tt.ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				var err error
+				state, err = tt.rules.State(ctx, txn, tt.station)
+
+				return err
+			}); err != nil {
+				t.Fatalf("State() error = %v", err)
+			}
+			if got := len(state.Conditions) > 0; got != tt.wantConditions {
+				t.Errorf("State() says what turning the switch on takes = %v, want %v (conditions %+v)", got, tt.wantConditions, state.Conditions)
+			}
+			state.Conditions = nil
+			if diff := cmp.Diff(&tt.want, state); diff != "" {
+				t.Errorf("State() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// A counter's error is the read's, said by the reader that failed.
+	for name, failing := range map[string]DirectoryCounter{
+		"resource.DirectorySeated()": {Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
+			return 0, errors.New("the list is unreadable")
+		}},
+		"resource.DirectoryOutsiders()": {Outsiders: func(context.Context, ReadWriteTransaction, accesstypes.Domain) ([]DirectoryOutsider, error) {
+			return nil, errors.New("the list is unreadable")
+		}},
+	} {
+		err := client.ExecuteFunc(password, func(ctx context.Context, txn ReadWriteTransaction) error {
+			_, err := stationRules().CountedBy(failing).State(ctx, txn, "beta")
+
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("State() with a failing counter error = %v, want it wrapped %s", err, name)
+		}
+	}
 }
