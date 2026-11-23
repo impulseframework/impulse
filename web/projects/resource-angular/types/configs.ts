@@ -1075,8 +1075,10 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * asks for the row's Execute answer), under the method's name in words; a method
    * that takes more than the row opens a dialog drawn from its request fields, and one
    * that takes nothing more asks before it runs. A list of presentations says how the
-   * methods it names are shown (words, icon, a row predicate, hidden) and leaves the
-   * rest as they are. `false` offers none and asks the server nothing.
+   * methods it names are shown (words, icon, a row predicate, hidden) and in which order:
+   * the menu lists them in the order the page names them, whichever way each is offered,
+   * and after them the methods it does not name, which are left as they are. `false`
+   * offers none and asks the server nothing.
    */
   rowMethods?: false | MethodPresentation[];
   /**

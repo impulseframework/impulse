@@ -688,11 +688,12 @@ describe('ResourceListComponent row methods', () => {
     await create({ primaryResource: people, rowMethods: [note] }, { NoteOnPerson: { Execute: 'granted' } });
 
     // The second row's own answer lists no method; the filled one is the digest's to grant.
+    // The page names it, so it comes before the methods the page does not name.
     expect(actionsOf(0).map((a) => a.label)).toEqual([
+      'Add a note',
       'Disable person',
       'Enable person',
       'Rename person',
-      'Add a note',
     ]);
     expect(actionsOf(1).map((a) => a.label)).toEqual(['Add a note']);
 
@@ -718,10 +719,10 @@ describe('ResourceListComponent row methods', () => {
       { NoteOnPerson: { Execute: 'granted' } },
     );
 
-    expect(actionsOf(0).map((a) => a.label)).toEqual(['Disable person', 'Enable person', 'Rename person', 'Commend']);
+    expect(actionsOf(0).map((a) => a.label)).toEqual(['Commend', 'Disable person', 'Enable person', 'Rename person']);
     expect(actionsOf(1).map((a) => a.label)).toEqual(['Reinstate']);
 
-    actionsOf(0)[3].run();
+    actionsOf(0)[0].run();
     actionsOf(1)[0].run();
     await settle();
 

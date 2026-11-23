@@ -220,6 +220,33 @@ export function filledMethods(
 }
 
 /**
+ * A row's menu in the order the page names its methods: the entries whose presentation is
+ * one of the page's, in the order of the page's presentations, whichever way each is
+ * offered (by the row's own answer, rowMethods, or filled from the row, filledMethods),
+ * and after them the entries of methods the page does not name, in the order given. An
+ * entry goes by its own presentation, so a method the page names twice keeps each entry
+ * at its own presentation's place. Nothing is dropped and nothing added; with no
+ * presentations the entries are answered as given.
+ */
+export function inNamedOrder(
+  offered: readonly OfferedMethod[],
+  presentations: readonly MethodPresentation[] | undefined,
+): OfferedMethod[] {
+  if (!presentations?.length) {
+    return [...offered];
+  }
+  // An entry of a method the page does not name goes after every named one.
+  const placeOf = (entry: OfferedMethod): number => {
+    const place = entry.presentation ? presentations.indexOf(entry.presentation) : -1;
+    return place === -1 ? presentations.length : place;
+  };
+  return offered
+    .map((entry, given) => ({ entry, given, place: placeOf(entry) }))
+    .sort((a, b) => a.place - b.place || a.given - b.given)
+    .map(({ entry }) => entry);
+}
+
+/**
  * Whether the row a list sits under offers a method the page names above the list: a
  * method that names a row (`@target`) runs there against that row, so the row's
  * capability answer lists it and the page's row predicate does not say no. The
