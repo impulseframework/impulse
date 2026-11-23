@@ -81,14 +81,85 @@ type (
 		Weight int64        `spanner:"Weight"`
 	}
 
-	// Member is a global view known by the name it shows. A view is no table a list's
-	// statement reads a name from, so an id pointing into it is given no name field.
+	// Member is a global view known by the name it shows: an id pointing into it is given
+	// a name field, read from the view's query.
 	//
 	// @virtual
 	Member struct {
 		ID impulse.UUID `spanner:"Id" index:"true"` // @primarykey
 		// @name
 		Shown string `spanner:"Shown"`
+	}
+
+	// Hangar is a tenant's view known by a door sign a filter may name, holding its rows
+	// to their tenant on a column of its own.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	Hangar struct {
+		ID impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		// @domain
+		BaseID impulse.UUID `spanner:"BaseId"`
+		// @name
+		Door string `spanner:"Door" allow_filter:"true"`
+	}
+
+	// Beacon is a global view known by an indexed signal that also carries a table's
+	// search fact, which a name read from the view does not answer.
+	//
+	// @virtual
+	Beacon struct {
+		ID impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		// @name
+		Signal string `spanner:"Signal" index:"true" search:"Seals.Motto"`
+	}
+
+	// Patrol is a view that says nothing of what its rows are known by.
+	//
+	// @virtual
+	Patrol struct {
+		ID    impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		Route string       `spanner:"Route"`
+	}
+
+	// Convoy is a view keyed by two columns, known by its label: no one id names one of
+	// its rows.
+	//
+	// @virtual
+	Convoy struct {
+		ID  impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		Leg int64        `spanner:"Leg"`             // @primarykey
+		// @name
+		Label string `spanner:"Label"`
+	}
+
+	// Manifest is a tenant's resource pointing by indexed ids into a tenant's view and a
+	// global one, each known by a name, and into a view that says nothing of its rows'
+	// names.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Manifest struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID   impulse.UUID `spanner:"BaseId"`
+		HangarID impulse.UUID `spanner:"HangarId"` // @enumerate(Hangars)
+		BeaconID impulse.UUID `spanner:"BeaconId"` // @enumerate(Beacons)
+		PatrolID impulse.UUID `spanner:"PatrolId"` // @enumerate(Patrols)
+	}
+
+	// Tour is a tenant's resource whose list is also asked across tenants, pointing into a
+	// tenant's view and a global one: only the global view's name is read.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @listAcrossTenants
+	Tour struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID   impulse.UUID `spanner:"BaseId"`
+		HangarID impulse.UUID `spanner:"HangarId"` // @enumerate(Hangars)
+		MemberID impulse.UUID `spanner:"MemberId"` // @enumerate(Members)
 	}
 
 	// Permit is a tenant's resource pointing to each kind of row: its tenant, a named

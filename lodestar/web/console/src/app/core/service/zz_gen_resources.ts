@@ -300,6 +300,7 @@ export interface CrewSessionImpersonations {
   sourceSessionId?: string;
   principalKind?: string;
   principalUserId?: string;
+  principalUsername?: string;
   principalRole?: string;
   mask?: string;
   reason?: string;
@@ -1517,6 +1518,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sourceSessionId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'principalKind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
       { fieldName: 'principalUserId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'principalUsername', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'principalRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'mask', displayType: 'string', required: false, isIndex: false, sortable: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },

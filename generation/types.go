@@ -262,6 +262,7 @@ const (
 	permissionsOutputName         = "permissions"
 	liveOutputName                = "live"
 	liveDerivationsOutputName     = "live_derivations"
+	nameViewsOutputName           = "name_views"
 	decodersOutputName            = "decoders"
 	appContractOutputName         = "app_contract"
 	routesOutputName              = "routes"

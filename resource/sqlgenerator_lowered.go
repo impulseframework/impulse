@@ -313,9 +313,12 @@ func (n *truthNode) String() string {
 
 // scalarSubqueryNode selects one column off an aliased table under a
 // predicate — the @subjectValue rendering: an empty result is SQL NULL, which
-// no condition can find TRUE, so a missing row fails closed.
+// no condition can find TRUE, so a missing row fails closed. Where query is
+// set, a view's query is read under the alias in the table's place (a name
+// read from a view).
 type scalarSubqueryNode struct {
 	table  string
+	query  string
 	alias  string
 	column string
 	where  ExpressionNode
@@ -506,7 +509,18 @@ func (s *sqlGenerator) renderScalarSubquery(n *scalarSubqueryNode) (string, erro
 		return "", err
 	}
 
-	return fmt.Sprintf("(SELECT %s FROM %s %s WHERE %s)",
+	return fmt.Sprintf("(SELECT %s FROM %s WHERE %s)",
 		s.renderColumnRef(columnRef{qualifier: n.alias, column: n.column}),
-		s.quoteIdentifier(n.table), s.quoteIdentifier(n.alias), where), nil
+		s.fromItem(n.table, n.query, n.alias), where), nil
+}
+
+// fromItem renders a FROM item read under alias: the table, or, where query is
+// set, a view's query in its place, in the form a statement over the view
+// selects from (viewFromItem), the alias quoted.
+func (s *sqlGenerator) fromItem(table, query, alias string) string {
+	if query != "" {
+		return fmt.Sprintf("(%s\n) AS %s", query, s.quoteIdentifier(alias))
+	}
+
+	return s.quoteIdentifier(table) + " " + s.quoteIdentifier(alias)
 }
