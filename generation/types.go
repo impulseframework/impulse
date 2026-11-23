@@ -2595,7 +2595,7 @@ const (
 	notOnOwnAccountKeyword      string = "notOnOwnAccount"      // Declares that the row an RPC method names does not offer it to the person whose account the row is: @notOnOwnAccount(ID) names the row's field that holds the account's id
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
-	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
+	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning, or @warning(typed: open) where a person types a word first; its Warning method writes the consequence of a call, and the dialog holds its confirm button until the server has answered and the word, where there is one, is typed
 	rowsOfKeyword               string = "rowsOf"               // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
 	changedByKeyword            string = "changedBy"            // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
 	typescriptKeyword           string = "typescript"           // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
@@ -2652,7 +2652,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		notOnOwnAccountKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		warningKeyword:              {genlang.ScanStruct: genlang.Exclusive},
 		rowsOfKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		changedByKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		typescriptKeyword:           {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},

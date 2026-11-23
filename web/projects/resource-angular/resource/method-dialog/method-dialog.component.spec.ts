@@ -119,6 +119,13 @@ const descriptor: ApiDescriptor = {
       scope: 'global',
       statuses: [204],
     },
+    TakeRoleAway: {
+      method: 'TakeRoleAway' as Method,
+      property: 'takeRoleAway',
+      route: 'take-role-away',
+      scope: 'global',
+      statuses: [204],
+    },
     // A descriptor generated apart from the metadata: the metadata below declares an upload, this does not.
     ArchiveMissionDocument: {
       method: 'ArchiveMissionDocument' as Method,
@@ -239,6 +246,16 @@ const methodMeta: Record<string, MethodMeta> = {
     dryRun: true,
     warning: { typed: 'delete' },
     fields: [{ fieldName: 'year', displayType: 'string', required: true }],
+  },
+  // Warns before it runs with no word to type: the server's words are the question.
+  TakeRoleAway: {
+    route: 'take-role-away',
+    dryRun: true,
+    warning: {},
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid', required: true },
+      { fieldName: 'role', displayType: 'string', required: true },
+    ],
   },
   // Runs outside a transaction: the server refuses a dry run of it.
   SendNotice: {
@@ -1280,6 +1297,93 @@ describe('MethodDialogComponent running a method that warns', () => {
 
     expect(calls(o)).toEqual([['warning', { year: '2019' }]]);
     expect(runButton(o).disabled).toBe(false);
+  });
+
+  it("asks a warning with no word to type as the dialog's question, and holds the button only until the server has answered", async () => {
+    const release: (() => void)[] = [];
+    warning = () =>
+      new Promise<TransportResponse>((resolve) => {
+        release.push(() =>
+          resolve({
+            status: 200,
+            body: {
+              consequence: 'ada loses the role Auditor.',
+              names: ['ada'],
+              also: [
+                { says: 'They hold nothing else, so their account is deleted with it.', names: ['ada (Ada Byron)'] },
+              ],
+              confirm: 'Take the role away and delete the account',
+            },
+          }),
+        );
+      });
+    const o = await open(
+      { method: 'TakeRoleAway', label: 'Take the role away', preset: { userId: 'u-1', role: 'Auditor' } },
+      server(),
+    );
+    const root = o.fixture.nativeElement as HTMLElement;
+
+    // Asked as it opens, and held until the server has answered: nobody confirms words they were not shown.
+    expect(calls(o)).toEqual([['warning', { userId: 'u-1', role: 'Auditor' }]]);
+    expect(runButton(o).disabled).toBe(true);
+    expect(root.querySelector('.typed-word')).toBeNull();
+    await o.component.run();
+    expect(calls(o)).toHaveLength(1);
+
+    release[0]();
+    await settle(o);
+
+    expect(runButton(o).disabled).toBe(false);
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away and delete the account');
+    expect(runButton(o).classList.contains('warns')).toBe(false);
+    expect(root.querySelector('.typed-word')).toBeNull();
+    // The server's words are the question: no warning icon, no alert.
+    const block = root.querySelector('.warning');
+    expect(block?.classList.contains('asks')).toBe(true);
+    expect(block?.getAttribute('role')).toBeNull();
+    expect(root.querySelector('.warning-icon')).toBeNull();
+    expect(text(o, '.warning.asks .warning-consequence')).toBe('ada loses the role Auditor.');
+    expect(
+      Array.from(root.querySelectorAll('.warning.asks .warning-names li')).map((li) => li.textContent?.trim()),
+    ).toEqual(['ada', 'ada (Ada Byron)']);
+    expect(text(o, '.warning.asks .warning-note')).toBe('They hold nothing else, so their account is deleted with it.');
+    expect(text(o, '.question')).toBe('');
+
+    await o.component.run();
+    expect(calls(o)).toEqual([
+      ['warning', { userId: 'u-1', role: 'Auditor' }],
+      ['real', { userId: 'u-1', role: 'Auditor' }],
+    ]);
+    expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it('shows a refusal of a question with no word to type, and holds the button', async () => {
+    warning = () => ({
+      status: 404,
+      body: { message: 'This person no longer holds that role. Refresh the page to see what they hold.' },
+    });
+    const o = await open(
+      { method: 'TakeRoleAway', label: 'Take the role away', preset: { userId: 'u-1', role: 'Auditor' } },
+      server(),
+    );
+    await settle(o);
+
+    expect(text(o, '.refusal')).toBe('This person no longer holds that role. Refresh the page to see what they hold.');
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')).toBeNull();
+    expect(runButton(o).disabled).toBe(true);
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
+    await o.component.run();
+    expect(calls(o).filter(([kind]) => kind === 'real')).toEqual([]);
+  });
+
+  it('draws a warning with a word to type in the warning style, under a warning icon, as an alert', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    const block = (o.fixture.nativeElement as HTMLElement).querySelector('.warning');
+    expect(block?.classList.contains('asks')).toBe(false);
+    expect(block?.getAttribute('role')).toBe('alert');
+    expect(text(o, '.warning .warning-icon')).toBe('warning');
   });
 
   it('draws no warning and asks for no word on a method that declares none', async () => {

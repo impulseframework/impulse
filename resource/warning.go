@@ -13,10 +13,12 @@ import (
 //	func (m *OpenRegistration) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)
 //
 // The dialog a page runs the method through asks for the warning before anything is
-// saved, with the request as the person has filled it so far, shows it in the warning
-// style, and holds its confirm button until the person has typed the declared word. The
-// words are the server's, written for that call: they can name the row the call runs
-// against and what the request would do to it, which no page knows.
+// saved, with the request as the person has filled it so far, shows it, and holds its
+// confirm button until the server has answered and, where the method declares a word
+// (@warning(typed: open)), the person has typed it. A method that declares a word is
+// shown in the warning style; one that declares none (@warning) is shown as the dialog's
+// question. The words are the server's, written for that call: they can name the row
+// the call runs against and what the request would do to it, which no page knows.
 
 // WarningHeader asks a method that declares a warning (@warning) what the call would
 // do, in place of doing it: the generated frame decodes the request and checks the

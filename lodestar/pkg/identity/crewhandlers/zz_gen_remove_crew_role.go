@@ -47,17 +47,16 @@ func (h *Handlers) RemoveCrewRole() http.HandlerFunc {
 
 		p := (*crewidentity.RemoveCrewRole)(params)
 
-		// The X-Warning header takes the value true or is left off the request: any
-		// other value is refused here, and the call is not run.
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if asksWarning {
-			// The method declares no warning (@warning): a request that asks for one
-			// is refused, and never runs the call.
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("RemoveCrewRole declares no warning: send the call without the X-Warning header"))
-		}
+		var warning *resource.Warning
 
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote
@@ -73,6 +72,18 @@ func (h *Handlers) RemoveCrewRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			if asksWarning {
+				said, err := p.Warning(ctx, txn, h.RPCClient())
+				if err != nil {
+					return errors.Wrap(err, "RemoveCrewRole.Warning()")
+				}
+				if err := resource.CheckWarning("RemoveCrewRole", said); err != nil {
+					return errors.Wrap(err, "resource.CheckWarning()")
+				}
+				warning = said
+
+				return resource.ErrWarningAsked
+			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
 			}
@@ -82,6 +93,9 @@ func (h *Handlers) RemoveCrewRole() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if asksWarning && resource.WarningAsked(err) {
+				return httpio.NewEncoder(w).Ok(warning)
+			}
 			if dryRun && resource.DryRunRolledBack(err) {
 				return httpio.NewEncoder(w).Ok(nil)
 			}

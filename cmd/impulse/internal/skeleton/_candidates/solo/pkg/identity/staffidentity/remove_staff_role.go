@@ -24,13 +24,31 @@ import (
 // identity links and sessions, in the same transaction: an account nothing admits is
 // not kept.
 //
+// The method declares a warning with no word to type: asked first, the server says whose
+// role goes and where it is held, and, where it is the last thing the person holds, that
+// the account is deleted with it.
+//
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @warning
 // @class(access)
 type RemoveStaffRole struct {
 	UserID impulse.UUID
 	Role   string `validate:"required"`
+}
+
+// Warning says whose role would go and where it is held, and whether the account goes
+// with it. It writes nothing.
+func (m *RemoveStaffRole) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	warning, err := client.manager.RoleRemovalWarning(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.RoleRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

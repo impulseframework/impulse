@@ -4,8 +4,10 @@
     <p class="question">{{ question }}</p>
   }
   @if (warned(); as warning) {
-    <div class="warning" role="alert">
-      <mat-icon class="warning-icon" aria-hidden="true">warning</mat-icon>
+    <div class="warning" [class.asks]="!typedWord" [attr.role]="typedWord ? 'alert' : null">
+      @if (typedWord) {
+        <mat-icon class="warning-icon" aria-hidden="true">warning</mat-icon>
+      }
       <div class="warning-words">
         <p class="warning-consequence">{{ warning.consequence }}</p>
         @if (warning.names?.length) {

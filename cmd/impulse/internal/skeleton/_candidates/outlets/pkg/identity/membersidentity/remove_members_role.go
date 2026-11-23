@@ -30,16 +30,36 @@ import (
 // in that tenant itself, such a row offers it only to a caller whose session enters
 // the tenant (@callerEnters); the method refuses anyone else.
 //
+// The method declares a warning with no word to type: asked first, the server says whose
+// role goes and where it is held, and, where it is the last thing the person holds, that
+// the account is deleted with it.
+//
 // @rpc
 // @callerEnters(MembersHeldRole, MembersTakenRole)
 // @outlet(portal)
 // @answers(204)
+// @warning
 // @class(access)
 type RemoveMembersRole struct {
 	UserID      impulse.UUID
 	Role        string `validate:"required"`
 	Domain      *string
 	EveryDomain bool
+}
+
+// Warning says whose role would go and where it is held, and whether the account goes
+// with it. It writes nothing.
+func (m *RemoveMembersRole) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	scope, err := identity.Scope(m.Domain, m.EveryDomain)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Scope()")
+	}
+	warning, err := client.manager.RoleRemovalWarning(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.RoleRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

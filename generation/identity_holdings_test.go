@@ -284,7 +284,8 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 		"crewidentity/remove_crew_ship_role.go": {
 			"// @target(CrewShipHeldRole, key: UserID)\n\tUserID impulse.UUID\n\t// @target(CrewShipHeldRole, key: Role)\n\tRole string `validate:\"required\"`",
 			"// @target(CrewShipHeldRole, key: GroupID)\n\tGroupID string\n}",
-			"if m.GroupID != \"\" {\n\t\treturn httpio.NewBadRequestMessage(\"that role comes to the person through a group",
+			"const removeCrewShipRoleThroughGroup = \"That role comes to the person through a group, so it is not taken away from the person. Take the role away",
+			"if m.GroupID != \"\" {\n\t\treturn httpio.NewBadRequestMessage(removeCrewShipRoleThroughGroup)",
 		},
 		"crewidentity/assign_crew_ship_role.go": {"\tReason *string\n}", "identity.RequestReason(m.Reason)"},
 		"internal/crewresources/crew_ship_groups.go": {
