@@ -101,6 +101,7 @@ func TestHistory(t *testing.T) {
 			if len(tt.events) != historyPerRow {
 				t.Fatalf("%d records, want %d", len(tt.events), historyPerRow)
 			}
+			fields := fieldNames(tt.fields)
 			var before map[accesstypes.Field]resource.DiffElem
 			for k, event := range tt.events {
 				if event.TableName != tt.table || event.RowID != tt.rowID || event.Sequence != 1 || event.TenantID != tt.sectorID || event.EventSource != historySource {
@@ -121,7 +122,7 @@ func TestHistory(t *testing.T) {
 					t.Fatalf("record %d holds no change set: %#v", k, event.ChangeSet)
 				}
 				for field, change := range changeSet {
-					if _, ok := tt.fields.FieldByName(string(field)); !ok {
+					if !fields[field] {
 						t.Errorf("record %d names %s, which is no field of %s", k, field, tt.fields.Name())
 					}
 					switch {
@@ -145,6 +146,16 @@ func TestHistory(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fieldNames answers the names of a struct type's visible fields, each mapped to true.
+func fieldNames(structType reflect.Type) map[accesstypes.Field]bool {
+	names := make(map[accesstypes.Field]bool)
+	for _, field := range reflect.VisibleFields(structType) {
+		names[accesstypes.Field(field.Name)] = true
+	}
+
+	return names
 }
 
 func TestIdentifierSchemes(t *testing.T) {
