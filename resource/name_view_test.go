@@ -213,10 +213,10 @@ func labelStatement(t *testing.T, target string, perms UserPermissions, dbType D
 // one line, for the database.
 func labelsFrom(dbType DBType, alias string) string {
 	if dbType == PostgresDBType {
-		return fmt.Sprintf(`(%s ) AS "%s"`, squadronLabelsQuery, alias)
+		return fmt.Sprintf("(%s ) AS %q", squadronLabelsQuery, alias)
 	}
 
-	return fmt.Sprintf("(%s ) AS `%s`", squadronLabelsQuery, alias)
+	return fmt.Sprintf("(%s ) AS %#q", squadronLabelsQuery, alias)
 }
 
 // TestNameView_statement pins what a statement writes for a name read from a view:

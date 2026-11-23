@@ -1819,6 +1819,8 @@ func closingParen(toks []token.Token, open int) int {
 			if depth == 0 {
 				return i
 			}
+		default:
+			// Any other token leaves the depth as it is.
 		}
 	}
 
