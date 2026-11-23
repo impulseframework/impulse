@@ -389,9 +389,9 @@ application mails although it invites nobody: a sign-in the directory does not a
 for with a second factor waits for a code mailed to the person's address, and through
 Microsoft or another identity provider each person's first sign-in waits for one whatever
 the directory says, since no provider but Google vouches for an address and the code is
-what proves the one the person gives. So each deployed environment needs its mailbox (`APP_MAIL_MAILBOX` with
-`APP_MAIL_APP_PASSWORD`) though no release asks for one, and the brief says so; without
-it the code is written to the server's log and reaches nobody. A
+what proves the one the person gives. So each deployed environment needs its mailbox,
+and the brief says so: a deployed environment does not start without its mailbox
+(`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`). A
 development run signs in the person `APP_USERNAME` names with the roles `APP_ROLES`
 names, both in the environment template, through the simulated directory. The shape has
 no tenants, so it is refused beside `--tenancy` and the tenants' flags, and `--method`

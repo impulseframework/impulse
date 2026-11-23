@@ -827,9 +827,9 @@ The application still sends mail, though it invites nobody. Through Microsoft or
 identity provider, each person's first sign-in stops for a code mailed to the address
 they give, as [The email address on an account](#the-email-address-on-an-account) says.
 Through any directory, a sign-in that carries no second factor of the directory's own
-stops for a code mailed to the person's address. So each deployed environment needs its mailbox,
-although no release asks for one: without it the code is written to the server's log,
-and the person stays on the login page.
+stops for a code mailed to the person's address. So each deployed environment needs its mailbox:
+a deployed environment does not start without its mailbox (`APP_MAIL_MAILBOX`, with the
+secret `APP_MAIL_APP_PASSWORD`).
 
 Where the roles come from depends on the method.
 

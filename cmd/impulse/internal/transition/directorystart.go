@@ -752,24 +752,22 @@ func (d *DirectoryStart) MeaningIn(a *app.App) string {
 }
 
 // mailboxItem is what a Directory roles start leaves the author to do about the mailbox.
-// A release of such an application asks for none, since it invites nobody, and the
-// application mails all the same: the sign-in code is the second factor of every sign-in
-// the directory does not answer for, and it goes to the address on the person's account.
-// A directory that vouches for no address (Microsoft Entra ID, and another identity
-// provider whatever its token says of the address) leaves the person to give theirs at
-// the first sign-in and to prove it with that code, whatever the directory says of a
-// second factor. Without a mailbox the code is written to the server's log, so the item
-// names the settings that give an environment one.
+// Such an application invites nobody, and it mails all the same: the sign-in code is the
+// second factor of every sign-in the directory does not answer for, and it goes to the
+// address on the person's account. A directory that vouches for no address (Microsoft
+// Entra ID, and another identity provider whatever its token says of the address) leaves
+// the person to give theirs at the first sign-in and to prove it with that code, whatever
+// the directory says of a second factor. A deployed environment does not start without
+// its mailbox, so the item names the settings that give an environment one.
 func (d *DirectoryStart) mailboxItem() string {
 	m := d.methods()[0]
 	const (
-		opens  = "Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before anybody signs in. No release asks for one, since nobody is invited, and the application mails all the same: a sign-in waits for a code mailed to the person's address unless "
-		closes = " Without the mailbox the code is written to the server's log and reaches nobody, and the person is left at the login page's code step."
+		opens = "Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before its first release: a deployed environment does not start without its mailbox. Nobody is invited, and the application mails all the same: a sign-in waits for a code mailed to the person's address unless "
 	)
 	if m.Kind == app.MethodOIDC {
 		// The provider is no organization a deployment declares it administers: its
 		// token alone says whether a second factor was passed.
-		return opens + "the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. Each person's first sign-in waits for one whatever the token says, of a second factor or of their address (`email_verified`): the provider's word confirms no address, so the login page asks the person for theirs where the account holds none, and the code proves it." + closes
+		return opens + "the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. Each person's first sign-in waits for one whatever the token says, of a second factor or of their address (`email_verified`): the provider's word confirms no address, so the login page asks the person for theirs where the account holds none, and the code proves it."
 	}
 	organization, unless := "Workspace", "or"
 	first := ""
@@ -785,7 +783,7 @@ func (d *DirectoryStart) mailboxItem() string {
 		}
 	}
 
-	return fmt.Sprintf("%sthe %s is one the deployment administers%s, %s the browser is one the person asked to be remembered.%s%s", opens, organization, administered, unless, first, closes)
+	return fmt.Sprintf("%sthe %s is one the deployment administers%s, %s the browser is one the person asked to be remembered.%s", opens, organization, administered, unless, first)
 }
 
 // meaning is the start's account, given the tests it wrote (a tree of suiteFiles, or
