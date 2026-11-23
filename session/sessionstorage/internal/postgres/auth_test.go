@@ -89,6 +89,8 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		LinkConfirmed: drivertest.NewLinkConfirmed(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
 		SignUp:        drivertest.NewSignUp(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
 		Addresses:     drivertest.NewAddresses(d),
+
+		ConfirmAddressByLink: drivertest.NewConfirmAddressByLink(d),
 	}
 }
 

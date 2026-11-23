@@ -137,33 +137,48 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 }
 
 // VerifyUserEmail writes the address the person has just proven they read, verified
-// at the commit time, replacing whatever the user held. On a store whose usernames
-// are the addresses it is written as the username, which renames the user and its
-// live sessions as SetUserUsername does. An address another user holds, verified or
-// not, is a Conflict.
+// at the commit time, replacing whatever the user held: VerifyUserEmailIn in a
+// transaction of its own. On a store whose usernames are the addresses it is written
+// as the username, which renames the user and its live sessions as SetUserUsername
+// does. An address another user holds, verified or not, is a Conflict.
 func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impulse.UUID, email string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, map[string]any{emailVerifiedAtColumn: spanner.CommitTimestamp})
-		if httpio.HasConflict(err) {
-			return errEmailTaken(email)
-		}
-
-		return err
-	}
-
-	row := map[string]any{idColumn: userID, emailColumn: email, emailVerifiedAtColumn: spanner.CommitTimestamp}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		return s.VerifyUserEmailIn(ctx, txn, userID, email)
+	})
+	if err != nil {
 		switch {
 		case spanner.ErrCode(err) == codes.NotFound:
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		case s.usernameIsEmail && s.usernameConflict(err):
+			return errEmailTaken(email)
 		case spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()):
 			return errEmailTaken(email)
 		}
 
-		return errors.Wrap(err, "spanner.Client.Apply()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
+}
+
+// VerifyUserEmailIn buffers the address the person has just proven they read on the
+// user, verified at the commit time, inside tx, replacing whatever the user held. On a
+// store whose usernames are the addresses it is written as the username, which renames
+// the user, its live sessions and the live impersonations it holds as an actor
+// (renameUserIn). The write is a buffered mutation, so a missing user ends the
+// transaction with NotFound at the commit, and an address or a name another user holds
+// with the database's AlreadyExists (SignInConflict names it).
+func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, email string) error {
+	if s.usernameIsEmail {
+		return s.renameUserIn(ctx, tx, userID, email, map[string]any{emailVerifiedAtColumn: spanner.CommitTimestamp})
+	}
+
+	row := map[string]any{idColumn: userID, emailColumn: email, emailVerifiedAtColumn: spanner.CommitTimestamp}
+	if err := tx.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 	}
 
 	return nil

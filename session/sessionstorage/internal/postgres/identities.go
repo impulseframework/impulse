@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
@@ -171,14 +172,15 @@ func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx pgx.Tx, userID
 // tx inserts on the strength of a password proof is checked against the hash the row
 // holds when it commits.
 func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID, lock string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash", "Disabled", "Email" IS NOT NULL AND "EmailVerifiedAt" IS NOT NULL, "Email" IS NOT NULL FROM %s WHERE "Id" = $1 %s`,
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash", "Disabled", "Email", "EmailVerifiedAt" FROM %s WHERE "Id" = $1 %s`,
 		s.userTable(), lock)
 
 	var (
-		u    dbtype.User
-		hash *string
+		u          dbtype.User
+		hash       *string
+		verifiedAt *time.Time
 	)
-	if err := tx.QueryRow(ctx, query, userID).Scan(&u.ID, &u.Username, &hash, &u.Disabled, &u.EmailConfirmed, &u.EmailHeld); err != nil {
+	if err := tx.QueryRow(ctx, query, userID).Scan(&u.ID, &u.Username, &hash, &u.Disabled, &u.Email, &verifiedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
@@ -188,6 +190,10 @@ func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID imp
 	if hash != nil {
 		u.HasPassword, u.PasswordProof = true, dbtype.ProofOfStored(*hash)
 	}
+	if u.Email != nil {
+		u.EmailConfirmedAt = verifiedAt
+	}
+	u.EmailHeld, u.EmailConfirmed = u.Email != nil, u.EmailConfirmedAt != nil
 
 	return &u, nil
 }

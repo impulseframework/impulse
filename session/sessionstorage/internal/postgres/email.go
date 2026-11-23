@@ -122,31 +122,42 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 }
 
 // VerifyUserEmail writes the address the person has just proven they read, verified
-// at the transaction's time, replacing whatever the user held. On a store whose
-// usernames are the addresses it is written as the username, which renames the user
-// and its live sessions as SetUserUsername does. An address another user holds,
-// verified or not, is a Conflict.
+// at the transaction's time, replacing whatever the user held: VerifyUserEmailIn in a
+// transaction of its own. On a store whose usernames are the addresses it is written
+// as the username, which renames the user and its live sessions as SetUserUsername
+// does. An address another user holds, verified or not, is a Conflict.
 func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impulse.UUID, email string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`)
-		if httpio.HasConflict(err) {
-			return errEmailTaken(email)
-		}
-
+	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		return s.VerifyUserEmailIn(ctx, tx, userID, email)
+	})
+	switch {
+	case s.isEmailConflict(err), s.usernameIsEmail && s.isUsernameConflict(err):
+		return errEmailTaken(email)
+	case err != nil:
 		return err
 	}
 
-	query := fmt.Sprintf(`UPDATE %s SET "Email" = $2, "EmailVerifiedAt" = now() WHERE "Id" = $1`, s.userTable())
-	tag, err := s.conn.Exec(ctx, query, userID, email)
-	if err != nil {
-		if s.isEmailConflict(err) {
-			return errEmailTaken(email)
-		}
+	return nil
+}
 
-		return errors.Wrap(err, "Queryer.Exec()")
+// VerifyUserEmailIn writes the address the person has just proven they read on the
+// user, verified at the transaction's time, inside tx, replacing whatever the user
+// held. On a store whose usernames are the addresses it is written as the username,
+// which renames the user, its live sessions and the live impersonations it holds as an
+// actor (renameUserIn). A missing user is NotFound; an address or a name another user
+// holds is the database's unique violation, which ends tx (SignInConflict names it).
+func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID, email string) error {
+	if s.usernameIsEmail {
+		return s.renameUserIn(ctx, tx, userID, email, `, "EmailVerifiedAt" = now()`)
+	}
+
+	query := fmt.Sprintf(`UPDATE %s SET "Email" = $2, "EmailVerifiedAt" = now() WHERE "Id" = $1`, s.userTable())
+	tag, err := tx.Exec(ctx, query, userID, email)
+	if err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)

@@ -96,3 +96,22 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 
 	return nil
 }
+
+// SetSelfServiceReset writes whether a person may ask for their own password reset
+// link on the row of the sign-in method registered under method, with UpdatedAt the
+// database's time, and leaves what else the row says as it stands. It is one
+// statement: a method with no row gets one that is invite only, and a row there has
+// the one field and its time written, never the row read and written back.
+func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, false, NULL, NULL, $2, now())
+		ON CONFLICT ("Name") DO UPDATE SET "SelfServiceReset" = EXCLUDED."SelfServiceReset", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
+		s.signInMethodsTable(), signInMethodColumns)
+	if _, err := s.conn.Exec(ctx, query, method, on); err != nil {
+		return errors.Wrap(err, "pgx.Conn.Exec()")
+	}
+
+	return nil
+}
