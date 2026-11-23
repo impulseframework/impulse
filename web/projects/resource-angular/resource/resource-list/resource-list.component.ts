@@ -704,7 +704,7 @@ export class ResourceListComponent implements OnInit {
    */
   searchFields = computed(() => {
     const refused = this.searchRefused();
-    return refused.notSeen.length > 0 || refused.onSomeRows.length > 0
+    return refused.notSeen.length > 0 || refused.notAlwaysSeen.length > 0
       ? []
       : searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta);
   });
@@ -741,8 +741,8 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * What the page says where it offers no box because the server would refuse the
-   * search: the fields the caller's role does not see and the fields it sees on some
-   * rows only, by the labels the box gives them. Nothing when the config hides the box.
+   * search: the fields the caller's role does not see and the fields it does not always
+   * see, by the labels the box gives them. Nothing when the config hides the box.
    */
   searchNotice = computed(() => {
     if (this.config().showSearchBox === false) {
@@ -750,7 +750,10 @@ export class ResourceListComponent implements OnInit {
     }
     const label = (field: string): string => searchFieldLabel(field, this.columnHeaders());
     const refused = this.searchRefused();
-    return searchRefusedNotice({ notSeen: refused.notSeen.map(label), onSomeRows: refused.onSomeRows.map(label) });
+    return searchRefusedNotice({
+      notSeen: refused.notSeen.map(label),
+      notAlwaysSeen: refused.notAlwaysSeen.map(label),
+    });
   });
 
   /** Whether the box is in the request: it counts as the indexed touch a companion-only column waits for. */

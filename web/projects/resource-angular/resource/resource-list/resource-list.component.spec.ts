@@ -1815,7 +1815,7 @@ describe('ResourceListComponent', () => {
       // The server searches a computed resource over its real values, so it refuses the
       // whole search unless the caller holds every searched field with no condition left
       // once the request is checked: a field the digest does not list, or lists as
-      // conditional (seen on some rows only), withholds the box. A field listed as
+      // conditional (not always seen), withholds the box. A field listed as
       // conditionalOnTime keeps it: the server settles that grant from the time of the request.
       const refused = (): string | undefined =>
         (fixture.nativeElement as HTMLElement)
@@ -1877,11 +1877,11 @@ describe('ResourceListComponent', () => {
         expect(refused()).toBe('You cannot search this list: your role does not see Name.');
       });
 
-      it('a searched field listed as conditional: no box, and the page says the role sees it on some rows only', async () => {
+      it('a searched field listed as conditional: no box, and the page says the role does not always see it', async () => {
         await createUnder(listing('conditional'), true);
         expect(box()).toBeNull();
         expect(fixture.componentInstance.searchFields()).toEqual([]);
-        expect(refused()).toBe('You cannot search this list: your role sees Name on some rows only.');
+        expect(refused()).toBe('You cannot search this list: your role does not always see Name.');
       });
 
       it('a searched field listed as conditionalOnTime: the box, and no sentence', async () => {

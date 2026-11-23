@@ -219,7 +219,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /**
    * Whether the server would refuse the box's search of a paged computed source: a
-   * search field the caller's role does not see or sees on some rows only
+   * search field the caller's role does not see or does not always see
    * (refusedSearchFields). A whole source is read without a search and matched here, so
    * nothing is refused over it.
    */
@@ -228,7 +228,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
       return false;
     }
     const refused = refusedSearchFields(this.sourceMeta(), this.sourceListStates());
-    return refused.notSeen.length > 0 || refused.onSomeRows.length > 0;
+    return refused.notSeen.length > 0 || refused.notAlwaysSeen.length > 0;
   });
 
   /**

@@ -174,7 +174,7 @@ describe('refusedSearchFields', () => {
     ],
     searchFields: ['subsystem', 'shipName', 'captain'],
   };
-  const none: RefusedSearchFields = { notSeen: [], onSomeRows: [] };
+  const none: RefusedSearchFields = { notSeen: [], notAlwaysSeen: [] };
   const cases: {
     name: string;
     meta: ResourceMeta;
@@ -194,26 +194,26 @@ describe('refusedSearchFields', () => {
       want: none,
     },
     {
-      name: 'the ship name seen on some rows',
+      name: 'the ship name not always seen',
       meta: board,
       states: { shipName: 'conditional', worstReading: 'granted' },
-      want: { notSeen: [], onSomeRows: ['shipName'] },
+      want: { notSeen: [], notAlwaysSeen: ['shipName'] },
     },
     {
       name: 'the ship name not listed, the digest naming another field',
       meta: board,
       states: { worstReading: 'granted' },
-      want: { notSeen: ['shipName'], onSomeRows: [] },
+      want: { notSeen: ['shipName'], notAlwaysSeen: [] },
     },
     {
-      name: 'the captain not listed and the ship name seen on some rows',
+      name: 'the captain not listed and the ship name not always seen',
       meta: crewed,
       states: { shipName: 'conditional', worstReading: 'conditionalOnTime' },
-      want: { notSeen: ['captain'], onSomeRows: ['shipName'] },
+      want: { notSeen: ['captain'], notAlwaysSeen: ['shipName'] },
     },
     { name: 'the empty record: nothing known, or no List on the board', meta: board, states: {}, want: none },
     {
-      name: 'the key seen on some rows, the ship name granted',
+      name: 'the key not always seen, the ship name granted',
       meta: board,
       states: { subsystem: 'conditional', shipName: 'granted' },
       want: none,
@@ -232,33 +232,39 @@ describe('refusedSearchFields', () => {
 
 describe('searchRefusedNotice', () => {
   it('says nothing for no field, and names one, two or three the role does not see as a person would', () => {
-    expect(searchRefusedNotice({ notSeen: [], onSomeRows: [] })).toBe('');
-    expect(searchRefusedNotice({ notSeen: ['Ship Name'], onSomeRows: [] })).toBe(
+    expect(searchRefusedNotice({ notSeen: [], notAlwaysSeen: [] })).toBe('');
+    expect(searchRefusedNotice({ notSeen: ['Ship Name'], notAlwaysSeen: [] })).toBe(
       'You cannot search this list: your role does not see Ship Name.',
     );
-    expect(searchRefusedNotice({ notSeen: ['Ship Name', 'Subsystem'], onSomeRows: [] })).toBe(
+    expect(searchRefusedNotice({ notSeen: ['Ship Name', 'Subsystem'], notAlwaysSeen: [] })).toBe(
       'You cannot search this list: your role does not see Ship Name or Subsystem.',
     );
-    expect(searchRefusedNotice({ notSeen: ['Ship Name', 'Subsystem', 'Worst Reading'], onSomeRows: [] })).toBe(
+    expect(searchRefusedNotice({ notSeen: ['Ship Name', 'Subsystem', 'Worst Reading'], notAlwaysSeen: [] })).toBe(
       'You cannot search this list: your role does not see Ship Name, Subsystem or Worst Reading.',
     );
   });
 
-  it('names one, two or three fields the role sees on some rows only, joined with and', () => {
-    expect(searchRefusedNotice({ notSeen: [], onSomeRows: ['Mission'] })).toBe(
-      'You cannot search this list: your role sees Mission on some rows only.',
-    );
-    expect(searchRefusedNotice({ notSeen: [], onSomeRows: ['Mission', 'Squadron'] })).toBe(
-      'You cannot search this list: your role sees Mission and Squadron on some rows only.',
-    );
-    expect(searchRefusedNotice({ notSeen: [], onSomeRows: ['Mission', 'Squadron', 'Pilot'] })).toBe(
-      'You cannot search this list: your role sees Mission, Squadron and Pilot on some rows only.',
+  it('names one field the role does not always see', () => {
+    expect(searchRefusedNotice({ notSeen: [], notAlwaysSeen: ['Mission'] })).toBe(
+      'You cannot search this list: your role does not always see Mission.',
     );
   });
 
-  it('says both in one sentence where the role does not see one field and sees another on some rows only', () => {
-    expect(searchRefusedNotice({ notSeen: ['Name'], onSomeRows: ['Mission'] })).toBe(
-      'You cannot search this list: your role does not see Name, and it sees Mission on some rows only.',
+  it('names two fields the role does not always see, joined with or', () => {
+    expect(searchRefusedNotice({ notSeen: [], notAlwaysSeen: ['Mission', 'Squadron'] })).toBe(
+      'You cannot search this list: your role does not always see Mission or Squadron.',
+    );
+  });
+
+  it('names three fields the role does not always see, joined with commas and or', () => {
+    expect(searchRefusedNotice({ notSeen: [], notAlwaysSeen: ['Mission', 'Squadron', 'Pilot'] })).toBe(
+      'You cannot search this list: your role does not always see Mission, Squadron or Pilot.',
+    );
+  });
+
+  it('says both in one sentence where the role does not see one field and does not always see another', () => {
+    expect(searchRefusedNotice({ notSeen: ['Name'], notAlwaysSeen: ['Mission'] })).toBe(
+      'You cannot search this list: your role does not see Name, and it does not always see Mission.',
     );
   });
 });

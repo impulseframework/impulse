@@ -150,7 +150,7 @@ describe('the expense manifests page', () => {
       expect(pressable()).toEqual([]);
       expect(element().querySelector('impulse-search-box')).toBeNull();
       expect(element().querySelector('.impulse-resource-list-search-refused')?.textContent?.trim()).toBe(
-        'You cannot search this list: your role sees Mission on some rows only.',
+        'You cannot search this list: your role does not always see Mission.',
       );
     });
   });

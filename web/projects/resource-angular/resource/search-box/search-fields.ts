@@ -19,10 +19,11 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 // resource is searched over its real values, so the server refuses the whole search
 // unless the caller holds every searched field with no condition left once the request
 // is checked. The box is then not offered, and the page says why: the fields the
-// caller's role does not see (the digest does not list them) and the fields it sees on
-// some rows only (the digest lists them as conditional). A field the digest lists as
-// conditionalOnTime does not withhold the box: the server settles such a grant from the
-// time of the request and answers the search while it holds.
+// caller's role does not see (the digest does not list them) and the fields it does not
+// always see (the digest lists them as conditional: the server judges them row by row,
+// or by a fact about the caller). A field the digest lists as conditionalOnTime does not
+// withhold the box: the server settles such a grant from the time of the request and
+// answers the search while it holds.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -142,21 +143,24 @@ export function deniedSearchFields(
 
 /**
  * The search fields for which the server is sure to refuse a computed list's whole
- * search, in two lists: the fields the caller's role does not see and the fields it sees
- * on some rows only. Each list holds names, or, handed to searchRefusedNotice, labels.
+ * search, in two lists: the fields the caller's role does not see and the fields it does
+ * not always see. Each list holds names, or, handed to searchRefusedNotice, labels.
  */
 export interface RefusedSearchFields {
   /** The search fields the digest does not list. */
   notSeen: string[];
-  /** The search fields the digest lists as conditional: the server judges them row by row. */
-  onSomeRows: string[];
+  /**
+   * The search fields the digest lists as conditional: the server judges them by more than
+   * the time, row by row or by a fact about the caller.
+   */
+  notAlwaysSeen: string[];
 }
 
 /**
  * The search fields for which the server is sure to refuse a computed list's whole
  * search, from the digest's List state by field name: of the resource's own search
  * fields, other than a key field, those the digest does not list (notSeen) and those it
- * lists as conditional (onSomeRows), each in the order of the metadata's searchFields. A
+ * lists as conditional (notAlwaysSeen), each in the order of the metadata's searchFields. A
  * field listed as granted or conditionalOnTime is in neither: the server answers by it,
  * settling a grant held at certain times from the time of the request. Both lists are
  * empty on a table or a view, and where the record has no key: nothing is known, or the
@@ -166,7 +170,7 @@ export function refusedSearchFields(
   meta: ResourceMeta | undefined,
   listStates: Readonly<Record<string, PermissionDigestState>>,
 ): RefusedSearchFields {
-  const refused: RefusedSearchFields = { notSeen: [], onSomeRows: [] };
+  const refused: RefusedSearchFields = { notSeen: [], notAlwaysSeen: [] };
   if (meta?.computed !== true || Object.keys(listStates).length === 0) {
     return refused;
   }
@@ -178,7 +182,7 @@ export function refusedSearchFields(
     if (state === undefined) {
       refused.notSeen.push(field);
     } else if (state === 'conditional') {
-      refused.onSomeRows.push(field);
+      refused.notAlwaysSeen.push(field);
     }
   }
   return refused;
@@ -232,27 +236,27 @@ export function searchDeniedHint(labels: readonly string[]): string {
   return labels.length === 0 ? '' : `Not searched for your role: ${labels.join(', ')}`;
 }
 
-/** Labels in words: "A", "A or B", "A, B or C" with `or`; the same with `and`. */
-function joinLabels(labels: readonly string[], word: 'or' | 'and'): string {
-  return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} ${word} ${labels[labels.length - 1]}`;
+/** Labels in words: "A", "A or B", "A, B or C". */
+function joinLabels(labels: readonly string[]): string {
+  return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
 }
 
 /**
  * What the page says where it offers no box because the server would refuse the search:
- * the fields the caller's role does not see and the fields it sees on some rows only,
+ * the fields the caller's role does not see and the fields it does not always see,
  * each list by label (refusedSearchFields with each name given its label); nothing when
  * both are empty.
  */
 export function searchRefusedNotice(refused: RefusedSearchFields): string {
-  const { notSeen, onSomeRows } = refused;
-  if (notSeen.length === 0 && onSomeRows.length === 0) {
+  const { notSeen, notAlwaysSeen } = refused;
+  if (notSeen.length === 0 && notAlwaysSeen.length === 0) {
     return '';
   }
-  if (onSomeRows.length === 0) {
-    return `You cannot search this list: your role does not see ${joinLabels(notSeen, 'or')}.`;
+  if (notAlwaysSeen.length === 0) {
+    return `You cannot search this list: your role does not see ${joinLabels(notSeen)}.`;
   }
   if (notSeen.length === 0) {
-    return `You cannot search this list: your role sees ${joinLabels(onSomeRows, 'and')} on some rows only.`;
+    return `You cannot search this list: your role does not always see ${joinLabels(notAlwaysSeen)}.`;
   }
-  return `You cannot search this list: your role does not see ${joinLabels(notSeen, 'or')}, and it sees ${joinLabels(onSomeRows, 'and')} on some rows only.`;
+  return `You cannot search this list: your role does not see ${joinLabels(notSeen)}, and it does not always see ${joinLabels(notAlwaysSeen)}.`;
 }
