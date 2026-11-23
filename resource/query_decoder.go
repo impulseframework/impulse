@@ -126,8 +126,10 @@ func (d *QueryDecoder[Resource, Request]) WithFeatures(features *FeatureSet) *Qu
 // for, or from a view whose query opens with a WITH clause, which the statement of the
 // list that shows the name cannot hold where the name is read, or, where the decoder's
 // own resource is a view whose query opens with WITH tables, from a view whose query
-// uses the name of one of them, which the statement would read in that place. A
-// decoder whose names are all read from tables accepts any map, nil included.
+// uses the name of one of them, which the statement would read in that place, or from
+// a view that binds a parameter and whose query cannot be read to its end, since the
+// statement writes each parameter of the view under a name of its own. A decoder whose
+// names are all read from tables accepts any map, nil included.
 func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryDecoder[Resource, Request] {
 	var res Resource
 	var withTables []string
