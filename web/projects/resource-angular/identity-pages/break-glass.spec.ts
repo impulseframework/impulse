@@ -8,6 +8,7 @@ import {
   ResourceMeta,
   RootConfig,
 } from '@impulseframework/resource-angular/types';
+import { MOMENT_CELL_FORMAT } from '@impulseframework/resource-angular/resource';
 import { identityPages } from './identity-pages';
 
 // The reason a role was given for and Break glass, as the pages over an Auth's people say
@@ -244,14 +245,21 @@ describe('Break glass', () => {
   it('says when a held role ends and how long is left', () => {
     const ends = column(heldNow, 'endsAt').valueGetter as (row: RecordData) => string;
     const inMinutes = (minutes: number): string => new Date(Date.now() + minutes * 60_000 + 5_000).toISOString();
-    expect(ends({ endsAt: inMinutes(45) })).toMatch(/^\d+\/\d+\/\d{4} \d+:\d{2} [AP]M, 45 minutes left$/);
+    expect(ends({ endsAt: inMinutes(45) })).toMatch(/^\d+\/\d+\/\d{2} \d+:\d{2} [AP]M, 45 minutes left$/);
     expect(ends({ endsAt: inMinutes(190) })).toMatch(/, 3 hours 10 minutes left$/);
     expect(ends({ endsAt: inMinutes(60) })).toMatch(/, 1 hour left$/);
     expect(ends({ endsAt: inMinutes(3 * 24 * 60) })).toMatch(/, 3 days left$/);
     expect(ends({ endsAt: new Date(Date.now() + 20_000).toISOString() })).toMatch(/, less than a minute left$/);
     // Once the instant has passed nothing is left to say but when it was.
-    expect(ends({ endsAt: new Date(Date.now() - 60_000).toISOString() })).toMatch(/^\d+\/\d+\/\d{4} \d+:\d{2} [AP]M$/);
+    expect(ends({ endsAt: new Date(Date.now() - 60_000).toISOString() })).toMatch(/^\d+\/\d+\/\d{2} \d+:\d{2} [AP]M$/);
     expect(ends({})).toBe('');
+  });
+
+  it('writes when an ended role began and ended in the words every list writes a moment in', () => {
+    expect([column(ended, 'startsAt').formatType, column(ended, 'endsAt').formatType]).toEqual([
+      MOMENT_CELL_FORMAT,
+      MOMENT_CELL_FORMAT,
+    ]);
   });
 
   it('takes a role through the method that names no person, above the list, with its fields in plain words', () => {

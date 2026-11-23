@@ -18,7 +18,7 @@ import {
  * runs: a server sends a moment in UTC, and the cell is in the viewer's time zone.
  */
 function atViewersClock(iso: string): string {
-  return format(parseISO(iso), 'M/d/yyyy h:mm a');
+  return format(parseISO(iso), 'M/d/yy h:mm a');
 }
 
 /** The base64 of 32 zero bytes: what a SHA-256 digest column carries. */
@@ -42,7 +42,7 @@ describe('formatByDisplayType', () => {
       name: 'a date is its day and its time of day',
       displayType: 'date',
       value: '2026-11-23T15:15:00',
-      want: '11/23/2026 3:15 PM',
+      want: '11/23/26 3:15 PM',
     },
     {
       name: "a date the server sends is written on the viewer's clock",
@@ -105,7 +105,7 @@ describe('formatByDisplayType', () => {
       name: 'a date array writes each element with its time of day',
       displayType: 'date[]',
       value: ['2026-09-21T08:05:00', '2026-10-01T12:00:00Z'],
-      want: `9/21/2026 8:05 AM, ${atViewersClock('2026-10-01T12:00:00Z')}`,
+      want: `9/21/26 8:05 AM, ${atViewersClock('2026-10-01T12:00:00Z')}`,
     },
     {
       name: 'a civildate array formats each element',
@@ -146,6 +146,12 @@ describe('formatByDisplayType', () => {
       expect(formatByDisplayType(tt.displayType, tt.value)).toBe(tt.want);
     });
   }
+
+  it('writes the longest moment, whose month, day and hour each take two digits, in seventeen characters', () => {
+    const longest = formatByDisplayType('date', '2026-12-31T12:59:00');
+    expect(longest).toBe('12/31/26 12:59 PM');
+    expect(longest).toHaveLength(17);
+  });
 });
 
 // A list writes a field that takes one of a fixed set of values by the value's name: the

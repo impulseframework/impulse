@@ -81,10 +81,12 @@ export function formatByteSize(bytes: number): string {
 
 /**
  * How a cell writes a moment (a `date`, a `time.Time` on the server): the day and the time
- * of day, in the viewer's time zone (`11/23/2026 3:15 PM`). A day alone (a `civildate`) is
- * written M/d/yyyy.
+ * of day, in the viewer's time zone (`11/23/26 3:15 PM`). A day alone (a `civildate`) is
+ * written M/d/yyyy. The year is written with two digits so that the longest moment is
+ * seventeen characters, which a column at the narrowest a column of text goes shows whole
+ * on a phone.
  */
-export const MOMENT_CELL_FORMAT = 'M/d/yyyy h:mm a';
+export const MOMENT_CELL_FORMAT = 'M/d/yy h:mm a';
 
 /** The most characters an object's one-line JSON takes in a grid cell before it is cut. */
 export const OBJECT_CELL_LENGTH = 80;

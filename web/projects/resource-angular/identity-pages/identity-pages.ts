@@ -2258,9 +2258,11 @@ function lastDay(end: unknown): string {
 
 /**
  * How a list writes an instant that matters to the minute: the day and the time of day,
- * in the viewer's time zone. A role taken for an hour ends at a time, not on a day.
+ * in the viewer's time zone. A role taken for an hour ends at a time, not on a day. These
+ * are the words every list writes a moment in (`MOMENT_CELL_FORMAT`, which no entry point
+ * this file reads from carries), and the spec holds the two the same.
  */
-const dayAndTime = 'M/d/yyyy h:mm a';
+const dayAndTime = 'M/d/yy h:mm a';
 
 /**
  * How a page writes the day of an instant, in the viewer's time zone and with the year,
@@ -2291,7 +2293,7 @@ function emailConfirmed(values: RecordData | undefined): string {
 
 /**
  * When a role held for a set time ends and how long is left, as a list says it in one
- * cell: the day and the time of day, then the time left in words ("11/18/2026 3:00 PM,
+ * cell: the day and the time of day, then the time left in words ("11/18/26 3:00 PM,
  * 45 minutes left"). The day and time alone once the instant has passed, and empty for
  * no instant.
  */
