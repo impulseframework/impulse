@@ -35,7 +35,13 @@ import {
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
-import { Domain, ListPermission, PermissionDigestState, RemoveOptions, TenantProperty } from '@impulseframework/resource';
+import {
+  Domain,
+  ListPermission,
+  PermissionDigestState,
+  RemoveOptions,
+  TenantProperty,
+} from '@impulseframework/resource';
 import {
   AlertType,
   ChildResourceConfig,

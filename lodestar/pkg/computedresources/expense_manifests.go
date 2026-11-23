@@ -47,7 +47,7 @@ type (
 	// @page(default: 25, max: 200)
 	ExpenseManifest struct {
 		MissionID impulse.UUID    `spanner:"MissionId"` // @primarykey
-		Title     string          `spanner:"Title" allow_filter:"true"`
+		Title     string          `spanner:"Title"     allow_filter:"true"`
 		Sorties   int64           `spanner:"Sorties"`
 		Expenses  decimal.Decimal `spanner:"Expenses"`
 		// @attribute(assignedSquadron)
