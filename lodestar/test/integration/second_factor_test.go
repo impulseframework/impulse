@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"net/http"
 	"slices"
@@ -23,7 +24,9 @@ import (
 // of hers is; headquarters makes the server forget her remembered browsers through the
 // crew's generated management, and the remembered browser is asked once more. The navigator, who signs in through
 // the fleet's directory, is never asked: the fleet administers its Workspace, which
-// attests for him.
+// attests for him. Nothing is remembered for him either: his browser carries no
+// remembering cookie and the read of where he is signed in counts no remembered browser,
+// so his account page has none to forget.
 //
 // Demonstrates: auth.second-factor, auth.trusted-device, auth.attested-directory.
 func TestSecondFactor(t *testing.T) {
@@ -71,6 +74,9 @@ func TestSecondFactor(t *testing.T) {
 	sess := cass.session(ctx)
 	if sess["authenticated"] != true || sess["username"] != "cadet" || sess["email"] != factorAddress("cadet") || sess["emailVerified"] != true {
 		t.Fatalf("session after the code = %v, want the cadet signed in holding her address verified", sess)
+	}
+	if got := rememberedBrowsers(ctx, t, cass); got != 1 {
+		t.Errorf("the cadet's remembered browsers after her code with the browser remembered = %d, want 1", got)
 	}
 	if got, want := authEvents(ctx, t, s, "cadet"), []string{string(sessioninfo.MethodPassword), string(sessioninfo.MethodEmailCode)}; !slices.Equal(got, want) {
 		t.Errorf("the cadet's auth events = %v, want %v", got, want)
@@ -132,6 +138,12 @@ func TestSecondFactor(t *testing.T) {
 	if sess := nav.session(ctx); sess["authenticated"] != true || sess["username"] != navigatorUser {
 		t.Fatalf("the navigator's session = %v, want signed in", sess)
 	}
+	if cookie := nav.trustedCookie(); cookie != nil {
+		t.Errorf("the navigator's browser holds the remembering cookie %q, want none: nothing asked to remember it", cookie.Name)
+	}
+	if got := rememberedBrowsers(ctx, t, nav); got != 0 {
+		t.Errorf("the navigator's remembered browsers = %d, want 0: his account page has none to forget", got)
+	}
 	if got, want := authEvents(ctx, t, s, navigatorUser), []string{string(sessioninfo.MethodGoogle), string(sessioninfo.MethodAttestedByDeclaration)}; !slices.Equal(got, want) {
 		t.Errorf("the navigator's auth events = %v, want %v", got, want)
 	}
@@ -144,6 +156,25 @@ func (b *browser) logout(ctx context.Context) {
 	if status, body := b.do(ctx, http.MethodDelete, b.prefix+"/user/session", nil); status != http.StatusOK {
 		b.t.Fatalf("DELETE %s/user/session: status %d: %s", b.prefix, status, body)
 	}
+}
+
+// rememberedBrowsers reads, as the browser's user, where they are signed in, and answers
+// the number of browsers remembered for them.
+func rememberedBrowsers(ctx context.Context, t *testing.T, b *browser) int {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, b.prefix+"/user/sessions", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s/user/sessions: status %d: %s", b.prefix, status, body)
+	}
+	var answer struct {
+		RememberedBrowsers int `json:"rememberedBrowsers"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("decoding where the person is signed in: %v: %s", err, body)
+	}
+
+	return answer.RememberedBrowsers
 }
 
 // authEvents reads how the crew member's newest session was authenticated: the
