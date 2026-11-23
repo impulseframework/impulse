@@ -286,19 +286,60 @@ func SetCacheControl(w http.ResponseWriter, r *http.Request) {
 // any of whose publishes failed: a publish that failed may have written some of its
 // documents, and a tab told the write's id would take those for changes it had fetched
 // for; told nothing, it fetches for every document that got through as for anyone's.
+//
+// The tables the request touched whole (resource.TouchedRows.TouchTable) go into the
+// publish of the route domain, which is made though no row was written in it.
 func Publish(ctx context.Context, w http.ResponseWriter, svc Service, derivations *Derivations, domain accesstypes.Domain, touched *resource.TouchedRows) {
 	if touched.Empty() {
 		return
 	}
 	write := rand.Text()
 	caller := callerID(ctx)
-	own := make(Changes)
-	failed := false
 	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
 	defer cancel()
-	byDomain := touched.Rows(domain)
+	own, failed := publishTouched(ctx, svc, derivations, domain, touched, write, caller)
+	if failed {
+		return
+	}
+	if err := setChangesHeader(w, Answer{Write: write, Changes: own}); err != nil {
+		logger.FromCtx(ctx).Errorf("live: naming the write's changes on its answer failed; the page fetches when its change set reports them: %v", err)
+	}
+}
+
+// Announce publishes changes that are no request's own write: what a sign-in, a hook or a
+// job committed outside a generated handler. It is Publish without the answer: the
+// documents name no write, so every tab that holds a target refetches it. Rows written
+// with no domain are published under the zero domain, with the tables touched whole. It
+// is bounded by PublishTimeout, a failure is logged and the other domains are still
+// published, and nothing happens when the collector is empty or svc is nil.
+func Announce(ctx context.Context, svc Service, derivations *Derivations, touched *resource.TouchedRows) {
+	if svc == nil || touched.Empty() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
+	defer cancel()
+	publishTouched(ctx, svc, derivations, "", touched, "", "")
+}
+
+// publishTouched makes a collector's publishes: one per domain its rows were written in,
+// the rows without a domain under fallback, and the tables touched whole in fallback's,
+// which is made even when no row was written in it. Every document carries write. It
+// answers the documents that went into caller's own change set, and whether any publish
+// failed; a failure is logged and the other domains are still published.
+func publishTouched(ctx context.Context, svc Service, derivations *Derivations, fallback accesstypes.Domain, touched *resource.TouchedRows, write, caller string) ([]ChangeDocument, bool) {
+	own := make(Changes)
+	failed := false
+	byDomain := touched.Rows(fallback)
+	tables := touched.Tables()
+	if _, ok := byDomain[fallback]; !ok && len(tables) > 0 {
+		byDomain[fallback] = nil
+	}
 	for _, changeDomain := range slices.Sorted(maps.Keys(byDomain)) {
-		writes := derivations.Expand(byDomain[changeDomain])
+		var whole []accesstypes.Resource
+		if changeDomain == fallback {
+			whole = tables
+		}
+		writes := derivations.Expand(byDomain[changeDomain], whole...)
 		writes.ID = write
 		changes, err := svc.Publish(ctx, changeDomain, writes)
 		if err != nil {
@@ -311,12 +352,8 @@ func Publish(ctx context.Context, w http.ResponseWriter, svc Service, derivation
 			own.add(caller, doc)
 		}
 	}
-	if failed {
-		return
-	}
-	if err := setChangesHeader(w, Answer{Write: write, Changes: own[caller]}); err != nil {
-		logger.FromCtx(ctx).Errorf("live: naming the write's changes on its answer failed; the page fetches when its change set reports them: %v", err)
-	}
+
+	return own[caller], failed
 }
 
 // Answer is what a write's answer tells the tab that wrote, in ChangesHeader: the

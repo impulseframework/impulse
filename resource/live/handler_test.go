@@ -472,6 +472,8 @@ func TestPublish(t *testing.T) {
 	tests := []struct {
 		name   string
 		writes []write
+		// tables are the tables the request says it touched whole.
+		tables []accesstypes.Resource
 		domain accesstypes.Domain
 		want   []FakePublish
 	}{
@@ -496,6 +498,16 @@ func TestPublish(t *testing.T) {
 				{Domain: "bastion", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h1"}}}}},
 			},
 		},
+		{
+			name:   "the tables touched whole go into the route domain's publish, which is made though no row was written in it",
+			writes: []write{{domain: "bastion", key: "h1"}},
+			tables: []accesstypes.Resource{"Squadrons"},
+			domain: "anvil",
+			want: []FakePublish{
+				{Domain: "anvil", Writes: Writes{Whole: []WholeChange{{Resource: "Squadrons", AllDomains: true}}}},
+				{Domain: "bastion", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h1"}}}}},
+			},
+		},
 		{name: "a request that committed nothing publishes nothing", domain: "anvil"},
 	}
 
@@ -505,6 +517,9 @@ func TestPublish(t *testing.T) {
 
 			fake := NewFake()
 			ctx, touched := commit(t, tt.writes...)
+			for _, table := range tt.tables {
+				touched.TouchTable(table)
+			}
 
 			Publish(ctx, httptest.NewRecorder(), fake, nil, tt.domain, touched)
 
@@ -915,6 +930,132 @@ func TestPublish_failureIsLogged(t *testing.T) {
 
 	if got := rr.Header().Get(ChangesHeader); got != "" {
 		t.Errorf("%s = %q after a publish that failed, want no header", ChangesHeader, got)
+	}
+}
+
+// TestAnnounce pins a publish that is no request's own write: the rows and the tables a
+// collector holds reach a row subscriber, a list subscriber in the rows' tenant and a
+// subscriber of a view in another tenant, each in one publish per domain, and no document
+// names a write.
+func TestAnnounce(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	fake := subscribed(t, now,
+		Subscription{Principal: "harbormaster", Tab: "t1", Resource: "Ships", Key: "s1"},
+		Subscription{Principal: "quartermaster", Tab: "t2", Resource: "Hangars", Domain: "bastion"},
+		Subscription{Principal: "dispatcher", Tab: "t3", Resource: "MissionBoards", Domain: "anvil"},
+		Subscription{Principal: "clerk", Tab: "t4", Resource: "Clients", Domain: "anvil"},
+	)
+	ctx, touched := commit(t, write{domain: "bastion", key: "h1"})
+	touched.Touch("Ships", resource.RowChange{Key: "s1"})
+	touched.TouchTable("Squadrons")
+
+	Announce(ctx, fake, fixtureDerivations(), touched)
+
+	want := []FakePublish{
+		{Domain: "", Writes: Writes{
+			Rows:  map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}, "FleetBoards": {{Key: "s1"}}},
+			Whole: []WholeChange{{Resource: "MissionBoards", AllDomains: true}, {Resource: "Squadrons", AllDomains: true}},
+		}},
+		{Domain: "bastion", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h1"}}}}},
+	}
+	if diff := cmp.Diff(want, fake.Publishes(), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("Publishes() mismatch (-want +got):\n%s", diff)
+	}
+	wantChanges := map[string][]ChangeDocument{
+		"harbormaster":  {{Kind: RowChange, Resource: "Ships", Key: "s1"}},
+		"quartermaster": {{Kind: ListChange, Resource: "Hangars", Domain: "bastion"}},
+		"dispatcher":    {{Kind: ResourceChange, Resource: "MissionBoards"}},
+	}
+	for principal, wantDocs := range wantChanges {
+		held := fake.Changes(principal)
+		docs := make([]ChangeDocument, 0, len(held))
+		for _, change := range held {
+			if change.Write != "" {
+				t.Errorf("%s was told %+v under the write %q, want no write named", principal, change.ChangeDocument, change.Write)
+			}
+			docs = append(docs, change.ChangeDocument)
+		}
+		if diff := cmp.Diff(wantDocs, docs); diff != "" {
+			t.Errorf("the change set of %s mismatch (-want +got):\n%s", principal, diff)
+		}
+	}
+	if got := fake.Changes("clerk"); len(got) != 0 {
+		t.Errorf("clerk, holding a table nothing touched, was told %+v, want nothing", got)
+	}
+}
+
+// TestAnnounce_nothing pins the announcements that publish nothing: an empty collector, a
+// nil one, and a nil service.
+func TestAnnounce_nothing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		touched func(t *testing.T) *resource.TouchedRows
+		noSvc   bool
+	}{
+		{
+			name: "an empty collector",
+			touched: func(t *testing.T) *resource.TouchedRows {
+				t.Helper()
+				_, touched := resource.CollectTouchedRows(t.Context())
+
+				return touched
+			},
+		},
+		{
+			name: "a nil collector",
+			touched: func(*testing.T) *resource.TouchedRows {
+				return nil
+			},
+		},
+		{
+			name: "a nil service",
+			touched: func(t *testing.T) *resource.TouchedRows {
+				t.Helper()
+				_, touched := commit(t, write{key: "s1"})
+				touched.TouchTable("Squadrons")
+
+				return touched
+			},
+			noSvc: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := NewFake()
+			var svc Service = fake
+			if tt.noSvc {
+				svc = nil
+			}
+
+			Announce(t.Context(), svc, fixtureDerivations(), tt.touched(t))
+
+			if got := fake.Publishes(); len(got) != 0 {
+				t.Errorf("Publishes() = %+v, want none", got)
+			}
+		})
+	}
+}
+
+// TestAnnounce_failureIsLogged pins a publish that fails in one domain: the others are
+// still made, and Announce returns.
+func TestAnnounce_failureIsLogged(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	fake := subscribed(t, now, Subscription{Principal: "quartermaster", Tab: "t1", Resource: "Hangars", Domain: "bastion"})
+	ctx, touched := commit(t, write{domain: "anvil", key: "h1"}, write{domain: "bastion", key: "h2"})
+
+	Announce(ctx, failingIn{Fake: fake, domain: "anvil"}, nil, touched)
+
+	if got := len(fake.Changes("quartermaster")); got != 1 {
+		t.Errorf("the change set holds %d documents, want the one of the tenant whose publish went through", got)
 	}
 }
 

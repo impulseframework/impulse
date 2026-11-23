@@ -926,7 +926,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// when its person next signs in. The session library calls this hook once the
 	// session is committed, and the identity client removes the person's ended roles and
 	// places, nothing else and never the account; a failure is logged and the session
-	// stands. The members' roles are their directory's and carry no period: no hook.
+	// stands. The same hook announces the sign-in to the open pages: the session it made,
+	// the person's account, and the identities and roles a sign-in can write, so a list
+	// of accounts, a person's page and a tenant's people show them without a reload. The
+	// generated handlers hand the client the live service to announce through; until
+	// they do, nothing is announced. The members' roles are their directory's and carry
+	// no period, so their hook removes none.
 	//
 	// Demonstrates: auth.periods.
 	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
