@@ -140,6 +140,10 @@ type authFixture struct {
 	// signedInCalls records the SignedInHook's calls, and signedInErr is what it answers.
 	signedInCalls []*SignedIn
 	signedInErr   error
+	// signInSettings is the sign-in settings row the store answers: one that asks nobody
+	// for a second factor and remembers a browser for the default period, unless a test
+	// says otherwise.
+	signInSettings *sessionstorage.SignInSettings
 }
 
 // storeSignIn is one call of the mocked store's SignIn: the request, the account rule
@@ -195,7 +199,11 @@ func newAuthFixtureOf(
 	f := &authFixture{
 		t: t, store: newAuthStoreMock(ctrl), held: map[impulse.UUID]*sessionstorage.PendingSignIn{},
 		attempts: map[string]*sessionstorage.SignInAttempts{}, clock: time.Now(),
+		signInSettings: &sessionstorage.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: DefaultRememberedBrowserDays},
 	}
+	f.store.EXPECT().SignInSettings(gomock.Any()).DoAndReturn(func(context.Context) (*sessionstorage.SignInSettings, error) {
+		return f.signInSettings, nil
+	}).AnyTimes()
 	f.store.EXPECT().SignInAttempts(gomock.Any(), gomock.Any()).DoAndReturn(f.attemptsOf).AnyTimes()
 	f.store.EXPECT().RecordSignInFailure(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(f.recordFailure).AnyTimes()
 	f.store.EXPECT().ClearSignInAttempts(gomock.Any(), gomock.Any()).DoAndReturn(f.clearAttempts).AnyTimes()

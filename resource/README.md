@@ -1886,10 +1886,14 @@ with nothing gone where it cannot be made whole:
   is looked for under the rows found, each row counted once, and the delete answers in
   the same counted sentence before any row is checked, asked about or deleted.
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
-  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind
-  and the grant's condition against the row, the kind's delete rule, its change record
-  where the kind is tracked, and the release of its stored files. One row that may not
-  go stops the whole delete.
+  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
+  what a session that acts as someone else is asked about a row that decides what a
+  person may do (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the
+  grant's condition against the row, the kind's delete rule, its change record where
+  the kind is tracked, and the release of its stored
+  files. One row that may not go stops the whole delete. One thing a kind's own route
+  asks is not asked here yet: a kind behind a feature flag (`@feature`) goes with the
+  record while its flag is off.
 - The tenant record declares nothing, and `@deleteCascade` on it is refused: the library
   declares what a tenant's delete takes, which is every kind of the application's whose
   rows carry the tenant's key or lead to a row that does. Its rows are found, asked about
@@ -5550,27 +5554,43 @@ own, outside any request, has no caller and is the application's act):
   refuse the real person their own row, their own set and the row their own value is
   read through.
 
-  A row removed with its parent, which may name the person, is a limit of its own. A row
-  taken with the record it is under (the record's `@deleteCascade`, or its tenant's
-  delete) is deleted by the library and not through the row's own route, so the rule is
-  not asked about the person it names, and a mask that refuses the row's own writes does
-  not refuse the parent's delete. Where every such row gives something, the delete only
-  takes away; where a row restricts (a ban, a cap), the delete gives. An application
-  closes it under the mask by refusing each request that removes a row above it:
+  A row taken with the record it is under (the record's `@deleteCascade`) is held to the
+  same three questions. They are written once for each record, as
+  `RefuseImpersonatorAs<Record>Subject` in the resources package, which the record's
+  generated write calls and the delete of a taken row calls as a removal. So a delete
+  that would take the real person's own row, or a row of a set they are in, is refused
+  whole, in the sentence the row's own removal is refused with ("You are acting as
+  someone else, so you cannot remove your own client contact record."), before any
+  question is asked, and nothing is deleted. A mask that refuses the row's own delete
+  refuses the record's delete too. A delete an application runs trusted, with no caller,
+  asks neither: an action that deletes such a record in its own body takes the rows
+  under it unasked, and an application closes that by refusing the action by name in
+  the kind's mask (`accesstypes.RefuseAction(action)`).
 
-  - the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`);
-  - the delete of each record further up while the cascade goes on, since the
-    grandparent's delete removes the parent and the row with it;
-  - an action that removes one of those rows in its own body, by name
+  A row that goes with its tenant is a limit of its own. A tenant's delete takes every
+  row under the tenant on the grant to delete the tenant: no grant is asked on a row,
+  and the questions are not asked about the person a row names. The generator gives the
+  tenant record's delete the class `access`, so a kind whose mask refuses that class
+  does not delete a tenant. An application closes it for any other kind by refusing, in
+  the kind's mask:
+
+  - the tenant's delete (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`);
+  - an action that deletes a tenant in its own body, by name
     (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
     not for Delete on the record.
 
-  PostgreSQL has referential actions that change the row where it stands, again with
-  no write of it. `ON DELETE SET NULL` and `ON DELETE SET DEFAULT` rewrite the column
-  that named the parent when the parent is deleted, and the refusals above close them.
-  `ON UPDATE CASCADE`, `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is
-  changed: a rank renamed is renamed on every row that holds it, the real person's
-  among them. Refusing the parent's update closes that
+  A row a foreign key's own rule removes or rewrites is another: no write of the row is
+  made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` among an
+  application's own tables (`no-delete-cascade`). A row of an application's that names a
+  row of the library's under that rule (a pass given to a group) still goes with it, and
+  what a mask refuses there is the action that removes the library's row. PostgreSQL has
+  referential actions that change the row where it stands. `ON DELETE SET NULL` and
+  `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
+  deleted, and refusing the parent's delete under the mask closes them
+  (`accesstypes.RefusePermission(accesstypes.Delete, parent)`). `ON UPDATE CASCADE`,
+  `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is changed: a rank
+  renamed is renamed on every row that holds it, the real person's among them. Refusing
+  the parent's update closes that
   (`accesstypes.RefusePermission(accesstypes.Update, parent)`, or the same on the one
   column the foreign key names, `parent.field`), with any action that changes the key.
 

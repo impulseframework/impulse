@@ -761,20 +761,23 @@ code, and renders the confirmation step for a sign-in that waits; each page keep
 manifest, its words for a method (the portal's "your company directory", a label override
 keyed by the registration's name) and where a sign-in lands.
 
-Every session carries a second factor, whichever way the person signed in: both auths'
-sign-in rule ends with its package's `requireSecondFactor` (`signin.RequireMFA` with the sign-in
-code as the factor, chained after the tenant policy with `Then`), and the session
-library satisfies it before it holds the sign-in. The fleet's Google Workspace attests
-for its people where the deployment says the fleet administers it
-(`APP_CREW_OIDC_ADMINISTERED`, `APP_MEMBERS_OIDC_ADMINISTERED`; `auth.Directory.Administered`
-declares the Workspace `Attesting()` on the registration), so the navigator and the
-clients are never asked; a password persona, and the pioneer who signs up with any
-Google account (a directory nobody here administers), wait for the sign-in code the auth
-mails to the address they hold (a persona holds none until they give one at the step; in
-development the mail is the log), entered on the login page through the pending routes
-(`/console/api/user/pending/code`, `…/code/verify`, `…/email`); a browser a person asked
-to be remembered stands in for the code for thirty days (the `crew-trusted` and
-`members-trusted` cookies, the trusted devices table under each auth's prefix), and
+Every session carries a second factor, whichever way the person signed in, while its
+auth's sign-in setting requires one, as it does until Headquarters turns it off on the
+console's Sign-in page (`StopRequiringCrewSecondFactor`; each auth keeps its own
+setting). The session library reads the setting at every sign-in and satisfies it before
+it holds the sign-in. No role is granted the members' three methods, so the members'
+setting stays as it starts, required, until a role file grants them. The fleet's Google
+Workspace attests for its people where the deployment says the fleet administers it
+(`APP_CREW_OIDC_ADMINISTERED`, `APP_MEMBERS_OIDC_ADMINISTERED`;
+`auth.Directory.Administered` declares the Workspace `Attesting()` on the registration),
+so the navigator and the clients are never asked; a password persona, and the pioneer
+who signs up with any Google account (a directory nobody here administers), wait for the
+sign-in code the auth mails to the address they hold (a persona holds none until they
+give one at the step; in development the mail is the log), entered on the login page
+through the pending routes (`/console/api/user/pending/code`, `…/code/verify`,
+`…/email`); a browser a person asked to be remembered stands in for the code for as long
+as its auth's sign-in setting says, thirty days until it is changed (the `crew-trusted`
+and `members-trusted` cookies, the trusted devices table under each auth's prefix), and
 headquarters forgets a person's remembered browsers from the person's account page
 (`RevokeCrewUserTrustedDevices`, `RevokeMembersUserTrustedDevices`).
 Demonstrates: auth.second-factor, auth.attested-directory, auth.trusted-device.
@@ -1265,11 +1268,13 @@ credential actions"), a request to start the session may drop it (`refuseClasses
 ["access"]` with no `exceptWrites`), and a request that names a record the kind does
 not keep is refused with nothing started. What the rule cannot see is a role given to
 a group she is in: that stays open to a session whose mask does not refuse the class
-`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar,
-its squadron or its sector when one is deleted, whoever the pass names. No write of the
-pass is made, so neither the rule nor the `act` kind's mask is asked, and neither kind
-refuses those deletes: every pass gives something, so such a delete only takes away.
-An application whose rows restrict refuses the parent's delete in the kind's mask.
+`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar
+or its wing when one is deleted, through the pass's own delete, so the rule is asked
+about it there: the delete of a hangar or a wing is refused whole when a pass under it
+is her own, her squadron's or her group's, under either kind (proven for her own pass
+and her squadron's in `test/integration/impersonation_taken_skipauth_test.go`). A pass
+that goes with its sector is not asked about: a sector's delete asks nothing of a row,
+the `act` kind refuses it by its class, and no role the release ships deletes a sector.
 
 | Login | Who | What their view proves |
 | --- | --- | --- |

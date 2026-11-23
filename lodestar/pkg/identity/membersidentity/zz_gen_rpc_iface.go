@@ -10,8 +10,10 @@ type Method interface {
 	DeleteMembersSectorUser | DeleteMembersUser | DisableMembersSectorUser |
 		DisableMembersUser | EnableMembersSectorUser | EnableMembersUser |
 		EndMembersSectorUserSessions | EndMembersSession | EndMembersUserSessions |
-		RenameMembersSectorUser | RenameMembersUser | RevokeMembersSectorUserTrustedDevices |
-		RevokeMembersUserTrustedDevices | SetMembersSectorUserEmail | SetMembersSectorUserName |
-		SetMembersUserEmail | SetMembersUserName | UnlinkMembersSectorSessionIdentity |
-		UnlinkMembersSessionIdentity | UnlockMembersSignIn
+		RenameMembersSectorUser | RenameMembersUser | RequireMembersSecondFactor |
+		RevokeMembersSectorUserTrustedDevices | RevokeMembersUserTrustedDevices |
+		SetMembersRememberedBrowsers | SetMembersSectorUserEmail | SetMembersSectorUserName |
+		SetMembersUserEmail | SetMembersUserName | StopRequiringMembersSecondFactor |
+		UnlinkMembersSectorSessionIdentity | UnlinkMembersSessionIdentity |
+		UnlockMembersSignIn
 }

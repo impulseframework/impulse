@@ -178,6 +178,8 @@ type GeneratedHandlers interface {
 
 	RequireStaffPasswordChange() http.HandlerFunc
 
+	RequireStaffSecondFactor() http.HandlerFunc
+
 	RequireStaffTenantPasswordChange() http.HandlerFunc
 
 	RevokeStaffSessionToken() http.HandlerFunc
@@ -191,6 +193,8 @@ type GeneratedHandlers interface {
 	SendStaffUserPasswordResetLink() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
+
+	SetStaffRememberedBrowsers() http.HandlerFunc
 
 	SetStaffSelfServiceReset() http.HandlerFunc
 
@@ -227,6 +231,8 @@ type GeneratedHandlers interface {
 
 	StaffListedRoleGrants() http.HandlerFunc
 
+	StaffRememberLengths() http.HandlerFunc
+
 	StaffRoles() http.HandlerFunc
 
 	StaffSessions() http.HandlerFunc
@@ -252,6 +258,8 @@ type GeneratedHandlers interface {
 	StaffSessionUser() http.HandlerFunc
 
 	StaffSignInMethods() http.HandlerFunc
+
+	StaffSignInSettings() http.HandlerFunc
 
 	StaffSignInWays() http.HandlerFunc
 
@@ -297,6 +305,8 @@ type GeneratedHandlers interface {
 	StaffUserGroupRole() http.HandlerFunc
 
 	StaffUserRoles() http.HandlerFunc
+
+	StopRequiringStaffSecondFactor() http.HandlerFunc
 
 	TakeStaffGroupRole() http.HandlerFunc
 
@@ -458,6 +468,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
 
+	asked.Post("/api/require-staff-second-factor", h.RequireStaffSecondFactor())
+
 	asked.Post("/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
 
 	asked.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
@@ -471,6 +483,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/api/send-staff-user-password-reset-link", h.SendStaffUserPasswordResetLink())
 
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
+
+	asked.Post("/api/set-staff-remembered-browsers", h.SetStaffRememberedBrowsers())
 
 	asked.Post("/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
 
@@ -538,6 +552,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 	bounded.Post("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 
+	staffRememberLengthsHandler := h.StaffRememberLengths()
+	bounded.Get("/api/staff-remember-lengths", staffRememberLengthsHandler)
+	bounded.Post("/api/staff-remember-lengths", staffRememberLengthsHandler)
+
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/api/staff-roles", staffRolesHandler)
 	bounded.Post("/api/staff-roles", staffRolesHandler)
@@ -601,6 +619,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSignInMethodsHandler := h.StaffSignInMethods()
 	bounded.Get("/api/staff-sign-in-methods", staffSignInMethodsHandler)
 	bounded.Post("/api/staff-sign-in-methods", staffSignInMethodsHandler)
+
+	staffSignInSettingsHandler := h.StaffSignInSettings()
+	bounded.Get("/api/staff-sign-in-settings", staffSignInSettingsHandler)
+	bounded.Post("/api/staff-sign-in-settings", staffSignInSettingsHandler)
 
 	staffSignInWaysHandler := h.StaffSignInWays()
 	bounded.Get("/api/staff-sign-in-ways", staffSignInWaysHandler)
@@ -709,6 +731,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffUserRolesHandler := h.StaffUserRoles()
 	bounded.Get("/api/staff-user-roles", staffUserRolesHandler)
 	bounded.Post("/api/staff-user-roles", staffUserRolesHandler)
+
+	asked.Post("/api/stop-requiring-staff-second-factor", h.StopRequiringStaffSecondFactor())
 
 	asked.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
 

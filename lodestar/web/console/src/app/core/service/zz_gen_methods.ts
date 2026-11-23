@@ -754,6 +754,11 @@ export interface RequireCrewPasswordChange {
 /** The statuses RequireCrewPasswordChange declares; the method chooses one per response. */
 export type RequireCrewPasswordChangeStatus = 204;
 
+export interface RequireCrewSecondFactorConfig {}
+export interface RequireCrewSecondFactor {}
+/** The statuses RequireCrewSecondFactor declares; the method chooses one per response. */
+export type RequireCrewSecondFactorStatus = 204;
+
 export interface RequireCrewSectorPasswordChangeConfig {
   userId: string | FieldPointer;
 }
@@ -762,6 +767,11 @@ export interface RequireCrewSectorPasswordChange {
 }
 /** The statuses RequireCrewSectorPasswordChange declares; the method chooses one per response. */
 export type RequireCrewSectorPasswordChangeStatus = 204;
+
+export interface RequireMembersSecondFactorConfig {}
+export interface RequireMembersSecondFactor {}
+/** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
+export type RequireMembersSecondFactorStatus = 204;
 
 export interface ResumeMissionConfig {
   missionId: string | FieldPointer;
@@ -846,6 +856,15 @@ export interface SendCrewUserPasswordResetLinkResult {
   reason: string;
 }
 
+export interface SetCrewRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetCrewRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetCrewRememberedBrowsers declares; the method chooses one per response. */
+export type SetCrewRememberedBrowsersStatus = 204;
+
 export interface SetCrewSectorUserEmailConfig {
   userId: string | FieldPointer;
   email: string | FieldPointer;
@@ -904,6 +923,15 @@ export interface SetCrewUserName {
 }
 /** The statuses SetCrewUserName declares; the method chooses one per response. */
 export type SetCrewUserNameStatus = 204;
+
+export interface SetMembersRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetMembersRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetMembersRememberedBrowsers declares; the method chooses one per response. */
+export type SetMembersRememberedBrowsersStatus = 204;
 
 export interface SetMembersSectorUserEmailConfig {
   userId: string | FieldPointer;
@@ -979,6 +1007,16 @@ export interface StartFlightTestConfig {
 export interface StartFlightTest {
   refitId: string;
 }
+
+export interface StopRequiringCrewSecondFactorConfig {}
+export interface StopRequiringCrewSecondFactor {}
+/** The statuses StopRequiringCrewSecondFactor declares; the method chooses one per response. */
+export type StopRequiringCrewSecondFactorStatus = 204;
+
+export interface StopRequiringMembersSecondFactorConfig {}
+export interface StopRequiringMembersSecondFactor {}
+/** The statuses StopRequiringMembersSecondFactor declares; the method chooses one per response. */
+export type StopRequiringMembersSecondFactorStatus = 204;
 
 export interface TakeCrewGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -1873,6 +1911,12 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
+  [Methods.RequireCrewSecondFactor]: {
+    route: 'require-crew-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
+  },
   [Methods.RequireCrewSectorPasswordChange]: {
     route: 'require-crew-sector-password-change',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
@@ -1881,6 +1925,12 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
+  },
+  [Methods.RequireMembersSecondFactor]: {
+    route: 'require-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
   },
   [Methods.ResumeMission]: {
     route: 'resume-mission',
@@ -1963,6 +2013,14 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
+  [Methods.SetCrewRememberedBrowsers]: {
+    route: 'set-crew-remembered-browsers',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.CrewRememberLengths, required: true },
+    ],
+  },
   [Methods.SetCrewSectorUserEmail]: {
     route: 'set-crew-sector-user-email',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
@@ -2009,6 +2067,14 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersRememberedBrowsers]: {
+    route: 'set-members-remembered-browsers',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersRememberLengths, required: true },
     ],
   },
   [Methods.SetMembersSectorUserEmail]: {
@@ -2078,6 +2144,20 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
+  },
+  [Methods.StopRequiringCrewSecondFactor]: {
+    route: 'stop-requiring-crew-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
+  },
+  [Methods.StopRequiringMembersSecondFactor]: {
+    route: 'stop-requiring-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
   },
   [Methods.TakeCrewGroupRole]: {
     route: 'take-crew-group-role',

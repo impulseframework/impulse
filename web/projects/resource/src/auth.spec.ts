@@ -772,7 +772,7 @@ describe('the sign-in code', () => {
     expect(await auth.pending()).toEqual({
       outcome: 'waiting',
       ...codeStep,
-      emailCode: { codeEmail: 'n•••@fleet.example', enrollEmail: false, codeSent: false },
+      emailCode: { codeEmail: 'n•••@fleet.example', enrollEmail: false, codeSent: false, rememberOffered: false },
     });
   });
 
@@ -786,6 +786,7 @@ describe('the sign-in code', () => {
         enrollEmail: false,
         codeSent: true,
         codeExpiresAt: '2026-10-17T12:10:00Z',
+        rememberOffered: false,
       },
     });
     const enrolling = authOver(
@@ -794,8 +795,24 @@ describe('the sign-in code', () => {
     expect(await enrolling.auth.pending()).toEqual({
       outcome: 'waiting',
       ...codeStep,
-      emailCode: { codeEmail: '', enrollEmail: true, codeSent: false },
+      emailCode: { codeEmail: '', enrollEmail: true, codeSent: false, rememberOffered: false },
     });
+  });
+
+  it('says the browser may be remembered only where the server says true', async () => {
+    for (const [given, want] of [
+      [true, true],
+      [false, false],
+      ['yes', false],
+    ] as const) {
+      const { auth } = authOver(
+        mailing({
+          status: { status: 200, body: { ...codeStep, emailCode: { ...codeMailed, rememberOffered: given } } },
+        }),
+      );
+      const status = await auth.pending();
+      expect(status.outcome === 'waiting' ? status.emailCode?.rememberOffered : undefined).toBe(want);
+    }
   });
 
   it('is absent from a step that carries none, and from a status whose emailCode is not an object', async () => {

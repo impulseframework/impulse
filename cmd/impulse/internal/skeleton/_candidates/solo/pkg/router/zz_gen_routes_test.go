@@ -532,6 +532,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-remember-lengths", method: http.MethodGet,
+			handlerFunc: "StaffRememberLengths",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-remember-lengths", method: http.MethodPost,
+			handlerFunc: "StaffRememberLengths",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-methods", method: http.MethodGet,
 			handlerFunc: "StaffSignInMethods",
 			parameters:  map[string]string{},
@@ -539,6 +549,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/staff-sign-in-methods", method: http.MethodPost,
 			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-settings", method: http.MethodGet,
+			handlerFunc: "StaffSignInSettings",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-settings", method: http.MethodPost,
+			handlerFunc: "StaffSignInSettings",
 			parameters:  map[string]string{},
 		},
 		{
@@ -744,6 +764,10 @@ func (s *generatedHandlersStub) RequireStaffPasswordChange() http.HandlerFunc {
 	return s.record("RequireStaffPasswordChange")
 }
 
+func (s *generatedHandlersStub) RequireStaffSecondFactor() http.HandlerFunc {
+	return s.record("RequireStaffSecondFactor")
+}
+
 func (s *generatedHandlersStub) RevokeStaffSessionToken() http.HandlerFunc {
 	return s.record("RevokeStaffSessionToken")
 }
@@ -758,6 +782,10 @@ func (s *generatedHandlersStub) SendStaffUserPasswordResetLink() http.HandlerFun
 
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 	return s.record("SetFeature")
+}
+
+func (s *generatedHandlersStub) SetStaffRememberedBrowsers() http.HandlerFunc {
+	return s.record("SetStaffRememberedBrowsers")
 }
 
 func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
@@ -818,6 +846,10 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) StaffRememberLengths() http.HandlerFunc {
+	return s.record("StaffRememberLengths")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
@@ -884,6 +916,10 @@ func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
 	return s.record("StaffSignInMethods")
 }
 
+func (s *generatedHandlersStub) StaffSignInSettings() http.HandlerFunc {
+	return s.record("StaffSignInSettings")
+}
+
 func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
 	return s.record("StaffSignInWays")
 }
@@ -914,6 +950,10 @@ func (s *generatedHandlersStub) StaffUserGroupRole() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
 	return s.record("StaffUserRoles")
+}
+
+func (s *generatedHandlersStub) StopRequiringStaffSecondFactor() http.HandlerFunc {
+	return s.record("StopRequiringStaffSecondFactor")
 }
 
 func (s *generatedHandlersStub) TakeStaffGroupRole() http.HandlerFunc {

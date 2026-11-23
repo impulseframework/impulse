@@ -178,9 +178,9 @@ func newView(spec *Spec) *view {
 			v.Imports = append(v.Imports, imp)
 		}
 	}
-	// The sign-in rule every auth sets (requireSecondFactor) names the library's decision
-	// and the factor's method.
-	v.Imports = append(v.Imports, "github.com/impulseframework/impulse/session/sessioninfo", signinImport)
+	// Every auth reads who holds the Super Administrator role through the sign-in
+	// library (signin.SuperAdministrators).
+	v.Imports = append(v.Imports, signinImport)
 	// The auth's identity client, and its option naming the administrator roles.
 	if spec.IdentityDir != "" {
 		v.IdentityPackage = path.Join(spec.Module, spec.IdentityDir, spec.Name+"identity")

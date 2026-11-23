@@ -34,7 +34,8 @@ import (
 //     the Client they run over. An application calls them in its own transactions.
 //   - <tree>/<auth>handlers: the generated frames of those resources and methods, the
 //     ones the handler templates write for any resource, over the Deps the application
-//     hands them, and the record of what changes the tenant's lists.
+//     hands them, and the record of what changes the tenant's lists and the lists of how
+//     a person signs in.
 //
 // The declarations and the methods are written before the packages are loaded, so the
 // same run extracts them as it extracts the application's own; from there they are
@@ -125,6 +126,7 @@ const (
 	identityMailLinks      identityTable = "mailLinks"
 	identitySignInAttempts identityTable = "signInAttempts"
 	identitySignInMethods  identityTable = "signInMethods"
+	identitySignInSettings identityTable = "signInSettings"
 	identityAuthEvents     identityTable = "authEvents"
 	identityImpersonations identityTable = "impersonations"
 	identityTrustedDevices identityTable = "trustedDevices"
@@ -155,6 +157,7 @@ func identityDeclarations() []identityDeclaration {
 		{kind: identityMailLinks, suffix: "SessionMailLink", template: identityMailLinksTemplate},
 		{kind: identitySignInAttempts, suffix: "SessionSignInAttempt", template: identitySignInAttemptsTemplate},
 		{kind: identitySignInMethods, suffix: signInMethodRowSuffix, template: identitySignInMethodsTemplate},
+		{kind: identitySignInSettings, suffix: signInSettingRowSuffix, template: identitySignInSettingsTemplate},
 		{kind: identityAuthEvents, suffix: "SessionAuthEvent", template: identityAuthEventsTemplate},
 		{kind: identityImpersonations, suffix: "SessionImpersonation", template: identityImpersonationsTemplate},
 		{kind: identityTrustedDevices, suffix: "SessionTrustedDevice", template: identityTrustedDevicesTemplate},
@@ -184,6 +187,8 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.session.SignInAttempts
 	case identitySignInMethods:
 		return i.session.SignInMethods
+	case identitySignInSettings:
+		return i.session.SignInSettings
 	case identityAuthEvents:
 		return i.session.AuthEvents
 	case identityImpersonations:
@@ -725,6 +730,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// Who may sign in without an invitation: the list of the auth's sign-in methods and
 	// the two methods that open one to sign-up and make it invite only again.
 	files = append(files, r.signUpSources(inst)...)
+	// What every sign-in asks for: the list of the auth's sign-in settings, the lengths a
+	// browser is remembered for, and the three methods that change them.
+	files = append(files, r.signInSettingsSources(inst)...)
 	// The invitation that makes a tenant, for the auth whose people the tenant record's
 	// outlets sign in: the method staff send one with, the list of the ones that stand,
 	// and the method that withdraws one.

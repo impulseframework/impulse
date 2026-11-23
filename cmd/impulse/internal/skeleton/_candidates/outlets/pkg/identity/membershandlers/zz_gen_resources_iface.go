@@ -19,7 +19,8 @@ type Resourcer interface {
 		membersresources.MembersSessionAuthEvent | membersresources.MembersSessionIdentity |
 		membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
-		membersresources.MembersSessionSignInMethod | membersresources.MembersSessionToken |
+		membersresources.MembersSessionSignInMethod |
+		membersresources.MembersSessionSignInSetting | membersresources.MembersSessionToken |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
 		membersresources.MembersTakenRole | membersresources.MembersTenantGroup |
 		membersresources.MembersTenantGroupRole | membersresources.MembersTenantGroupUser |
@@ -28,6 +29,8 @@ type Resourcer interface {
 		membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
 		membersresources.MembersUserRole | membersidentity.MembersGivableRole |
-		membersidentity.MembersListedRoleGrant | membersidentity.MembersTakeLength |
-		membersidentity.MembersTakeableRole | membersidentity.MembersTenantRole
+		membersidentity.MembersListedRoleGrant | membersidentity.MembersRememberLength |
+		membersidentity.MembersSignInMethod | membersidentity.MembersSignInSetting |
+		membersidentity.MembersTakeLength | membersidentity.MembersTakeableRole |
+		membersidentity.MembersTenantRole
 }

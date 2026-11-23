@@ -433,7 +433,7 @@ func setDirectory(ctx context.Context, t *testing.T, s *served, tenant string, d
 }
 
 // signedIn returns a browser signed in on the site as the development login, through the
-// password and the second factor every session carries (browser.signIn).
+// password and the second factor the auth's sign-in setting requires (browser.signIn).
 func signedIn(ctx context.Context, t *testing.T, s *served, site *httptest.Server, user string) *browser {
 	t.Helper()
 

@@ -31,6 +31,7 @@ export const Resources = {
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
+  StaffRememberLengths: 'StaffRememberLengths' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
   StaffSessionAuthEvents: 'StaffSessionAuthEvents' as Resource,
   StaffSessionIdentities: 'StaffSessionIdentities' as Resource,
@@ -41,6 +42,7 @@ export const Resources = {
   StaffSessionUsers: 'StaffSessionUsers' as Resource,
   StaffSessions: 'StaffSessions' as Resource,
   StaffSignInMethods: 'StaffSignInMethods' as Resource,
+  StaffSignInSettings: 'StaffSignInSettings' as Resource,
   StaffSignInWays: 'StaffSignInWays' as Resource,
   StaffTakeLengths: 'StaffTakeLengths' as Resource,
   StaffTakeableRoles: 'StaffTakeableRoles' as Resource,
@@ -100,17 +102,20 @@ export const Methods = {
   RenameStaffTenantUser: 'RenameStaffTenantUser' as Method,
   RenameStaffUser: 'RenameStaffUser' as Method,
   RequireStaffPasswordChange: 'RequireStaffPasswordChange' as Method,
+  RequireStaffSecondFactor: 'RequireStaffSecondFactor' as Method,
   RequireStaffTenantPasswordChange: 'RequireStaffTenantPasswordChange' as Method,
   RevokeStaffSessionToken: 'RevokeStaffSessionToken' as Method,
   RevokeStaffTenantUserTrustedDevices: 'RevokeStaffTenantUserTrustedDevices' as Method,
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
   SendStaffTenantUserPasswordResetLink: 'SendStaffTenantUserPasswordResetLink' as Method,
   SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
+  SetStaffRememberedBrowsers: 'SetStaffRememberedBrowsers' as Method,
   SetStaffSelfServiceReset: 'SetStaffSelfServiceReset' as Method,
   SetStaffTenantUserEmail: 'SetStaffTenantUserEmail' as Method,
   SetStaffTenantUserName: 'SetStaffTenantUserName' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
   SetStaffUserName: 'SetStaffUserName' as Method,
+  StopRequiringStaffSecondFactor: 'StopRequiringStaffSecondFactor' as Method,
   TakeStaffGroupRole: 'TakeStaffGroupRole' as Method,
   TakeStaffRole: 'TakeStaffRole' as Method,
   TakeStaffTenantGroupRole: 'TakeStaffTenantGroupRole' as Method,
@@ -409,6 +414,17 @@ export namespace StaffListedRoleGrants {
   };
 }
 
+export namespace StaffRememberLengths {
+  export const fieldName = {
+    days: 'days' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    days: 'StaffRememberLengths.days' as Resource,
+    name: 'StaffRememberLengths.name' as Resource,
+  };
+}
+
 export namespace StaffRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -640,6 +656,23 @@ export namespace StaffSignInMethods {
     ownRule: 'StaffSignInMethods.ownRule' as Resource,
     says: 'StaffSignInMethods.says' as Resource,
     selfServiceReset: 'StaffSignInMethods.selfServiceReset' as Resource,
+  };
+}
+
+export namespace StaffSignInSettings {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    position: 'position' as FieldName,
+    rememberBrowserDays: 'rememberBrowserDays' as FieldName,
+    requireSecondFactor: 'requireSecondFactor' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    name: 'StaffSignInSettings.name' as Resource,
+    position: 'StaffSignInSettings.position' as Resource,
+    rememberBrowserDays: 'StaffSignInSettings.rememberBrowserDays' as Resource,
+    requireSecondFactor: 'StaffSignInSettings.requireSecondFactor' as Resource,
+    says: 'StaffSignInSettings.says' as Resource,
   };
 }
 
@@ -1366,6 +1399,10 @@ export namespace RequireStaffPasswordChange {
   };
 }
 
+export namespace RequireStaffSecondFactor {
+  export const fieldName = {};
+}
+
 export namespace RequireStaffTenantPasswordChange {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -1402,6 +1439,12 @@ export namespace SendStaffUserPasswordResetLink {
   };
 }
 
+export namespace SetStaffRememberedBrowsers {
+  export const fieldName = {
+    length: 'length' as FieldName,
+  };
+}
+
 export namespace SetStaffSelfServiceReset {
   export const fieldName = {
     on: 'on' as FieldName,
@@ -1434,6 +1477,10 @@ export namespace SetStaffUserName {
     userId: 'userId' as FieldName,
     name: 'name' as FieldName,
   };
+}
+
+export namespace StopRequiringStaffSecondFactor {
+  export const fieldName = {};
 }
 
 export namespace TakeStaffGroupRole {

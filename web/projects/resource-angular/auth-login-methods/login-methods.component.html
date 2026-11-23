@@ -103,9 +103,11 @@
                 autocomplete="one-time-code"
                 required />
             </mat-form-field>
-            <mat-checkbox name="rememberDevice" class="impulse-login-remember" [(ngModel)]="rememberDevice">
-              Remember this browser
-            </mat-checkbox>
+            @if (step.rememberOffered) {
+              <mat-checkbox name="rememberDevice" class="impulse-login-remember" [(ngModel)]="rememberDevice">
+                Remember this browser
+              </mat-checkbox>
+            }
             <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Sign in</button>
           </form>
           <button

@@ -55,6 +55,12 @@ func newTrustedDevice(userID impulse.UUID, hash []byte) *dbtype.TrustedDevice {
 	}
 }
 
+// longBeforeAnyDevice is a remembered-after cut a day before any device a test inserts:
+// a read with it finds a device by its end date and revocation alone.
+func longBeforeAnyDevice() time.Time {
+	return time.Now().Add(-24 * time.Hour)
+}
+
 // insertPending inserts a pending MFA wait of userID holding hash and returns it.
 func insertPending(ctx context.Context, t *testing.T, d AuthDriver, userID impulse.UUID, hash []byte) *dbtype.PendingSignIn {
 	t.Helper()
@@ -354,7 +360,7 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 		}
 	}
 
-	got, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now())
+	got, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now(), longBeforeAnyDevice())
 	if err != nil {
 		t.Fatalf("TrustedDeviceByToken() error = %v", err)
 	}
@@ -364,7 +370,7 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 	if got.LastUsedAt != nil || got.RevokedAt != nil {
 		t.Errorf("TrustedDeviceByToken() = LastUsedAt %v, RevokedAt %v; want both nil on a fresh device", got.LastUsedAt, got.RevokedAt)
 	}
-	if _, err := in.Driver.TrustedDeviceByToken(ctx, expired.TokenHash, time.Now()); !httpio.HasNotFound(err) {
+	if _, err := in.Driver.TrustedDeviceByToken(ctx, expired.TokenHash, time.Now(), longBeforeAnyDevice()); !httpio.HasNotFound(err) {
 		t.Errorf("TrustedDeviceByToken() of an expired device error = %v, want NotFound", err)
 	}
 
@@ -401,10 +407,10 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 	} else {
 		w.assertStamped(t, "RevokedAt", *got.RevokedAt)
 	}
-	if _, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now()); !httpio.HasNotFound(err) {
+	if _, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now(), longBeforeAnyDevice()); !httpio.HasNotFound(err) {
 		t.Errorf("TrustedDeviceByToken() of a revoked device error = %v, want NotFound", err)
 	}
-	if _, err := in.Driver.TrustedDeviceByToken(ctx, phone.TokenHash, time.Now()); err != nil {
+	if _, err := in.Driver.TrustedDeviceByToken(ctx, phone.TokenHash, time.Now(), longBeforeAnyDevice()); err != nil {
 		t.Errorf("TrustedDeviceByToken() of the other device error = %v, want it live: a revocation by token reaches one device", err)
 	}
 

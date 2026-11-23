@@ -172,6 +172,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffSessionUsers",
 			},
 			{
+				Name:        "RequireStaffSecondFactor",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "RevokeStaffSessionToken",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -194,6 +200,12 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetFeature",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "SetStaffRememberedBrowsers",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "SetStaffSelfServiceReset",
@@ -392,6 +404,16 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "StaffRememberLengths",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "days", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+			},
+			{
 				Name:        "StaffRoles",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -560,6 +582,19 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "StaffSignInSettings",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "name"},
+					{Name: "position", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "rememberBrowserDays", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "requireSecondFactor", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
 				Name:        "StaffSignInWays",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
@@ -668,6 +703,12 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "userId"},
 				},
 				Order: []accesstypes.Tag{"userId"},
+			},
+			{
+				Name:        "StopRequiringStaffSecondFactor",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "TakeStaffGroupRole",

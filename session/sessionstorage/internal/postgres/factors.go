@@ -217,13 +217,13 @@ func (s *SessionStorageDriver) queryTrustedDevices(ctx context.Context, query st
 }
 
 // TrustedDeviceByToken returns the device holding tokenHash that is live at now: not
-// revoked and not expired. Any other is NotFound.
-func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error) {
+// revoked, not expired, and remembered after rememberedAfter. Any other is NotFound.
+func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "TokenHash" = $1 AND "RevokedAt" IS NULL AND "ExpiresAt" > $2`, trustedDeviceColumns, s.trustedDevicesTable())
-	devices, err := s.queryTrustedDevices(ctx, query, tokenHash, now)
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "TokenHash" = $1 AND "RevokedAt" IS NULL AND "ExpiresAt" > $2 AND "CreatedAt" > $3`, trustedDeviceColumns, s.trustedDevicesTable())
+	devices, err := s.queryTrustedDevices(ctx, query, tokenHash, now, rememberedAfter)
 	if err != nil {
 		return nil, err
 	}

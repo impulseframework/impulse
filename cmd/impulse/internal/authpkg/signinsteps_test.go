@@ -4,18 +4,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // TestSignInSteps holds the sign-in steps the generated server asks the login page for
 // together: the login page's declaration in its package.json (impulseframework.signInSteps
 // in web/projects/resource-angular) equals SignInSteps, the list names the framework's
-// confirmation, and its second-factor entries are exactly the factors requireSecondFactor
-// requires in the auth template, so a factor added to the policy is added to the list and
-// to the page's declaration in the same change.
+// confirmation, and its second-factor entry is exactly the factor the session library
+// asks for while an auth's sign-in setting requires one (sessioninfo.MethodEmailCode), so
+// a factor the library asks for is added to the list and to the page's declaration in the
+// same change.
 func TestSignInSteps(t *testing.T) {
 	t.Parallel()
 
@@ -40,29 +42,13 @@ func TestSignInSteps(t *testing.T) {
 		t.Errorf("SignInSteps = %v names no confirmation, the framework's password confirmation every server may hold a sign-in for", SignInSteps)
 	}
 
-	// The factors the policy requires, as the template names them, to the step names the
-	// server's pending status reports them under.
-	factorNames := map[string]string{"sessioninfo.MethodEmailCode": "email-code"}
-	policy := regexp.MustCompile(`func requireSecondFactor\([^{]*\{\s*return signin\.RequireMFA\(([^)]*)\), nil`).FindStringSubmatch(authTemplate)
-	if policy == nil {
-		t.Fatal("authTemplate writes no requireSecondFactor returning signin.RequireMFA(...)")
-	}
-	var required []string
-	for _, arg := range strings.Split(policy[1], ",") {
-		arg = strings.TrimSpace(arg)
-		name, ok := factorNames[arg]
-		if !ok {
-			t.Fatalf("requireSecondFactor requires %s, which this test does not know the pending status's name of: add it to factorNames", arg)
-		}
-		required = append(required, "mfa:"+name)
-	}
 	var listed []string
 	for _, step := range SignInSteps {
 		if strings.HasPrefix(step, "mfa:") {
 			listed = append(listed, step)
 		}
 	}
-	if !slices.Equal(listed, required) {
-		t.Errorf("SignInSteps names the second-factor steps %v and requireSecondFactor requires %v", listed, required)
+	if required := []string{"mfa:" + string(sessioninfo.MethodEmailCode)}; !slices.Equal(listed, required) {
+		t.Errorf("SignInSteps names the second-factor steps %v and the session library asks for %v", listed, required)
 	}
 }

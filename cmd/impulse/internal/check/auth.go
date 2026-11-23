@@ -116,7 +116,7 @@ func issuingAuths(a *app.App, p *app.Profile) map[string]bool {
 // an Auth that issues no tokens never opens them.
 func authTables(auth *app.Auth, issues bool) []string {
 	tables := []string{
-		auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable, auth.SignInMethodsTable,
+		auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable, auth.SignInMethodsTable, auth.SignInSettingsTable,
 		auth.MailLinksTable, auth.FactorCodesTable, auth.TrustedDevicesTable,
 	}
 	if issues {

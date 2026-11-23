@@ -239,6 +239,16 @@ type db interface {
 	// link on the row of the sign-in method registered under method, and leaves what else
 	// the row says as it stands.
 	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	// SetSignInSettingsTableName sets the name of the sign-in settings table.
+	SetSignInSettingsTableName(name string) error
+	// SignInSettings reads the Auth's row of the sign-in settings table, or nil when there is none.
+	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
+	// SetRequireSecondFactor writes whether everyone is asked for a second factor, and leaves
+	// how long a browser is remembered as it stands.
+	SetRequireSecondFactor(ctx context.Context, on bool) error
+	// SetRememberBrowserDays writes for how many days a remembered browser skips the code, and
+	// leaves whether a second factor is required as it stands.
+	SetRememberBrowserDays(ctx context.Context, days int64) error
 	// InsertMailLink inserts a mail link.
 	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
 	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.
@@ -295,16 +305,18 @@ type db interface {
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID, now time.Time) error
 	// InsertTrustedDevice inserts d.
 	InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error
-	// TrustedDeviceByToken returns the device holding tokenHash that is live at now, or NotFound.
-	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error)
+	// TrustedDeviceByToken returns the device holding tokenHash that is live at now and
+	// was remembered after rememberedAfter, or NotFound.
+	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error)
 	// TouchTrustedDevice moves the LastUsedAt of the live device id to the database's time.
 	TouchTrustedDevice(ctx context.Context, id impulse.UUID, now time.Time) error
 	// RevokeTrustedDevice revokes the live device holding tokenHash; NotFound when it is not live.
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
-	// TrustedDeviceCount returns how many of userID's devices are live at now.
-	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error)
+	// TrustedDeviceCount returns how many of userID's devices are live at now and were
+	// remembered after rememberedAfter.
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error)
 	// OwnSessions returns userID's own live sessions used at activeSince or later, newest use first: no session that
 	// carries an impersonation record. Without the auth schema it is an error.
 	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)

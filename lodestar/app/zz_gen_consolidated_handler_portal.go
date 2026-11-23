@@ -12,7 +12,6 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
-	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
@@ -129,15 +128,18 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 					// A row that names a person: the rule is asked about the person the
 					// row names before the write and the person it names after it.
 					//
-					// A row removed with its parent, and a column that records who made a
-					// row, are the rule's stated limits:
-					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsClientContactSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
 					}
-					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "client contact", "UserID"); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					if err := resources.RefuseImpersonatorAsClientContactSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsClientContactSubject()")
 					}
 
 					switch op.Type {

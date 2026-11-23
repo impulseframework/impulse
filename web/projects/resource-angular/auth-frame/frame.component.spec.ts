@@ -236,6 +236,103 @@ describe('FrameComponent', () => {
         expect(document.activeElement).toBe(document.body);
       });
     });
+
+    describe('hands the lists of the page the room they have', () => {
+      /** What a ResizeObserver was asked to watch, each with the call that reports a new size. */
+      let watched: { target: Element; report: () => void }[];
+
+      class ScrollerObserver {
+        constructor(private readonly report: () => void) {}
+
+        observe(target: Element): void {
+          watched.push({ target, report: this.report });
+        }
+
+        unobserve(target: Element): void {
+          watched = watched.filter((entry) => entry.report !== this.report || entry.target !== target);
+        }
+
+        disconnect(): void {
+          watched = watched.filter((entry) => entry.report !== this.report);
+        }
+      }
+
+      beforeEach(() => {
+        watched = [];
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ScrollerObserver;
+      });
+
+      afterEach(() => {
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      });
+
+      /** What scrolls in the frame `element` draws. */
+      const scrollerIn = (element: HTMLElement): HTMLElement => {
+        return element.querySelector('.impulse-frame-scroll') as HTMLElement;
+      };
+      /**
+       * The browser lays what scrolls out `height` pixels high, with its page padded `end`
+       * at its end, and says so: the report alone, as the browser makes it.
+       */
+      const layOut = (scrolls: HTMLElement, height: number, end = '16px'): void => {
+        (scrolls.querySelector(':scope > main.impulse-frame-page') as HTMLElement).style.paddingBottom = end;
+        Object.defineProperty(scrolls, 'clientHeight', { configurable: true, value: height });
+        for (const entry of watched.filter((watching) => watching.target === scrolls)) {
+          entry.report();
+        }
+      };
+      /** The most a list of the page is tall, as what scrolls carries it. */
+      const room = (scrolls: HTMLElement): string => {
+        return scrolls.style.getPropertyValue('--impulse-list-max-height');
+      };
+
+      it("as the height of what scrolls, less the padding at its page's end and the line a list page keeps around its rows", async () => {
+        const scrolls = scrollerIn(await render({}));
+
+        layOut(scrolls, 700);
+
+        expect(room(scrolls)).toBe('680px');
+      });
+
+      it('and never less than 240 pixels, which hold the headings, three rows and the pager', async () => {
+        const scrolls = scrollerIn(await render({}));
+
+        layOut(scrolls, 200);
+
+        expect(room(scrolls)).toBe('240px');
+      });
+
+      it('and nothing while what scrolls has no height', async () => {
+        const scrolls = scrollerIn(await render({}));
+        layOut(scrolls, 700);
+        expect(room(scrolls)).toBe('680px');
+
+        layOut(scrolls, 0);
+
+        expect(room(scrolls)).toBe('');
+      });
+
+      it('and nothing where there is no ResizeObserver: a list is then as tall as its rows', async () => {
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        const scrolls = scrollerIn(await render({}));
+
+        Object.defineProperty(scrolls, 'clientHeight', { configurable: true, value: 700 });
+
+        expect(room(scrolls)).toBe('');
+        expect(watched).toEqual([]);
+      });
+
+      it('and stops watching what scrolls once the frame is gone', async () => {
+        const fixture = await draw({});
+        const scrolls = scrollerIn(fixture.nativeElement as HTMLElement);
+        const watching = (): number => watched.filter((entry) => entry.target === scrolls).length;
+        expect(watching()).toBe(1);
+
+        fixture.destroy();
+
+        expect(watching()).toBe(0);
+      });
+    });
   });
 
   it('has the place its page is in remembered as where the person works, and no longer once it is gone', async () => {

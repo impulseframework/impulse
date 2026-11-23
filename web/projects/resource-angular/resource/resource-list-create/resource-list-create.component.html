@@ -36,6 +36,16 @@
 }
 
 <ng-template #resourceComponents>
+  <!-- The lists the page names above its own: each a list of its own, with its own rows. -->
+  @for (over of above(); track $index) {
+    <impulse-resource-list-create
+      class="above"
+      [resourceConfig]="over"
+      [isRootList]="false"
+      [compoundResourceComponent]="compoundResourceComponent()">
+    </impulse-resource-list-create>
+  }
+
   @if (listReady()) {
     <impulse-resource-list
       #list

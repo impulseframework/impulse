@@ -74,6 +74,9 @@ const metas: Record<string, ResourceMeta> = {
     'says',
     'selfServiceReset',
   ),
+  // What every sign-in asks for, in two lines, and the lengths a browser is remembered for.
+  CrewSignInSettings: fields('name', 'position', 'says', 'requireSecondFactor', 'rememberBrowserDays'),
+  CrewRememberLengths: fields('name', 'days'),
   CrewSectorUsers: fields(
     'id',
     'domainId',
@@ -149,6 +152,8 @@ const crew: IdentityDescriptor = {
         sessions: 'CrewSessions',
         signInAttempts: 'CrewSessionSignInAttempts',
         signInMethods: 'CrewSignInMethods',
+        signInSettings: 'CrewSignInSettings',
+        rememberLengths: 'CrewRememberLengths',
       },
       methods: {
         invite: 'InviteCrewUser',
@@ -171,6 +176,9 @@ const crew: IdentityDescriptor = {
         openSignUp: 'OpenCrewSignUp',
         makeInviteOnly: 'MakeCrewInviteOnly',
         setSelfServiceReset: 'SetCrewSelfServiceReset',
+        requireSecondFactor: 'RequireCrewSecondFactor',
+        stopRequiringSecondFactor: 'StopRequiringCrewSecondFactor',
+        setRememberedBrowsers: 'SetCrewRememberedBrowsers',
       },
     },
     {
@@ -492,7 +500,163 @@ describe("identityPages, the whole application's side", () => {
       expect(columns(list(staffSignIn)).map(([id]) => id)).not.toContain('selfServiceReset');
     });
 
-    it('is no page of an auth whose description names no sign-in methods: a directory that gives the roles has nothing to choose', () => {
+    describe('the second factor, above the methods', () => {
+      // What the server lists: the two lines, each carrying the row's two fields.
+      const required: RecordData = {
+        name: 'second-factor',
+        position: 1,
+        says: 'Everyone is asked for a code mailed to their address when they sign in, unless their directory already asked for one or this browser is remembered.',
+        requireSecondFactor: true,
+        rememberBrowserDays: 30,
+      };
+      const remembered: RecordData = {
+        name: 'remembered-browser',
+        position: 2,
+        says: 'A remembered browser skips the code for 30 days.',
+        requireSecondFactor: true,
+        rememberBrowserDays: 30,
+      };
+      const notRequired: RecordData = {
+        ...required,
+        says: 'Not required: people sign in with a password alone. A super administrator is always asked for a code.',
+        requireSecondFactor: false,
+      };
+      const rememberedNotRequired: RecordData = { ...remembered, requireSecondFactor: false };
+      /** The one list the page draws above its methods; a page with none fails the spec. */
+      const factorOf = (config: RootConfig): ListViewConfig => {
+        const above = list(config).above ?? [];
+        if (above.length !== 1) {
+          throw new Error(`${above.length} lists above the methods, want 1`);
+        }
+        return above[0];
+      };
+
+      it('opens the page with one list that draws what happens at sign-in, and reads what the actions need without drawing it', () => {
+        const factor = factorOf(signIn);
+        expect(factor.title).toBe('Second factor');
+        expect(factor.primaryResource).toBe('CrewSignInSettings');
+        expect([
+          factor.showViewButton,
+          factor.showRowCount,
+          factor.showSearchBox,
+          factor.collapsible,
+          factor.elements,
+        ]).toEqual([false, false, false, false, []]);
+        expect(
+          factor.listColumns.map((column) => [
+            column.id,
+            column.header,
+            column.hidden === true,
+            column.filterable,
+            column.sortable,
+          ]),
+        ).toEqual([
+          ['says', 'What happens at sign-in', false, false, false],
+          ['name', 'Name', true, undefined, undefined],
+          ['requireSecondFactor', 'Second factor required', true, undefined, undefined],
+          ['rememberBrowserDays', 'Days a browser is remembered', true, undefined, undefined],
+        ]);
+      });
+
+      it('offers Stop requiring it while the second factor is required, Require it while it is not, and Change how long on the remembered browser', () => {
+        const factor = factorOf(signIn);
+        expect(methodsOf(factor.rowMethods)).toEqual([
+          ['StopRequiringCrewSecondFactor', 'Stop requiring it'],
+          ['RequireCrewSecondFactor', 'Require it'],
+          ['SetCrewRememberedBrowsers', 'Change how long'],
+        ]);
+        const stop = presentation(factor.rowMethods, 'StopRequiringCrewSecondFactor');
+        const again = presentation(factor.rowMethods, 'RequireCrewSecondFactor');
+        const change = presentation(factor.rowMethods, 'SetCrewRememberedBrowsers');
+        expect(
+          [required, notRequired, remembered, rememberedNotRequired].map((row) => [
+            stop.when?.(row),
+            again.when?.(row),
+            change.when?.(row),
+          ]),
+        ).toEqual([
+          [true, false, false],
+          [false, true, false],
+          [false, false, true],
+          [false, false, true],
+        ]);
+        expect([stop.icon, again.icon, change.icon]).toEqual(['lock_open', 'lock', 'schedule']);
+        // None of the three names a target row: each is filled from the row, with nothing,
+        // and so a list offers it on its rows.
+        expect([stop, again, change].map((p) => p.fill?.(required))).toEqual([{}, {}, {}]);
+        // Stopping is confirmed by the warning the method declares and the word it types; requiring it again by a plain question.
+        expect(stop.confirm).toBeUndefined();
+        expect(again.confirm).toBe(
+          'Everyone will be asked for a mailed code at their next sign-in, unless their directory already asked for one or their browser is remembered.',
+        );
+        // The length is picked from the lengths the server lists.
+        expect(change.labels).toEqual({ length: 'Remember a browser for' });
+        expect([stop.successMessage, again.successMessage, change.successMessage]).toEqual([
+          'A second factor is no longer required.',
+          'A second factor is required again.',
+          'How long a browser is remembered is changed.',
+        ]);
+      });
+
+      it('keeps a notice above the list while the second factor is not required, and none while it is', () => {
+        const notice = factorOf(signIn).notice;
+        expect(notice?.([required, remembered])).toBeUndefined();
+        expect(notice?.([notRequired, rememberedNotRequired])).toBe(
+          'A second factor is not required: people sign in with a password alone.',
+        );
+      });
+
+      it("says the server's line its own way: what the line says after its opening words, up to its first period", () => {
+        const notice = factorOf(signIn).notice;
+        const lineWithNoWords = Object.fromEntries(Object.entries(notRequired).filter(([field]) => field !== 'says'));
+        const saying = (says: string | undefined): RecordData[] => [
+          says === undefined ? lineWithNoWords : { ...notRequired, says },
+          rememberedNotRequired,
+        ];
+        const cases: [string | undefined, string][] = [
+          [
+            'Not required: people sign in with a password alone. A super administrator is always asked for a code.',
+            'A second factor is not required: people sign in with a password alone.',
+          ],
+          [
+            'Not required: people sign in through their directory alone, a super administrator among them.',
+            'A second factor is not required: people sign in through their directory alone, a super administrator among them.',
+          ],
+          [
+            'Not required: people sign in through their directory alone. A super administrator is always asked for a code.',
+            'A second factor is not required: people sign in through their directory alone.',
+          ],
+          // Words that do not open as the server's do, the opening with nothing after it,
+          // and a line with no words.
+          ['People sign in with a password alone.', 'A second factor is not required.'],
+          ['Not required: ', 'A second factor is not required.'],
+          [undefined, 'A second factor is not required.'],
+        ];
+        for (const [says, want] of cases) {
+          expect(notice?.(saying(says)), String(says)).toBe(want);
+        }
+      });
+
+      it('offers no method the description does not name', () => {
+        const [global, domain] = crew.sides;
+        const methods = Object.fromEntries(
+          Object.entries(global.methods).filter(([name]) => name !== 'requireSecondFactor'),
+        ) as typeof global.methods;
+        const without = { ...descriptor, identity: [{ ...crew, sides: [{ ...global, methods }, domain] }] };
+        const [, , , , fewer] = identityPages(without, resourceMeta, { auth: 'Crew', scope: 'global' });
+        expect(methodsOf(factorOf(fewer).rowMethods)).toEqual([
+          ['StopRequiringCrewSecondFactor', 'Stop requiring it'],
+          ['SetCrewRememberedBrowsers', 'Change how long'],
+        ]);
+      });
+
+      it('is not on the page where the description names no sign-in settings', () => {
+        const [, staffSignIn] = identityPages(descriptor, resourceMeta, { auth: 'Staff', scope: 'global' });
+        expect(list(staffSignIn).above).toBeUndefined();
+      });
+    });
+
+    it('is no page of an auth whose description names no sign-in methods', () => {
       const built = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });
       expect(built.map((page) => page.page?.label)).toEqual(['Accounts']);
     });
@@ -500,8 +664,8 @@ describe("identityPages, the whole application's side", () => {
 
   it('lists the accounts by the columns the schema carries and offers each method under plain words', () => {
     expect(visibleColumns(list(people))).toEqual([
-      ['username', 'Username'],
       ['name', 'Name'],
+      ['username', 'Username'],
       ['email', 'Email'],
       ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
@@ -1039,8 +1203,8 @@ describe("identityPages, a tenant's side", () => {
 
   it('names the tenant record in its words and leaves out what the side does not have', () => {
     expect(visibleColumns(list(people))).toEqual([
-      ['username', 'Username'],
       ['name', 'Name'],
+      ['username', 'Username'],
       ['email', 'Email'],
       ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
@@ -1582,6 +1746,103 @@ describe('identityRoutes', () => {
   });
 });
 
+// A page of the whole application's side is headed by what it lists, and by the Auth's
+// label before it only where the description manages more than one Auth: with one there is
+// no other Auth's page to tell it from.
+describe("identityPages, the headings of the whole application's pages", () => {
+  const titles = (on: ApiDescriptor): [string | undefined, string][] =>
+    identityPages(on, resourceMeta, { auth: 'Crew', scope: 'global' })
+      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins'].includes(config.page?.label ?? ''))
+      .map((config) => [config.page?.label, list(config).title]);
+
+  it('are the words alone where the application manages one auth', () => {
+    expect(titles({ ...descriptor, identity: [crew] } as ApiDescriptor)).toEqual([
+      ['Mailed links', 'Mailed links'],
+      ['Sessions', 'Sessions'],
+      ['Failed sign-ins', 'Failed sign-ins'],
+    ]);
+  });
+
+  it("keep the auth's label where the application manages several", () => {
+    expect(titles(descriptor)).toEqual([
+      ['Mailed links', 'Crew mailed links'],
+      ['Sessions', 'Crew sessions'],
+      ['Failed sign-ins', 'Crew failed sign-ins'],
+    ]);
+  });
+
+  it("leave a tenant's headings as they are", () => {
+    const tenant = identityPages({ ...descriptor, identity: [crew] } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'domain',
+    });
+    expect(tenant.map((config) => list(config).title)).toEqual(
+      identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' }).map((config) => list(config).title),
+    );
+  });
+});
+
+// A list of people leads with the person's name, which is the link to the person's page:
+// the username stands in for a person with no name, and where the list has no name the
+// username leads.
+describe("identityPages, the people lists lead with the person's name", () => {
+  const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
+  const sides: [string, RootConfig][] = [
+    ['the Accounts list', accounts],
+    ['the People list', people],
+  ];
+
+  for (const [side, config] of sides) {
+    it(`${side} leads with Name, the column that opens the row, then Username and Email`, () => {
+      expect(visibleColumns(list(config)).slice(0, 3)).toEqual([
+        ['name', 'Name'],
+        ['username', 'Username'],
+        ['email', 'Email'],
+      ]);
+      const name = columnOf(list(config), 'name');
+      expect(name.opensRow).toBe(true);
+      expect(
+        list(config)
+          .listColumns.filter((column) => column.opensRow)
+          .map((column) => column.id),
+      ).toEqual(['name']);
+    });
+
+    it(`${side} names a person by the name, and by the username where there is none`, () => {
+      const cell = columnOf(list(config), 'name').valueGetter as (row: RecordData) => string;
+      expect(cell({ name: 'Ada Lovelace', username: 'ada' })).toBe('Ada Lovelace');
+      expect(cell({ name: '', username: 'ada' })).toBe('ada');
+      expect(cell({ username: 'ada' })).toBe('ada');
+      expect(cell({})).toBe('');
+    });
+  }
+
+  it('leads with the username, the column that opens the row, where the list has no name', () => {
+    const nameless = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSessionUsers' ? fields('id', 'username', 'email', 'disabled') : metas[resource];
+    // A description of its own: the same request answers the same pages.
+    const [bare] = identityPages({ ...descriptor }, nameless, { auth: 'Crew', scope: 'global' });
+    expect(visibleColumns(list(bare))).toEqual([
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['disabled', 'State'],
+    ]);
+    expect(columnOf(list(bare), 'username').opensRow).toBe(true);
+    expect(columnOf(list(bare), 'email').opensRow).toBeUndefined();
+  });
+
+  it("is headed Accounts where the application manages one auth, and by the auth's label beside others", () => {
+    const [alone] = identityPages({ ...descriptor, identity: [crew] } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'global',
+    });
+    expect(list(alone).title).toBe('Accounts');
+    expect(list(accounts).title).toBe('Crew accounts');
+    expect(list(people).title).toBe('People');
+  });
+});
+
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.
@@ -1692,6 +1953,12 @@ describe('identityPages, an Auth that keeps groups', () => {
       'Sign-in',
     ]);
     expect(children(without[0]).map((child) => child.title)).toEqual(['Roles held', 'Sign-in identities', 'Sessions']);
+  });
+
+  it('heads the Groups page by its words alone where the application manages one auth', () => {
+    const alone = { ...descriptor, identity: [grouped] } as ApiDescriptor;
+    expect(list(identityPages(alone, groupMeta, { auth: 'Crew', scope: 'global' })[1]).title).toBe('Groups');
+    expect(list(identityPages(alone, groupMeta, { auth: 'Crew', scope: 'domain' })[1]).title).toBe('Groups');
   });
 
   it("lists the whole application's groups with where each is kept, and offers the methods that run against a group", () => {
@@ -2126,10 +2393,14 @@ describe('identityPages, what the notice says once a method has run', () => {
   const sides = (['global', 'domain'] as const).map((scope) =>
     identityPages(everyDescriptor, (resource) => everyMetas[resource], { auth: 'Crew', scope }),
   );
-  /** Every offer of a method the pages of a side make: on the rows and above the list, of each page and of each list under a row. */
+  /**
+   * Every offer of a method the pages of a side make: on the rows and above the list, of
+   * each page, of each list drawn above or under a page's own, and of each list under a row.
+   */
   const offers = (pages: RootConfig[]): MethodPresentation[] =>
     pages
       .flatMap((page) => [list(page), ...((page.relatedConfigs ?? []) as ListViewConfig[])])
+      .flatMap((config) => [config, ...(config.above ?? []), ...(config.below ?? [])])
       .flatMap((config) => [...(config.rowMethods || []), ...(config.listMethods ?? [])]);
 
   it('says what happened in a sentence, for every method the pages offer: none is left to its label and "done"', () => {
