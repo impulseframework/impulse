@@ -239,9 +239,10 @@ func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UU
 	return d.UserIn(ctx, tx, userID)
 }
 
-// UserByUsernameIn finds a committed user as the stores find one, more widely than the
-// library compares two addresses: Unicode's case folding (strings.EqualFold) takes the
-// Kelvin sign for a k.
+// UserByUsernameIn finds a committed user more widely than the stores find a username
+// with an @ in it (Unicode's case folding, strings.EqualFold, takes the Kelvin sign for a
+// k), so the flow's own check that a vouched name is the account's is what these cases
+// pin.
 func (d *memDriver) UserByUsernameIn(_ context.Context, _ *memTx, username string) (*dbtype.User, error) {
 	for id, user := range d.store.users {
 		if strings.EqualFold(user.username, username) {

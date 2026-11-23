@@ -23,6 +23,8 @@ func TestSeedUserID(t *testing.T) {
 	}{
 		{name: "the same auth and username give the same id on every call", auth: "crew", username: "alice", otherAuth: "crew", otherUsername: "alice", wantSame: true},
 		{name: "a username spelled in another case is the same name, as the users table holds it, and gives the same id", auth: "crew", username: "Alice@Lakeside.edu", otherAuth: "crew", otherUsername: "alice@lakeside.EDU", wantSame: true},
+		{name: "a username with an @ in it and the Kelvin sign for its k is another address, as the users table holds it, and gives another id", auth: "crew", username: "\u212aim@lakeside.edu", otherAuth: "crew", otherUsername: "kim@lakeside.edu"},
+		{name: "a username with no @ in it and the Kelvin sign for its k is the same name, as the users table holds it, and gives the same id", auth: "crew", username: "\u212aim", otherAuth: "crew", otherUsername: "kim", wantSame: true},
 		{name: "another username in the auth gives another id", auth: "crew", username: "alice", otherAuth: "crew", otherUsername: "bob"},
 		{name: "the username in another auth gives another id", auth: "crew", username: "alice", otherAuth: "members", otherUsername: "alice"},
 		{name: "the auth and the username are kept apart: ab with c is not a with bc", auth: "ab", username: "c", otherAuth: "a", otherUsername: "bc"},

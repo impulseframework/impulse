@@ -555,7 +555,7 @@ func seamTypedAddressSpent[Tx any](ctx context.Context, t *testing.T, a *authApp
 	// Fifteen minutes on, the address may be mailed again: here its count of mail is
 	// cleared, as the time passing would. Each has a code mailed; pat ends theirs with
 	// five wrong guesses, and the fifth is the address's twenty-fifth.
-	if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindMail, attempts.Normalize(typed))); err != nil {
+	if err := a.clearSignInAttempts(ctx, attempts.OwnKey(attempts.KindMail, attempts.FoldWide(typed))); err != nil {
 		t.Fatalf("ClearSignInAttempts() of the address's mail error = %v", err)
 	}
 	right := a.typeAddress(ctx, t, sam, typed)
@@ -847,8 +847,8 @@ func seamOwnCodeCountIsTheAccounts[Tx any](ctx context.Context, t *testing.T, a 
 	t.Helper()
 
 	const patAddress, samAddress = "pat@glass.example", "pat@glaß.example"
-	if attempts.Normalize(patAddress) != attempts.Normalize(samAddress) {
-		t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", patAddress, samAddress)
+	if attempts.FoldWide(patAddress) != attempts.FoldWide(samAddress) {
+		t.Fatalf("attempts.FoldWide() folds %q and %q apart, want them folded to one", patAddress, samAddress)
 	}
 	pat, sam := a.seedWithEmail(ctx, t, "pat", patAddress), a.seedWithEmail(ctx, t, "sam", samAddress)
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })

@@ -477,7 +477,7 @@ func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) er
 // a count of their own: a request anyone can make for an address must never use up the
 // sign-in codes a person who is past their password needs, which mailLimitKey counts.
 func resetLimitKey(email string) string {
-	return attempts.OwnKey(attempts.KindReset, attempts.Normalize(email))
+	return attempts.OwnKey(attempts.KindReset, attempts.FoldWide(email))
 }
 
 // limitResetMail counts one reset link for the address, and refuses once the address

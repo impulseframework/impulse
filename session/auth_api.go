@@ -207,8 +207,9 @@ func (p *AuthAPI[S, U, Tx]) User(ctx context.Context, userID impulse.UUID) (*ses
 	return user, nil
 }
 
-// UserByUsername returns a user by username, matched without regard to case, or a
-// NotFound error.
+// UserByUsername returns a user by username, matched as the users table matches one (a
+// name with an @ in it by the case of its ASCII letters alone, any other without regard
+// to case), or a NotFound error.
 func (p *AuthAPI[S, U, Tx]) UserByUsername(ctx context.Context, username string) (*sessionstorage.SessionUser, error) {
 	user, err := p.auth.storage.UserByUserName(ctx, username)
 	if err != nil {

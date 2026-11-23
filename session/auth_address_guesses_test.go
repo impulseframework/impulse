@@ -315,8 +315,8 @@ func addressCountIsItsOwn(t *testing.T) {
 		patTyped, patKey = "lee@glass.example", "ADDRESS-GUESS:lee@glass.example"
 		samTyped, samKey = "lee@glaß.example", "ADDRESS-GUESS:lee@glaß.example"
 	)
-	if attempts.Normalize(patTyped) != attempts.Normalize(samTyped) {
-		t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", patTyped, samTyped)
+	if attempts.FoldWide(patTyped) != attempts.FoldWide(samTyped) {
+		t.Fatalf("attempts.FoldWide() folds %q and %q apart, want them folded to one", patTyped, samTyped)
 	}
 	w := newAddressTypists(t)
 	count := func(key string) int64 {

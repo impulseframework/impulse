@@ -38,7 +38,15 @@ GRANT SELECT ON TABLE SchemaMigrations TO ROLE migrations_reader;
 CREATE TABLE CrewSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
@@ -200,7 +208,15 @@ CREATE INDEX WingsByName ON Wings(Name);
 CREATE TABLE MembersSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
@@ -546,8 +562,8 @@ CREATE TABLE Missions (
   -- The hazard scale is 1..5. The create validator (MissionCreateValidator) answers the rule
   -- as 400 naming the field before anything is buffered; the update path has no validator,
   -- so this constraint is what refuses an update to hazard 9, at commit, and the library
-  -- answers the refusal as 400 in the resource's name. It is the demo's only CHECK a request
-  -- can reach: the others guard server-minted ids.
+  -- answers the refusal as 400 in a sentence that says the mission in words. It is the demo's
+  -- only CHECK a request can reach: the others guard server-minted ids.
   CONSTRAINT CK_Missions_Hazard CHECK (Hazard BETWEEN 1 AND 5),
   -- Missions: the title as text and the deadline as a date (YYYYMMDD in UTC, the zone the
   -- day is read in: a timestamp's token column names its zone, since the database's
