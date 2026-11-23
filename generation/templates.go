@@ -4298,7 +4298,9 @@ const resourceMap = defineResourceMap({
     {{- if $resource.RowWord }}
     rowWords: {{ $resource.TypescriptRowWords }},
     {{- end }}
-    {{- if $resource.TenantNameField }}
+    {{- if $resource.RowNameField }}
+    nameField: '{{ Camel $resource.RowNameField.Name }}',
+    {{- else if $resource.TenantNameField }}
     nameField: '{{ Camel $resource.TenantNameField.Name }}',
     {{- end }}
     fields: [
