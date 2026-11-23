@@ -95,13 +95,14 @@ export interface MethodDialogResult {
  * A method that warns before it runs (`warning` in its metadata, the method's @warning)
  * is drawn as a warning. The dialog asks the server what the call will do, with what the
  * row carries and what the person has filled, as it opens and again after each change,
- * and nothing is saved by asking. The server's words are shown in the warning style
- * under a warning icon, the confirm button carries the words the server gave it, which
- * say what it does, and the button is held until the server has answered and the person
- * has typed the word the method declares. While an input the method requires is empty
- * the server is not asked, since it would refuse the request for it. A refusal of the
- * question is shown as a refusal of the call is, and holds the button too: nobody
- * confirms a warning they were not shown.
+ * and nothing is saved by asking. The server's words are shown, the confirm button
+ * carries the words the server gave it, which say what it does, and the button is held
+ * until the server has answered. A method that declares a word to type is shown in the
+ * warning style under a warning icon, and its button is held until the word is typed
+ * too; one that declares none is shown as the dialog's question. While an input the
+ * method requires is empty the server is not asked, since it would refuse the request
+ * for it. A refusal of the question is shown as a refusal of the call is, and holds the
+ * button too: nobody confirms a warning they were not shown.
  */
 @Component({
   selector: 'impulse-method-dialog',
@@ -208,11 +209,13 @@ export class MethodDialogComponent {
   private readonly typedValue = toSignal(this.typed.valueChanges, { initialValue: '' });
   /**
    * Whether the call may be confirmed: always for a method that does not warn; for one
-   * that does, once the server's warning is on the screen and the word is typed, in any
-   * case and with spaces around it or not.
+   * that does, once the server's warning is on the screen and, where the method declares
+   * a word, the word is typed, in any case and with spaces around it or not.
    */
   readonly confirmed = computed(
-    () => !this.typedWord || (this.warned() !== undefined && this.typedValue().trim().toLowerCase() === this.typedWord),
+    () =>
+      !this.meta.warning ||
+      (this.warned() !== undefined && (!this.typedWord || this.typedValue().trim().toLowerCase() === this.typedWord)),
   );
   /** The words on the button that runs the method: the server's for a method that warns, the page's label otherwise. */
   readonly runLabel = computed(() => this.warned()?.confirm ?? this.data.label);
