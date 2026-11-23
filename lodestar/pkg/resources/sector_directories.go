@@ -58,7 +58,7 @@ type (
 	// directories record requires: a directory is the sector's own declaration, stamped
 	// from the request's sector on create, never written by the wire.
 	//
-	// Demonstrates: tenancy.declaration, tenancy.creator-directory, tenancy.default-seat.
+	// Demonstrates: tenancy.declaration, tenancy.creator-directory, tenancy.default-seat, tenancy.directory-second-factor.
 	//
 	// @resource
 	// @permissionScope(domain)
