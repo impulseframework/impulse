@@ -207,9 +207,11 @@ func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as the session library's own lookup of
 	// a name does: the table's normalized username is no field of the declaration,
-	// and it is the column the unique index is over.
+	// and it is the column the unique index is over. The name is folded as the column
+	// folds it: one with an @ in it as an address is, any other in Unicode's
+	// normalization and case folding.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)",
+		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE_AND_CASEFOLD(@username))",
 		Params: map[string]any{"username": username},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {

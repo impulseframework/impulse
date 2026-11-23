@@ -77,6 +77,36 @@ func TestMigrations_listIndexes(t *testing.T) {
 	}
 }
 
+// TestMigrations_normalizedUsername holds the form a username is unique in and looked up
+// by, for both shapes of the address columns: one with an @ in it by the case of its
+// ASCII letters alone, as the session library compares two addresses, and any other in
+// Unicode's normalization and case folding, the session library's own schema letter for
+// letter.
+func TestMigrations_normalizedUsername(t *testing.T) {
+	t.Parallel()
+
+	const column = "  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE_AND_CASEFOLD(Username))) STORED,\n"
+	for _, tt := range []struct {
+		name            string
+		usernameIsEmail bool
+	}{
+		{name: "an address held apart from the username"},
+		{name: "where the username is the address", usernameIsEmail: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var up strings.Builder
+			for _, m := range Migrations("Staff", "staff", tt.usernameIsEmail) {
+				up.WriteString(m.Up)
+			}
+			if !strings.Contains(up.String(), column) {
+				t.Errorf("the migrations lack %q", column)
+			}
+		})
+	}
+}
+
 // TestMigrations_rowDeletionPolicies holds the row deletion policies of the three tables
 // that would otherwise keep every row ever written, and the column the sign-in attempts
 // table's policy is counted from: the same statements as the session library's shipped

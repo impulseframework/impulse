@@ -38,7 +38,12 @@ func usersUp(p, who string, usernameIsEmail bool) string {
 CREATE TABLE %[1]sSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE_AND_CASEFOLD(Username))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
