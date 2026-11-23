@@ -388,6 +388,42 @@ describe('ResourceViewComponent row methods', () => {
     expect(opened).toEqual([]);
   });
 
+  // The menu draws a line above an entry whose group is not the one of the entry before it:
+  // never above the first entry, and nowhere in a menu whose entries name no group.
+  for (const tt of [
+    {
+      name: 'between two groups, where the group changes',
+      groups: ['a', 'a', 'b'],
+      want: ['Disable', 'Enable', '-', 'Rename'],
+    },
+    {
+      name: 'nowhere where no entry names a group',
+      groups: [undefined, undefined, undefined],
+      want: ['Disable', 'Enable', 'Rename'],
+    },
+    {
+      name: 'under a first entry alone in its group, and not above it',
+      groups: ['a', 'b', 'b'],
+      want: ['Disable', '-', 'Enable', 'Rename'],
+    },
+  ]) {
+    it(`draws a line in the row's Actions menu ${tt.name}`, async () => {
+      const presentations: MethodPresentation[] = [
+        { method: 'DisableAccount' as Method, label: 'Disable', group: tt.groups[0] },
+        { method: 'EnableAccount' as Method, label: 'Enable', group: tt.groups[1] },
+        { method: 'RenameAccount' as Method, label: 'Rename', group: tt.groups[2] },
+      ];
+      await create({ rowMethods: presentations });
+
+      (element().querySelector('button.row-methods') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const drawn = Array.from(document.querySelector('.mat-mdc-menu-content')?.children ?? []).map((child) =>
+        child.tagName === 'MAT-DIVIDER' ? '-' : child.textContent?.trim(),
+      );
+      expect(drawn).toEqual(tt.want);
+    });
+  }
+
   it("runs a method through the dialog with the row's key, says it ran, and reads the row again", async () => {
     await create({
       rowMethods: [

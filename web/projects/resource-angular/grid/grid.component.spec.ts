@@ -1,7 +1,7 @@
 import { Component, effect } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { ColumnConfig, iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, iconCellKey, RecordData, RowAction } from '@impulseframework/resource-angular/types';
 
 import { AppGridComponent, MIN_TEXT_COLUMN_WIDTH } from './grid.component';
 import { ColumnFilter, ColumnFilterChoices, ColumnFilterInputs, RowKey } from './grid-types';
@@ -1378,6 +1378,53 @@ describe('what a row says of a list, a missing key and a method it does not offe
     entries[0].click();
     expect(ran).toEqual(['describe']);
   });
+
+  // A row's menu draws a line above an entry whose group is not the one of the entry before
+  // it: never above the first entry, and nowhere in a menu whose entries name no group.
+  for (const tt of [
+    {
+      name: 'between two groups, where the group changes',
+      groups: ['a', 'a', 'b'],
+      want: ['One', 'Two', '-', 'Three'],
+    },
+    {
+      name: 'nowhere where no entry names a group',
+      groups: [undefined, undefined, undefined],
+      want: ['One', 'Two', 'Three'],
+    },
+    {
+      name: 'under a first entry alone in its group, and not above it',
+      groups: ['a', 'b', 'b'],
+      want: ['One', '-', 'Two', 'Three'],
+    },
+  ]) {
+    it(`draws a line in a row's menu ${tt.name}`, async () => {
+      const actions: RowAction[] = ['One', 'Two', 'Three'].map((label, index) => ({
+        id: label,
+        label,
+        group: tt.groups[index],
+        run: (): void => undefined,
+      }));
+      await draw(
+        [{ name: 'Night shift', 'actions:menu': actions } as unknown as RecordData],
+        [
+          { id: 'name' },
+          {
+            id: 'actions:menu',
+            hideHeader: true,
+            buttonConfig: { label: 'Actions', icon: 'more_vert', actionType: 'menu' },
+          },
+        ],
+      );
+      byRole(element, 'button', 'Actions')?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const drawn = Array.from(document.querySelector('.mat-mdc-menu-content')?.children ?? []).map((child) =>
+        child.tagName === 'MAT-DIVIDER' ? '-' : child.textContent?.trim(),
+      );
+      expect(drawn).toEqual(tt.want);
+    });
+  }
 });
 
 // A column keeps a readable width: the table is never narrower than its columns at the

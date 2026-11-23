@@ -44,9 +44,9 @@ const (
 	roleRemovalConfirm               = "Take the role away"
 	roleRemovalDeletesAccountConfirm = "Take the role away and delete the account"
 
-	// roleRemovalDeletesAccountNote is the warning's note where the account goes with the
-	// role.
-	roleRemovalDeletesAccountNote = "They hold nothing else, so their account is deleted with its sign-in identities and sessions."
+	// deletesAccountNote is the warning's note where the account goes with the role, and
+	// with a place in a group (GroupMemberRemovalWarning).
+	deletesAccountNote = "They hold nothing else, so their account is deleted with its sign-in identities and sessions."
 
 	// roleNotHeldMessage is said of a warning asked about a role the person no longer
 	// holds: there is nothing to take away.
@@ -214,7 +214,7 @@ func roleRemovalWarning(consequence string, removal *roleRemoval) *resource.Warn
 		Consequence: consequence,
 		Names:       nil,
 		Confirm:     roleRemovalDeletesAccountConfirm,
-		Also:        []resource.WarningNote{{Says: roleRemovalDeletesAccountNote, Names: nil}},
+		Also:        []resource.WarningNote{{Says: deletesAccountNote, Names: nil}},
 	}
 }
 

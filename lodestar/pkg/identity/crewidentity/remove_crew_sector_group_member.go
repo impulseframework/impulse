@@ -27,16 +27,36 @@ import (
 // directly need of the caller (the grants of AssignCrewSectorRole and RemoveCrewSectorRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// The method declares a warning with no word to type: asked first, the server says who
+// leaves which group, and, where the place is the last thing the person holds, that the
+// account is deleted with it.
+//
 // @rpc
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @warning
 // @class(access)
 type RemoveCrewSectorGroupMember struct {
 	// @target(CrewSectorGroupUser, key: GroupID)
 	GroupID impulse.UUID
 	// @target(CrewSectorGroupUser, key: UserID)
 	UserID impulse.UUID
+}
+
+// Warning says who would leave which group, and whether the account goes with it. It
+// writes nothing.
+func (m *RemoveCrewSectorGroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	warning, err := tenant.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Tenant.GroupMemberRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

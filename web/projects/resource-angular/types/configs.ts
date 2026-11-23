@@ -53,6 +53,8 @@ export interface RowAction {
   id: string;
   label: string;
   icon?: string;
+  /** The group of the menu the entry belongs to (MethodPresentation.group): the menu draws a line where it changes. */
+  group?: string;
   run: () => void;
   /**
    * The entry says something and does nothing: the words a row shows in the place of a
@@ -111,6 +113,13 @@ export interface MethodPresentation {
   label?: string;
   /** The icon beside the words. */
   icon?: string;
+  /**
+   * The group of a menu the method's entry belongs to, by a name of the page's own
+   * ("account"). A menu draws a line above an entry whose group is not the one of the
+   * entry before it, so a long menu reads as a few short ones; the order is still the one
+   * the page names its methods in. Entries that name no group are one group.
+   */
+  group?: string;
   /** Leaves the method off the page. */
   hidden?: boolean;
   /**
