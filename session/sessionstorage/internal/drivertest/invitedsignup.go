@@ -3,6 +3,7 @@ package drivertest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -131,8 +132,8 @@ func assertNothingCommitted(ctx context.Context, t *testing.T, what string, h *A
 	}
 }
 
-// assertConflictSays fails unless err is a Conflict that says want.
-func assertConflictSays(t *testing.T, what string, err error, want string) {
+// assertConflictSays fails unless err is a Conflict that says want, and none of unsaid.
+func assertConflictSays(t *testing.T, what string, err error, want string, unsaid ...string) {
 	t.Helper()
 
 	if !httpio.HasConflict(err) {
@@ -140,6 +141,11 @@ func assertConflictSays(t *testing.T, what string, err error, want string) {
 	}
 	if got := httpio.Message(err); got != want {
 		t.Errorf("%s: the Conflict says %q, want %q", what, got, want)
+	}
+	for _, word := range unsaid {
+		if got := httpio.Message(err); strings.Contains(got, word) {
+			t.Errorf("%s: the Conflict says %q, which carries %q", what, got, word)
+		}
 	}
 }
 
@@ -218,7 +224,7 @@ func invitedSignUpTaken(ctx context.Context, t *testing.T, h *AuthHarness, in *A
 		heldLink := insertInvitation(ctx, t, in.Driver, email, "lakeside", []string{"Teacher"}, tokenHash(map[bool]byte{true: 3, false: 4}[confirmed]))
 		req, account, proof := invitedSignUp(t, heldLink, "new-"+email)
 		_, err := signUpInvited(ctx, in, req, account, proof)
-		assertConflictSays(t, what, err, "the email address \""+email+"\" is already in use")
+		assertConflictSays(t, what, err, dbtype.EmailInUseMessage, email, account.Username)
 		if user, err := in.Driver.User(ctx, account.ID.UUID); !httpio.HasNotFound(err) {
 			t.Errorf("%s: User() of the sign-up's id = %+v, %v; want NotFound", what, user, err)
 		}
@@ -235,7 +241,7 @@ func invitedSignUpTaken(ctx context.Context, t *testing.T, h *AuthHarness, in *A
 	kimLink := insertInvitation(ctx, t, in.Driver, "kim@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(5))
 	req, account, proof := invitedSignUp(t, kimLink, "kim")
 	_, err := signUpInvited(ctx, in, req, account, proof)
-	assertConflictSays(t, "a username taken", err, `username "kim" already exists`)
+	assertConflictSays(t, "a username taken", err, dbtype.UsernameTakenMessage, account.Username, "kim@lakeside.edu")
 	if user, err := in.Driver.UserByUserName(ctx, "kim"); err != nil || user.ID != kim.ID {
 		t.Errorf("UserByUserName(kim) = %+v, %v; want the account that held the username", user, err)
 	}

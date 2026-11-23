@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -116,7 +117,7 @@ func TestSuperAdministrator_definedInEveryClient(t *testing.T) {
 func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 	t.Parallel()
 
-	const rule = "the Super administrator role is held for the whole application alone, never in a tenant or in every tenant"
+	const rule = "The Super administrator role is held for the whole application alone, never in a tenant or in every tenant. Give it with no tenant named."
 	writes := map[string]func(ctx context.Context, m UserManager, store *fakeStore, scope accesstypes.PolicyScope) error{
 		"AddUserRoles": func(ctx context.Context, m UserManager, _ *fakeStore, scope accesstypes.PolicyScope) error {
 			return m.AddUserRoles(ctx, scope, "dana", accesstypes.SuperAdministrator)
@@ -140,7 +141,7 @@ func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 
 			for _, scope := range []accesstypes.PolicyScope{tenant1Policy, everyDomainPolicy} {
 				err := write(ctx, client.UserManager(), store, scope)
-				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(httpio.Message(err), rule) {
+				if err == nil || !httpio.HasBadRequest(err) || httpio.Message(err) != rule {
 					t.Errorf("%s(%s) error = %v, want a bad request saying %q", name, scope, err, rule)
 				}
 			}
@@ -225,7 +226,7 @@ func TestSuperAdministrator_noCustomRoleTakesTheName(t *testing.T) {
 				client, store := superClient(t)
 
 				err := client.UserManager().AddRole(t.Context(), scope, name, aDescription)
-				if err == nil || !httpio.HasConflict(err) || !strings.Contains(httpio.Message(err), "the name is reserved") {
+				if want := fmt.Sprintf("The name %q is reserved for the Super administrator role, which every application has. Choose another name.", name); err == nil || !httpio.HasConflict(err) || httpio.Message(err) != want {
 					t.Errorf("AddRole(%s, %s) error = %v, want a conflict saying the name is reserved", scope, name, err)
 				}
 				if len(store.roles) != 0 {

@@ -122,7 +122,7 @@ type given struct {
 func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, given *given) error {
 	period := given.period
 	if userID.IsNil() {
-		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+		return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 	}
 	if err := access.ValidatePeriod(role, period); err != nil {
 		return errors.Wrap(err, "access.ValidatePeriod()")
@@ -131,10 +131,13 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
-		const said = "the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named"
+		const (
+			said  = "The %s role is held for the whole application alone, never in %s or in every %s. Give it with no %s named."
+			cause = "the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named"
+		)
 
-		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord, m.tenantWord, m.tenantWord),
-			said, roleInWords(role), m.tenantWord, m.tenantWord, m.tenantWord)
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role), m.tenantWord, m.tenantWord, m.tenantWord),
+			said, roleInWords(role), withArticle(m.tenantWord), m.tenantWord, m.tenantWord)
 	}
 	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)
@@ -444,9 +447,9 @@ func (m *Manager) policyChangesAtCommit(txn resource.ReadWriteTransaction) error
 func Scope(domain *string, everyDomain bool) (accesstypes.PolicyScope, error) {
 	switch {
 	case domain != nil && everyDomain:
-		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("a role is held in one domain or in every domain, not both: name the domain or set everyDomain")
+		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("A role is held in one tenant or in every tenant, not both. Send domain or everyDomain, not the two together.")
 	case domain != nil && *domain == "":
-		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("the domain is empty: name the domain the role is held in, or leave it out for the global scope")
+		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("The tenant named is empty. Name the tenant the role is held in, or leave domain out to give the role for the whole application.")
 	case domain != nil:
 		return accesstypes.DomainPolicyScope(accesstypes.Domain(*domain)), nil
 	case everyDomain:

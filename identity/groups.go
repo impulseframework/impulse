@@ -143,7 +143,7 @@ func (m *Manager) CreateGroup(ctx context.Context, txn resource.ReadWriteTransac
 		return impulse.NilUUID, errors.Wrap(err, "identity.Store.GroupNamed()")
 	}
 	if taken {
-		return impulse.NilUUID, httpio.NewConflictMessagef("a group named %q already exists here: choose another name", row.Name)
+		return impulse.NilUUID, httpio.NewConflictMessagef("A group named %q already exists here. Choose another name.", row.Name)
 	}
 	id, err := m.store.InsertGroup(ctx, txn, &row)
 	if err != nil {
@@ -205,9 +205,12 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 	standingMembers := slices.DeleteFunc(slices.Clone(members), func(user accesstypes.User) bool { return periods.Members[user].Ended(now) })
 	standingRoles := slices.DeleteFunc(slices.Clone(roles), func(key access.GroupRoleKey) bool { return periods.Roles[key].Ended(now) })
 	if len(standingMembers) > 0 || len(standingRoles) > 0 {
-		return httpio.NewConflictMessagef(
-			"the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it",
-			group.Name, len(standingMembers), len(standingRoles),
+		return httpio.NewConflictMessageWithErrorf(
+			errors.Newf(
+				"the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it",
+				group.Name, len(standingMembers), len(standingRoles),
+			),
+			"The group %s still has a member or holds a role. Remove its members and take its roles away, then delete it.", group.Name,
 		)
 	}
 	// What is left has ended, and goes with the group.
@@ -258,10 +261,10 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if userID.IsNil() {
-		return httpio.NewBadRequestMessage("a person is put in a group: the user id is empty")
+		return httpio.NewBadRequestMessage("No person is named. Name the person to put in the group.")
 	}
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, access.PeriodNeverCountsMessage)
 	}
 	if err := refuseEnded(period, "the place in the group"); err != nil {
 		return err
@@ -529,7 +532,7 @@ func (m *Manager) GiveGroupRoleFor(
 	defer span.End()
 
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, access.PeriodNeverCountsMessage)
 	}
 	if err := refuseEnded(period, "the group's role"); err != nil {
 		return err

@@ -240,7 +240,7 @@ func (p *AuthAPI[S, U, Tx]) SendPasswordReset(ctx context.Context, userID impuls
 
 	a := p.auth
 	if !a.registered().passwordRegistered() {
-		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset.")
 	}
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {

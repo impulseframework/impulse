@@ -103,8 +103,8 @@ func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWrite
 		return nil
 	}
 	if inAnotherTenant(held, scope) || !m.oneTenant.give(ctx, userID, string(domain)) {
-		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessage(
-			"this account already belongs to another tenant, and a person belongs to one tenant here: the role is not given",
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
+			"This account already belongs to another %s, and a person belongs to one %s here. The role is not given.", m.tenantWord, m.tenantWord,
 		))
 	}
 
@@ -138,7 +138,7 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 	}
 	if !outsideTenants(held) && inAnotherTenant(held, accesstypes.DomainPolicyScope(accesstypes.Domain(*domain))) {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
-			"an account already holds the address %s and belongs to another tenant, and a person belongs to one tenant here: the invitation is not sent", email,
+			"An account already holds the address %s and belongs to another %s, and a person belongs to one %s here. The invitation is not sent.", email, m.tenantWord, m.tenantWord,
 		))
 	}
 
@@ -175,8 +175,9 @@ func (m *Manager) refuseSeveralTenantsLeft(removed *access.MembershipKey, left [
 		return nil
 	}
 	if !outsideTenants(left) && tenantCount(left) > 1 {
-		return httpio.NewConflictMessage(
-			"this account holds roles in more than one tenant, which only a person who also holds a role for the whole application or in every tenant may: take the roles in all but one tenant away first",
+		return httpio.NewConflictMessagef(
+			"This account holds roles in more than one %s, which only a person who also holds a role for the whole application or in every %s may. Take the roles in all but one %s away first.",
+			m.tenantWord, m.tenantWord, m.tenantWord,
 		)
 	}
 

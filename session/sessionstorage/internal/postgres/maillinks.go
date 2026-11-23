@@ -8,7 +8,6 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/jackc/pgx/v5"
@@ -129,7 +128,7 @@ func (s *SessionStorageDriver) MailLinkByToken(ctx context.Context, tokenHash []
 		return nil, err
 	}
 	if len(links) == 0 {
-		return nil, httpio.NewNotFoundMessage("no live mail link")
+		return nil, dbtype.MailLinkNotLive()
 	}
 
 	return links[0], nil
@@ -207,7 +206,7 @@ func (s *SessionStorageDriver) endMailLink(ctx context.Context, q execer, set, c
 		return errors.Wrap(err, "Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessage("no live mail link")
+		return dbtype.MailLinkNotLive()
 	}
 
 	return nil

@@ -17,6 +17,20 @@ func roleInWords(role accesstypes.Role) string {
 	return words.RoleInWords(string(role))
 }
 
+// placeInWords says where a role is held as a sentence a person reads says it: "for the
+// whole application", "in every tenant" or "in a tenant", never by its scope and never by
+// the tenant's id, which a refusal's cause keeps for the server's log.
+func placeInWords(scope accesstypes.PolicyScope) string {
+	switch {
+	case scope.IsGlobal():
+		return "for the whole application"
+	case scope.IsEveryDomain():
+		return "in every tenant"
+	default:
+		return "in a tenant"
+	}
+}
+
 // roleNotFound is the answer for a role that does not exist where it is asked for: 404
 // with "The role Night shift lead does not exist.", the role in words (roleInWords). The
 // role as it was asked for stays in the cause, for the server's log.

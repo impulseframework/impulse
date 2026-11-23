@@ -255,10 +255,10 @@ func (f *fakeStore) TenantPerson(_ context.Context, _ resource.ReadWriteTransact
 // role file or the roles table holds there.
 func (u *fakeUserManager) GroupRole(ctx context.Context, group accesstypes.Group, kept, scope accesstypes.PolicyScope, role accesstypes.Role, held access.RoleReader) (access.GroupRoleKey, error) {
 	if role == accesstypes.SuperAdministrator {
-		return access.GroupRoleKey{}, httpio.NewBadRequestMessage("the Super Administrator role is given to a person, never to a group")
+		return access.GroupRoleKey{}, httpio.NewBadRequestMessage("The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time.")
 	}
 	if _, inTenant := kept.Domain(); inTenant && scope != kept {
-		return access.GroupRoleKey{}, httpio.NewBadRequestMessage("a group kept in one tenant holds roles in that tenant alone")
+		return access.GroupRoleKey{}, httpio.NewBadRequestMessage("A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application.")
 	}
 	key := access.NewGroupRoleKey(group, scope, role)
 	if !slices.Contains(u.engine.roles[scope], role) {
@@ -951,7 +951,7 @@ func TestManager_groups_noWayToTheSuperAdministratorRole(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.GiveGroupRole(ctx, txn, staffID, globalScope, accesstypes.SuperAdministrator)
 			},
-			wantErr: httpio.HasBadRequest, wantSays: "never to a group",
+			wantErr: httpio.HasBadRequest, wantSays: "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time.",
 		},
 		{
 			name: "a person in a group that a row says holds the role makes nobody a super administrator", ctx: as(erin),

@@ -92,7 +92,9 @@ func TestManager_RenameUser(t *testing.T) {
 		{
 			name:     "a name another user holds is a conflict",
 			username: "erin",
-			wantErr:  httpio.HasConflict,
+			wantErr: func(err error) bool {
+				return httpio.HasConflict(err) && httpio.Message(err) == "Another account already has this username. Choose another."
+			},
 		},
 		{
 			name:     "a blank name is refused",

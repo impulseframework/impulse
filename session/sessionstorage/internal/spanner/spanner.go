@@ -663,7 +663,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 
 	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
 		if s.usernameConflict(err) {
-			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
+			return nil, httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", user.Username), dbtype.UsernameTakenMessage)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
 			return nil, errEmailTaken(insertedAddress(insertUser))
@@ -703,7 +703,7 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		}
 
 		if s.usernameConflict(err) {
-			return httpio.NewConflictMessagef("username %q already exists", newUsername)
+			return httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", newUsername), dbtype.UsernameTakenMessage)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
 			return errEmailTaken(newUsername)
@@ -874,7 +874,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		if held.Valid {
-			return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
+			return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, dbtype.PasswordHeldMessage)
 		}
 		if err := txn.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, columns)}); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
@@ -944,7 +944,7 @@ func (s *SessionStorageDriver) holdsProvenPasswordIn(ctx context.Context, tx *sp
 		return errors.Wrap(err, "spanner.Row.Columns()")
 	}
 	if !held.Valid || !proven.Valid || held.StringVal != proven.StringVal {
-		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
+		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, dbtype.PasswordChangedMessage)
 	}
 
 	return nil
@@ -1183,7 +1183,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		if expired {
-			return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+			return httpio.NewBadRequestMessage(dbtype.SessionDataOnExpiredSessionMessage)
 		}
 
 		data := s.customData.Codec.NewStruct()

@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
@@ -1208,7 +1209,7 @@ func identityEvents(identity *sessioninfo.Identity) []sessioninfo.AuthEvent {
 func validateEvents(events []sessioninfo.AuthEvent) error {
 	for _, e := range events {
 		if e.Method == "" {
-			return httpio.NewBadRequestMessage("an auth event needs a method")
+			return httpio.NewBadRequestMessage(dbtype.AuthEventNeedsMethodMessage)
 		}
 		if recordsTheLibrarysStep(e.Method) {
 			return httpio.NewBadRequestMessagef("an auth event under %q reports a step the library runs and records itself: "+

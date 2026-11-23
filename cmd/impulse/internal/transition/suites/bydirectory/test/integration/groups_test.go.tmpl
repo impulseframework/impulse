@@ -57,7 +57,7 @@ func TestGroups_theAdministratorManagesGroups(t *testing.T) {
 		}
 	}
 	status, body = admin.do(ctx, http.MethodPost, "/api/give-staff-group-role", []byte(`{"groupId":"`+night+`","role":"`+string(accesstypes.SuperAdministrator)+`"}`))
-	if status != http.StatusBadRequest || !strings.Contains(string(body), "never to a group") {
+	if status != http.StatusBadRequest || !strings.Contains(string(body), "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time.") {
 		t.Errorf("giving a group the Super Administrator role, as a super administrator: status %d: %s, want 400 saying the role is never a group's", status, body)
 	}
 

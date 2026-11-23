@@ -338,7 +338,7 @@ func TestManager_Invite_oneTenantPerPerson(t *testing.T) {
 			})
 			if tt.refused {
 				assertOtherTenant(t, err, "beta")
-				if !strings.Contains(httpio.Messages(err)[0], "an account already holds the address dana@example.com") {
+				if httpio.Messages(err)[0] != "An account already holds the address dana@example.com and belongs to another tenant, and a person belongs to one tenant here. The invitation is not sent." {
 					t.Errorf("the refusal %q does not say the address has an account", httpio.Messages(err)[0])
 				}
 				if len(store.writes) != 0 || len(mail.sent) != 0 {
@@ -612,7 +612,7 @@ func TestManager_RemoveRole_oneTenantPerPerson(t *testing.T) {
 				return m.RemoveRole(ctx, txn, tt.scope, userID, tt.role)
 			})
 			if tt.wantWrite == "" {
-				if !httpio.HasConflict(err) || !strings.Contains(httpio.Messages(err)[0], "this account holds roles in more than one tenant") {
+				if !httpio.HasConflict(err) || httpio.Messages(err)[0] != "This account holds roles in more than one tenant, which only a person who also holds a role for the whole application or in every tenant may. Take the roles in all but one tenant away first." {
 					t.Fatalf("RemoveRole() error = %v, want a Conflict that says the person holds roles in more than one tenant", err)
 				}
 				for _, tenant := range []string{"alpha", "beta"} {

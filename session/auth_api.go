@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -385,8 +386,7 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 	standing := a.linksThatSignIn(links)
 	if err := a.storage.RemoveUserPassword(ctx, user.ID, standing); err != nil {
 		if errors.Is(err, sessionstorage.ErrLastSignInMethod) && len(links) > 0 && len(standing) == 0 {
-			return httpio.NewConflictMessageWithError(err,
-				"none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first")
+			return httpio.NewConflictMessageWithError(err, dbtype.PasswordIsLastWorkingSignInMessage)
 		}
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveUserPassword()")

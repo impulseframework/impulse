@@ -646,13 +646,13 @@ func (a *Auth[S, U, Tx]) holdInvitedSignUp(ctx context.Context, w http.ResponseW
 func (a *Auth[S, U, Tx]) accountFree(ctx context.Context, insert *sessionstorage.InsertSessionUser) error {
 	switch _, err := a.storage.UserByEmail(ctx, *insert.Email); {
 	case err == nil:
-		return httpio.NewConflictMessagef("the email address %q is already in use", *insert.Email)
+		return httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", *insert.Email), dbtype.EmailInUseMessage)
 	case !httpio.HasNotFound(err):
 		return errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
 	}
 	switch _, err := a.storage.UserByUserName(ctx, insert.Username); {
 	case err == nil:
-		return httpio.NewConflictMessagef("username %q already exists", insert.Username)
+		return httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", insert.Username), dbtype.UsernameTakenMessage)
 	case !httpio.HasNotFound(err):
 		return errors.Wrap(err, "sessionstorage.AuthStore.UserByUserName()")
 	}

@@ -1138,7 +1138,7 @@ func acceptBySignUp[Tx any](ctx context.Context, d Driver[Tx], req *sessioninfo.
 			return errors.Wrap(err, "Driver.UserByEmailIn()")
 		}
 		if holder != nil {
-			return httpio.NewConflictMessagef("the email address %q is already in use", inv.Email)
+			return httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", inv.Email), dbtype.EmailInUseMessage)
 		}
 		if _, err := d.InsertUserIn(ctx, tx, account); err != nil {
 			return errors.Wrap(err, "Driver.InsertUserIn()")
@@ -1162,9 +1162,9 @@ func acceptBySignUp[Tx any](ctx context.Context, d Driver[Tx], req *sessioninfo.
 		case dead:
 			return Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, InvitationEnded), nil
 		case d.SignInConflict(txErr) == dbtype.UsernameConflict:
-			return nil, httpio.NewConflictMessagef("username %q already exists", account.Username)
+			return nil, httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", account.Username), dbtype.UsernameTakenMessage)
 		case d.SignInConflict(txErr) == dbtype.EmailConflict:
-			return nil, httpio.NewConflictMessagef("the email address %q is already in use", inv.Email)
+			return nil, httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", inv.Email), dbtype.EmailInUseMessage)
 		default:
 			return nil, errors.Wrap(txErr, "Driver.Transact()")
 		}
@@ -1306,7 +1306,7 @@ func SignUp[Tx any](
 				return errors.Wrap(err, "Driver.UserByEmailIn()")
 			}
 			if holder != nil {
-				return httpio.NewConflictMessagef("the email address %q is already in use", *user.Email)
+				return httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", *user.Email), dbtype.EmailInUseMessage)
 			}
 		}
 		if err := d.ConsumeMailLinkIn(ctx, tx, linkID, time.Now()); err != nil {
@@ -1325,7 +1325,7 @@ func SignUp[Tx any](
 	})
 	if err != nil {
 		if d.SignInConflict(err) == dbtype.UsernameConflict {
-			return impulse.NilUUID, httpio.NewConflictMessagef("username %q already exists", user.Username)
+			return impulse.NilUUID, httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", user.Username), dbtype.UsernameTakenMessage)
 		}
 
 		return impulse.NilUUID, errors.Wrap(err, "Driver.Transact()")
@@ -1473,7 +1473,7 @@ func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressC
 
 // addressInUse is the Conflict of an address another user holds, in the drivers' words.
 func addressInUse(email string) error {
-	return httpio.NewConflictMessagef("the email address %q is already in use", email)
+	return httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", email), dbtype.EmailInUseMessage)
 }
 
 // organizationLinked reports whether one of links came through an organization's
@@ -1536,7 +1536,7 @@ func LinkConfirmed[Tx any](
 	})
 	if err != nil {
 		if d.SignInConflict(err) == dbtype.IdentityConflict {
-			return httpio.NewConflictMessageWithError(err, "the identity is already linked")
+			return httpio.NewConflictMessageWithError(err, dbtype.SignInIdentityAlreadyLinkedMessage)
 		}
 
 		return errors.Wrap(err, "Driver.Transact()")
@@ -1598,7 +1598,7 @@ func resolveIdentity[Tx any](
 				continue
 			}
 
-			return "", "", nil, nil, httpio.NewConflictMessagef("username %q already exists", req.Username)
+			return "", "", nil, nil, httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", req.Username), dbtype.UsernameTakenMessage)
 		case dbtype.IdentityConflict, dbtype.EmailConflict:
 			// The identities key, or the address a racing provisioning of the same identity
 			// wrote on its own user: the resolution runs once more and finds the link.

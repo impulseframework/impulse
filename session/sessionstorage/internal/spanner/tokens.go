@@ -190,7 +190,7 @@ func (s *SessionStorageDriver) TokenByHash(ctx context.Context, tokenHash []byte
 		return nil, err
 	}
 	if len(tokens) == 0 {
-		return nil, httpio.NewNotFoundMessage("no live token")
+		return nil, dbtype.TokenNotFound()
 	}
 
 	return tokens[0], nil
@@ -297,7 +297,7 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 		return nil
 	})
 	if errors.Is(err, errTokenNotLive) {
-		return httpio.NewNotFoundMessage("no live token")
+		return dbtype.TokenNotFound()
 	}
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -382,7 +382,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 	})
 	switch {
 	case errors.Is(err, errTokenNotLive):
-		return httpio.NewNotFoundMessage("no live refresh token")
+		return dbtype.RefreshTokenNotFound()
 	case err != nil:
 		return errors.Wrap(err, "spannertxn.Serializable()")
 	case reused:
@@ -510,7 +510,7 @@ func (s *SessionStorageDriver) DeviceCodeByUserCode(ctx context.Context, userCod
 		return nil, err
 	}
 	if len(codes) == 0 {
-		return nil, httpio.NewNotFoundMessage("no pending device code")
+		return nil, dbtype.DeviceCodeNotPending()
 	}
 
 	return codes[0], nil
@@ -538,7 +538,7 @@ func (s *SessionStorageDriver) decideDeviceCode(ctx context.Context, id impulse.
 		return nil
 	})
 	if errors.Is(err, errDeviceCodeNotPending) {
-		return httpio.NewNotFoundMessage("no pending device code")
+		return dbtype.DeviceCodeNotPending()
 	}
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -598,7 +598,7 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 	})
 	switch {
 	case errors.Is(err, errDeviceCodeNotPending):
-		return nil, "", httpio.NewNotFoundMessage("no device code to redeem")
+		return nil, "", dbtype.DeviceCodeNotRedeemable()
 	case err != nil:
 		return nil, "", errors.Wrap(err, "spannertxn.Serializable()")
 	}
