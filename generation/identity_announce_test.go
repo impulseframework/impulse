@@ -108,6 +108,74 @@ func TestIdentityAnnounce_handlers(t *testing.T) {
 	assertContains(t, "the handlers", squashSpace(string(out)), squashEach(want), nil)
 }
 
+// TestIdentityAnnounce_signInWays pins that the list of how a person signs in declares
+// the tables whose changes change it (@changedBy), since a computed resource has no
+// query to read them off: the accounts and the identities for the whole application's
+// list, and for a tenant's list those, the memberships and, where the auth keeps groups,
+// the groups, which put a person in the tenant's list and give its rows their two facts.
+// The pages that hold the list then read it again when a sign-in links an identity or a
+// password is removed.
+func TestIdentityAnnounce_signInWays(t *testing.T) {
+	t.Parallel()
+
+	order := "// @order(Password desc, Through asc)"
+	tests := []struct {
+		name         string
+		tenant       bool
+		groups       bool
+		wantContains []string
+	}{
+		{
+			name: "the whole application's list",
+			wantContains: []string{
+				"// @changedBy(CrewSessionUsers, CrewSessionIdentities)\n" + order,
+				"// identities of the auth's people. A change to an account or to an\n// identity tells the list's open pages,\n" +
+					"// which read it again: the tables are declared (@changedBy), since no query names them.",
+			},
+		},
+		{
+			name:   "a tenant's list of an auth that keeps groups",
+			tenant: true,
+			groups: true,
+			wantContains: []string{
+				"// @changedBy(CrewSessionUsers, CrewSessionIdentities, CrewUserRoles, CrewGroups, CrewGroupMembers, CrewGroupRoles)\n" + order,
+				"// identities of the auth's people. A change to an account or to an\n" +
+					"// identity, or to who holds a role where, tells the list's open pages,\n" +
+					"// which read it again: the tables are declared (@changedBy), since no query names them.",
+			},
+		},
+		{
+			name:         "a tenant's list of an auth that keeps no groups",
+			tenant:       true,
+			wantContains: []string{"// @changedBy(CrewSessionUsers, CrewSessionIdentities, CrewUserRoles)\n" + order},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tables := []identityTable{identityUsers, identitySessions, identityIdentities, identityMemberships}
+			if tt.groups {
+				tables = append(tables, identityGroups)
+			}
+			data := announceData(false, tables...)
+			data.password = true
+			data.tenant = &identityTenant{name: "Sector", table: "Sectors", key: "Id"}
+			data.ForTenant = tt.tenant
+			data.Policy = access.Tables{UserRoles: "CrewUserRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles"}
+			c := &client{}
+			out, err := c.generateTemplateOutput("identitySignInWaysTemplate", identitySignInWaysTemplate, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(out); err != nil {
+				t.Fatalf("the rendered list is not Go: %v", err)
+			}
+			assertContains(t, "the list of how a person signs in", squashSpace(string(out)), squashEach(tt.wantContains), nil)
+		})
+	}
+}
+
 // announceData is the source data of the crew auth's client over the tables given, its
 // roles written by a directory when synced.
 func announceData(synced bool, tables ...identityTable) *identitySourceData {

@@ -96,16 +96,17 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	told := func(user accesstypes.User, res accesstypes.Resource) bool {
 		return slices.Contains(changeNames(fake.Changes(principalID(user))), "resource|"+string(res)+"|||false")
 	}
-	// The lists that read the memberships: the sector's people, their roles and their
-	// identities, the one list of the roles a person holds, for the whole application
-	// and for a sector, the roles held for a set time with a reason, and the roles of a
-	// group, which count the people who would lose each one.
+	// The lists that read the memberships: the sector's people, their roles, their
+	// identities and their ways to sign in, the one list of the roles a person holds, for
+	// the whole application and for a sector, the roles held for a set time with a
+	// reason, and the roles of a group, which count the people who would lose each one.
 	lists := []live.WholeChange{
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewListedGroupRoles", AllDomains: true},
 		{Resource: "CrewSectorGroupRoles", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorSignInWays", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},
 		{Resource: crewSectorPeople, AllDomains: true},
 		{Resource: "CrewTakenRoles", AllDomains: true},
@@ -114,15 +115,19 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// commit that writes an account tells them too, where one that writes a membership
 	// alone does not; and the two lists of a group's roles count from the memberships
 	// and name nobody, so a commit that writes an account alone does not tell them.
+	// Both lists of how a person signs in declare the accounts, and the sector's alone
+	// the memberships.
 	named := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorSignInWays", AllDomains: true},
 		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},
 		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewSignInWays", AllDomains: true},
 		{Resource: "CrewTakenRoles", AllDomains: true},
 		{Resource: "CrewUserGroupRoles", AllDomains: true},
 	}

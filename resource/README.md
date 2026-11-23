@@ -2755,11 +2755,14 @@ logged and the sign-in stands. The session library's other routes (a sign-out, a
 password or an address a person changes on their own page, a reset) still publish
 nothing, as a write behind any table's back does not.
 
-The views the generated management declares itself, a tenant's lists (section 21), are
-recorded where the assembly can reach them: in the Auth's handlers package
-(`crewhandlers.LiveDerivations`), since the declarations package is internal to the tree.
-That record is inside the tree, so it names every table by its type, the Auth's own and
-the application's, and the assembly merges it with the packages' values.
+The lists the generated management declares itself (section 21), a tenant's lists and
+the lists of how a person signs in, are recorded where the assembly can reach them: in
+the Auth's handlers package (`crewhandlers.LiveDerivations`), since the declarations
+package, where the views among them are declared, is internal to the tree. That record
+is inside the tree, so it names every table by its type, the Auth's own and the
+application's, and every list by its type in the package that declares it (a computed
+list, such as how a person signs in, is in `crewidentity`), and the assembly merges it
+with the packages' values.
 
 **The routes**, on every session-serving outlet under its API prefix, behind the outlet's
 session middleware like every other route:
@@ -4101,9 +4104,9 @@ it holds three packages, the `crew` Auth's being:
 - `crewhandlers`: the generated frames of those resources and methods, over a `Deps`
   interface the application's handler type satisfies, constructed with the application's
   live derivations (`crewhandlers.New(app, derivations)`), which every frame publishes
-  its commit with. It also holds the record of what changes the tenant's lists
-  (`crewhandlers.LiveDerivations`), which the application's assembly merges into those
-  derivations (section 14).
+  its commit with. It also holds the record of what changes the tenant's lists and the
+  lists of how a person signs in (`crewhandlers.LiveDerivations`), which the
+  application's assembly merges into those derivations (section 14).
 
 The generator writes the declarations and the methods before it loads the packages, so
 the same run extracts them as it extracts the application's own. From there they are
@@ -5063,8 +5066,11 @@ every policy store's schema holds it).
   "or"). Never a hash, a subject or an address.
   It is a computed list, asked for one person at a time (`filter=userId:eq:<id>`): a
   request that names nobody lists nobody's, and one that names people any other way is
-  refused (400). A tenant's answers for a person of the tenant's own list of people,
-  nothing for anyone else, and carries the two facts of the person's row
+  refused (400). It declares the tables that change it (`@changedBy`: the accounts and
+  the identities, and for a tenant's list the role memberships and the groups too), so a
+  page that holds it open reads it again when a sign-in links an identity or an
+  administrator removes a password. A tenant's answers for a person of the tenant's own
+  list of people, nothing for anyone else, and carries the two facts of the person's row
   (`heldElsewhere`, `heldGlobally`) for a grant's condition, with `password`, which says
   whether the row is the password. A role file grants it to whoever reads the
   identities. Lodestar's and the skeletons' grant a tenant's administrator the list
