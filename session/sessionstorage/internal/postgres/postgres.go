@@ -124,7 +124,9 @@ func (s *SessionStorageDriver) usernameIndex() string {
 // two collations named in one expression are an error. The key a name's failed sign-ins
 // are counted under is the same form (attempts.Normalize).
 func usernameFold(operand string) string {
-	return fmt.Sprintf(`(CASE WHEN strpos(%[1]s, '@') > 0 THEN translate(%[1]s, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ELSE casefold(normalize(%[1]s) COLLATE "pg_unicode_fast") END)`, operand)
+	return fmt.Sprintf(`(CASE WHEN strpos(%[1]s, '@') > 0`+
+		` THEN translate(%[1]s, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`+
+		` ELSE casefold(normalize(%[1]s) COLLATE "pg_unicode_fast") END)`, operand)
 }
 
 // emailIndex is the unique index on the user table's normalized email, named after the
