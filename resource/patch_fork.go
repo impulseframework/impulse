@@ -29,10 +29,10 @@ import (
 // so the transaction's own record of the rows its patches wrote is asked first: a row a
 // patch of this transaction wrote is there, and one it deleted is not.
 //
-// One limit is the update path's own. On a resource that keeps change records, and under
-// a grant with a row condition or inside a tenant, an update reads the stored row, so an
-// OrCreate for a row this same transaction created is refused as not found, as a plain
-// update of that row is. An OrSkip for such a row skips.
+// One limit is the update path's own. Under a grant with a row condition, or inside a
+// tenant, an update's check reads the stored row, so an OrCreate for a row this same
+// transaction created is refused as not found, as a plain update of that row is. An
+// OrSkip for such a row skips.
 
 // Outcome is what buffering an OrCreate or an OrSkip patch did with its row.
 type Outcome string

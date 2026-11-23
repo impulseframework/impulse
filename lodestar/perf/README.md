@@ -10,7 +10,10 @@ environment variables the application does.
 - `shapes/*.sql`: one statement per shape, the renderer's own text with its parameters
   bound to literals from the seed (Anvil's id, the id of the flight lead's account, which
   is how the permission store names a person, the enumeration ids). The first
-  comment line of each file says what the shape is and where its text came from.
+  comment line of each file says what the shape is and where its text came from. The `h`
+  shapes are the readers of the change history: the ship's log as its route issues it
+  (`h1`), the ship's log as it was read before a change record carried its tenant, kept
+  to read beside it (`h1b`), and the client portal's statements (`h2`).
 - `plans.sh <output-dir> [shape...]`: runs every shape in PROFILE mode and saves Spanner's
   plan with per-node execution statistics, one file per shape.
 - `summarize.sh <output-dir>...`: one line per shape per capture: elapsed, CPU, rows
@@ -19,8 +22,9 @@ environment variables the application does.
   complete window, from `SPANNER_SYS.QUERY_STATS_TOP_*`, with executions, rows scanned and
   returned, and latency. Run it after a walkthrough for the statement catalog.
 - `../cmd/volume -scale medium|large`: synthetic rows over the seeded world, batched insert
-  mutations in foreign-key order, no DDL, so the same shapes can be read at volume. A
-  bootstrap `-reset` removes them.
+  mutations in foreign-key order, no DDL, so the same shapes can be read at volume, and ten
+  change records for each mission and each ship, spread over the past year, for the `h`
+  shapes. A bootstrap `-reset` removes them.
 
 The measured procedure: bootstrap, `plans.sh` at seed volume, `cmd/volume -scale medium`,
 `ANALYZE` (`gcloud spanner databases ddl update <db> --ddl='ANALYZE'`, so the optimizer's
