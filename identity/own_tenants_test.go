@@ -115,8 +115,9 @@ func leave(t *testing.T, m *Manager, domain accesstypes.Domain, deletesAccount b
 }
 
 // readCountingStore is the fake store counting the reads a person's tenants are judged
-// by: what the person holds (Memberships, UserGroups, UserPeriods) and who holds a role
-// in a tenant (RoleHolders, GroupsHolding).
+// by: what the person holds (Memberships, UserGroups, UserPeriods), who holds a role in a
+// tenant (RoleHolders, GroupsHolding), and what the database says has ended
+// (EndedAssignments).
 type readCountingStore struct {
 	*fakeStore
 	reads map[string]int
@@ -152,20 +153,33 @@ func (s *readCountingStore) GroupsHolding(ctx context.Context, txn resource.Read
 	return s.fakeStore.GroupsHolding(ctx, txn, key)
 }
 
+func (s *readCountingStore) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	s.reads["EndedAssignments"]++
+
+	return s.fakeStore.EndedAssignments(ctx, txn, userID)
+}
+
 // TestManager_PersonTenants_reads pins what judging a person's tenants costs: the list
 // and the leaving each read what the person holds once, however many tenants they are
-// in, and ask who administers a tenant only of a person who may be one of them, by an
-// administrator role of their own in the tenant or a place in one of its groups.
+// in, ask who administers a tenant only of a person who may be one of them, by an
+// administrator role of their own in the tenant or a place in one of its groups, and ask
+// the database what has ended only where the account would go with a row held elsewhere.
 func TestManager_PersonTenants_reads(t *testing.T) {
 	t.Parallel()
 
 	gammaReader := access.NewMembershipKey(accesstypes.DomainPolicyScope("gamma"), dana, "Reader")
 	once := map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1}
+	endedElsewhere := func(store *fakeStore) {
+		store.memberships[danaAlphaReader], store.memberships[danaBetaReader] = true, true
+		store.membershipPeriods[danaBetaReader] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	}
 	for name, tt := range map[string]struct {
-		held      func(store *fakeStore)
-		leave     bool
-		wantSays  string
-		wantReads map[string]int
+		held  func(store *fakeStore)
+		leave bool
+		// deletesAccount is what the leaving is sent as told.
+		deletesAccount bool
+		wantSays       string
+		wantReads      map[string]int
 	}{
 		"three tenants, no administrator's role in any: the list reads what the person holds once and asks nobody who administers them": {
 			held: func(store *fakeStore) {
@@ -189,6 +203,16 @@ func TestManager_PersonTenants_reads(t *testing.T) {
 			wantSays:  lastAdministratorSays,
 			wantReads: map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "RoleHolders": 1, "GroupsHolding": 1},
 		},
+		"one tenant, and a role in another that has ended: the list asks the database once what has ended": {
+			held:      endedElsewhere,
+			wantReads: map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "EndedAssignments": 1},
+		},
+		"one tenant, and a role in another that has ended: the leaving asks the database once what has ended": {
+			held:           endedElsewhere,
+			leave:          true,
+			deletesAccount: true,
+			wantReads:      map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "EndedAssignments": 1},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -198,7 +222,7 @@ func TestManager_PersonTenants_reads(t *testing.T) {
 			m, _, _ := leavingManager(t, store, false)
 
 			if tt.leave {
-				if _, err := leave(t, m, "alpha", false); err != nil {
+				if _, err := leave(t, m, "alpha", tt.deletesAccount); err != nil {
 					t.Fatalf("LeaveTenant() error = %v", err)
 				}
 			} else {
@@ -474,13 +498,22 @@ func TestManager_LeaveTenant_noAdministratorRoles(t *testing.T) {
 // person then holds nothing that has not ended, with its sign-in identities and sessions,
 // in the same transaction. Anything held anywhere else that has not ended keeps it, one
 // whose period has not begun among them, and nothing elsewhere is touched; a row that has
-// ended elsewhere keeps nothing and goes with the account. The list's DeletesAccount says
-// the same in each case, and no notice is mailed either way.
+// ended elsewhere keeps nothing and goes with the account. What has ended is the
+// database's to say: a row the server's clock reads as ended and the database's does not
+// keeps the account, and neither it nor any other row elsewhere goes. The list's
+// DeletesAccount says the same in each case, and no notice is mailed either way.
 func TestManager_LeaveTenant_account(t *testing.T) {
 	t.Parallel()
 
 	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	longEnded := accesstypes.Period{End: time.Now().Add(-3 * time.Hour)}
 	notBegun := accesstypes.Period{Start: time.Now().Add(time.Hour)}
+	// databaseBehind sets the database's clock two hours behind the server's, so a row
+	// that ended an hour ago by the server's clock has not ended by the database's, and one
+	// that ended three hours ago has by both.
+	databaseBehind := func(store *fakeStore) {
+		store.databaseNow = func() time.Time { return time.Now().Add(-2 * time.Hour) }
+	}
 	for name, tt := range map[string]struct {
 		elsewhere   func(store *fakeStore)
 		wantDeleted bool
@@ -549,6 +582,28 @@ func TestManager_LeaveTenant_account(t *testing.T) {
 			wantDeleted: true,
 			wantGone:    []string{"delete group member " + staffID.String() + " " + string(dana)},
 		},
+		"a role in another tenant ended by the server's clock and not the database's keeps it": {
+			elsewhere: func(store *fakeStore) {
+				store.memberships[danaBetaReader] = true
+				store.membershipPeriods[danaBetaReader] = ended
+				databaseBehind(store)
+			},
+		},
+		"a place in another tenant's group ended by the server's clock and not the database's keeps it": {
+			elsewhere: func(store *fakeStore) {
+				store.groupMembers[memberKey(dayID, userID)] = true
+				store.placePeriods[memberKey(dayID, userID)] = ended
+				databaseBehind(store)
+			},
+		},
+		"two roles elsewhere ended by the server's clock, one of them by the database's: it keeps the account, and neither goes": {
+			elsewhere: func(store *fakeStore) {
+				store.memberships[danaBetaReader], store.memberships[danaGlobal] = true, true
+				store.membershipPeriods[danaBetaReader] = ended
+				store.membershipPeriods[danaGlobal] = longEnded
+				databaseBehind(store)
+			},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -600,13 +655,19 @@ func TestManager_LeaveTenant_toldOtherwise(t *testing.T) {
 	for name, tt := range map[string]struct {
 		held []access.MembershipKey
 		// ended are the rows of held whose period has ended since the page was drawn.
-		ended          []access.MembershipKey
+		ended []access.MembershipKey
+		// databaseBehind sets the database's clock two hours behind the server's, so what
+		// ended an hour ago by the server's clock has not ended by the database's.
+		databaseBehind bool
 		deletesAccount bool
 	}{
 		"told the account stays, where it would go":  {held: []access.MembershipKey{danaAlphaReader}, deletesAccount: false},
 		"told the account goes, where it would stay": {held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, deletesAccount: true},
 		"told the account stays, where the role in the other tenant has since ended": {
 			held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, ended: []access.MembershipKey{danaBetaReader}, deletesAccount: false,
+		},
+		"told the account goes, where the database does not say the role in the other tenant has ended": {
+			held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, ended: []access.MembershipKey{danaBetaReader}, databaseBehind: true, deletesAccount: true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -618,6 +679,9 @@ func TestManager_LeaveTenant_toldOtherwise(t *testing.T) {
 			}
 			for _, key := range tt.ended {
 				store.membershipPeriods[key] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
+			}
+			if tt.databaseBehind {
+				store.databaseNow = func() time.Time { return time.Now().Add(-2 * time.Hour) }
 			}
 			m, engine, _ := leavingManager(t, store, false)
 

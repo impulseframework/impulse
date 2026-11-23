@@ -154,9 +154,12 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 // ended, with its sign-in identities and every session, in the same transaction: a row
 // held anywhere else that has not ended keeps it, one whose period has not begun among
 // them, and a row that has ended elsewhere keeps nothing against the person's own leaving
-// and goes with the account. No notice is mailed: the person left themselves. The rule
-// that keeps a directory-only tenant's administrators to callers who enter it is not
-// asked: giving up one's own roles makes nobody an administrator.
+// and goes with the account. What has ended elsewhere is the database's to say, by its
+// own clock, before anything goes by it (EndedAssignments, as ClearEnded has it): a row
+// the database still counts keeps the account, and stays. No notice is mailed: the
+// person left themselves. The rule that keeps a directory-only tenant's administrators
+// to callers who enter it is not asked: giving up one's own roles makes nobody an
+// administrator.
 //
 // What the person holds is read as committed: a second leaving in one transaction does
 // not see the first. Leave one tenant per transaction.
@@ -352,7 +355,9 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 // and whether the account goes, which it does when everything the person holds that has
 // not ended is in the tenant (the rule holds reads: their standing memberships, and each
 // standing place where its group is kept). Where it goes, every row of theirs outside
-// the tenant, all of them ended, goes with it.
+// the tenant goes with it, and it goes only where the database says each of them has
+// ended (EndedAssignments): a server whose clock runs fast deletes no account that still
+// holds something.
 func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (*leaving, error) {
 	person := User(holds.rows.userID)
 	var memberships []access.MembershipKey
@@ -389,6 +394,15 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 				endedPlaces = append(endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
 			}
 		}
+		if len(endedMemberships)+len(endedPlaces) > 0 {
+			ended, err := m.endedByTheDatabase(ctx, txn, holds.rows.userID, endedMemberships, endedPlaces)
+			if err != nil {
+				return nil, err
+			}
+			if !ended {
+				deletesAccount, endedMemberships, endedPlaces = false, nil, nil
+			}
+		}
 	}
 
 	return &leaving{
@@ -399,6 +413,29 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 		refusal:          refusal,
 		deletesAccount:   deletesAccount,
 	}, nil
+}
+
+// endedByTheDatabase answers whether the database, by its own clock, says each of the
+// person's given rows has ended (EndedAssignments), read in the caller's transaction as
+// ClearEnded reads it: a row the server's clock reads as ended and the database's does
+// not still counts, and the answer is no.
+func (m *Manager) endedByTheDatabase(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, memberships []access.MembershipKey, places []access.GroupMemberKey) (bool, error) {
+	endedMemberships, endedPlaces, err := m.store.EndedAssignments(ctx, txn, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Store.EndedAssignments()")
+	}
+	for _, key := range memberships {
+		if !slices.Contains(endedMemberships, key) {
+			return false, nil
+		}
+	}
+	for _, key := range places {
+		if !slices.Contains(endedPlaces, key) {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // leavingRefusal answers why the person may not leave the tenant, empty where they may.
