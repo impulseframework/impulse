@@ -1,7 +1,7 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   ApiDescriptor,
   ClientBase,
@@ -542,6 +542,45 @@ describe('ResourceListComponent', () => {
         await readAgain(granted);
         expect(fixture.componentInstance.store.sorts()).toBe(asked);
       });
+    });
+
+    it("asks for no configured sort by a field the role's List does not name: one request, by the key, and its rows drawn", async () => {
+      // The digest names the clients' name and not their notes, and the server refuses the
+      // whole list for a sort by a field the caller may not list, a table's as a computed
+      // resource's.
+      const digest: PermissionDigest = {
+        [clients]: { List: 'granted' },
+        [`${clients}.id`]: { List: 'granted' },
+        [`${clients}.name`]: { List: 'granted' },
+      };
+      const rows = [
+        { id: 'c-1', name: 'Meridian' },
+        { id: 'c-2', name: 'Halyard' },
+      ];
+      await create(
+        {
+          primaryResource: clients,
+          listColumns: [{ id: 'name' as FieldName }],
+          sorts: [{ field: 'notes' as FieldName, direction: 'desc' }],
+        },
+        [],
+        (request) =>
+          request.url.startsWith('/api/permission-digest')
+            ? { status: 200, body: digest }
+            : { status: 200, body: rows, headers: { 'total-count': '2' } },
+      );
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+      fixture.detectChanges();
+      await settle();
+
+      const asked = transport.requests
+        .filter((request) => request.url.split('?')[0] === '/api/clients')
+        .map((request) => new URL(request.url, 'http://list.test').searchParams.get('sort'));
+      expect(asked).toEqual(['id:asc']);
+      const cells = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
+      ).map((cell) => cell.textContent?.trim());
+      expect(cells).toEqual(['Meridian', 'Halyard']);
     });
   });
 
@@ -1654,6 +1693,76 @@ describe('ResourceListComponent', () => {
         'The whole application',
       ]);
     });
+
+    describe('says nothing above its rows of a refused read whose cells already say the tenant cannot be seen', () => {
+      let consoleError: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      });
+
+      afterEach(() => {
+        consoleError.mockRestore();
+      });
+
+      /** The list drawn with the column over the tenant record's read as given, and what it says above its rows. */
+      const drawnUnder = async (
+        column: typeof heldIn,
+        record: TransportResponse,
+      ): Promise<{ cells: unknown[]; notices: (string | undefined)[] }> => {
+        await create(
+          { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, column] },
+          rows,
+          (request) => {
+            const path = request.url.split('?')[0];
+            if (path === '/api/clients') {
+              return record;
+            }
+            if (path === '/api/user-domains') {
+              return { status: 200, body: [{ domain: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' }] };
+            }
+            return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+          },
+        );
+        await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+        fixture.detectChanges();
+        await settle();
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        fixture.detectChanges();
+        const element = fixture.nativeElement as HTMLElement;
+        return {
+          cells: fixture.componentInstance.processedRowData().map((row) => row['clientId']),
+          notices: Array.from(
+            element.querySelectorAll(
+              '.impulse-resource-list-notice[role="status"] .impulse-resource-list-notice-words',
+            ),
+          ).map((words) => words.textContent?.trim()),
+        };
+      };
+
+      it("where the read is refused under a tenant column with its own words, draws no notice: each cell says the name the person's own list of tenants holds or those words", async () => {
+        const drawn = await drawnUnder(heldIn, refused);
+        expect(drawn.cells).toEqual(['Sector Anvil', 'A sector you cannot see', 'The whole application']);
+        expect(drawn.notices).toEqual([]);
+      });
+
+      it('names a column that is not over a tenant key, though it has words of its own', async () => {
+        const drawn = await drawnUnder({ ...heldIn, tenantKey: undefined }, refused);
+        expect(drawn.notices).toEqual(['You do not have permission to see the records named in the Held in column.']);
+      });
+
+      it('names a tenant column with no words of its own, whose cells can say nothing', async () => {
+        const drawn = await drawnUnder({ ...heldIn, fallback: undefined }, refused);
+        expect(drawn.notices).toEqual(['You do not have permission to see the records named in the Held in column.']);
+      });
+
+      it('names a tenant column with words of its own where the read failed, not refused', async () => {
+        const drawn = await drawnUnder(heldIn, { status: 500, body: { message: 'the session pool is closed' } });
+        expect(drawn.notices).toEqual(['The records named in the Held in column could not be loaded.']);
+      });
+    });
   });
 
   describe('renders an icon column from the declared map', () => {
@@ -2168,6 +2277,186 @@ describe('ResourceListComponent', () => {
       expect(fixture.componentInstance.createButtonLabel()).toBe('Create');
       expect(deleted({ id: 's-1', name: 'Kestrel' })).toEqual(['Deleted.']);
     });
+  });
+
+  describe("keeps its column filters in the page's address", () => {
+    // The list a page is built on reads its column filters from the page's address when it
+    // opens and after each navigation, and writes each commit back in place. A filter the
+    // list cannot show the person is left out, and the list says so above its rows.
+    const options = {
+      primaryResource: ships,
+      listColumns: [{ id: 'name' as FieldName }, { id: 'homePort' as FieldName }, { id: 'statusId' as FieldName }],
+    };
+    const rows = [{ id: 's-1', name: 'Kestrel', homePort: 'Anvil', statusId: 'docked' }];
+    const leftOutWords =
+      'This list was opened with a filter it does not offer you, so it is shown without that filter. You can filter it from its column headings.';
+
+    /** The request filter of each list request, in order; null for a request with none. */
+    const shipsFilters = (): (string | null)[] =>
+      transport.requests
+        .filter((request) => request.url.startsWith('/api/ships'))
+        .map((request) => new URL(request.url, 'http://ships.test').searchParams.get('filter'));
+    const address = (): ReturnType<Router['parseUrl']> => {
+      const router = TestBed.inject(Router);
+      return router.parseUrl(router.url);
+    };
+    const leftOutNotice = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('.impulse-resource-list-filters-left-out[role="status"] .impulse-resource-list-notice-words')
+        ?.textContent?.trim();
+    const grid = (): AppGridComponent =>
+      fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+
+    /** Opens the page's list at an address, as the router opens a page it has navigated to. */
+    const open = async (url: string): Promise<void> => {
+      await create(options, rows);
+      await TestBed.inject(Router).navigateByUrl(url);
+      fixture.detectChanges();
+      await settle();
+    };
+
+    it('opened at an address naming a filter it offers, asks once with it, holds it in its column, and says nothing', async () => {
+      await open('/?filter=homePort:eq:Anvil');
+      expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+      expect(grid().filters()).toEqual([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('opened at an address naming a filter on a field no column shows, leaves it out, says so, and writes the address it shows', async () => {
+      await open('/?filter=homePort:eq:Anvil&filter=registry:eq:Civil');
+      expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      expect(TestBed.inject(Router).lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+      // The list's own rewrite of the address leaves the notice standing.
+      expect(leftOutNotice()).toBe(leftOutWords);
+    });
+
+    it("writes a commit into the address in place, and a cleared filter takes the parameter away, the address's others kept", async () => {
+      await open('/?tab=2');
+      const router = TestBed.inject(Router);
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      await settle();
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      expect(address().queryParamMap.get('tab')).toBe('2');
+      expect(router.lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+
+      fixture.componentInstance.onFilterChange([]);
+      await settle();
+      expect(address().queryParamMap.has('filter')).toBe(false);
+      expect(address().queryParamMap.get('tab')).toBe('2');
+      expect(router.lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+    });
+
+    it('asks once for a commit', async () => {
+      await open('/');
+      expect(shipsFilters()).toEqual([null]);
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      await settle();
+      await settle();
+      expect(shipsFilters()).toEqual([null, 'homePort:eq:Anvil']);
+    });
+
+    it('takes a navigation to its page with another filter, and asks nothing for the address it already shows', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      await router.navigateByUrl('/?filter=statusId:in:docked,in_refit');
+      await settle();
+      expect(fixture.componentInstance.store.columnFilters()).toEqual([
+        { field: 'statusId', operator: 'in', value: 'docked,in_refit' },
+      ]);
+      expect(shipsFilters()).toEqual([null, 'statusId:in:(docked,in_refit)']);
+
+      await router.navigateByUrl('/?filter=statusId:in:docked,in_refit');
+      await settle();
+      await router.navigateByUrl('/?filter=statusId:in:docked,in_refit&tab=1');
+      await settle();
+      expect(shipsFilters()).toEqual([null, 'statusId:in:(docked,in_refit)']);
+    });
+
+    it('takes a navigation to its page naming a filter it leaves out: says so, writes the address it shows at once, and takes the navigation after it', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      await router.navigateByUrl('/?filter=registry:eq:Civil');
+      await settle();
+      expect(leftOutNotice()).toBe(leftOutWords);
+      expect(address().queryParamMap.has('filter')).toBe(false);
+
+      await router.navigateByUrl('/?filter=homePort:eq:Anvil');
+      await settle();
+      expect(fixture.componentInstance.store.columnFilters()).toEqual([
+        { field: 'homePort', operator: 'eq', value: 'Anvil' },
+      ]);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('opened at an address filtering a role column by a role its metadata does not list, asks once with it, keeps it, and says nothing', async () => {
+      // The metadata lists two roles; a role made while the application runs is in none.
+      await create(
+        { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, { id: 'dutyRole' as FieldName }] },
+        [{ id: 's-1', name: 'Kestrel', dutyRole: 'Quartermaster' }],
+      );
+      await TestBed.inject(Router).navigateByUrl('/?filter=dutyRole:eq:Quartermaster');
+      fixture.detectChanges();
+      await settle();
+      expect(shipsFilters()).toEqual(['dutyRole:eq:Quartermaster']);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['dutyRole:eq:Quartermaster']);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it("takes the notice away at the person's next commit", async () => {
+      await open('/?filter=registry:eq:Civil');
+      expect(leftOutNotice()).toBe(leftOutWords);
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      await settle();
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('writes a commit made while another navigation is on its way once that one ends, never canceling it', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      const elsewhere = router.navigateByUrl('/?tab=9');
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      expect(await elsewhere).toBe(true);
+      await settle();
+      expect(address().queryParamMap.get('tab')).toBe('9');
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+    });
+
+    it('writes a commit made while a navigation is on its way that another supersedes once that other ends, never canceling it', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      const superseded = router.navigateByUrl('/?tab=8');
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      const elsewhere = router.navigateByUrl('/?tab=9');
+      expect(await elsewhere).toBe(true);
+      expect(await superseded).toBe(false);
+      await settle();
+      expect(address().queryParamMap.get('tab')).toBe('9');
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+    });
+
+    const notOwning: { name: string; hand: () => void }[] = [
+      { name: 'a list handed isRootList false', hand: () => fixture.componentRef.setInput('isRootList', false) },
+      {
+        name: "a list handed a config that is not the route's own",
+        hand: () => fixture.componentRef.setInput('resourceConfig', listViewConfig({ elements: [], ...options })),
+      },
+    ];
+    for (const tt of notOwning) {
+      it(`${tt.name} ignores the address and writes nothing on a commit`, async () => {
+        await create(options, rows);
+        tt.hand();
+        await TestBed.inject(Router).navigateByUrl('/?filter=homePort:eq:Anvil');
+        fixture.detectChanges();
+        await settle();
+        expect(shipsFilters()).toEqual([null]);
+        fixture.componentInstance.onFilterChange([{ field: 'statusId', operator: 'eq', value: 'docked' }]);
+        await settle();
+        expect(shipsFilters()).toEqual([null, 'statusId:eq:docked']);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      });
+    }
   });
 
   describe('asks for its first page once per request', () => {

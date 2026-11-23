@@ -26,9 +26,17 @@ export function operatorOption(operator: FilterOperator): FilterOperatorOption {
   );
 }
 
-/** Whether a column filter says something: a value for an operator that takes one, or a null test. */
+/**
+ * Whether a column filter says something: a value for an operator that takes one, at least
+ * one value for an operator that takes a list (commas alone hold none, and the server
+ * refuses a list with nothing in it), or a null test.
+ */
 export function isComplete(filter: ColumnFilter): boolean {
-  return !operatorOption(filter.operator).takesValue || filter.value.trim() !== '';
+  const option = operatorOption(filter.operator);
+  if (!option.takesValue) {
+    return true;
+  }
+  return option.takesList ? listValues(filter.value).length > 0 : filter.value.trim() !== '';
 }
 
 /** Whether a filter is a text match the column's field answers: its metadata lists the operator. */

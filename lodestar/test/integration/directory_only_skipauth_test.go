@@ -126,6 +126,25 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 			t.Errorf("Bastion's people: %s is listed = %v saying %q, want listed saying %q", username, listed, got, want)
 		}
 	}
+	// The same reader filters the list by the mark the sentence is said from, and gets
+	// exactly the people whose rows say it.
+	var saying []string
+	for username, sentence := range people {
+		if sentence != "" {
+			saying = append(saying, username)
+		}
+	}
+	slices.Sort(saying)
+	listStatus, listBody := warden.do(ctx, http.MethodGet, sectorPath(bastion, sectorPeoplePath+"?filter=outsideDirectory:eq:true&limit=200"), nil)
+	assertStatus(t, listStatus, http.StatusOK, listBody)
+	var filtered []string
+	for _, row := range decodeRows(t, listBody) {
+		filtered = append(filtered, cell[string](t, row, "username"))
+	}
+	slices.Sort(filtered)
+	if !slices.Equal(filtered, saying) {
+		t.Errorf("Bastion's people filtered to those the switch keeps out = %v, want %v: the people whose rows say they cannot enter", filtered, saying)
+	}
 
 	// The governor's row says nothing because he is a super administrator now. An
 	// assignment outside its period is no assignment, to the list as to the sign-in rule

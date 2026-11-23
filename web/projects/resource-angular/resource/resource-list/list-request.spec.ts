@@ -200,6 +200,19 @@ describe('answeredSorts', () => {
     expect(answeredSorts(sorts, undefined, states)).toEqual(sorts);
   });
 
+  it("on a table, a sort by a field the role's List does not name is dropped, and a key field is kept, named or not", () => {
+    const listable = new Set(['holder', 'budget', 'bay']);
+
+    expect(answeredSorts(sorts, table, states, listable)).toEqual([sorts[0], sorts[1], sorts[2], sorts[4]]);
+    expect(answeredSorts([sorts[4]], table, states, new Set())).toEqual([sorts[4]]);
+  });
+
+  it("on a computed resource, a sort by a field the role's List does not name is dropped beside one by a field listed as conditional", () => {
+    const listable = new Set(['holder', 'budget']);
+
+    expect(answeredSorts(sorts, passes, states, listable)).toEqual([sorts[1], sorts[4]]);
+  });
+
   it('the sorts handed in are not changed, and a new array comes back', () => {
     const handed = [...sorts];
     const got = answeredSorts(handed, passes, states);
@@ -251,6 +264,16 @@ describe('listSorts', () => {
 
   it('over a table every sort comes back', () => {
     expect(listSorts([byHolder, byBudget], table, states, unordered)).toEqual([byHolder, byBudget]);
+  });
+
+  it("over a table with no declared order, whose one sort is by a field the role's List does not name, the key ascending", () => {
+    expect(listSorts([byBudget], table, states, unordered, new Set(['holder']))).toEqual([
+      { field: 'id', direction: 'asc' },
+    ]);
+  });
+
+  it("over a table with a declared order, whose one sort is by a field the role's List does not name, no sort", () => {
+    expect(listSorts([byBudget], table, states, ordered, new Set(['holder']))).toEqual([]);
   });
 });
 
@@ -311,6 +334,16 @@ describe('filterChoiceLists', () => {
       // A field that holds a role's name: the metadata lists the roles it may hold.
       field('role', { isIndex: true, filterable: 'always', roles: ['NightShiftLead', 'Reader'] }),
       field('backupRole', { isIndex: true, filterable: 'always', roles: [] }),
+      field('docked', { displayType: 'boolean', filterable: 'always' }),
+      field('cleared', { displayType: 'nullboolean', filterable: 'always' }),
+      field('flagged', {
+        displayType: 'boolean',
+        filterable: 'always',
+        enumeration: [
+          { id: 'true', display: 'Flagged' },
+          { id: 'false', display: 'Not flagged' },
+        ],
+      }),
     ],
   };
   const cases: {
@@ -388,6 +421,39 @@ describe('filterChoiceLists', () => {
           { value: 'claimed', label: 'Claimed' },
           { value: 'on_hold', label: 'On hold' },
           { value: 'open', label: 'Open' },
+        ],
+      },
+    },
+    {
+      name: 'a yes-or-no field offers Yes and No, carrying true and false',
+      meta: missions,
+      columns: ['title', 'docked'],
+      want: {
+        docked: [
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
+        ],
+      },
+    },
+    {
+      name: 'a nullable yes-or-no field offers Yes and No, carrying true and false',
+      meta: missions,
+      columns: ['cleared'],
+      want: {
+        cleared: [
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
+        ],
+      },
+    },
+    {
+      name: 'a yes-or-no field with fixed values offers its values',
+      meta: missions,
+      columns: ['flagged'],
+      want: {
+        flagged: [
+          { value: 'true', label: 'Flagged' },
+          { value: 'false', label: 'Not flagged' },
         ],
       },
     },

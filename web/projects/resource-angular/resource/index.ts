@@ -20,6 +20,7 @@ export * from './resource-field/base-field.directive';
 export * from './resource-field/resource-field.component';
 export * from './resource-layout/resource-layout.component';
 export * from './resource-list-create/resource-list-create.component';
+export * from './resource-list/address-filters';
 export * from './resource-list/resource-list.component';
 export * from './resource-resolver/resource-resolver.component';
 export * from './resource-store.service';

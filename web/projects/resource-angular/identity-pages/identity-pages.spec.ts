@@ -974,6 +974,38 @@ describe("identityPages, a tenant's side", () => {
     expect(columns(list(people)).map(([id]) => id)).not.toContain('cannotEnter');
   });
 
+  it('marks whom directory only keeps out, a plain column before Cannot enter, where the list of its people says it', () => {
+    const withSwitch = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSectorUsers'
+        ? fields(
+            'id',
+            'domainId',
+            'username',
+            'name',
+            'lastSignInAt',
+            'heldElsewhere',
+            'heldGlobally',
+            'outsideDirectory',
+            'cannotEnter',
+          )
+        : resourceMeta(resource);
+    const [kept] = identityPages({ ...descriptor }, withSwitch, { auth: 'Crew', scope: 'domain' });
+    expect(visibleColumns(list(kept)).slice(-2)).toEqual([
+      ['outsideDirectory', 'Kept out by directory only'],
+      ['cannotEnter', 'Cannot enter'],
+    ]);
+    // The field's own yes or no, drawn and filtered as the list draws and filters any.
+    expect(list(kept).listColumns.find((column) => column.id === 'outsideDirectory')).toEqual({
+      id: 'outsideDirectory',
+      header: 'Kept out by directory only',
+    });
+    // A tenant record with no switch carries no such fact, and the page no such column; nor
+    // does the whole application's list of its accounts.
+    expect(columns(list(people)).map(([id]) => id)).not.toContain('outsideDirectory');
+    const [accounts] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(columns(list(accounts)).map(([id]) => id)).not.toContain('outsideDirectory');
+  });
+
   it("builds the people and the invitations under the API's tenant segment", () => {
     expect(pages.map((page) => [page.routeData.route, page.page?.label, page.page?.icon])).toEqual([
       ['sectors/:sectorID/crew-people', 'People', 'group'],

@@ -34,6 +34,7 @@ import {
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { listEmptyMessage, listSorts, pageLabel, sameSorts } from '../resource-list/list-request';
 import { ResourceStore } from '../resource-store.service';
+import { listableFieldsOf } from '../search-box/search-fields';
 
 /**
  * The children of one row, each drawn as a form. How the children are read is the
@@ -64,6 +65,8 @@ export class ResourceArrayViewComponent implements OnInit {
   private pageStore = inject(ResourceStore, { skipSelf: true, optional: true });
   injector = inject(Injector);
   private auth = inject(AuthService);
+  /** The digest's List field set for any resource (listableFieldsOf): the children's own. */
+  private readonly listableOf = listableFieldsOf(this.auth);
 
   resourceConfig = input.required<ArrayConfig>();
   /**
@@ -99,6 +102,7 @@ export class ResourceArrayViewComponent implements OnInit {
         this.resourceMeta(listed),
         this.auth.fieldPermissionStates({ resource: listed, permission: ListPermission }),
         this.descriptor(),
+        this.listableOf(listed),
       );
     },
     { equal: sameSorts },
