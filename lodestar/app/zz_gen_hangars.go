@@ -25,7 +25,7 @@ func (a *App) Hangars() http.HandlerFunc {
 		SectorID   impulse.UUID `json:"sectorId"   index:"true"`
 		Name       string       `json:"name"       index:"true"      search:"lower=Name_Lower"`
 		Zone       string       `json:"zone"`
-		SectorName *string      `json:"sectorName" nameof:"SectorID"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any

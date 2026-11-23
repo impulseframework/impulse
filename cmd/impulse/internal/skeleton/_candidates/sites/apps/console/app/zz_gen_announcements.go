@@ -24,7 +24,7 @@ func (a *App) Announcements() http.HandlerFunc {
 		KindID     string       `json:"kindId"     index:"true"`
 		Title      string       `json:"title"      index:"true"`
 		Body       string       `json:"body"`
-		TenantName *string      `json:"tenantName" nameof:"TenantID"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID" index:"true"`
 	}
 
 	type response []map[string]any

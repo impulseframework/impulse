@@ -29,7 +29,7 @@ func (a *App) Consignments() http.HandlerFunc {
 		Mass        float64      `json:"mass"        allow_filter:"true"`
 		ExpiresOn   civil.Date   `json:"expiresOn"   allow_filter:"true"`
 		ReleasedAt  *time.Time   `json:"releasedAt"  index:"true"`
-		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID"   index:"true"`
 	}
 
 	type response []map[string]any

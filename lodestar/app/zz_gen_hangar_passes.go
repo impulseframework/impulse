@@ -28,8 +28,8 @@ func (a *App) HangarPasses() http.HandlerFunc {
 		GroupID    impulse.NullUUID `json:"groupId"    index:"true"`
 		LevelID    string           `json:"levelId"    index:"true"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
-		SectorName *string          `json:"sectorName" nameof:"SectorID"`
-		LevelName  *string          `json:"levelName"  nameof:"LevelID"`
+		SectorName *string          `json:"sectorName" nameof:"SectorID" index:"true"`
+		LevelName  *string          `json:"levelName"  nameof:"LevelID"  index:"true"`
 	}
 
 	type response []map[string]any

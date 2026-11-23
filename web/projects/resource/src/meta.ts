@@ -437,6 +437,14 @@ export interface NameFieldMeta {
   fieldName: string;
   /** The id field the name stands beside, by JSON name. */
   of: string;
+  /**
+   * Whether a filter may name the name, in a field's own words: `'always'` where the id
+   * and the pointed-to name are both indexed, `'withIndexed'` where the filter must also
+   * name an indexed field. Absent where a filter may not name it.
+   */
+  filterable?: FilterEligibility;
+  /** The text matches the name answers, which stand alone as a field's do. Absent where it answers none. */
+  search?: SearchMatch[];
   /** Set when the pointed-to name is declared `pii`: a filter by it travels in the body. */
   pii?: true;
 }

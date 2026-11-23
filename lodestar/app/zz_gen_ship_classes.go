@@ -25,7 +25,7 @@ func (a *App) ShipClasses() http.HandlerFunc {
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
 		InService   bool         `json:"inService"`
-		RoleName    *string      `json:"roleName"    nameof:"RoleID"`
+		RoleName    *string      `json:"roleName"    nameof:"RoleID" index:"true"`
 	}
 
 	type response []map[string]any

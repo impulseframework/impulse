@@ -606,8 +606,8 @@ func groupTenants[Resource Resourcer](tenants []*tenantGroup[Resource]) ([]*tena
 // field some tenant of the set shows, in declaration order. What the tenant's own
 // list refuses is refused here where every tenant of the set would refuse it: a
 // column, or a sort or filter field, that no grant covers in any of them, and a
-// name asked for or sorted by whose own grant, asked once for the list, is
-// denied. A field of the search box, or a @searchAlso branch, that every tenant
+// name asked for, sorted by or filtered by whose own grant, asked once for the
+// list, is denied. A field of the search box, or a @searchAlso branch, that every tenant
 // drops is dropped.
 func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenantGroup[Resource]) error {
 	everywhere := func(hides func(*tenantGroup[Resource]) bool) bool {
@@ -655,7 +655,7 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 			)
 		}
 	}
-	if err := q.refuseSortedName(refusedAnywhere); err != nil {
+	if err := q.refuseQueriedName(refusedAnywhere); err != nil {
 		return err
 	}
 

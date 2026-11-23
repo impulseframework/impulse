@@ -25,7 +25,7 @@ func (a *App) Readings() http.HandlerFunc {
 		Source     string       `json:"source"`
 		Value      float64      `json:"value"`
 		RecordedAt time.Time    `json:"recordedAt" index:"true"`
-		TenantName *string      `json:"tenantName" nameof:"TenantID"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID" index:"true"`
 	}
 
 	type response []map[string]any

@@ -136,12 +136,12 @@ func (q *QuerySet[Resource]) nameGrantScope(name *NameField) accesstypes.Scope {
 
 // namesInPlay returns the name fields a request brings into play, each once:
 // those its columns named, those it orders by (its sort, or the declared order),
-// and, where it named no columns, every name beside an id the request may be
-// given. A name beside an id a flag hides can never be shown, so it is in play
-// only where the order names it.
+// those its filter names, and, where it named no columns, every name beside an
+// id the request may be given. A name beside an id a flag hides can never be
+// shown, so it is in play only where the order names it.
 func (q *QuerySet[Resource]) namesInPlay() []accesstypes.Field {
 	fields := slices.Clone(q.shownNames)
-	for _, field := range q.orderedNames() {
+	for _, field := range slices.Concat(q.orderedNames(), q.filterNames) {
 		if !slices.Contains(fields, field) {
 			fields = append(fields, field)
 		}
@@ -305,12 +305,17 @@ func (q *QuerySet[Resource]) nameResource(name *requestName) accesstypes.Resourc
 	return q.Resource().ResourceWithTag(accesstypes.Tag(name.jsonName))
 }
 
-// refuseSortedName refuses a request that sorts by a name the person may not
-// list, naming the first such name in the sort's order, in the place where. A
-// declared order by such a name is not refused (withNameLookups).
-func (q *QuerySet[Resource]) refuseSortedName(where string) error {
+// refuseQueriedName refuses a request that sorts or filters by a name the person
+// may not list, naming the first such name, the sort's before the filter's, in
+// the place where. A declared order by such a name is not refused
+// (withNameLookups).
+func (q *QuerySet[Resource]) refuseQueriedName(where string) error {
+	queried := make([]accesstypes.Field, 0, len(q.sortFields)+len(q.filterNames))
 	for _, sf := range q.sortFields {
-		name, ok := q.requestName(accesstypes.Field(sf.Field))
+		queried = append(queried, accesstypes.Field(sf.Field))
+	}
+	for _, field := range slices.Concat(queried, q.filterNames) {
+		name, ok := q.requestName(field)
 		if !ok || !q.nameGrant(name.Field).IsDenied() {
 			continue
 		}
@@ -404,11 +409,11 @@ func (q *QuerySet[Resource]) orderedNames() []accesstypes.Field {
 }
 
 // nameKeys returns the id fields of the names the statement names, those it
-// returns and those it orders by, each once: the fields whose conditions the
-// names' lookups sit inside.
+// returns, those it orders by and those its filter names, each once: the fields
+// whose conditions the names' lookups and filters sit inside.
 func (q *QuerySet[Resource]) nameKeys() []accesstypes.Field {
 	fields := slices.Clone(q.shownNames)
-	for _, field := range q.orderedNames() {
+	for _, field := range slices.Concat(q.orderedNames(), q.filterNames) {
 		if !slices.Contains(fields, field) {
 			fields = append(fields, field)
 		}
@@ -542,7 +547,7 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 // lookup's WHERE, last and in parentheses: lowered against the pointed-to table
 // read under alias, in that resource's own vocabulary, as a search branch's
 // child field is (searchBranchGrants). A condition that comes to true adds
-// nothing.
+// nothing; where is nil, the condition in parentheses stands alone.
 func (q *QuerySet[Resource]) nameGrantCondition(name *requestName, decision accesstypes.Decision, alias string, where ExpressionNode, registry *paramRegistry) (ExpressionNode, error) {
 	res := name.grantResource()
 	expr, err := conditionalExpr(res, decision)
@@ -562,6 +567,9 @@ func (q *QuerySet[Resource]) nameGrantCondition(name *requestName, decision acce
 	held, err := lowerRowCondition(expr, lctx, registry)
 	if err != nil {
 		return nil, errors.Wrapf(err, "lowering the condition on %s for the name %s", res, name.Field)
+	}
+	if where == nil {
+		return &GroupNode{Expression: held}, nil
 	}
 
 	return &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: &GroupNode{Expression: held}}, nil
