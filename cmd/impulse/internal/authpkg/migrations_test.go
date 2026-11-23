@@ -1,6 +1,8 @@
 package authpkg
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -72,6 +74,50 @@ func TestMigrations_listIndexes(t *testing.T) {
 				if strings.Index(down.String(), index) > strings.Index(down.String(), table) {
 					t.Errorf("%q comes after %q", index, table)
 				}
+			}
+		})
+	}
+}
+
+// TestMigrations_normalizedUsername holds the form a username is unique in and looked up
+// by, for both shapes of the address columns: one with an @ in it by the case of its
+// ASCII letters alone, as the session library compares two addresses, and any other in
+// Unicode's normalization and case folding, the session library's own schema letter for
+// letter.
+func TestMigrations_normalizedUsername(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join("..", "..", "..", "..", "session", "schema", "spanner", "migrations", "000002_SessionUsers.up.sql")
+	library, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%s) error = %v", file, err)
+	}
+	var columns []string
+	for _, line := range strings.SplitAfter(string(library), "\n") {
+		if strings.HasPrefix(line, "  NormalizedUsername ") {
+			columns = append(columns, line)
+		}
+	}
+	if len(columns) != 1 {
+		t.Fatalf("%s has %d lines of the NormalizedUsername column, want 1", file, len(columns))
+	}
+	column := columns[0]
+	for _, tt := range []struct {
+		name            string
+		usernameIsEmail bool
+	}{
+		{name: "an address held apart from the username"},
+		{name: "where the username is the address", usernameIsEmail: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var up strings.Builder
+			for _, m := range Migrations("Staff", "staff", tt.usernameIsEmail) {
+				up.WriteString(m.Up)
+			}
+			if !strings.Contains(up.String(), column) {
+				t.Errorf("the migrations lack %q", column)
 			}
 		})
 	}

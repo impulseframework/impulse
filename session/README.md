@@ -292,7 +292,8 @@ DML what a later rule must read.
   - **A person who has an account is linked to it.** A user the application created is
     found by the username first and then by the address: the user under the identity's
     **sign-in name** (the user principal name on Entra, the verified email on Google),
-    matched without regard to case, or else the user who holds the identity's address
+    matched as a username is (one with an @ in it by the case of its ASCII letters
+    alone, as an address is), or else the user who holds the identity's address
     verified, when the method vouches for the address (Google alone does, and only for
     a Gmail address or a Workspace account's; see "Users and their email address"),
     since a person is one user whichever way they sign in. The link is made after a
@@ -382,10 +383,9 @@ DML what a later rule must read.
   account by its address, and answers for a Gmail address and for a Workspace
   account's. The name must also be the account's own: its username as the library
   compares two addresses (the case of ASCII letters aside, every other character as
-  written), or the address the account holds confirmed. The stores find a username more
-  widely than that (they fold Unicode's case and normalization), so a name that only
-  reads like the account's is not the account's, and waits for the code as any name the
-  method does not vouch for. Any other name is the provider's word alone (a Google account can be made
+  written), or the address the account holds confirmed. The stores find a username
+  with an @ in it in that same way, so a name that only reads like the account's
+  finds another account or none. Any other name is the provider's word alone (a Google account can be made
   under any address from outside Google, an identity provider's administrators give
   the names they like, and Microsoft Entra ID answers for no address), so the sign-in
   waits for the code mailed to the address the account holds, whether or not its
@@ -1600,7 +1600,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | Call | What it does |
 | --- | --- |
 | `Users(ctx)` | Every user, by username. |
-| `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
+| `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched as the users table matches one: a name with an @ in it by the case of its ASCII letters alone, any other without regard to case. |
 | `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, Email})` | A user, password-less when `Password` is nil. `Password` is the seam for a seed or an import, which creates an account that already holds a password: a person's own account is made by an invitation or a sign-up, where the person chooses theirs. A password the judgment refuses (400) creates nothing: it is judged against the request's username, name and address (see "Password strength"). The user is created under no password change mark. The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then, from a session of the user's own, continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where the call holds no session of the user's own (a call outside a session of the user, another person's session, a request a bearer token authenticated, or a session that views the application as them) it starts none: the password is changed, the user's sessions are ended, and the user signs in again, where the sign-in policy decides; an application that wants a session there starts one with `StartAuthenticatedSession`. A session of the user's own that recorded no event goes on in one that records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
@@ -1940,13 +1940,13 @@ without regard to the case of its ASCII letters (`NormalizedEmail`), so an addre
 held by one account at a time. Nothing else is folded: an address written with a letter
 from outside ASCII is the same address only when it is written with that same letter, in
 the stores' lookups by address and the address's unique index as in every comparison the
-library makes. A username is matched more widely (`NormalizedUsername`: the database's
-Unicode normalization and case folding), so on a store whose usernames are the addresses
-two addresses that differ only by such a letter cannot both be accounts, and a sign-in
-name written with one names the account written with the other. A password sign-in
-under such a name still needs that account's password. A first sign-in that is linked
-on the provider's word for the name (see "A first link on a name alone") is linked to
-the account the wider match finds.
+library makes. A username with an @ in it reads as an address and is matched in the same
+way (`NormalizedUsername`), so two addresses that differ only by such a letter are two
+usernames: on a store whose usernames are the addresses both can be accounts, and a
+sign-in name written with one never names the account written with the other. A username
+with no @ in it is matched more widely, in Unicode's normalization and case folding, on
+PostgreSQL under the collation the column names, so the database's own collation changes
+nothing.
 
 How an address gets onto a user:
 
@@ -2671,12 +2671,11 @@ address is sent, and the guesses at the code of an account's first password, und
 wrong codes entered at the sign-in code's step are counted there too: for one invitation
 (`INVITATION-GUESS:`), for an address a person typed (`ADDRESS-GUESS:`) and for an
 account's own code (`CODE-GUESS:`, kept under the account's id as `FIRST-PASSWORD:` is).
-A name is counted
-under its case-folded form, which holds no capital, so nothing a person types into the
-username field is ever one of those keys: failing to sign in under the text of one
-counts against a name nobody holds, and closes no address to its mail. A caller that
-clears a row a list shows, whichever kind it is, clears the row of
-`SignInAttemptKey(listed)`.
+A name is counted under the form the users table matches it in, which holds no ASCII
+capital, so nothing a person types into the username field is ever one of those keys:
+failing to sign in under the text of one counts against a name nobody holds, and closes
+no address to its mail. A caller that clears a row a list shows, whichever kind it is,
+clears the row of `SignInAttemptKey(listed)`.
 
 **Attempts made at once.** An attempt takes its place under the limit before its
 password is compared: the store counts it against the name in one transaction and says

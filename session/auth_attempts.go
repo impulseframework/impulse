@@ -11,9 +11,11 @@ import (
 
 // SignInAttemptName returns the name a username's failed sign-ins are counted under:
 // the key of its row in the sign-in attempts table (Tables.SignInAttempts), the
-// username in Unicode NFC and case-folded, as the users table normalizes usernames. A
-// caller that clears a name's count in a transaction of its own (the generated user
-// management) deletes the row of this key; a name with no row has no count.
+// username as the users table normalizes usernames: one with an @ in it with its ASCII
+// capital letters lowercased and every other character as written, any other in Unicode
+// NFC and case-folded. A caller that clears a name's count in a transaction of its own
+// (the generated user management) deletes the row of this key; a name with no row has
+// no count.
 func SignInAttemptName(username string) string {
 	return attempts.Normalize(username)
 }

@@ -36,6 +36,17 @@ func errUsernameIsEmail() error {
 	return httpio.NewConflictMessage("the username is the user's email address: it changes when the person verifies a new address, not by a rename")
 }
 
+// insertedAddress is the address a new user row holds: the one the insert names, or,
+// on a store whose usernames are the addresses, where the insert may name none, the
+// username.
+func insertedAddress(user *dbtype.InsertSessionUser) string {
+	if user.Email != nil {
+		return *user.Email
+	}
+
+	return user.Username
+}
+
 // errEmailTaken is the refusal of an address another user holds, verified or not.
 func errEmailTaken(email string) error {
 	return httpio.NewConflictMessagef("the email address %q is already in use", email)
