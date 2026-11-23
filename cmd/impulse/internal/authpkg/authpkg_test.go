@@ -480,34 +480,47 @@ func TestFiles_castSeed(t *testing.T) {
 	}
 }
 
-// TestFiles_signedInHook holds what an auth package sets for the roles given for a
-// period: the generated identity client's hook for a sign-in that stands, which removes
-// a person's ended roles, over the application's database, and beside it the identity
-// client's own-tenants hook, which lists a person's tenants and takes them out of one. An
-// auth whose roles the application gives sets both where it has a generated management;
-// one whose directory writes the roles sets neither, and neither does one with no
-// generated management, which has no client to answer them.
+// TestFiles_signedInHook holds what an auth package sets for a sign-in that stands: the
+// generated identity client's hook, over the application's database, which removes a
+// person's ended roles and announces the sign-in to the open pages, and beside it the
+// identity client's own-tenants hook, which lists a person's tenants and takes them out of
+// one. An auth whose roles the application gives sets both where it has a generated
+// management; one whose directory writes the roles sets the hook alone, which announces
+// the sign-in and removes nothing, and one with no generated management sets neither,
+// having no client to answer them. The comment above the hook says what it does for each
+// kind.
 func TestFiles_signedInHook(t *testing.T) {
 	t.Parallel()
 	const hook = "authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))"
 	const ownTenants = "authSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))"
+	const (
+		// periods is the comment an auth whose roles the application gives has had above
+		// the hook; announces follows it.
+		periods   = "A role, a place in a group and a group's role may each be given for a period, and count inside it alone. A row whose period has ended goes when its person next signs in: the session library calls the identity client's SignedIn once the session is committed, apart from the sign-in, so a failure is logged and the session stands. It removes the person's ended roles and places and nothing else, never the account, and no job runs on a schedule."
+		announces = periods + " The same hook announces the sign-in to the open pages: the session it made, the person's account, and the identities and roles a sign-in can write, so a list of accounts, a person's page and a tenant's people show them without a reload. The generated handlers hand the client the live service to announce through; until they do, nothing is announced."
+		synced    = "The session library calls the identity client's SignedIn once a sign-in's session is committed, apart from the sign-in, so a failure is logged and the session stands. It announces the sign-in to the open pages: the session it made, the person's account, and the identities and roles a sign-in can write, so a list of accounts, a person's page and a tenant's people show them without a reload. The directory writes this auth's roles, so none is given for a period and the hook removes none."
+	)
 	tests := []struct {
-		name string
-		spec *Spec
-		want bool
+		name           string
+		spec           *Spec
+		wantHook       bool
+		wantOwnTenants bool
+		// wantComment is the comment above the hook, its lines joined, "" where no hook
+		// is set.
+		wantComment string
 	}{
 		{
-			name: "a password auth with its generated management", want: true,
+			name: "a password auth with its generated management", wantHook: true, wantOwnTenants: true, wantComment: announces,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
 		},
 		{
-			name: "a directory auth whose roles the application gives", want: true,
+			name: "a directory auth whose roles the application gives", wantHook: true, wantOwnTenants: true, wantComment: announces,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: []Method{
 				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
 			}},
 		},
 		{
-			name: "a directory auth whose roles the directory gives",
+			name: "a directory auth whose roles the directory gives", wantHook: true, wantComment: synced,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", IdentityDir: "pkg/identity", Methods: []Method{
 				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
 			}},
@@ -524,11 +537,33 @@ func TestFiles_signedInHook(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
 			}
-			if got := strings.Contains(string(files[tt.spec.Name+".go"]), hook); got != tt.want {
-				t.Errorf("%s.go sets the hook that clears a person's ended roles at their sign-in = %v, want %v", tt.spec.Name, got, tt.want)
+			rendered := string(files[tt.spec.Name+".go"])
+			if got := strings.Contains(rendered, hook); got != tt.wantHook {
+				t.Errorf("%s.go sets the hook for a sign-in that stands = %v, want %v", tt.spec.Name, got, tt.wantHook)
 			}
-			if got := strings.Contains(string(files[tt.spec.Name+".go"]), ownTenants); got != tt.want {
-				t.Errorf("%s.go sets the hook that answers a person's own tenants = %v, want %v", tt.spec.Name, got, tt.want)
+			if got := strings.Contains(rendered, ownTenants); got != tt.wantOwnTenants {
+				t.Errorf("%s.go sets the hook that answers a person's own tenants = %v, want %v", tt.spec.Name, got, tt.wantOwnTenants)
+			}
+			if tt.wantComment == "" {
+				return
+			}
+			before, _, found := strings.Cut(rendered, hook)
+			if !found {
+				return
+			}
+			// The comment above the hook, its lines joined as prose.
+			lines := strings.Split(before, "\n")
+			var comment []string
+			for i := len(lines) - 2; i >= 0; i-- {
+				line := strings.TrimSpace(lines[i])
+				text, isComment := strings.CutPrefix(line, "//")
+				if !isComment {
+					break
+				}
+				comment = append([]string{strings.TrimSpace(text)}, comment...)
+			}
+			if got := strings.Join(comment, " "); got != tt.wantComment {
+				t.Errorf("%s.go's comment above the hook = %q, want %q", tt.spec.Name, got, tt.wantComment)
 			}
 		})
 	}

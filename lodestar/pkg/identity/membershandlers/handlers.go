@@ -45,7 +45,11 @@ type Handlers struct {
 // New returns the handlers over the application, publishing with the application's
 // live derivations. The application's generated handler package calls it with its own
 // assembly of them; nil publishes the rows a commit wrote and no view derived from them.
+// It also hands the auth's client the same service and derivations to announce a
+// sign-in's writes with (AnnounceThrough).
 func New(deps Deps, derivations *live.Derivations) *Handlers {
+	deps.MembersIdentity().AnnounceThrough(deps.LiveService(), derivations)
+
 	return &Handlers{Deps: deps, liveDerivations: derivations}
 }
 

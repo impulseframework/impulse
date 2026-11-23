@@ -104,6 +104,111 @@ func TestDerivations_Expand(t *testing.T) {
 	}
 }
 
+// TestDerivations_Expand_tables pins the tables touched whole: each is a whole change told
+// in every domain that takes none of its rows, and so is every derived resource rooted at
+// it or reading it; a resource reached by rows and by a whole change is the whole change
+// alone, and one reached by two whole changes is one entry.
+func TestDerivations_Expand_tables(t *testing.T) {
+	t.Parallel()
+
+	// The fixture's, with a manifest that reads Ships beside the fleet board rooted at it.
+	derivations := &Derivations{Resources: append(fixtureDerivations().Resources,
+		DerivedResource{Resource: "Manifests", Tables: []SourceTable{{Name: "Ships"}}},
+	)}
+
+	tests := []struct {
+		name        string
+		derivations *Derivations
+		touched     map[accesstypes.Resource][]resource.RowChange
+		tables      []accesstypes.Resource
+		want        Writes
+	}{
+		{
+			name:        "a table touched whole, with rows of it in the same call: the table and the resources rooted at it and reading it, each whole in every domain, and no rows",
+			derivations: derivations,
+			touched:     map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}},
+			tables:      []accesstypes.Resource{"Ships"},
+			want: Writes{
+				Rows: map[accesstypes.Resource][]resource.RowChange{},
+				Whole: []WholeChange{
+					{Resource: "FleetBoards", AllDomains: true},
+					{Resource: "Manifests", AllDomains: true},
+					{Resource: "Ships", AllDomains: true},
+				},
+			},
+		},
+		{
+			name:        "rows of other tables stay rows, and reach what they reach today",
+			derivations: derivations,
+			touched: map[accesstypes.Resource][]resource.RowChange{
+				"Hangars":   {{Key: "h1"}},
+				"Squadrons": {{Key: "q1"}},
+			},
+			tables: []accesstypes.Resource{"Pilots"},
+			want: Writes{
+				Rows: map[accesstypes.Resource][]resource.RowChange{
+					"Hangars":   {{Key: "h1"}},
+					"Squadrons": {{Key: "q1"}},
+				},
+				Whole: []WholeChange{
+					{Resource: "MissionBoards"},
+					{Resource: "Pilots", AllDomains: true},
+					{Resource: "Rosters", AllDomains: true},
+				},
+			},
+		},
+		{
+			name:        "reached by its root's rows and by a table touched whole: the whole change alone",
+			derivations: derivations,
+			touched:     map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}},
+			tables:      []accesstypes.Resource{"ShipClasses"},
+			want: Writes{
+				Rows: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}},
+				Whole: []WholeChange{
+					{Resource: "FleetBoards", AllDomains: true},
+					{Resource: "Manifests"},
+					{Resource: "ShipClasses", AllDomains: true},
+				},
+			},
+		},
+		{
+			name:        "reached by a row's whole change and by a table touched whole: one entry, told in every domain",
+			derivations: derivations,
+			touched:     map[accesstypes.Resource][]resource.RowChange{"Clients": {{Key: "c1"}}},
+			tables:      []accesstypes.Resource{"Squadrons", "Squadrons"},
+			want: Writes{
+				Rows: map[accesstypes.Resource][]resource.RowChange{"Clients": {{Key: "c1"}}},
+				Whole: []WholeChange{
+					{Resource: "MissionBoards", AllDomains: true},
+					{Resource: "Squadrons", AllDomains: true},
+				},
+			},
+		},
+		{
+			name:    "nil derivations: the tables themselves are whole changes",
+			touched: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}, "Hangars": {{Key: "h1"}}},
+			tables:  []accesstypes.Resource{"Ships", "Pilots"},
+			want: Writes{
+				Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h1"}}},
+				Whole: []WholeChange{
+					{Resource: "Pilots", AllDomains: true},
+					{Resource: "Ships", AllDomains: true},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, tt.derivations.Expand(tt.touched, tt.tables...)); diff != "" {
+				t.Errorf("Expand() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestFanout_derived(t *testing.T) {
 	t.Parallel()
 

@@ -78,8 +78,10 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 
 		return func(ctx context.Context) {
 			m.oneTenant.forget(tx)
+			ctx, announcement := m.announcing(ctx)
 			txn.Committed(ctx)
 			logger.FromCtx(ctx).Infof("%s: %q accepted the invitation to %s and holds %s", auth, username, inv.Email, strings.Join(inv.RoleNames, ", "))
+			announcement.row(m.tables.Users, userID).row(m.tables.MailLinks, inv.ID).whole(m.tables.Identities).announce(ctx)
 		}, nil
 	}
 }
@@ -120,10 +122,12 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 
 		return func(ctx context.Context) {
 			m.oneTenant.forget(tx)
+			ctx, announcement := m.announcing(ctx)
 			txn.Committed(ctx)
 			for _, seat := range given {
 				logger.FromCtx(ctx).Infof("%s: %q entered %s through its directory and holds %s", auth, username, seat.Tenant, seat.Role)
 			}
+			announcement.row(m.tables.Users, userID).whole(m.tables.Identities).announce(ctx)
 		}, nil
 	}
 	onlyIn := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
