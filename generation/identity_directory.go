@@ -145,6 +145,15 @@ func (d *identitySourceData) ListsDirectoryOutsiders() bool {
 	return d.listsDirectoryOutsiders()
 }
 
+// ReadsManagingTenants reports whether the instance's store reads which tenants manage
+// an account (identity.Store.ManagingTenants) from the tenant's list of its people: the
+// instance carries the list, the tenant record declares a directory
+// (listsDirectoryOutsiders), and the auth keeps the identities its people sign in through
+// a directory with (HasIdentities). Every other store answers none and reads nothing.
+func (d *identitySourceData) ReadsManagingTenants() bool {
+	return d.listsDirectoryOutsiders() && d.HasIdentities()
+}
+
 // listsDirectoryInvitations reports whether the instance's client answers which
 // invitations not yet accepted would make another of a tenant's administrators who
 // enters a directory-only tenant with a password: the client answers who the switch

@@ -68,6 +68,14 @@ type Store interface {
 	// and the connection it came through, which say whether it can still sign the
 	// person in. It writes nothing, so a read outside a write asks it too (SignInWays).
 	Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error)
+	// ManagingTenants lists the tenants whose own list of their people says they manage
+	// the user's account (managedHere on the user's row of the tenant's list), as the
+	// transaction reads it. A removal that would leave a person holding nothing asks it:
+	// an account another tenant manages is not deleted with what one tenant takes. A
+	// schema with no tenant record, a tenant record that declares no directory and an
+	// auth that keeps no identities answer none, since there no tenant manages an
+	// account that holds nothing in it.
+	ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error)
 	// DeleteIdentity buffers the removal of an identity.
 	DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 

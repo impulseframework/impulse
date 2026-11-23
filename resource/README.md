@@ -5749,7 +5749,10 @@ own, outside any request, has no caller and is the application's act):
   group kept in that tenant, for a caller the method would refuse.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
-  nothing admits is not kept.
+  nothing admits is not kept. An account that signs in through a tenant's directory is
+  that tenant's to delete: it goes this way only with the last thing it holds in that
+  tenant itself, and otherwise stays, holding nothing, in that tenant's list of its
+  people.
 
 A caller is named by the id of their account, as the permission store names anyone, and
 the first three rules take the caller for the person acted on only where the request came

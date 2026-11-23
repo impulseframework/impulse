@@ -16,8 +16,10 @@ import (
 // the tenant goes, and their place in each group kept in it. What reaches the tenant another
 // way stays: a role held in every tenant, a role for the whole application and a place in a
 // group kept for the whole application. A person left holding nothing that has not ended is
-// deleted with their sign-in identities and sessions, and a person who reaches the tenant no
-// more is told by mail.
+// deleted with their sign-in identities and sessions. An account that signs in through a
+// tenant's directory is that tenant's to delete: it goes this way only with the last thing
+// it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's
+// list of its people. A person who reaches the tenant no more is told by mail.
 //
 // It is a tenant's method: it names a row of StaffTenantUser, the tenant's own list of the
 // auth's people. It takes only what is the tenant's own, so its grant needs no condition on

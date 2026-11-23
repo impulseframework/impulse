@@ -1188,7 +1188,10 @@ belongs to a group kept for the whole application. (The "globally" in that name 
 role file's word for the whole application. It is not the "Global" of shapes 7 and 8,
 which is about being in several tenants.) A tenant with a directory lists everyone who
 signs in through it, also a person who holds no role in the tenant, so the tenant that
-manages an account can disable or delete it. With the skeletons' role file, a tenant's
+manages an account can disable or delete it. Removing a person from a tenant, or taking
+away the last thing they hold, deletes their account only where no other tenant manages
+it: the account of a person who signs in through another tenant's directory stays,
+holding nothing, in that tenant's list. With the skeletons' role file, a tenant's
 administrator can do this much:
 
 | A tenant's administrator can | For whom |

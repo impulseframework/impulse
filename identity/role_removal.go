@@ -48,6 +48,12 @@ const (
 	// with a place in a group (GroupMemberRemovalWarning).
 	deletesAccountNote = "They hold nothing else, so their account is deleted with its sign-in identities and sessions."
 
+	// managedElsewhereNote is the note of the three warnings (a removal from a tenant, a
+	// role's and a place's) where the person then holds nothing and the account stays,
+	// because another tenant manages it (managedElsewhere). %s is the application's word
+	// for a tenant.
+	managedElsewhereNote = "They then hold nothing, but their account stays: the %s whose directory they sign in through manages it."
+
 	// roleNotHeldMessage is said of a warning asked about a role the person no longer
 	// holds: there is nothing to take away.
 	roleNotHeldMessage = "This person no longer holds that role. Refresh the page to see what they hold."
@@ -61,9 +67,13 @@ type roleRemoval struct {
 	// kept is what keeps the account, the membership among it: every row that stands in
 	// the tables, ended or not (keeps).
 	kept []access.MembershipKey
-	// last is whether the membership is the last thing kept, so that the account goes
-	// with it.
+	// last is whether the membership is the last thing kept.
 	last bool
+	// deletes is whether the account goes with the membership: it is the last thing kept,
+	// and no tenant other than the membership's manages the account (managedElsewhere).
+	// managedBy is the tenant that manages it where the account stays for that.
+	deletes   bool
+	managedBy accesstypes.Domain
 }
 
 // judgeRoleRemoval holds the removal of a membership the person holds to the rules of
@@ -109,12 +119,26 @@ func (m *Manager) judgeRoleRemoval(ctx context.Context, txn resource.ReadWriteTr
 	if err != nil {
 		return nil, err
 	}
-
-	return &roleRemoval{
+	removal := &roleRemoval{
 		ended: ended,
 		kept:  kept,
 		last:  !slices.ContainsFunc(kept, func(k access.MembershipKey) bool { return k != *key }),
-	}, nil
+	}
+	if removal.last {
+		// The membership's tenant, and none for a role held for the whole application or
+		// in every tenant.
+		var tenant accesstypes.Domain
+		if _, held := tenantScope(key); held {
+			tenant = accesstypes.Domain(key.Domain)
+		}
+		managing, elsewhere, err := m.managedElsewhere(ctx, txn, userID, tenant)
+		if err != nil {
+			return nil, err
+		}
+		removal.deletes, removal.managedBy = !elsewhere, managing
+	}
+
+	return removal, nil
 }
 
 // RoleRemovalWarning answers the warning before the person's membership of the role in
@@ -150,7 +174,7 @@ func (m *Manager) RoleRemovalWarning(ctx context.Context, txn resource.ReadWrite
 		return nil, err
 	}
 
-	return roleRemovalWarning(m.roleRemovalConsequence(scope, username, role), removal), nil
+	return roleRemovalWarning(m.roleRemovalConsequence(scope, username, role), removal, m.tenantWord), nil
 }
 
 // RoleRemovalWarning answers the warning before a role the person holds in the tenant is
@@ -181,7 +205,7 @@ func (t *Tenant) RoleRemovalWarning(ctx context.Context, txn resource.ReadWriteT
 	}
 	consequence := fmt.Sprintf(roleRemovalHereConsequence, username, roleInWords(role), t.manager.tenantWord)
 
-	return roleRemovalWarning(consequence, removal), nil
+	return roleRemovalWarning(consequence, removal, t.manager.tenantWord), nil
 }
 
 // roleRemovalConsequence is the warning's consequence of taking the role from the person
@@ -204,10 +228,20 @@ func (m *Manager) roleRemovalConsequence(scope accesstypes.PolicyScope, username
 }
 
 // roleRemovalWarning is the warning of a role's removal with the consequence: the button
-// and a note say the account goes where the membership is the last thing kept.
-func roleRemovalWarning(consequence string, removal *roleRemoval) *resource.Warning {
+// and a note say the account goes where it goes with the membership, and a note says it
+// stays where the membership is the last thing kept and another tenant manages the
+// account. word is the application's word for a tenant.
+func roleRemovalWarning(consequence string, removal *roleRemoval, word string) *resource.Warning {
 	if !removal.last {
 		return &resource.Warning{Consequence: consequence, Names: nil, Confirm: roleRemovalConfirm, Also: nil}
+	}
+	if !removal.deletes {
+		return &resource.Warning{
+			Consequence: consequence,
+			Names:       nil,
+			Confirm:     roleRemovalConfirm,
+			Also:        []resource.WarningNote{{Says: fmt.Sprintf(managedElsewhereNote, word), Names: nil}},
+		}
 	}
 
 	return &resource.Warning{

@@ -1356,6 +1356,81 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 	}
 }
 
+// Test_identityStoreTemplate_managingTenants pins where the store reads which tenants
+// manage an account (identity.Store.ManagingTenants): from the tenant's list of its
+// people, by the user's rows whose ManagedHere is true, where the tenant record declares
+// a directory and the auth keeps identities; every other store answers none and reads
+// nothing. And the four generated removals say an account another tenant's directory
+// signs in stays.
+func Test_identityStoreTemplate_managingTenants(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	data := func(tenant *identityTenant, tables ...identityTable) *identitySourceData {
+		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}}
+		for _, kind := range tables {
+			inst.tables[kind] = true
+		}
+
+		return &identitySourceData{
+			Source: "Auth", Package: "crewresources", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default",
+			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
+			Policy: access.Tables{UserRoles: "CrewUserRoles"},
+		}
+	}
+	sector := func(directory *identityTenantDirectory) *identityTenant {
+		return &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}
+	}
+	const (
+		signature = "func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {"
+		read      = "crewresources.NewCrewSectorUserQuery().\n\t\tAddColumns(crewresources.NewCrewSectorUserColumns().DomainID()).\n\t\tWhere(crewresources.NewCrewSectorUserQueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))"
+		none      = "func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.Domain, error) {\n\treturn nil, nil\n}"
+	)
+	for _, tt := range []struct {
+		name  string
+		data  *identitySourceData
+		reads bool
+	}{
+		{name: "a tenant record that declares a directory, an auth that keeps identities: the tenant's list is read", data: data(sector(directory), identityUsers, identityMemberships, identityIdentities), reads: true},
+		{name: "a tenant record that declares a directory, an auth that keeps no identities: none", data: data(sector(directory), identityUsers, identityMemberships)},
+		{name: "a tenant record that declares no directory: none", data: data(sector(nil), identityUsers, identityMemberships, identityIdentities)},
+		{name: "no tenant record: none", data: data(nil, identityUsers, identityMemberships, identityIdentities)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.data.ReadsManagingTenants(); got != tt.reads {
+				t.Errorf("ReadsManagingTenants() = %t, want %t", got, tt.reads)
+			}
+			c := &client{}
+			out, err := c.generateTemplateOutput("identityStoreTemplate", identityStoreTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityStoreTemplate) error = %v", err)
+			}
+			if tt.reads {
+				assertContains(t, "the store", string(out), []string{signature, read}, []string{none})
+			} else {
+				assertContains(t, "the store", string(out), []string{none}, []string{signature, "ManagedHere().Equal(true)"})
+			}
+		})
+	}
+
+	// The comments of the generated removals, each a template's, say the rule in one
+	// sentence.
+	const stays = "An account that signs in through a tenant's directory is that tenant's to delete: it goes this way only with the last thing it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's list of its people."
+	flat := regexp.MustCompile(`\n// ?`)
+	for name, template := range map[string]string{
+		"identityRemoveRoleTemplate":        identityRemoveRoleTemplate,
+		"identityTenantRemoveRoleTemplate":  identityTenantRemoveRoleTemplate,
+		"identityTenantRemoveUserTemplate":  identityTenantRemoveUserTemplate,
+		"identityRemoveGroupMemberTemplate": identityRemoveGroupMemberTemplate,
+	} {
+		if !strings.Contains(flat.ReplaceAllString(template, " "), stays) {
+			t.Errorf("%s does not say %q", name, stays)
+		}
+	}
+}
+
 // Test_holdIdentityTenantDirectory pins the check of the directory-only switch and the
 // directories record the people's list was written for against the ones the load
 // found: the two agree or the run stops, and the check runs where the run resolves the

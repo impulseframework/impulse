@@ -772,6 +772,26 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+// ManagingTenants lists the sectors whose own list of their people
+// (MembersSectorUser) says they manage the user's account, the rows of the user whose
+// ManagedHere is true, read in the caller's transaction through the list's query type.
+// A removal that would leave the person holding nothing asks it
+// (identity.Store.ManagingTenants).
+func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
+	query := membersresources.NewMembersSectorUserQuery().
+		AddColumns(membersresources.NewMembersSectorUserColumns().DomainID()).
+		Where(membersresources.NewMembersSectorUserQueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))
+	var tenants []accesstypes.Domain
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersSectorUserQuery.List()")
+		}
+		tenants = append(tenants, accesstypes.Domain(row.Data.DomainID))
+	}
+
+	return tenants, nil
+}
+
 // DirectoryOutsiders lists the people of the Members auth who hold a role in the
 // sector, in it or in every sector, and have no sign-in through its directory: the
 // people the sector's directory-only switch keeps out while it is on, and who turning

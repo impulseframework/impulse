@@ -70,6 +70,8 @@ type PersonTenant struct {
 // (empty where they may), and whether the account goes with the rows. memberships and
 // places are the rows in the tenant; endedMemberships and endedPlaces the rows outside
 // it, all of them ended, that go with the account, and none where the account stays.
+// managedBy is set by an administrator's removal of the person (judgeTenantRemoval): the
+// tenant that manages the account where the account stays for that.
 type leaving struct {
 	memberships      []access.MembershipKey
 	places           []access.GroupMemberKey
@@ -77,6 +79,7 @@ type leaving struct {
 	endedPlaces      []access.GroupMemberKey
 	refusal          string
 	deletesAccount   bool
+	managedBy        accesstypes.Domain
 }
 
 // tenantHolds is what a person's own tenants are judged by, read once a request: every

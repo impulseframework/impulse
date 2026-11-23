@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
@@ -39,25 +40,52 @@ const (
 	notInGroupMessage = "This person is no longer in that group. Refresh the page to see who is in it."
 )
 
+// placeRemoval is the judgment of taking a person out of a group, as the removal and the
+// warning before it read it (judgeGroupMemberRemoval).
+type placeRemoval struct {
+	// last is whether the place is the last thing that keeps the account.
+	last bool
+	// deletes is whether the account goes with the place: it is the last thing kept, and
+	// no tenant other than the one the group is kept in manages the account
+	// (managedElsewhere). managedBy is the tenant that manages it where the account stays
+	// for that.
+	deletes   bool
+	managedBy accesstypes.Domain
+}
+
 // judgeGroupMemberRemoval holds the person's removal from the group to the rules of
 // RemoveGroupMember (refuseTakingPlace), and answers whether the place is the last thing
-// that keeps the account: the person holds no role of their own and is in no other group.
-// It writes nothing.
-func (m *Manager) judgeGroupMemberRemoval(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) (bool, error) {
+// that keeps the account (the person holds no role of their own and is in no other
+// group), and whether the account goes with it: no tenant other than the one the group is
+// kept in, and none for a group kept for the whole application, manages the account. It
+// writes nothing.
+func (m *Manager) judgeGroupMemberRemoval(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) (*placeRemoval, error) {
 	if err := m.refuseTakingPlace(ctx, txn, groupID, userID); err != nil {
-		return false, err
+		return nil, err
 	}
 	own, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
-		return false, errors.Wrap(err, "identity.Store.Memberships()")
+		return nil, errors.Wrap(err, "identity.Store.Memberships()")
 	}
 	places, err := m.store.UserGroups(ctx, txn, userID)
 	if err != nil {
-		return false, errors.Wrap(err, "identity.Store.UserGroups()")
+		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
 	}
 	elsewhere := slices.ContainsFunc(places, func(place GroupPlace) bool { return place.ID != groupID })
+	removal := &placeRemoval{last: len(own) == 0 && !elsewhere}
+	if removal.last {
+		var tenant accesstypes.Domain
+		if i := slices.IndexFunc(places, func(place GroupPlace) bool { return place.ID == groupID }); i >= 0 {
+			tenant, _ = tenantOf(places[i].Kind, places[i].Axis, places[i].Domain)
+		}
+		managing, managed, err := m.managedElsewhere(ctx, txn, userID, tenant)
+		if err != nil {
+			return nil, err
+		}
+		removal.deletes, removal.managedBy = !managed, managing
+	}
 
-	return len(own) == 0 && !elsewhere, nil
+	return removal, nil
 }
 
 // GroupMemberRemovalWarning answers the warning before the person is taken out of the
@@ -91,12 +119,12 @@ func (m *Manager) GroupMemberRemovalWarning(ctx context.Context, txn resource.Re
 	if !in {
 		return nil, notInGroup(username, group)
 	}
-	last, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
+	removal, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	return groupMemberRemovalWarning(username, group, last), nil
+	return groupMemberRemovalWarning(username, group, removal, m.tenantWord), nil
 }
 
 // GroupMemberRemovalWarning answers the warning before the person is taken out of a group
@@ -114,15 +142,26 @@ func (t *Tenant) GroupMemberRemovalWarning(ctx context.Context, txn resource.Rea
 }
 
 // groupMemberRemovalWarning is the warning of the person's removal from the group: where
-// the place is the last thing kept, the button and a note say the account goes, and the
-// consequence leaves out the roles the person keeps, as they keep none.
-func groupMemberRemovalWarning(username string, group *Group, last bool) *resource.Warning {
-	if !last {
+// the place is the last thing kept, the consequence leaves out the roles the person
+// keeps, as they keep none, and the button and a note say the account goes, or a note
+// says it stays where another tenant manages it. word is the application's word for a
+// tenant.
+func groupMemberRemovalWarning(username string, group *Group, removal *placeRemoval, word string) *resource.Warning {
+	if !removal.last {
 		return &resource.Warning{
 			Consequence: fmt.Sprintf(groupMemberRemovalConsequence, username, group.Name),
 			Names:       nil,
 			Confirm:     groupMemberRemovalConfirm,
 			Also:        nil,
+		}
+	}
+
+	if !removal.deletes {
+		return &resource.Warning{
+			Consequence: fmt.Sprintf(groupMemberRemovalLastConsequence, username, group.Name),
+			Names:       nil,
+			Confirm:     groupMemberRemovalConfirm,
+			Also:        []resource.WarningNote{{Says: fmt.Sprintf(managedElsewhereNote, word), Names: nil}},
 		}
 	}
 

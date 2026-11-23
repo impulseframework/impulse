@@ -100,6 +100,9 @@ func (w *tenantListsWorld) facts(ctx context.Context, t *testing.T, name, identi
 // account, the reset link with them, and reads their name, address and whether the
 // account is disabled alone. A person who signs in through Cinder's directory and
 // holds nothing is in Cinder's list and no other, and Cinder disables and deletes them.
+// Anvil's removal of such a person, or of their last role, leaves the account standing
+// in Cinder's list, holding nothing; Cinder's removal of its own directory person who
+// holds a role at Cinder alone deletes the account, as before.
 func TestManagedAccountSectorMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -119,6 +122,11 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 	piaIdentity := w.directoryPerson(ctx, t, "pia", anvil)
 	patIdentity := w.directoryPerson(ctx, t, "pat", anvil)
 	w.directoryPerson(ctx, t, "quin")
+	// rio and sol sign in through Cinder's directory and are Cadets at Anvil alone; tam
+	// signs in through it and is a Cadet at Cinder alone.
+	rioIdentity := w.directoryPerson(ctx, t, "rio", anvil)
+	solIdentity := w.directoryPerson(ctx, t, "sol", anvil)
+	w.directoryPerson(ctx, t, "tam", cinder)
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
@@ -266,6 +274,62 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 			t.Error("quin's account is still there after Cinder deleted it")
 		}
 	})
+	t.Run("another sector's removal of the person leaves the account standing, holding nothing, in Cinder's list, and Cinder deletes it", func(t *testing.T) {
+		status, body := w.askRemovalWarning(t, "rio")
+		assertStatus(t, status, http.StatusOK, body)
+		if warning := decodeWarning(t, body); len(warning.Also) != 1 || warning.Also[0].Says != removalManagedElsewhere {
+			t.Errorf("the warning before Anvil's removal of rio = %+v, want the one note %q", warning, removalManagedElsewhere)
+		}
+		status, body = w.removeFromSector(t, "marshal", "rio")
+		assertStatus(t, status, http.StatusNoContent, body)
+		w.standsHoldingNothing(t, "rio", rioIdentity)
+
+		status, body = post("cora", cinder, "delete-crew-sector-user", userBody("rio"))
+		assertStatus(t, status, http.StatusNoContent, body)
+		if crewAccountExists(t, w.db, w.ids["rio"]) {
+			t.Error("rio's account is still there after Cinder deleted it")
+		}
+	})
+	t.Run("another sector that takes the person's last role leaves the account standing, holding nothing, in Cinder's list", func(t *testing.T) {
+		status, body := post("marshal", anvil, "remove-crew-sector-role", fmt.Sprintf(`{"userId":%q,"role":"Cadet"}`, w.ids["sol"]))
+		assertStatus(t, status, http.StatusNoContent, body)
+		w.standsHoldingNothing(t, "sol", solIdentity)
+	})
+	t.Run("the sector whose directory a person signs in through removes them and the account goes, as before", func(t *testing.T) {
+		status, body := post("cora", cinder, sectorRemovalPath, userBody("tam"))
+		assertStatus(t, status, http.StatusNoContent, body)
+		if crewAccountExists(t, w.db, w.ids["tam"]) {
+			t.Error("tam's account is still there after Cinder removed them, the last thing they held")
+		}
+	})
+}
+
+// removalManagedElsewhere is the note of a removal's warning where the person then holds
+// nothing and the account stays, because another sector's directory signs them in.
+const removalManagedElsewhere = "They then hold nothing, but their account stays: the sector whose directory they sign in through manages it."
+
+// standsHoldingNothing fails unless the person's account stands after a removal by Anvil,
+// its identity still linked and holding nothing, with no row in Anvil's list and a row in
+// Cinder's that says Cinder manages it and the person holds nothing there.
+func (w *tenantListsWorld) standsHoldingNothing(t *testing.T, name, identity string) {
+	t.Helper()
+
+	if !crewAccountExists(t, w.db, w.ids[name]) {
+		t.Fatalf("%s's account is gone, want it standing: Cinder's directory signs them in", name)
+	}
+	if f := w.facts(t.Context(), t, name, identity); !f.Linked || len(f.Held) != 0 {
+		t.Errorf("%s's account is linked = %t and holds %v, want linked and holding nothing", name, f.Linked, f.Held)
+	}
+	if row := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids[name]]; row != nil {
+		t.Errorf("Anvil's list holds %s, who holds nothing there: %v", name, row)
+	}
+	row := sectorList(t, w.h, "cora", cinder, sectorPeoplePath)[w.ids[name]]
+	if row == nil {
+		t.Fatalf("Cinder's list holds no row of %s, who signs in through its directory", name)
+	}
+	if row["heldHere"] != false || row["managedHere"] != true {
+		t.Errorf("Cinder's row of %s says heldHere = %v and managedHere = %v, want false and true", name, row["heldHere"], row["managedHere"])
+	}
 }
 
 // factsEqual compares two accountFacts.
