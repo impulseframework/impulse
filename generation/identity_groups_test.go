@@ -124,6 +124,8 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"crewidentity/remove_crew_group_member.go": {
 			"// @target(CrewGroupUser, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewGroupUser, key: UserID)\n\tUserID impulse.UUID",
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
+			// Asked first, the server says who leaves which group, and whether the account goes.
+			"// @answers(204)\n// @warning\n", "client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {
 			// The role is picked from the roles the caller could give. The application has
@@ -303,6 +305,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		"crewidentity/remove_crew_ship_group_member.go": {
 			"// @target(CrewShipGroupUser, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewShipGroupUser, key: UserID)\n\tUserID impulse.UUID",
 			"tenant.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
+			"// @answers(204)\n// @warning\n", "tenant.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_ship_group_role.go": {
 			"// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\t// @enumerate(CrewShipRoles)\n\tRole string `validate:\"required\"`",
