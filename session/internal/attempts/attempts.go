@@ -149,8 +149,11 @@ func cherokeeCapital(r rune) rune {
 // other character as written (util.LowerASCII); any other name is in Unicode NFC and
 // case-folded (FoldWide). The key agrees with the table for every letter that both the
 // library's Unicode tables (golang.org/x/text) and the database's know. A cased letter
-// added to Unicode since the older of the two is folded by one and not by the other, so
-// two names that differ only by such a letter may share a count, or one name have two.
+// added to Unicode since the older of the two is folded by one and not by the other:
+// where the library's tables are the newer, two usernames that differ only by the case
+// of such a letter are two accounts with one count, and a right password for either
+// clears what was counted against the other; where the database's are the newer, one
+// username has a count for each spelling of such a letter.
 func Normalize(name string) string {
 	if strings.Contains(name, "@") {
 		return util.LowerASCII(name)
