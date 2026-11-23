@@ -127,10 +127,10 @@ func secondFactorSays(row *SignInSettingsRow) string {
 
 // rememberedBrowserSays is the remembered browser's line in words.
 func rememberedBrowserSays(days int64) string {
-	switch {
-	case days == 0:
+	switch days {
+	case 0:
 		return "Browsers are not remembered."
-	case days == 1:
+	case 1:
 		return "A remembered browser skips the code for 1 day."
 	default:
 		return "A remembered browser skips the code for " + strconv.FormatInt(days, 10) + " days."

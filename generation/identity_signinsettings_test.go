@@ -35,7 +35,7 @@ func signInSettingsFiles(t *testing.T) []string {
 // its warning and the word a person types. The setting is every auth's: the members
 // sign in through a directory that writes their roles, with no password and no choice
 // of who may sign up, and have all of it, with the list of their sign-in methods.
-func Test_prepareIdentity_signInSettings(t *testing.T) {
+func Test_prepareIdentity_signInSettings(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// The generator writes relative to where the program runs, and the working directory
 	// belongs to the whole process: no t.Parallel here.
 	t.Chdir(t.TempDir())
@@ -132,7 +132,7 @@ func Test_prepareIdentity_signInSettings(t *testing.T) {
 // them, so the management carries no list and no method, and the store, which still
 // stands for identity.Store, answers no row and refuses a write saying which table is
 // missing.
-func Test_prepareIdentity_signInSettingsWithoutTheTable(t *testing.T) {
+func Test_prepareIdentity_signInSettingsWithoutTheTable(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	t.Chdir(t.TempDir())
 
 	tables := slices.DeleteFunc(slices.Concat(crewEveryTable, membersIdentityTables), func(table string) bool {
