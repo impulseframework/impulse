@@ -1038,7 +1038,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 	guard := "if _, err := client.manager.Tenant(ctx); err != nil {"
 	for file, lines := range map[string][]string{
 		"crewidentity/disable_crew_ship_user.go": {
-			generationHeader, "// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)", "type DisableCrewShipUser struct {", "// @target(CrewShipUser)",
+			generationHeader, "// @rpc\n// @permissionScope(domain)\n// @notOnOwnAccount(ID)\n// @outlet(default)\n// @answers(204)", "type DisableCrewShipUser struct {", "// @target(CrewShipUser)",
 			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.DisableUser(ctx, txn, m.UserID)",
 		},
 		"crewidentity/require_crew_ship_password_change.go": {"type RequireCrewShipPasswordChange struct {", "// @target(CrewShipUser)", guard},

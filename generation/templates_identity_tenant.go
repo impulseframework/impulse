@@ -79,6 +79,19 @@ const (
 // @callerEnters
 {{- end }}`
 
+	// identityNotOnOwnAccountNote is the paragraph the methods that disable and delete a
+	// person add to their comment, on both sides and in every tree: the person's own row
+	// does not offer them.
+	identityNotOnOwnAccountNote = `
+//
+// The person's own row does not offer it (@notOnOwnAccount): nobody disables or deletes
+// themselves, and the method refuses the call.`
+
+	// identityNotOnOwnAccount is the annotation of such a method, after the scope's line
+	// and any @callerEnters: the row keeps it off the caller's own account by its ID.
+	identityNotOnOwnAccount = `
+// @notOnOwnAccount(ID)`
+
 	// identityTenantsToEnterDoc is the comment of TenantsToEnter on each struct whose row is
 	// a person or one of their identities (OffersToEntering).
 	identityTenantsToEnterDoc = `// TenantsToEnter names the {{ .TenantWord }}s the person administers: a caller whose session
