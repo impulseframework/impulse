@@ -1,0 +1,143 @@
+<section class="impulse-tenant-sign-in-content">
+  <h1>Sign-in settings</h1>
+  @if (known()) {
+    <p class="impulse-tenant-sign-in-stands">{{ standsLine() }}</p>
+    @if (refusal()) {
+      <p class="impulse-tenant-sign-in-refusal" role="alert">{{ refusal() }}</p>
+    }
+    @if (reads()) {
+      <h2>Directory</h2>
+      @if (hasDirectory()) {
+        @if (facts()?.directory; as directory) {
+          <p class="impulse-tenant-sign-in-directory">{{ directory }}</p>
+        }
+        @if (canDelete() && row()) {
+          <div class="impulse-tenant-sign-in-action">
+            <button
+              mat-button
+              type="button"
+              class="impulse-tenant-sign-in-remove-directory"
+              [disabled]="busy()"
+              (click)="remove()">
+              Remove the directory
+            </button>
+            <p class="impulse-tenant-sign-in-note">
+              Removing the directory leaves the roles it gave in place and frees it for another {{ word }}. It cannot be
+              removed while this {{ word }} is directory only.
+            </p>
+          </div>
+        }
+      } @else if (canCreate()) {
+        @if (sessionDirectory(); as through) {
+          <p class="impulse-tenant-sign-in-signed-in">You are signed in through {{ through }}.</p>
+          <div class="impulse-tenant-sign-in-action">
+            <button
+              mat-flat-button
+              type="button"
+              class="impulse-tenant-sign-in-make-directory"
+              [disabled]="busy()"
+              (click)="makeDirectory()">
+              Make it this {{ word }}'s directory
+            </button>
+          </div>
+        } @else {
+          <p class="impulse-tenant-sign-in-how-to-set">{{ howToSet() }}</p>
+        }
+      }
+
+      @if (showsDefaultRole()) {
+        <h2>The role a person gets the first time they sign in through it</h2>
+        @if (facts()) {
+          <p class="impulse-tenant-sign-in-default-role">{{ defaultRole() }}</p>
+        }
+        @if (canOpen() || offersInviteOnly()) {
+          <div class="impulse-tenant-sign-in-action">
+            @if (canOpen()) {
+              <button
+                mat-flat-button
+                type="button"
+                class="impulse-tenant-sign-in-change-role"
+                [disabled]="busy()"
+                (click)="chooseRole()">
+                {{ changesRole() ? 'Change the role' : 'Choose a role' }}
+              </button>
+            }
+            @if (offersInviteOnly()) {
+              <button
+                mat-button
+                type="button"
+                class="impulse-tenant-sign-in-invite-only"
+                [disabled]="busy()"
+                (click)="inviteOnly()">
+                Nobody: by invitation only
+              </button>
+            }
+            <p class="impulse-tenant-sign-in-note">
+              Someone whose role you remove afterwards is not given it back by signing in.
+            </p>
+          </div>
+        }
+      }
+
+      @if (facts(); as facts) {
+        <h2>Directory only</h2>
+        @if (facts.directoryOnly) {
+          <p class="impulse-tenant-sign-in-directory-only">
+            On: only people who sign in through this {{ word }}'s directory enter it.
+          </p>
+          @if (peopleLine()) {
+            <p class="impulse-tenant-sign-in-people">{{ peopleLine() }}</p>
+          }
+          <div class="impulse-tenant-sign-in-action">
+            @if (canEndOnly()) {
+              <button
+                mat-button
+                type="button"
+                class="impulse-tenant-sign-in-end-only"
+                [disabled]="busy()"
+                (click)="endOnly()">
+                Turn directory only off
+              </button>
+            }
+            <p class="impulse-tenant-sign-in-note">{{ keptOut() }}</p>
+          </div>
+        } @else {
+          <p class="impulse-tenant-sign-in-directory-only">
+            Off: a person who holds a role here enters however they signed in.
+          </p>
+          @if (!hasDirectory()) {
+            <p class="impulse-tenant-sign-in-note">
+              Set a directory first: a {{ word }} with no directory cannot be directory only, since nobody could enter
+              it.
+            </p>
+          } @else {
+            @if (peopleLine()) {
+              <p class="impulse-tenant-sign-in-people">{{ peopleLine() }}</p>
+            }
+            @if (canMakeOnly()) {
+              @for (condition of unmet(); track condition.sentence) {
+                <p class="impulse-tenant-sign-in-condition">
+                  {{ condition.sentence }}
+                  <strong>{{ condition.toDo }}</strong>
+                </p>
+              }
+              @if (unmet().length === 0) {
+                <div class="impulse-tenant-sign-in-action">
+                  <button
+                    mat-flat-button
+                    type="button"
+                    class="impulse-tenant-sign-in-make-only"
+                    [disabled]="busy()"
+                    (click)="makeOnly()">
+                    Make this {{ word }} directory only
+                  </button>
+                  <p class="impulse-tenant-sign-in-note">You are shown who it will keep out before it is saved.</p>
+                </div>
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+</section>
