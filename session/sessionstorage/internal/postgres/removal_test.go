@@ -36,8 +36,8 @@ func TestAuth_SignInRemovesIdleSessions(t *testing.T) {
 	if got := countAuthEvents(ctx, t, in.Raw, idle31); got != 1 {
 		t.Fatalf("auth events of the session to be removed = %d, want its sign-in's 1", got)
 	}
-	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '31 days', "UpdatedAt" = now() - interval '31 days' WHERE "Id" = $1`, idle31)
-	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '31 days', "UpdatedAt" = now() - interval '29 days' WHERE "Id" = $1`, active29)
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle31)
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '696 hours' WHERE "Id" = $1`, active29)
 
 	fresh := signInAs(ctx, t, in, "kim@lakeside.edu")
 
@@ -68,7 +68,7 @@ func TestAuth_SignInStandsWhenItsRemovalFails(t *testing.T) {
 
 	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
 	due := signInAs(ctx, t, in, "pat@lakeside.edu")
-	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '31 days', "UpdatedAt" = now() - interval '31 days' WHERE "Id" = $1`, due)
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, due)
 	age(ctx, t, in.Raw, `CREATE TABLE "SessionNotes" ("SessionId" uuid NOT NULL REFERENCES "Sessions" ("Id"))`)
 	age(ctx, t, in.Raw, `INSERT INTO "SessionNotes" ("SessionId") VALUES ($1)`, due)
 
@@ -294,6 +294,36 @@ func TestAuth_LinkInsertStandsWhenItsRemovalFails(t *testing.T) {
 	}
 }
 
+// TestAuth_ActivityUpdateWritesNoIndex proves what the sessions removal's index rests on:
+// the store's activity update moves UpdatedAt and leaves the day of it where it was, so
+// it changes no indexed column, and PostgreSQL makes it a heap-only update, one that
+// writes no index entry. The transaction's own counters read the one update.
+func TestAuth_ActivityUpdateWritesNoIndex(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
+	id := signInAs(ctx, t, in, "pat@lakeside.edu")
+
+	tx, err := queryer(t, in.Raw).Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	// Rolled back on every path: the transaction only reads its own counters.
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := NewSessionStorageDriver(tx).UpdateSessionActivity(ctx, id); err != nil {
+		t.Fatalf("UpdateSessionActivity() error = %v", err)
+	}
+
+	var updated, heapOnly int64
+	if err := tx.QueryRow(ctx, `SELECT n_tup_upd, n_tup_hot_upd FROM pg_stat_xact_user_tables WHERE relid = '"Sessions"'::regclass`).Scan(&updated, &heapOnly); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+	if updated != 1 || heapOnly != 1 {
+		t.Errorf("the activity update's counters: %d updated, %d heap-only; want 1 and 1, an update that writes no index", updated, heapOnly)
+	}
+}
+
 // TestAuth_RemovalsReadTheirIndexes proves that each removal reads the rows that are due
 // by an index: the removal runs with every recorded failure, and without one a flood of
 // typed names would have each failure read the whole table. Sequential scans are switched
@@ -322,7 +352,7 @@ func TestAuth_RemovalsReadTheirIndexes(t *testing.T) {
 		args    []any
 		index   string
 	}{
-		{table: `"Sessions"`, removal: sessionsRemoval, index: "Sessions_CreatedAt_idx"},
+		{table: `"Sessions"`, removal: sessionsRemoval, index: "Sessions_UpdatedOn_idx"},
 		{table: `"SessionSignInAttempts"`, removal: attemptsRemoval, args: []any{time.Now()}, index: "SessionSignInAttempts_EndsAt_idx"},
 		{table: `"SessionMailLinks"`, removal: mailLinksRemoval, index: "SessionMailLinks_ExpiresAt_idx"},
 	} {

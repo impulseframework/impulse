@@ -16,8 +16,9 @@ const idKey = `"Id"`
 
 // removal is the housekeeping a write carries for the rows of its table that are over.
 // On Spanner the table's row deletion policy removes these rows; PostgreSQL has none, so
-// the write runs this statement after its own work and outside its own answer: a removal
-// that fails is logged, and the write stands.
+// the write runs this statement after its own work (a sign-in inside its transaction, in
+// a savepoint) and keeps the statement's failure out of its own answer: a removal that
+// fails is logged, and the write stands.
 type removal struct {
 	// what names the rows in the logged line.
 	what string
@@ -33,15 +34,17 @@ type removal struct {
 // The three removals. The periods are counted in hours, as Spanner's are: PostgreSQL
 // counts a day by the session's time zone, and one day a year is 23 hours long.
 var (
-	// sessionsRemoval finds the sessions that are due by when they were made, which no
-	// request moves, and then holds them to their last activity: a session idle 30 days
-	// was made at least 30 days ago, and an index on UpdatedAt would be written by every
-	// session's activity.
+	// sessionsRemoval finds the sessions that are due by the UTC day of their last
+	// activity (UpdatedOn, which the database works out from UpdatedAt) and holds each to
+	// UpdatedAt itself. Every session in the index's range is due, so a sign-in reads the
+	// rows it removes and no others, and UpdatedOn changes once a day for a session in
+	// use, where an index on UpdatedAt would be written by every activity update. A
+	// session goes 30 to 31 days after its last activity, never sooner.
 	sessionsRemoval = removal{
 		what:  "sessions idle more than 30 days",
 		key:   idKey,
-		due:   `"CreatedAt" < now() - interval '720 hours' AND "UpdatedAt" < now() - interval '720 hours'`,
-		order: `"CreatedAt"`,
+		due:   `"UpdatedOn" < (now() AT TIME ZONE 'UTC')::date - 30 AND "UpdatedAt" < now() - interval '720 hours'`,
+		order: `"UpdatedOn"`,
 	}
 	// attemptsRemoval takes the sign-in attempts rows that stopped counting before $1, a
 	// day before the recorded failure's time.
@@ -61,8 +64,8 @@ var (
 )
 
 // statement is the removal's statement over table: the rows that are due, at most
-// dueRemovalLimit of them and the oldest first. A row another transaction holds is
-// skipped, never waited on, so the removal waits on nobody; the next write takes the row.
+// dueRemovalLimit of them and the oldest first. A row of the table another transaction
+// holds is skipped, never waited on; the next write takes the row.
 func (r removal) statement(table string) string {
 	return fmt.Sprintf(
 		`DELETE FROM %[1]s WHERE %[2]s IN (SELECT %[2]s FROM %[1]s WHERE %[3]s ORDER BY %[4]s LIMIT %[5]d FOR UPDATE SKIP LOCKED)`,
@@ -71,12 +74,16 @@ func (r removal) statement(table string) string {
 
 // remove runs the removal over table on db and says whether it succeeded. A removal that
 // fails is logged as an error, never returned: it is housekeeping for rows the write has
-// nothing to do with, and the write that carried it goes on to its own answer.
+// nothing to do with, and the write that carried it goes on to its own answer. One that
+// failed because the request's context ended is not logged: nothing is wrong with the
+// table then, and the next write removes the rows.
 func (r removal) remove(ctx context.Context, db execer, table string, args ...any) bool {
 	if _, err := db.Exec(ctx, r.statement(table), args...); err != nil {
-		logger.FromCtx(ctx).Errorf(
-			`removing %s from %s failed, and the write that carried it went on: %v (see "Rows that are over are removed" in the session README)`,
-			r.what, table, err)
+		if ctx.Err() == nil {
+			logger.FromCtx(ctx).Errorf(
+				`removing %s from %s failed, and the write that carried it went on: %v (see "Rows that are over are removed" in the session README)`,
+				r.what, table, err)
+		}
 
 		return false
 	}
