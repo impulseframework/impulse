@@ -994,12 +994,16 @@ func Test_tenantDirectoryIn(t *testing.T) {
 		// wantOutlets are the outlets the directories record is served on, the default
 		// outlet where it names none and nil where the package declares no such record.
 		wantOutlets []string
+		// wantRecord is the directories record's struct name, read whether the record
+		// declares the switch or not, "" where the package declares no such record.
+		wantRecord string
 	}{
 		{
 			name:        "the switch's column and the directories record's table and columns",
 			structs:     []string{record, directories},
 			want:        &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 			wantOutlets: []string{defaultOutletName},
+			wantRecord:  "HarborDirectory",
 		},
 		{
 			name:        "the default seat column of a directories record that carries one, and the outlets it names",
@@ -1007,14 +1011,15 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			want:        &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 			wantSeat:    "DefaultSeat",
 			wantOutlets: []string{"console", "portal"},
+			wantRecord:  "HarborDirectory",
 		},
-		{name: "a record that declares no switch", structs: []string{recordWithoutSwitch, directories}, wantOutlets: []string{defaultOutletName}},
+		{name: "a record that declares no switch", structs: []string{recordWithoutSwitch, directories}, wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory"},
 		{
 			name:    "a record that declares no switch keeps its directories record's default seat",
-			structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat", wantOutlets: []string{defaultOutletName},
+			structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat", wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory",
 		},
 		{name: "a package with no directories record", structs: []string{record}},
-		{name: "a column the syntax does not name", structs: []string{record, directoriesUntagged}, wantOutlets: []string{defaultOutletName}},
+		{name: "a column the syntax does not name", structs: []string{record, directoriesUntagged}, wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1025,7 +1030,7 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "resources.go"), []byte(source), 0o600); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
 			}
-			got, seat, outlets, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
+			got, directoriesRecord, seat, outlets, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
 				return strings.TrimSuffix(name, "y") + "ies"
 			})
 			if err != nil {
@@ -1036,6 +1041,9 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			}
 			if seat != tt.wantSeat {
 				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", seat, tt.wantSeat)
+			}
+			if directoriesRecord != tt.wantRecord {
+				t.Errorf("tenantDirectoryIn() directories record = %q, want %q", directoriesRecord, tt.wantRecord)
 			}
 			if diff := cmp.Diff(tt.wantOutlets, outlets); diff != "" {
 				t.Errorf("tenantDirectoryIn() outlets of the directories record (-want +got):\n%s", diff)
