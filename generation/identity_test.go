@@ -896,6 +896,10 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  ) OR EXISTS (",
 			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
 			"WHERE g.UserId = u.Id AND g.Kind = 'global'",
+			// What the person holds in the tenant itself, and a role held in every tenant at once.
+			"// @attribute(heldHere)\n\t\tHeldHere bool", "// @attribute(heldInEveryTenant)\n\t\tHeldInEveryTenant bool",
+			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldHere,",
+			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  )) AS HeldInEveryTenant\n",
 			"SELECT s.Id AS DomainId, m.UserId AS UserId\n  FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n",
 			"func (CrewShipUser) Subquery() (query string, params map[string]any) {",
@@ -951,6 +955,12 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 				t.Errorf("%s holds %q, a form the database plans as a whole-table read:\n%s", file, form, content)
 			}
 		}
+	}
+
+	// The two facts of what the person holds in the tenant itself and in every tenant are
+	// the list of people's alone.
+	if content := readTreeFile(t, "internal/crewresources/crew_ship_identities.go"); strings.Contains(content, "HeldHere") || strings.Contains(content, "HeldInEveryTenant") {
+		t.Errorf("the list of identities carries a fact of the list of people's alone:\n%s", content)
 	}
 
 	// The generated file that stands beside a list's source goes with it.

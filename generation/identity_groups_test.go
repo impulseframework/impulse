@@ -284,6 +284,11 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			// a group kept for the whole application makes the person one of its own.
 			"WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId\n      AND " + standingSQL("gm") + "\n  )) AS HeldElsewhere,",
 			"WHERE gm.UserId = u.Id AND gg.Kind = 'global'\n      AND " + standingSQL("gm") + "\n  )) AS HeldGlobally",
+			// A place in one of the tenant's own groups is something held in the tenant
+			// itself, and a place in a group kept for the whole application that holds a role
+			// in every tenant is a role held in every tenant.
+			"WHERE gm.UserId = u.Id AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId\n      AND " + standingSQL("gm") + "\n  )) AS HeldHere,",
+			"WHERE gm.UserId = u.Id AND eg.Kind = 'global' AND er.Kind = 'every' AND er.Axis = ''\n      AND " + standingSQL("gm") + "\n      AND " + standingSQL("er") + "\n  )) AS HeldInEveryTenant",
 		},
 		"crewidentity/create_crew_ship_group.go": {
 			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
