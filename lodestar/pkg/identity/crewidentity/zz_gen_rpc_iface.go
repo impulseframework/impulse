@@ -17,11 +17,12 @@ type Method interface {
 		RemoveCrewGroupMember | RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
 		RemoveCrewSectorPassword | RemoveCrewSectorRole | RemoveCrewSectorUser |
 		RenameCrewSectorUser | RenameCrewUser | RequireCrewPasswordChange |
-		RequireCrewSectorPasswordChange | RevokeCrewSectorUserTrustedDevices |
-		RevokeCrewSessionToken | RevokeCrewUserTrustedDevices |
-		SendCrewSectorUserPasswordResetLink | SendCrewUserPasswordResetLink |
-		SetCrewSectorUserEmail | SetCrewSectorUserName | SetCrewSelfServiceReset |
-		SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole | TakeCrewRole |
+		RequireCrewSecondFactor | RequireCrewSectorPasswordChange |
+		RevokeCrewSectorUserTrustedDevices | RevokeCrewSessionToken |
+		RevokeCrewUserTrustedDevices | SendCrewSectorUserPasswordResetLink |
+		SendCrewUserPasswordResetLink | SetCrewRememberedBrowsers | SetCrewSectorUserEmail |
+		SetCrewSectorUserName | SetCrewSelfServiceReset | SetCrewUserEmail | SetCrewUserName |
+		StopRequiringCrewSecondFactor | TakeCrewGroupRole | TakeCrewRole |
 		TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity |
 		UnlockCrewSignIn | WithdrawCrewInvitation | WithdrawCrewInvitedSector |
 		WithdrawCrewSectorInvitation

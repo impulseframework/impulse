@@ -157,7 +157,7 @@ func TestStaticChecksOnFixtures(t *testing.T) {
 		},
 		{
 			name: "session-tables tables missing", fixture: "flat", check: sessionTables{},
-			wantStatus: Fail, wantSummary: "9 auth wiring problem(s)",
+			wantStatus: Fail, wantSummary: "10 auth wiring problem(s)",
 			wantDetails: []string{
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table LighthouseSessions, which no migration creates (the session library's schema is under " + schemaSets + ")",
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionUsers, which no migration creates (the session library's schema is under " + schemaSets + ")",
@@ -165,6 +165,7 @@ func TestStaticChecksOnFixtures(t *testing.T) {
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionPendingSignIns, which no migration creates (the session library's schema is under " + schemaSets + ")",
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionSignInAttempts, which no migration creates (the session library's schema is under " + schemaSets + ")",
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionSignInMethods, which no migration creates (the session library's schema is under " + schemaSets + ")",
+				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionSignInSettings, which no migration creates (the session library's schema is under " + schemaSets + ")",
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionMailLinks, which no migration creates (the session library's schema is under " + schemaSets + ")",
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionFactorCodes, which no migration creates (the session library's schema is under " + schemaSets + ")",
 				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionTrustedDevices, which no migration creates (the session library's schema is under " + schemaSets + ")",

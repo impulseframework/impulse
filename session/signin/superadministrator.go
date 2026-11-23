@@ -54,8 +54,9 @@ func SuperAdministrators(roles UserRoleManager) SuperAdministratorCheck {
 // roles (the request carries the role names the directory asserted, RoleNames, which
 // is never nil for such a method): there the directory is the authority on who is a
 // super administrator, as on every role, and how its people prove who they are is the
-// directory's to say. The application's own rule is asked of that person as of
-// anyone, and what it decides stands; the check is not asked.
+// directory's to say. The application's own rule is asked of that person as of anyone,
+// and what it decides stands; so is the Auth's sign-in setting, which asks no second
+// factor of them while it asks none of anyone. The check is not asked.
 func SuperAdministratorFactor[Tx any](policy Policy[Tx], check SuperAdministratorCheck) Policy[Tx] {
 	if check == nil {
 		panic("signin: SuperAdministratorFactor was given no check: pass SuperAdministrators over the access library's user manager")

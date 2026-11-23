@@ -416,7 +416,7 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 		return nil, err
 	}
 	if filterInURL {
-		if err := refuseSensitiveInURL(parsedQuery, boxPII); err != nil {
+		if err := refuseSensitiveInURL(parsedQuery, boxPII && d.boxSearchesPII(parsedQuery.SearchFields)); err != nil {
 			return nil, err
 		}
 	}
@@ -500,7 +500,7 @@ func (d *QueryDecoder[Resource, Request]) Decode(request *http.Request, userPerm
 	// denied to this caller, since a denied field drops out of the box; one the
 	// caller may search, granted or conditional, sends the filter to the body.
 	if d.boxPII && qSet.searchBox && request.URL.Query().Get(filterParam) != "" {
-		reaches, err := qSet.searchBoxReachesPII(request.Context(), d.boxPIIFields)
+		reaches, err := qSet.searchBoxReachesPII(request.Context(), d.sensitiveBoxFields(qSet.searchFields))
 		if err != nil {
 			return nil, err
 		}
@@ -631,6 +631,38 @@ func (d *QueryDecoder[Resource, Request]) visibleBoxFields(hidden map[accesstype
 
 		return isHidden
 	})
+}
+
+// sensitiveBoxFields returns the sensitive fields among the box fields a request
+// searches (searchFields: the box's fields less the ones a feature flag hides), in
+// their order. A sensitive field behind a flag that is off is not searched, so the
+// URL rule never asks about it.
+func (d *QueryDecoder[Resource, Request]) sensitiveBoxFields(searchFields []accesstypes.Field) []accesstypes.Field {
+	var sensitive []accesstypes.Field
+	for _, field := range searchFields {
+		if slices.Contains(d.boxPIIFields, field) {
+			sensitive = append(sensitive, field)
+		}
+	}
+
+	return sensitive
+}
+
+// boxSearchesPII reports whether the box, as a request searches it (searchFields),
+// reads a sensitive field: one of its own sensitive fields, or a sensitive
+// @searchAlso branch.
+func (d *QueryDecoder[Resource, Request]) boxSearchesPII(searchFields []accesstypes.Field) bool {
+	if len(d.sensitiveBoxFields(searchFields)) > 0 {
+		return true
+	}
+	branches := d.resourceSet.ResourceMetadata().searchBranches
+	for i := range branches {
+		if branches[i].PII {
+			return true
+		}
+	}
+
+	return false
 }
 
 // wholeListOnly reports whether this decoder lists a key-less resource: a list

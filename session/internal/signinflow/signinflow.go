@@ -102,6 +102,10 @@ type Driver[Tx any] interface {
 	// tx: what an administrator chose for the method. It answers nil when the method
 	// has no row, which is a method that is invite only.
 	SignInMethodIn(ctx context.Context, tx Tx, name string) (*dbtype.SignInMethod, error)
+	// SignInSettingsIn reads the Auth's row of the sign-in settings table inside tx:
+	// what an administrator chose for the whole Auth. It answers nil when there is no
+	// row, which asks everyone for a second factor.
+	SignInSettingsIn(ctx context.Context, tx Tx) (*dbtype.SignInSettings, error)
 }
 
 // InvitationAcceptor is the application's half of an invitation's acceptance: it
@@ -2717,6 +2721,12 @@ func decideAndInsert[Tx any](
 		if err := proven.Check(user.PasswordProof); err != nil {
 			return errors.Wrap(err, "dbtype.PasswordProof.Check()")
 		}
+		// Whether everyone is asked for a second factor is read in this run of the
+		// transaction, as an administrator set it at this moment.
+		settings, err := d.SignInSettingsIn(ctx, tx)
+		if err != nil {
+			return errors.Wrap(err, "Driver.SignInSettingsIn()")
+		}
 		req.User = &sessioninfo.SignInUser{ID: req.UserID, Username: user.Username, HasPassword: user.HasPassword, Source: source, Tenant: tenant}
 
 		var decide func(ctx context.Context) (*signin.Decision, error)
@@ -2733,7 +2743,7 @@ func decideAndInsert[Tx any](
 				return policy(ctx, tx, req)
 			}
 		}
-		v, err = decideSignIn(ctx, req, user, decide, trusted)
+		v, err = decideSignIn(ctx, req, user, decide, settings.SecondFactorRequired(), trusted)
 		if err != nil {
 			return err
 		}
@@ -2828,10 +2838,17 @@ func (v verdict) err() error {
 	return v.stop
 }
 
-// decideSignIn refuses a disabled user, sets req.Username to the user's, and asks
-// decide when it is non-nil and the policy applies to req.Reason. The verdict is a
-// refusal, an MFA wait or the go-ahead; the transaction commits on each. err is the
-// policy's error, which rolls the transaction back.
+// decideSignIn refuses a disabled user, sets req.Username to the user's, and decides a
+// sign-in the policy applies to (req.Reason): the decision is decide's when it is
+// non-nil, an allow where the Auth has no rule, and a nil decision denies. While the
+// Auth's sign-in settings ask everyone for a second factor (required), an allow of a
+// sign-in that carries none (carriesSecondFactor) is held for the library's mailed
+// code, as signin.RequireMFA(sessioninfo.MethodEmailCode) holds it; an allow of a
+// sign-in that already carries one stands, and a refusal and a hold are left as they
+// are, so a hold of the rule's own waits for the factors it names. A sign-in the policy
+// does not apply to goes ahead. The verdict is a refusal, an MFA wait or the go-ahead;
+// the transaction commits on each. err is the policy's error, which rolls the
+// transaction back.
 //
 // A RequireMFA answer is satisfied without a wait by a second factor the sign-in
 // already carries: at an MFA completion, the step's events (completionSatisfies); at
@@ -2842,23 +2859,29 @@ func (v verdict) err() error {
 // transaction), which records a trusted-device event on the session in the step's
 // place. Otherwise the sign-in waits for the factor.
 func decideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, user *dbtype.User, decide func(ctx context.Context) (*signin.Decision, error), trusted bool,
+	ctx context.Context, req *sessioninfo.NewSessionRequest, user *dbtype.User, decide func(ctx context.Context) (*signin.Decision, error), required, trusted bool,
 ) (verdict, error) {
 	if user.Disabled {
 		return verdict{stop: Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")}, nil
 	}
 	req.Username = user.Username
 
-	if decide == nil || !policyApplies(req.Reason) {
+	if !policyApplies(req.Reason) {
 		return verdict{}, nil
 	}
 
-	decision, err := decide(ctx)
-	if err != nil {
-		return verdict{}, errors.Wrap(err, "signin.Policy()")
+	decision := signin.Allow()
+	if decide != nil {
+		var err error
+		if decision, err = decide(ctx); err != nil {
+			return verdict{}, errors.Wrap(err, "signin.Policy()")
+		}
+		if decision == nil {
+			decision = signin.Deny("")
+		}
 	}
-	if decision == nil {
-		decision = signin.Deny("")
+	if required && decision.Outcome() == signin.AllowSignIn && !carriesSecondFactor(req.AuthEvents) {
+		decision = signin.RequireMFA(sessioninfo.MethodEmailCode)
 	}
 
 	switch decision.Outcome() {
@@ -2990,12 +3013,13 @@ func denialCause(decision *signin.Decision) error {
 	return signin.ErrSignInDenied
 }
 
-// policyApplies reports whether the sign-in policy decides a session created for
-// reason. It decides ReasonLogin, ReasonIdentityLinked, ReasonExternalAuth (a session
-// the application starts for a user it authenticated itself) and ReasonStepUp (an MFA
-// completion, decided again with the completion's events on the request, so a tenant
-// disabled or switched to require sign-on through SSO during the wait is honored).
-// Every other session was decided when the session it continues was established.
+// policyApplies reports whether the sign-in policy, and the Auth's sign-in settings
+// after it, decide a session created for reason. They decide ReasonLogin,
+// ReasonIdentityLinked, ReasonExternalAuth (a session the application starts for a user
+// it authenticated itself) and ReasonStepUp (an MFA completion, decided again with the
+// completion's events on the request, so a tenant disabled or switched to require
+// sign-on through SSO during the wait is honored). Every other session was decided when
+// the session it continues was established.
 func policyApplies(reason sessioninfo.NewSessionReason) bool {
 	switch reason {
 	case sessioninfo.ReasonLogin, sessioninfo.ReasonIdentityLinked, sessioninfo.ReasonExternalAuth, sessioninfo.ReasonStepUp:
@@ -3027,6 +3051,20 @@ func completionSatisfies(factors []sessioninfo.AuthMethod, events []sessioninfo.
 // vouched for a second factor, by evidence or by declaration.
 func attested(events []sessioninfo.AuthEvent) bool {
 	return slices.ContainsFunc(events, func(e sessioninfo.AuthEvent) bool { return e.Method.Attests() })
+}
+
+// carriesSecondFactor reports whether a sign-in's events already record a second
+// factor: an event after the one that establishes the session whose method records one
+// (sessioninfo.AuthMethod.SecondFactor), which is how the session they become answers
+// sessioninfo.SessionData.SecondFactor. The mailed code, a connection's attestation and
+// a step the application ran under a name of its own are each one; the sign-in's own
+// event is none, whatever its name.
+func carriesSecondFactor(events []sessioninfo.AuthEvent) bool {
+	if len(events) < 2 {
+		return false
+	}
+
+	return slices.ContainsFunc(events[1:], func(e sessioninfo.AuthEvent) bool { return e.Method.SecondFactor() })
 }
 
 // admitsTrustedDevice reports whether a RequireMFA answer naming factors is satisfied

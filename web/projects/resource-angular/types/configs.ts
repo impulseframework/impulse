@@ -220,6 +220,16 @@ export function iconCellKey(id: string): string {
   return `${id}:icon`;
 }
 
+/**
+ * The display-row key the address of a column that opens its row (`opensRow`) rides
+ * under, beside the column's own key, which holds the words. The list writes both while
+ * it builds the display row and the grid reads both; a generated field name never carries
+ * a colon, so the key collides with none.
+ */
+export function linkCellKey(id: string): string {
+  return `${id}:link`;
+}
+
 export interface ActionButtonConfig {
   label: string;
   icon: string;
@@ -326,6 +336,13 @@ interface ColumnConfigBase {
    */
   sortable?: boolean;
   hideHeader?: boolean;
+  /**
+   * The column's words are the link that opens the row, to the page the View column leads
+   * to, and the list then draws no View column. The link is drawn where the View column
+   * would have been; otherwise the cell is words alone. A cell with no words draws no
+   * link, so it is for a column every row fills.
+   */
+  opensRow?: boolean;
 }
 
 /** A column rendering its field's value as text. */
@@ -1123,6 +1140,14 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   below?: ListViewConfig[];
   /**
+   * Further lists drawn above this one on its page, in order, each a list of its own
+   * with its own title, rows and methods: `below`'s mirror, for a page whose own list
+   * comes after what it must say first (the settings every sign-in is under, above the
+   * ways to sign in). Only the list a page is built on draws them, with the same element
+   * and inputs as a list under it.
+   */
+  above?: ListViewConfig[];
+  /**
    * A standing notice above the list, drawn in the library's warning colors under a
    * warning icon: what the page must not let a person overlook for as long as it holds
    * (a sign-in method that is open to sign-up). It is said from the rows on the page,
@@ -1224,6 +1249,8 @@ export interface ListViewConfig extends BaseConfig {
   showRowCount: boolean;
   /** The lists drawn under this one on its page; see ListViewConfigOptions.below. */
   below?: ListViewConfig[];
+  /** The lists drawn above this one on its page; see ListViewConfigOptions.above. */
+  above?: ListViewConfig[];
   /** The page's standing notice; see ListViewConfigOptions.notice. */
   notice?: (rows: RecordData[]) => string | undefined;
   /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */

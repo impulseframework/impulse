@@ -1222,6 +1222,22 @@ CREATE TABLE CrewSessionSignInMethods (
     UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The crew's sign-in settings: what an administrator chose, in the running application,
+-- for the whole auth (the session library's SessionSignInSettings migration, under the
+-- auth's prefix). The table holds at most one row, under the one name it takes ('auth').
+-- RequireSecondFactor says everyone is asked for a second factor when they sign in, and
+-- RememberBrowserDays for how many days a browser a person asked to be remembered skips
+-- the code, 0 for browsers that are not remembered. With no row the second factor is
+-- required and a browser is remembered for 30 days, so the table starts empty. UpdatedAt
+-- takes the commit time.
+CREATE TABLE CrewSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_CrewSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
 
 -- The username as written is unique. The index is in the order a list of people is read
@@ -1330,6 +1346,22 @@ CREATE TABLE MembersSessionSignInMethods (
     DefaultRole      STRING(MAX),
     SelfServiceReset BOOL NOT NULL DEFAULT (false),
     UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
+-- The members' sign-in settings: what an administrator chose, in the running application,
+-- for the whole auth (the session library's SessionSignInSettings migration, under the
+-- auth's prefix). The table holds at most one row, under the one name it takes ('auth').
+-- RequireSecondFactor says everyone is asked for a second factor when they sign in, and
+-- RememberBrowserDays for how many days a browser a person asked to be remembered skips
+-- the code, 0 for browsers that are not remembered. With no row the second factor is
+-- required and a browser is remembered for 30 days, so the table starts empty. UpdatedAt
+-- takes the commit time.
+CREATE TABLE MembersSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_MembersSessionSignInSettingsName CHECK (Name = 'auth'),
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);

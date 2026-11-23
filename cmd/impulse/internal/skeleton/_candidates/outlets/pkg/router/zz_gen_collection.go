@@ -1352,6 +1352,16 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "MembersRememberLengths",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "days", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+			},
+			{
 				Name:        "MembersRoles",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -1503,6 +1513,36 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
 			},
 			{
+				Name:        "MembersSignInMethods",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "admits", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "directoryGivesRoles", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "ownRule", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "selfServiceReset", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
+				Name:        "MembersSignInSettings",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "name"},
+					{Name: "position", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "rememberBrowserDays", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "requireSecondFactor", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
 				Name:        "MembersTakeLengths",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
@@ -1646,12 +1686,24 @@ func Collection() *resource.GeneratedCollection {
 				CallerEnters: true,
 			},
 			{
+				Name:        "RequireMembersSecondFactor",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:         "RequireStaffPasswordChange",
 				Scope:        accesstypes.GlobalPermissionScope,
 				Permissions:  []accesstypes.Permission{accesstypes.Execute},
 				Classes:      []accesstypes.ActionClass{ClassCredential},
 				Target:       "StaffSessionUsers",
 				CallerEnters: true,
+			},
+			{
+				Name:        "RequireStaffSecondFactor",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "RevokeMembersSessionToken",
@@ -1690,6 +1742,12 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
+				Name:        "SetMembersRememberedBrowsers",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:         "SetMembersUserEmail",
 				Scope:        accesstypes.GlobalPermissionScope,
 				Permissions:  []accesstypes.Permission{accesstypes.Execute},
@@ -1702,6 +1760,12 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "MembersSessionUsers",
+			},
+			{
+				Name:        "SetStaffRememberedBrowsers",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "SetStaffSelfServiceReset",
@@ -1933,6 +1997,16 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "StaffRememberLengths",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "days", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+			},
+			{
 				Name:        "StaffRoles",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -2101,6 +2175,19 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "StaffSignInSettings",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "name"},
+					{Name: "position", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "rememberBrowserDays", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "requireSecondFactor", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
 				Name:        "StaffSignInWays",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
@@ -2196,6 +2283,18 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "userId"},
 				},
 				Order: []accesstypes.Tag{"userId"},
+			},
+			{
+				Name:        "StopRequiringMembersSecondFactor",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
+				Name:        "StopRequiringStaffSecondFactor",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "TakeMembersGroupRole",

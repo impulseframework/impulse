@@ -463,7 +463,7 @@ func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) er
 
 	a := p.auth
 	if !a.registered().passwordRegistered() {
-		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset.")
 	}
 	if err := a.storage.SetSelfServiceReset(ctx, string(sessioninfo.MethodPassword), on); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetSelfServiceReset()")

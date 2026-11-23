@@ -95,6 +95,9 @@ func (Hangar) DeleteTree() *resource.DeleteTree {
 					patch := &HangarPassDeletePatch{patchSet: patchSet}
 					if !caller.IsZero() {
 						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
 					}
 				}),
 			},

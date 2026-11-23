@@ -70,8 +70,9 @@ func TestAcrossTenants_live(t *testing.T) {
 		t.Fatalf("her change set after a write while her page was plain = %v, want empty", got)
 	}
 
-	// Asked for live: one subscription over the sectors her list reads, and the answer
-	// to a versioned request is the browser's to keep for the window.
+	// Asked for live: one subscription over the sectors her list reads, beside it the
+	// list of sectors its sector names are read from, and the answer to a versioned
+	// request is the browser's to keep for the window.
 	rr := doRequestRecordedWithHeaders(t, h, "liaison", http.MethodGet, versioned(missionsAcross, liveSeed), "", liveHeaders(liveTabLiaison))
 	assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
 	if got := rr.Header().Get("Cache-Control"); got != live.CacheControl {
@@ -81,7 +82,8 @@ func TestAcrossTenants_live(t *testing.T) {
 		t.Errorf("rows = %d, want her fifteen", len(rows))
 	}
 	everySector := acrossName(principalID("liaison"), liveTabLiaison, nil, anvil, cinder)
-	if got, want := acrossSubscriptionNames(fake.Subscriptions()), []string{everySector}; !slices.Equal(got, want) {
+	sectorNames := fmt.Sprintf("%s|%s|Sectors||", principalID("liaison"), liveTabLiaison)
+	if got, want := acrossSubscriptionNames(fake.Subscriptions()), []string{everySector, sectorNames}; !slices.Equal(got, want) {
 		t.Fatalf("the record after her live request = %v, want %v", got, want)
 	}
 
@@ -103,7 +105,7 @@ func TestAcrossTenants_live(t *testing.T) {
 	renewal := fmt.Sprintf(`{"tab":%q,"subscriptions":[{"resource":"Missions","acrossTenants":true},{"resource":"Missions","acrossTenants":true,"domains":%q}]}`, liveTabLiaison, bastion+","+cinder)
 	rr = doRequestRecordedWithHeaders(t, h, "liaison", http.MethodPost, consoleAPI+"/"+live.RenewRoute, renewal, liveHeaders(liveTabLiaison))
 	assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
-	want = []string{everySector, acrossName(principalID("liaison"), liveTabLiaison, []accesstypes.Domain{bastion, cinder}, cinder)}
+	want = []string{everySector, acrossName(principalID("liaison"), liveTabLiaison, []accesstypes.Domain{bastion, cinder}, cinder), sectorNames}
 	slices.Sort(want)
 	if got := acrossSubscriptionNames(fake.Subscriptions()); !slices.Equal(got, want) {
 		t.Errorf("the record after her renewal = %v, want %v", got, want)

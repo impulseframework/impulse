@@ -122,6 +122,8 @@ type fakeStore struct {
 	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
 	openedFor  *string
+	// settingsRow is the row of the sign-in settings table, nil for none.
+	settingsRow *SignInSettingsRow
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
@@ -461,6 +463,32 @@ func (f *fakeStore) SetSelfServiceReset(_ context.Context, _ resource.ReadWriteT
 		return err
 	}
 	f.writes = append(f.writes, fmt.Sprintf("set self-service reset of %s on=%t", name, on))
+
+	return nil
+}
+
+func (f *fakeStore) SignInSettingsRow(context.Context, resource.ReadOnlyTransaction) (*SignInSettingsRow, error) {
+	if err := f.fail("SignInSettingsRow"); err != nil {
+		return nil, err
+	}
+
+	return f.settingsRow, nil
+}
+
+func (f *fakeStore) SetRequireSecondFactor(_ context.Context, _ resource.ReadWriteTransaction, on bool) error {
+	if err := f.fail("SetRequireSecondFactor"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set require second factor on=%t", on))
+
+	return nil
+}
+
+func (f *fakeStore) SetRememberBrowserDays(_ context.Context, _ resource.ReadWriteTransaction, days int64) error {
+	if err := f.fail("SetRememberBrowserDays"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set remember browser days=%d", days))
 
 	return nil
 }

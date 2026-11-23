@@ -310,6 +310,18 @@ func (r *resourceInfo) SubjectGuarded() bool {
 	return len(r.SubjectUserFields()) > 0 || len(r.SubjectSetTests()) > 0 || len(r.subjectReadThroughs) > 0
 }
 
+// SubjectFunction reports whether the record's file carries the function its questions
+// are written in (RefuseImpersonatorAs<Name>Subject): a SubjectGuarded record, but for
+// one of an auth's generated management with no generated write, which nothing would
+// call. That management's own code writes the rows and asks the rule itself.
+func (r *resourceInfo) SubjectFunction() bool {
+	if r.identity != nil && slices.Contains(r.SuppressedHandlers, PatchHandler) {
+		return false
+	}
+
+	return r.SubjectGuarded()
+}
+
 // subjectReadThroughs lists, for each record of resources by its table's name, the
 // columns facts about people are read through: every hop of every subject set's and
 // subject value's dotted value that lands on the record, as the field that holds the

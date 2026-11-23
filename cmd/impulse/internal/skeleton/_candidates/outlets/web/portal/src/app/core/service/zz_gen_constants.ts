@@ -29,6 +29,7 @@ export const Resources = {
   MembersListedGroupRoles: 'MembersListedGroupRoles' as Resource,
   MembersListedGroups: 'MembersListedGroups' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
+  MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
   MembersSessionAuthEvents: 'MembersSessionAuthEvents' as Resource,
   MembersSessionIdentities: 'MembersSessionIdentities' as Resource,
@@ -38,6 +39,8 @@ export const Resources = {
   MembersSessionTrustedDevices: 'MembersSessionTrustedDevices' as Resource,
   MembersSessionUsers: 'MembersSessionUsers' as Resource,
   MembersSessions: 'MembersSessions' as Resource,
+  MembersSignInMethods: 'MembersSignInMethods' as Resource,
+  MembersSignInSettings: 'MembersSignInSettings' as Resource,
   MembersTakeLengths: 'MembersTakeLengths' as Resource,
   MembersTakeableRoles: 'MembersTakeableRoles' as Resource,
   MembersTakenRoles: 'MembersTakenRoles' as Resource,
@@ -86,13 +89,16 @@ export const Methods = {
   RemoveMembersTenantUser: 'RemoveMembersTenantUser' as Method,
   RenameMembersTenantUser: 'RenameMembersTenantUser' as Method,
   RenameMembersUser: 'RenameMembersUser' as Method,
+  RequireMembersSecondFactor: 'RequireMembersSecondFactor' as Method,
   RevokeMembersSessionToken: 'RevokeMembersSessionToken' as Method,
   RevokeMembersTenantUserTrustedDevices: 'RevokeMembersTenantUserTrustedDevices' as Method,
   RevokeMembersUserTrustedDevices: 'RevokeMembersUserTrustedDevices' as Method,
+  SetMembersRememberedBrowsers: 'SetMembersRememberedBrowsers' as Method,
   SetMembersTenantUserEmail: 'SetMembersTenantUserEmail' as Method,
   SetMembersTenantUserName: 'SetMembersTenantUserName' as Method,
   SetMembersUserEmail: 'SetMembersUserEmail' as Method,
   SetMembersUserName: 'SetMembersUserName' as Method,
+  StopRequiringMembersSecondFactor: 'StopRequiringMembersSecondFactor' as Method,
   TakeMembersGroupRole: 'TakeMembersGroupRole' as Method,
   TakeMembersRole: 'TakeMembersRole' as Method,
   TakeMembersTenantGroupRole: 'TakeMembersTenantGroupRole' as Method,
@@ -348,6 +354,17 @@ export namespace MembersListedRoleGrants {
   };
 }
 
+export namespace MembersRememberLengths {
+  export const fieldName = {
+    days: 'days' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    days: 'MembersRememberLengths.days' as Resource,
+    name: 'MembersRememberLengths.name' as Resource,
+  };
+}
+
 export namespace MembersRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -554,6 +571,48 @@ export namespace MembersSessions {
     updatedAt: 'MembersSessions.updatedAt' as Resource,
     userId: 'MembersSessions.userId' as Resource,
     username: 'MembersSessions.username' as Resource,
+  };
+}
+
+export namespace MembersSignInMethods {
+  export const fieldName = {
+    admits: 'admits' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    directoryGivesRoles: 'directoryGivesRoles' as FieldName,
+    label: 'label' as FieldName,
+    name: 'name' as FieldName,
+    openSignUp: 'openSignUp' as FieldName,
+    ownRule: 'ownRule' as FieldName,
+    says: 'says' as FieldName,
+    selfServiceReset: 'selfServiceReset' as FieldName,
+  };
+  export const resourceName = {
+    admits: 'MembersSignInMethods.admits' as Resource,
+    defaultRole: 'MembersSignInMethods.defaultRole' as Resource,
+    directoryGivesRoles: 'MembersSignInMethods.directoryGivesRoles' as Resource,
+    label: 'MembersSignInMethods.label' as Resource,
+    name: 'MembersSignInMethods.name' as Resource,
+    openSignUp: 'MembersSignInMethods.openSignUp' as Resource,
+    ownRule: 'MembersSignInMethods.ownRule' as Resource,
+    says: 'MembersSignInMethods.says' as Resource,
+    selfServiceReset: 'MembersSignInMethods.selfServiceReset' as Resource,
+  };
+}
+
+export namespace MembersSignInSettings {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    position: 'position' as FieldName,
+    rememberBrowserDays: 'rememberBrowserDays' as FieldName,
+    requireSecondFactor: 'requireSecondFactor' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    name: 'MembersSignInSettings.name' as Resource,
+    position: 'MembersSignInSettings.position' as Resource,
+    rememberBrowserDays: 'MembersSignInSettings.rememberBrowserDays' as Resource,
+    requireSecondFactor: 'MembersSignInSettings.requireSecondFactor' as Resource,
+    says: 'MembersSignInSettings.says' as Resource,
   };
 }
 
@@ -1162,6 +1221,10 @@ export namespace RenameMembersUser {
   };
 }
 
+export namespace RequireMembersSecondFactor {
+  export const fieldName = {};
+}
+
 export namespace RevokeMembersSessionToken {
   export const fieldName = {
     tokenId: 'tokenId' as FieldName,
@@ -1177,6 +1240,12 @@ export namespace RevokeMembersTenantUserTrustedDevices {
 export namespace RevokeMembersUserTrustedDevices {
   export const fieldName = {
     userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SetMembersRememberedBrowsers {
+  export const fieldName = {
+    length: 'length' as FieldName,
   };
 }
 
@@ -1206,6 +1275,10 @@ export namespace SetMembersUserName {
     userId: 'userId' as FieldName,
     name: 'name' as FieldName,
   };
+}
+
+export namespace StopRequiringMembersSecondFactor {
+  export const fieldName = {};
 }
 
 export namespace TakeMembersGroupRole {

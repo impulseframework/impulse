@@ -78,8 +78,13 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	// Whether a person may ask for their own reset link at the sign-in page: a setting
 	// of the whole auth, which decides who can get back into an account without an
 	// administrator. It is no act on one person's credentials, so it is with the
-	// settings that say who is let in.
-	"SetSelfServiceReset": changesAccess,
+	// settings that say who is let in. So are the two settings of what every sign-in
+	// asks for: whether everyone is asked for a second factor, and for how long a
+	// remembered browser skips it.
+	"SetSelfServiceReset":       changesAccess,
+	"RequireSecondFactor":       changesAccess,
+	"StopRequiringSecondFactor": changesAccess,
+	"SetRememberedBrowsers":     changesAccess,
 
 	// An account disabled, enabled or deleted: the work a person who stands in for an
 	// administrator is there to do, which a mask that refuses the class access leaves to
@@ -128,8 +133,9 @@ func identityAct(method string) string {
 }
 
 // identityMethodStruct reads the struct an @rpc source declares, on its own or in a
-// group of types, from the text after its @rpc annotation.
-var identityMethodStruct = regexp.MustCompile(`(?m)^\s*(?:type\s+)?(\w+) struct \{`)
+// group of types, from the text after its @rpc annotation: one with fields, or one with
+// none (struct{}).
+var identityMethodStruct = regexp.MustCompile(`(?m)^\s*(?:type\s+)?(\w+) struct ?\{`)
 
 // Test_prepareIdentity_classedMethods lists the methods the generated management writes
 // and holds each to identityMethodActs: every method is listed there with a decision,
@@ -251,4 +257,9 @@ var wantAccessMethods = map[string][]string{
 	"OpenSignUp":            {"OpenCrewSignUp"},
 	"MakeInviteOnly":        {"MakeCrewInviteOnly"},
 	"SetSelfServiceReset":   {"SetCrewSelfServiceReset"},
+
+	// The members' schema holds no sign-in settings table in the fixture.
+	"RequireSecondFactor":       {"RequireCrewSecondFactor"},
+	"StopRequiringSecondFactor": {"StopRequiringCrewSecondFactor"},
+	"SetRememberedBrowsers":     {"SetCrewRememberedBrowsers"},
 }

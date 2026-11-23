@@ -595,17 +595,18 @@ Where an application offers it, these things hold in every shape.
   not refuse that class of actions can give one. This is a stated limit of the rule. An
   application closes it through the mask of the kind: a kind that is not to change what
   anyone may do refuses that class of actions.
-- A row removed with its parent, which may name the person, is a stated limit of its
-  own. A pass is removed when the place it opens is deleted. No write of the pass is
-  made, so neither the rule nor a mask that refuses the writes of passes is asked. An
-  application closes it in the mask of the kind, by refusing everything that removes a
-  record above the row: the delete of the parent record; the delete of each record
-  above that one, as far as the database carries a delete down (deleting the site
-  removes the place, and the pass with it); and any action that removes one of them
-  itself. On PostgreSQL a foreign key can also change the row where it stands, when the
-  parent is deleted (`ON DELETE SET NULL`, `ON DELETE SET DEFAULT`) or when the parent's
-  key is changed (`ON UPDATE CASCADE`). The application then refuses the parent's delete
-  and the change of that key as well.
+- A row that goes with the record it is under is held to the rule as well. Where a
+  place's record says its passes go with it, each pass is deleted through its own
+  delete, so the rule and the kind's mask are asked about it: deleting the place is
+  refused when a pass under it is the person's own or their team's.
+- A row that goes with its tenant is a stated limit of its own. Deleting a tenant
+  removes everything under it and asks about no single row. A kind that is not to change
+  what anyone may do refuses that class of actions, which the delete of a tenant
+  carries; an application closes it for any other kind by refusing the delete of a
+  tenant in the kind's mask. On PostgreSQL a foreign key can also change a row where it
+  stands, when the parent is deleted (`ON DELETE SET NULL`, `ON DELETE SET DEFAULT`) or
+  when the parent's key is changed (`ON UPDATE CASCADE`). The application then refuses
+  the parent's delete and the change of that key in the mask.
 - A column that records who made a row is another stated limit. Where what a person may
   do with a row depends on that column (the person who booked a job may cancel it), the
   row names a person and decides what they may do, and the rule does not read the

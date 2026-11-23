@@ -18,18 +18,19 @@ type Resourcer interface {
 		staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
-		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
-		staffresources.StaffTakenRole | staffresources.StaffTenantGroup |
-		staffresources.StaffTenantGroupRole | staffresources.StaffTenantGroupUser |
-		staffresources.StaffTenantHeldRole | staffresources.StaffTenantIdentity |
-		staffresources.StaffTenantInvitation | staffresources.StaffTenantUser |
-		staffresources.StaffTenantUserGroupRole | staffresources.StaffTenantUserRole |
-		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffGivableRole | staffidentity.StaffInvitedTenant |
-		staffidentity.StaffInvitedTenantRole | staffidentity.StaffListedRoleGrant |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
-		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole |
-		staffidentity.StaffTenantDirectoryRole | staffidentity.StaffTenantRole |
-		staffidentity.StaffTenantSignInWay
+		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionSignInSetting |
+		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
+		staffresources.StaffSessionUser | staffresources.StaffTakenRole |
+		staffresources.StaffTenantGroup | staffresources.StaffTenantGroupRole |
+		staffresources.StaffTenantGroupUser | staffresources.StaffTenantHeldRole |
+		staffresources.StaffTenantIdentity | staffresources.StaffTenantInvitation |
+		staffresources.StaffTenantUser | staffresources.StaffTenantUserGroupRole |
+		staffresources.StaffTenantUserRole | staffresources.StaffUserGroupRole |
+		staffresources.StaffUserRole | staffidentity.StaffGivableRole |
+		staffidentity.StaffInvitedTenant | staffidentity.StaffInvitedTenantRole |
+		staffidentity.StaffListedRoleGrant | staffidentity.StaffRememberLength |
+		staffidentity.StaffSignInMethod | staffidentity.StaffSignInSetting |
+		staffidentity.StaffSignInWay | staffidentity.StaffTakeLength |
+		staffidentity.StaffTakeableRole | staffidentity.StaffTenantDirectoryRole |
+		staffidentity.StaffTenantRole | staffidentity.StaffTenantSignInWay
 }

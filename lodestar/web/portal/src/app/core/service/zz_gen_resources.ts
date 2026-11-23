@@ -289,6 +289,31 @@ export interface MembersListedRoleGrants {
   skipped?: string;
 }
 
+export interface MembersRememberLengths {
+  name: string;
+  days?: number;
+}
+
+export interface MembersSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  ownRule?: boolean;
+  says?: string;
+  selfServiceReset?: boolean;
+}
+
+export interface MembersSignInSettings {
+  name: string;
+  position?: number;
+  says?: string;
+  requireSecondFactor?: boolean;
+  rememberBrowserDays?: number;
+}
+
 /**
  * A feature flag: one declared flag's row, as the Feature flags page lists it. updatedAt
  * and updatedBy are when the flag was last turned on or off and by whom: null and empty
@@ -731,6 +756,58 @@ const resourceMap = defineResourceMap({
       { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersRememberLengths]: {
+    route: 'members-remember-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'days', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersSignInMethods]: {
+    route: 'members-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'way to sign in', many: 'ways to sign in' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersSignInSettings]: {
+    route: 'members-sign-in-settings',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'sign-in setting', many: 'sign-in settings' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'position', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'requireSecondFactor', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'rememberBrowserDays', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
   [Resources.FeatureFlags]: {
     route: 'feature-flags',
     createDisabled: true,
@@ -789,6 +866,9 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MissionDocuments]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
   [Resources.MembersListedRoleGrants]: PermissionScopes.global,
+  [Resources.MembersRememberLengths]: PermissionScopes.global,
+  [Resources.MembersSignInMethods]: PermissionScopes.global,
+  [Resources.MembersSignInSettings]: PermissionScopes.global,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };
 

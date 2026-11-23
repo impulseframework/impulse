@@ -47,6 +47,14 @@ function linesOf(text: HTMLElement): HTMLElement[] | null {
 }
 
 /**
+ * Whether a cell holds its words as the link that opens its row, and nothing else: the
+ * cell is then the text, and the link is what the keyboard reaches it by.
+ */
+function holdsRowLink(text: HTMLElement): boolean {
+  return text.childElementCount === 1 && text.firstElementChild?.matches('a.cell-link') === true;
+}
+
+/**
  * Whether a text is cut short: a cell drawn a line each where any of its lines is, each
  * measured as a one-line text; any other text as one line.
  */
@@ -192,7 +200,9 @@ export class CutShortTooltipDirective implements OnInit {
   /**
    * Lets the keyboard reach the cells whose text is cut short: each is made a stop of the
    * Tab key, where its whole text is offered as it is under the pointer, and a cell whose
-   * text fits, or that draws its value, is no stop. One read of each cell of this table,
+   * text fits, or that draws its value, is no stop. A cell whose words are the link that
+   * opens its row is no stop either: the link is, and the link taking the focus offers the
+   * whole text as the cell would. One read of each cell of this table,
    * and none of a table inside it, every read before the first stop is set; nothing at all
    * where the stops are already those of what the table draws.
    */
@@ -202,7 +212,7 @@ export class CutShortTooltipDirective implements OnInit {
     }
     this.reached = true;
     const cells = Array.from(this.table().querySelectorAll<HTMLElement>(':scope > tbody > tr > td'));
-    const cut = cells.map((cell) => this.textAt(cell) === cell && isTextCutShort(cell));
+    const cut = cells.map((cell) => this.textAt(cell) === cell && !holdsRowLink(cell) && isTextCutShort(cell));
     cells.forEach((cell, index) => {
       if (cut[index]) {
         cell.tabIndex = 0;
@@ -313,10 +323,11 @@ export class CutShortTooltipDirective implements OnInit {
   /**
    * The text an element of the table stands for: a header's label, for the header's
    * button and anything in it, or the cell the element is or is in, where the cell holds
-   * text alone or a list drawn a line each. A row that is one cell across the table holds
-   * its words in a box of their own (the empty list's message), and that box is the text.
-   * A cell that draws its value (an icon, a check, a button, an expanded row's detail) has
-   * none, and a cell of a table inside this one belongs to that table's own tooltip.
+   * text alone, a list drawn a line each, or its words as the link that opens its row. A
+   * row that is one cell across the table holds its words in a box of their own (the empty
+   * list's message), and that box is the text. A cell that draws its value (an icon, a
+   * check, a button, an expanded row's detail) has none, and a cell of a table inside this
+   * one belongs to that table's own tooltip.
    */
   private textAt(target: Element): HTMLElement | null {
     const label = target.closest('.header-label')?.querySelector<HTMLElement>('.col-header') ?? null;
@@ -326,7 +337,7 @@ export class CutShortTooltipDirective implements OnInit {
     }
     const only = label === null && cell.childElementCount === 1 ? cell.firstElementChild : null;
     const text = only instanceof HTMLElement && only.classList.contains('impulse-grid-across') ? only : cell;
-    return label === null && text.childElementCount > 0 && linesOf(text) === null ? null : text;
+    return label === null && text.childElementCount > 0 && linesOf(text) === null && !holdsRowLink(text) ? null : text;
   }
 
   /**

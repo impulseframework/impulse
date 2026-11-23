@@ -106,7 +106,8 @@ func (a *authoredApplication) unchanged(t *testing.T, step string) {
 //     too where it has no password sign-in;
 //   - the application's own lint, under both of its tag sets, finds nothing in any
 //     package that compiles;
-//   - an auth sets one sign-in rule, the brief is in no commit, and, where the shape has
+//   - an auth sets the tenant policy as its one sign-in rule where the shape has tenants
+//     and no rule where it has none, the brief is in no commit, and, where the shape has
 //     tenants, neither the README nor the App still says the application has none and
 //     the role file grants nothing the application stopped serving.
 func author(t *testing.T, checkout, name, shapeKey string, start []string, methods [][]string) *authoredApplication {
@@ -304,9 +305,15 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 		}
 	}
 
-	// What the commands say of the application is true of it.
-	if n := strings.Count(made.read(t, "pkg/auth/staff/staff.go"), ".SetSignInPolicy("); n != 1 {
-		t.Errorf("pkg/auth/staff/staff.go sets the sign-in rule %d time(s), want once: an Auth has one rule and a second call panics when the auth opens", n)
+	// What the commands say of the application is true of it. An application without
+	// tenants has no sign-in rule of its own; one with tenants sets the tenant policy, and
+	// a second call would panic when the auth opens.
+	rules := 0
+	if startsFrom.HasTenants() {
+		rules = 1
+	}
+	if n := strings.Count(made.read(t, "pkg/auth/staff/staff.go"), ".SetSignInPolicy("); n != rules {
+		t.Errorf("pkg/auth/staff/staff.go sets the sign-in rule %d time(s), want %d: an application without tenants sets none, and one with tenants sets the tenant policy once, since a second call panics when the auth opens", n, rules)
 	}
 	if !startsFrom.HasTenants() {
 		return made

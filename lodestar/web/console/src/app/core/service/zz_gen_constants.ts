@@ -35,6 +35,7 @@ export const Resources = {
   CrewListedGroupRoles: 'CrewListedGroupRoles' as Resource,
   CrewListedGroups: 'CrewListedGroups' as Resource,
   CrewListedRoleGrants: 'CrewListedRoleGrants' as Resource,
+  CrewRememberLengths: 'CrewRememberLengths' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
   CrewSectorDirectoryRoles: 'CrewSectorDirectoryRoles' as Resource,
   CrewSectorGroupRoles: 'CrewSectorGroupRoles' as Resource,
@@ -58,6 +59,7 @@ export const Resources = {
   CrewSessionUsers: 'CrewSessionUsers' as Resource,
   CrewSessions: 'CrewSessions' as Resource,
   CrewSignInMethods: 'CrewSignInMethods' as Resource,
+  CrewSignInSettings: 'CrewSignInSettings' as Resource,
   CrewSignInWays: 'CrewSignInWays' as Resource,
   CrewTakeLengths: 'CrewTakeLengths' as Resource,
   CrewTakeableRoles: 'CrewTakeableRoles' as Resource,
@@ -73,6 +75,7 @@ export const Resources = {
   Hangars: 'Hangars' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
+  MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
   MembersSectorHeldRoles: 'MembersSectorHeldRoles' as Resource,
   MembersSectorIdentities: 'MembersSectorIdentities' as Resource,
@@ -86,6 +89,8 @@ export const Resources = {
   MembersSessionTrustedDevices: 'MembersSessionTrustedDevices' as Resource,
   MembersSessionUsers: 'MembersSessionUsers' as Resource,
   MembersSessions: 'MembersSessions' as Resource,
+  MembersSignInMethods: 'MembersSignInMethods' as Resource,
+  MembersSignInSettings: 'MembersSignInSettings' as Resource,
   MembersUserRoles: 'MembersUserRoles' as Resource,
   MissionBoards: 'MissionBoards' as Resource,
   MissionDocuments: 'MissionDocuments' as Resource,
@@ -179,7 +184,9 @@ export const Methods = {
   RenameMembersUser: 'RenameMembersUser' as Method,
   ReplaceMissionDocument: 'ReplaceMissionDocument' as Method,
   RequireCrewPasswordChange: 'RequireCrewPasswordChange' as Method,
+  RequireCrewSecondFactor: 'RequireCrewSecondFactor' as Method,
   RequireCrewSectorPasswordChange: 'RequireCrewSectorPasswordChange' as Method,
+  RequireMembersSecondFactor: 'RequireMembersSecondFactor' as Method,
   ResumeMission: 'ResumeMission' as Method,
   RevokeCrewSectorUserTrustedDevices: 'RevokeCrewSectorUserTrustedDevices' as Method,
   RevokeCrewSessionToken: 'RevokeCrewSessionToken' as Method,
@@ -189,11 +196,13 @@ export const Methods = {
   ScrapShip: 'ScrapShip' as Method,
   SendCrewSectorUserPasswordResetLink: 'SendCrewSectorUserPasswordResetLink' as Method,
   SendCrewUserPasswordResetLink: 'SendCrewUserPasswordResetLink' as Method,
+  SetCrewRememberedBrowsers: 'SetCrewRememberedBrowsers' as Method,
   SetCrewSectorUserEmail: 'SetCrewSectorUserEmail' as Method,
   SetCrewSectorUserName: 'SetCrewSectorUserName' as Method,
   SetCrewSelfServiceReset: 'SetCrewSelfServiceReset' as Method,
   SetCrewUserEmail: 'SetCrewUserEmail' as Method,
   SetCrewUserName: 'SetCrewUserName' as Method,
+  SetMembersRememberedBrowsers: 'SetMembersRememberedBrowsers' as Method,
   SetMembersSectorUserEmail: 'SetMembersSectorUserEmail' as Method,
   SetMembersSectorUserName: 'SetMembersSectorUserName' as Method,
   SetMembersUserEmail: 'SetMembersUserEmail' as Method,
@@ -201,6 +210,8 @@ export const Methods = {
   SetSectorPilotClearance: 'SetSectorPilotClearance' as Method,
   StandDownMission: 'StandDownMission' as Method,
   StartFlightTest: 'StartFlightTest' as Method,
+  StopRequiringCrewSecondFactor: 'StopRequiringCrewSecondFactor' as Method,
+  StopRequiringMembersSecondFactor: 'StopRequiringMembersSecondFactor' as Method,
   TakeCrewGroupRole: 'TakeCrewGroupRole' as Method,
   TakeCrewRole: 'TakeCrewRole' as Method,
   TakeCrewSectorGroupRole: 'TakeCrewSectorGroupRole' as Method,
@@ -586,6 +597,17 @@ export namespace CrewListedRoleGrants {
     role: 'CrewListedRoleGrants.role' as Resource,
     skipped: 'CrewListedRoleGrants.skipped' as Resource,
     updatedAt: 'CrewListedRoleGrants.updatedAt' as Resource,
+  };
+}
+
+export namespace CrewRememberLengths {
+  export const fieldName = {
+    days: 'days' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    days: 'CrewRememberLengths.days' as Resource,
+    name: 'CrewRememberLengths.name' as Resource,
   };
 }
 
@@ -1174,6 +1196,23 @@ export namespace CrewSignInMethods {
   };
 }
 
+export namespace CrewSignInSettings {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    position: 'position' as FieldName,
+    rememberBrowserDays: 'rememberBrowserDays' as FieldName,
+    requireSecondFactor: 'requireSecondFactor' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    name: 'CrewSignInSettings.name' as Resource,
+    position: 'CrewSignInSettings.position' as Resource,
+    rememberBrowserDays: 'CrewSignInSettings.rememberBrowserDays' as Resource,
+    requireSecondFactor: 'CrewSignInSettings.requireSecondFactor' as Resource,
+    says: 'CrewSignInSettings.says' as Resource,
+  };
+}
+
 export namespace CrewSignInWays {
   export const fieldName = {
     connection: 'connection' as FieldName,
@@ -1497,6 +1536,17 @@ export namespace MembersListedRoleGrants {
     role: 'MembersListedRoleGrants.role' as Resource,
     skipped: 'MembersListedRoleGrants.skipped' as Resource,
     updatedAt: 'MembersListedRoleGrants.updatedAt' as Resource,
+  };
+}
+
+export namespace MembersRememberLengths {
+  export const fieldName = {
+    days: 'days' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    days: 'MembersRememberLengths.days' as Resource,
+    name: 'MembersRememberLengths.name' as Resource,
   };
 }
 
@@ -1838,6 +1888,48 @@ export namespace MembersSessions {
     updatedAt: 'MembersSessions.updatedAt' as Resource,
     userId: 'MembersSessions.userId' as Resource,
     username: 'MembersSessions.username' as Resource,
+  };
+}
+
+export namespace MembersSignInMethods {
+  export const fieldName = {
+    admits: 'admits' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    directoryGivesRoles: 'directoryGivesRoles' as FieldName,
+    label: 'label' as FieldName,
+    name: 'name' as FieldName,
+    openSignUp: 'openSignUp' as FieldName,
+    ownRule: 'ownRule' as FieldName,
+    says: 'says' as FieldName,
+    selfServiceReset: 'selfServiceReset' as FieldName,
+  };
+  export const resourceName = {
+    admits: 'MembersSignInMethods.admits' as Resource,
+    defaultRole: 'MembersSignInMethods.defaultRole' as Resource,
+    directoryGivesRoles: 'MembersSignInMethods.directoryGivesRoles' as Resource,
+    label: 'MembersSignInMethods.label' as Resource,
+    name: 'MembersSignInMethods.name' as Resource,
+    openSignUp: 'MembersSignInMethods.openSignUp' as Resource,
+    ownRule: 'MembersSignInMethods.ownRule' as Resource,
+    says: 'MembersSignInMethods.says' as Resource,
+    selfServiceReset: 'MembersSignInMethods.selfServiceReset' as Resource,
+  };
+}
+
+export namespace MembersSignInSettings {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    position: 'position' as FieldName,
+    rememberBrowserDays: 'rememberBrowserDays' as FieldName,
+    requireSecondFactor: 'requireSecondFactor' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    name: 'MembersSignInSettings.name' as Resource,
+    position: 'MembersSignInSettings.position' as Resource,
+    rememberBrowserDays: 'MembersSignInSettings.rememberBrowserDays' as Resource,
+    requireSecondFactor: 'MembersSignInSettings.requireSecondFactor' as Resource,
+    says: 'MembersSignInSettings.says' as Resource,
   };
 }
 
@@ -2787,10 +2879,18 @@ export namespace RequireCrewPasswordChange {
   };
 }
 
+export namespace RequireCrewSecondFactor {
+  export const fieldName = {};
+}
+
 export namespace RequireCrewSectorPasswordChange {
   export const fieldName = {
     userId: 'userId' as FieldName,
   };
+}
+
+export namespace RequireMembersSecondFactor {
+  export const fieldName = {};
 }
 
 export namespace ResumeMission {
@@ -2847,6 +2947,12 @@ export namespace SendCrewUserPasswordResetLink {
   };
 }
 
+export namespace SetCrewRememberedBrowsers {
+  export const fieldName = {
+    length: 'length' as FieldName,
+  };
+}
+
 export namespace SetCrewSectorUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -2878,6 +2984,12 @@ export namespace SetCrewUserName {
   export const fieldName = {
     userId: 'userId' as FieldName,
     name: 'name' as FieldName,
+  };
+}
+
+export namespace SetMembersRememberedBrowsers {
+  export const fieldName = {
+    length: 'length' as FieldName,
   };
 }
 
@@ -2926,6 +3038,14 @@ export namespace StartFlightTest {
   export const fieldName = {
     refitId: 'refitId' as FieldName,
   };
+}
+
+export namespace StopRequiringCrewSecondFactor {
+  export const fieldName = {};
+}
+
+export namespace StopRequiringMembersSecondFactor {
+  export const fieldName = {};
 }
 
 export namespace TakeCrewGroupRole {

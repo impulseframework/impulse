@@ -422,6 +422,25 @@ creates its client:
 const api = createApi({ baseUrl: '/api', live: { changeWait: 1_000, refetchInterval: 10_000 } });
 ```
 
+A page that shows names. A list or row whose answer shows a name read from another
+resource (a list of work orders that shows each one's station by name) is told when that
+name changes, by the same means. The server registers, beside the request's own
+subscription, the list of each resource its names are read from, in the tenant they are
+read in, and its answer says which in the `X-Names` header, which the client hands the
+session as it does `X-Changes` (`parseNamesHeader`, `LiveSession.named`). The session keeps
+those lists under the subscription while a watcher holds it, joined over its answers. A
+change to one of them, or to its whole resource, fetches the page as a change to its own
+list does: at once for the tab's own write, after the wait for somebody else's. A change to
+one of their rows alone does not, since every write to them reaches their list too. The
+version the page asks by is the latest among its own and those lists', so the browser's
+cache never answers that fetch with the old names. Each renewal carries the lists once,
+with the `nameField` the server re-checks them by (List on the name field, the grant the
+read asked, not List on the resource); one the server drops is forgotten alone, and the
+page stays current, as does a list of the same resource the tab watches in its own right.
+The lists are forgotten with the subscription's last watcher and at logout, and an answer
+for a subscription nothing watches keeps none: a page holds its watcher before its first
+live answer comes back, as the example below does and the Angular lists do.
+
 What it costs. One feed listener per tab. One renewal request every two minutes while any
 live row or list is held. For a watched row or list: one request for each write the tab
 made to it, one for a burst of other people's changes and at most one every five seconds
@@ -466,18 +485,22 @@ import { firestoreChangeFeed } from '@impulseframework/resource-firestore';
 const api = createApi({ baseUrl: '/api' });
 await api.live.start(firestoreChangeFeed()); // once the session is authenticated
 
-// A list page: the first live request subscribes the tab; the watcher refetches on a change.
+// A list page: the watcher is held first, so the session keeps the lists the answer's
+// names are read from; the first live request subscribes the tab; the watcher refetches
+// on a change.
 const station = api.domain('ws-alpha');
-let page = await station.workOrders.page({ sort: { field: 'dueAt' }, limit: 25, live: true });
+let page: Page<WorkOrders> | undefined;
 const release = api.live.watch(station.workOrders.subscription(), async () => {
-  page = await page.reload(); // the same page, by its cursor, with the change's version
+  page = await page?.reload(); // the same page, by its cursor, with the change's version
 });
+page = await station.workOrders.page({ sort: { field: 'dueAt' }, limit: 25, live: true });
 
 // A record page: the row, by its key.
-let order = await station.workOrders.read([orderId], { live: true });
+let order: WorkOrders | undefined;
 const releaseRow = api.live.watch(station.workOrders.subscription([orderId]), async () => {
   order = await station.workOrders.read([orderId], { live: true });
 });
+order = await station.workOrders.read([orderId], { live: true });
 
 release();
 releaseRow();
@@ -623,10 +646,13 @@ confirmation path (`pending.confirm` is absent, as nobody there has a password t
 with): `pending()` and `cancelPending()` work as they do elsewhere, and `confirmPending`
 throws saying the server names no such route.
 
-A sign-in the policy holds for a second factor waits with the reason `mfa`, and when the policy
-accepts the mailed code the status carries `emailCode`, the step this client drives: the masked
-address the code goes to (`codeEmail`, `n•••@fleet.example`), whether a code stands (`codeSent`,
-`codeExpiresAt`) and whether the account holds no address yet (`enrollEmail`). `sendCode()` has
+A sign-in held for a second factor, by the Auth's sign-in settings or by the sign-in policy,
+waits with the reason `mfa`, and when the hold accepts the mailed code the status carries
+`emailCode`, the step this client drives: the masked address the code goes to (`codeEmail`,
+`n•••@fleet.example`), whether a code stands (`codeSent`, `codeExpiresAt`) and whether the
+account holds no address yet (`enrollEmail`). `rememberOffered`
+says the page may offer to remember the browser; it is false while an administrator has turned
+remembering off. `sendCode()` has
 the code mailed, replacing one standing, and answers `sent` with the address and the expiry, or
 the refusal (409 when the sign-in does not wait for the code or the account holds no address;
 `too_many_emails` with the wait when the address was sent five codes within fifteen minutes and

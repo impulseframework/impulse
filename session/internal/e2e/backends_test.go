@@ -143,6 +143,16 @@ func storeTables(t *testing.T) (*sessionstorage.AuthEventsTable, *sessionstorage
 	return events, impersonation
 }
 
+// secondFactorOff writes the sign-in settings row that asks nobody for a second factor,
+// so a scenario's sign-in is decided by the rules it sets up alone.
+func secondFactorOff[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx]) {
+	t.Helper()
+
+	if err := store.SetRequireSecondFactor(ctx, false); err != nil {
+		t.Fatalf("sessionstorage.Auth.SetRequireSecondFactor(false) error = %v", err)
+	}
+}
+
 var postgresBackend = backend[pgx.Tx]{
 	name: "postgres",
 	newStore: func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[pgx.Tx]) {
@@ -150,8 +160,10 @@ var postgresBackend = backend[pgx.Tx]{
 
 		db := preparePostgres(ctx, t, postgresSessions, postgresImpersonation, postgresAuth, postgresAppTables)
 		events, impersonation := storeTables(t)
+		store := sessionstorage.NewPostgresAuth(db.Pool, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		secondFactorOff(ctx, t, store)
 
-		return postgresDB{db}, sessionstorage.NewPostgresAuth(db.Pool, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		return postgresDB{db}, store
 	},
 	rows: appRows[pgx.Tx]{
 		addMember: func(ctx context.Context, tx pgx.Tx, userID impulse.UUID, partner string) error {
@@ -313,8 +325,10 @@ var spannerBackend = backend[*spanner.ReadWriteTransaction]{
 
 		db := prepareSpanner(ctx, t, spannerSessions, spannerImpersonation, spannerAuth, spannerAppTables)
 		events, impersonation := storeTables(t)
+		store := sessionstorage.NewSpannerAuth(db.Client, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		secondFactorOff(ctx, t, store)
 
-		return spannerDB{db.Client}, sessionstorage.NewSpannerAuth(db.Client, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		return spannerDB{db.Client}, store
 	},
 	// The hooks write with DML, not mutations: a mutation is buffered until the commit,
 	// so a policy running in the same transaction could not read what a resolver wrote.
