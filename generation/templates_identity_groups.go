@@ -1628,7 +1628,7 @@ type Add{{ .Subject }}GroupMember struct {
 	// UserID is the person, picked from the people the caller may list.
 	{{- end }}
 	//
-	// @enumerate({{ Pluralize .SubjectUser }})
+	// @enumerate({{ Pluralize .PickedUser }})
 	UserID impulse.UUID` + identityPeriodFields + `
 }
 

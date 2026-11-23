@@ -228,6 +228,19 @@ func Test_identityInstance_refuseListNamesTaken(t *testing.T) {
 			tenant:  &identityTenant{name: "User"},
 			wantErr: "the tenant record User gives a list a tenant keeps of the auth's people the name CrewUserRole",
 		},
+		{
+			// A record named Listed names a tenant's people as the whole application's
+			// accounts are named (CrewListedUser), and its groups as the groups listed with
+			// what each holds are (CrewListedGroup), which is the name found first.
+			name:    "a record named Listed names a tenant's people and groups as the lists of what each holds are named",
+			tenant:  &identityTenant{name: "Listed"},
+			wantErr: "the tenant record Listed gives a list a tenant keeps of the auth's people the name CrewListedGroup",
+		},
+	}
+	// The whole application's accounts list is among the names a tenant's list must not
+	// take, so a record named Listed is refused for its people's list as for its groups'.
+	if names := (&identityInstance{auth: "Crew"}).holdingNames(); !slices.Contains(names, "Crew"+listedUserSuffix) {
+		t.Errorf("holdingNames() = %v, want one that is the accounts list's name, CrewListedUser", names)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
