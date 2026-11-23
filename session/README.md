@@ -2137,8 +2137,9 @@ links and the name a waiting sign-in's identity asserted to the pending sign-ins
 stores the name in the two indexes a list reads without a row of the table.
 
 **The person changes their own username**, signed in: `Auth.ChangeUsername()` takes
-`{"username"}` and answers `{"username"}` as it is kept. The one rule is that no other
-account holds the name; `Auth.UsernameFree()` answers `{"free"}` for a name as the
+`{"username"}` and answers `{"username"}` as it is kept. There are two rules: no other
+account holds the name, and a name with an @ in it is the person's own confirmed
+address; `Auth.UsernameFree()` answers `{"free"}` for a name as the
 person types it, and says nothing of who holds one. The person's sessions follow the
 name, so they stay signed in, and they sign in under the new name from then on. A
 rename is no use of a session: when each was last used stays as it was. A name with a
@@ -2146,6 +2147,23 @@ control character or of more than 200 characters is refused with 400. Where
 the password method declares `UsernameIsEmail()` both refuse with 409: the username
 changes when the person confirms a new address. Both validate the session themselves
 and refuse an impersonated session.
+
+**A username that reads as an email address is the person's own.** A name a person types
+for themselves with an @ in it has to be the address their account holds, confirmed, in
+any case of its ASCII letters: at `ChangeUsername()` and `UsernameFree()` the address the
+account holds now, and at a sign-up or a sign-up through an invitation the address the
+link was mailed to or the invitation names, which is confirmed by the time the account
+exists. Any other name with an @ is refused with 400 before the store is asked, so the
+answer is the same whether or not an account holds the name and tells nobody which
+addresses have accounts. The reason: the library names an account by its person's
+address, or by the sign-in name their directory sends, when it chooses the name (a first
+sign-in through Google, Microsoft or a directory, an invitation accepted without a chosen
+name), so someone else holding that name would keep its real holder out until an
+administrator renamed them. A name without an @ is free to anyone. An administrator's
+rename (the generated `Rename<Auth>User`) and the application's own
+`ChangeSessionUserUsername` and `CreateSessionUser` are not held to it: an administrator
+gives an account the name its directory will send, and is who renames an account that
+holds a name it should not.
 
 **The person sees where they are signed in**, signed in: `Auth.OwnSessions()` answers
 their own live sessions, the one of the request first and marked, each with the name of
@@ -2376,7 +2394,9 @@ one it sends.
   user, for the code mailed to the invited address (`Pending().SendCode()`), the
   username and the password's hash kept in the browser's encrypted pending cookie and
   bound to that invitation. A username or an address another account holds is answered
-  409 before anything is held or mailed. `Pending().VerifyCode()` with the code then
+  409 before anything is held or mailed. A chosen username with an @ in it that is not
+  the invited address is answered 400 before anything is held or mailed.
+  `Pending().VerifyCode()` with the code then
   creates the user with the invitation's address verified and signs them in, the
   invitation accepted on the way. Five wrong codes end the code with nothing written,
   and the application's own step (`CompletePending`) refuses such a wait (409).
@@ -2584,7 +2604,8 @@ an account: the person gives their address to `SignUp().Start()` (`{"email"}`), 
 mails a link standing `MailSettings.LinkTimeout` (a day); the login page, sent to with
 `#signUp=<token>`, posts the token to `SignUp().Open()` for `{"email",
 "usernameIsEmail"}` and then, with the password the person chose (a password the
-judgment refuses is 400) and the username when the two are apart, to `SignUp().Complete()`, which
+judgment refuses is 400) and the username when the two are apart (one with an @ in it that
+is not the address the link was mailed to is 400), to `SignUp().Complete()`, which
 creates the account with the address verified and the method's default role, and signs
 the person in, answering as the password login does. `Start` answers `{}` whatever the
 address's state: an address an account already holds is pointed at that account by
