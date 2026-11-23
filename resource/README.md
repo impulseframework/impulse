@@ -86,7 +86,7 @@ type Ship struct { ... }
 | `@notOnOwnAccount` | `@rpc` struct | the row's field | Says the row the method names does not offer it to the person whose account the row is (section 5). The field named is the one of the row's struct that holds the account's id, an `impulse.UUID`. The method's own code refuses the call; the declaration shapes what a page offers. |
 | `@answers` | `@rpc` struct | `200, 409` | Declares the statuses the method may answer with; the result type carries `HTTPStatus() int` and chooses one per response. Allowed: `200`, `201`, `202`, `204`, and any 4xx except `401`, `403`, and `404`, which stay the frame's own refusals; at least one must be a 2xx. A 4xx answer is the method's refusal with its typed body: in the transaction form the transaction rolls back first, so nothing the body armed commits. `204` writes no body and requires a pointer result returned nil, or an answerless method, whose only permitted declaration is `@answers(204)`. A result declaring `HTTPStatus()` without `@answers`, or the reverse, is a generation error; an undeclared status at runtime answers 500. The TypeScript client resolves `{ status, result }` for a method with declared statuses and still throws on every undeclared 4xx. Example: [CompleteMission](../lodestar/pkg/rpc/complete_mission.go). |
 | `@upload` | `@rpc` struct | `max: 5MB`, and `store: S` for a named store | Declares the method as a multipart upload. Its `Execute` takes `resource.Files` third, `Execute(ctx, txn resource.ReadWriteTransaction, files resource.Files, client *Client)`, the transaction form only, since the transaction is what claims the files, and the declaration and the signature go together (either alone is a generation error). With `store: S`, the files go to the named store `S` (section 13) and `Execute` takes `resource.FilesIn[S]`, whose keys are `resource.Key[S]`; the declaration and the signature name one store or neither, and a mismatch is a generation error. The request is `multipart/form-data`: one part named `request` first, carrying the JSON the method's decoder reads exactly as for a JSON RPC, then one or more parts named `file`. `max` (a byte count or `KB`/`MB`/`GB`, 1024-based) bounds the whole body; over it is a 413 naming the maximum, no `file` part a 400, a body that is not multipart a 415. The frame streams each file to the method's store, read off the resource client, under a key it minted, runs the body with the files, and on any failure before commit deletes the objects it streamed and answers with the failure; after a commit nothing more happens, since the rows the body wrote claim the keys. The body records each key in a `@file` column of the same store, a `string` column for the default store and a `resource.Key[S]` column for `S`, whose generated setter takes the typed key, so a key of another store does not compile into it; a key recorded anywhere else is invisible to the release and is the orphaned-file cleanup's. An upload naming a store no `@file` column holds is refused at generation. Reading a file back is the `@file` route (section 13). A dry run streams nothing: the files describe the parts with empty keys. The TypeScript handle gains `upload(body, files)`, which refuses locally over the maximum. Examples: [AttachRefitPhoto](../lodestar/pkg/rpc/attach_refit_photo.go) on the default store, [AttachMissionDocument](../lodestar/pkg/rpc/attach_mission_document.go) on a named one. |
-| `@warning` | `@rpc` struct | `typed: open` | Declares that the method warns before it runs (section 7): a person reads what the call will do, in the server's words, and types the word before the confirm button works. The struct declares `Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)` beside `Execute`, and the declaration and the method go together (either alone is a generation error). A request that carries `X-Warning: true` is decoded and checked exactly as the call is, answers the `resource.Warning` in place of running the call, and saves nothing; a method that declares no warning refuses the header with 400. The typed word is one lowercase word of 2 to 24 letters, which the generated metadata carries (`warning: { typed }`). Refused on the client form of `Execute` (the warning is read inside the handler's transaction, which is rolled back), on an `@upload` method, with `@suppress`, and with `@schedule`. |
+| `@warning` | `@rpc` struct | none, or `typed: open` | Declares that the method warns before it runs (section 7): a person reads what the call will do, in the server's words, before the confirm button works; with `typed: open` they type the word first. The struct declares `Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)` beside `Execute`, and the declaration and the method go together (either alone is a generation error). A request that carries `X-Warning: true` is decoded and checked exactly as the call is, answers the `resource.Warning` in place of running the call, and saves nothing; a method that declares no warning refuses the header with 400. The typed word, where the method declares one, is one lowercase word of 2 to 24 letters, which the generated metadata carries (`warning: { typed }`; `warning: {}` without one). Refused on the client form of `Execute` (the warning is read inside the handler's transaction, which is rolled back), on an `@upload` method, with `@suppress`, and with `@schedule`. |
 | `@schedule` | `@rpc` struct | the cron expression in quotes, `zone: "<IANA zone>"` (UTC when absent), and `log: onEvent`: `@schedule("30 3 * * *", zone: "America/Denver")` | Declares the method a scheduled route: Cloud Scheduler calls it on the schedule, read in the zone. The expression is five fields separated by single spaces (minute, hour, day of the month, month, day of the week), each a comma list of `*`, a value, or a range, the `*` and the range optionally stepped (`*/15`, `1-5/2`), months and days of the week also by name (`JAN`, `MON`); an expression outside that, a zone the time zone database does not know, and `Local` are generation errors. A scheduled method takes no input: no field, no `@upload`, no `@permissionScope` (a domain scope is a path parameter, and a scheduled method checks no permission), no `@target` or `@transition`, no `@outlet`, `@feature`, `@formerly` or `@suppress`, each refused naming the struct, and it needs `GenerateRouter`. It is served at `POST /_scheduled/<method in kebab case>` behind the scheduler's token check alone, never on an outlet, never in the permission collection or a TypeScript client. `log:` is the method's own request log word (`always`, `onEvent`, `sampled` with `fraction:`, `never`), set ahead of its handler as a route's is (section 8, request logs and traces); a scheduled method's spans follow the front end, so `trace:` is refused here and on its `@rpc`. Section 19. Example: [PruneDroidReports](../lodestar/pkg/rpc/prune_droid_reports.go). |
 | `@file` | field of a `@resource`, `@virtual`, or keyed `@computed` struct (the column holding the store key); or a keyed `@computed` struct | none, `segment`, on a field `name: Field`, `type: Field`, and `log: onEvent`, `trace: off` | A row says which stored object is its file, and the generator serves that file under the row's read route: `GET <read route>/content` answers the bytes with their type, name, size, time, and validator, gated by `Read` on the resource and a `Read` grant on `content`, the route's own field, which the Collection registers with no column behind it (`columns=content` on a read stays a 400; a grant naming it is accepted by `access.ValidateRoles`). On a field, the annotation marks the column holding the store key: `@file` bare serves under `content`, `@file(thumbnail)` under its own segment, and `name:` and `type:` name sibling columns carrying the file's name and media type (a struct may carry several, one per segment). The column's type says which store holds the file: `string` or `*string` is the default store, `resource.Key[S]` or `*resource.Key[S]` the named store `S`, a type the application declares by embedding `resource.Store` (section 13); both are `STRING` columns, and the generated `FileKeys()` names each column with its store. The key column goes off the wire in both directions: never returned on read or list, never accepted on create or update, absent from the TypeScript interface and metadata; a `NOT NULL` key means a row is added by the `@upload` method that stores its file, so `Create` is not registered and the patch handlers refuse a create op naming that way in, while a nullable key leaves `Create` ordinary. On a keyed `@computed` struct, `@file` or `@file(segment)` declares a rendered file: the computed package declares `<Name><Segment>(ctx, key…, qSet *resource.QuerySet[Name], client resource.Client, computedClient *Client) (*resource.Content, error)` beside `Read<Name>`, checked at generation as `Read<Name>`'s callers are, and a nil content is 404. Deleting a row that carries a key, or pointing it at another object, releases the old object: the patch machinery records the key on the transaction and the executor deletes it from the column's store, wired on the resource client (`resource.WithFileStore`, `resource.WithNamedFileStore[S]`), once the commit lands, from every transaction the application runs; one row owns one object, and a row the database deletes by cascade releases nothing (section 13). Under a suppressed read route the declaration serves nothing and still names the key column, so the release and the orphaned-file cleanup see its keys. `log:` and `trace:` are the file route's own request log word and trace setting, as on `@rpc` (section 8, request logs and traces), refused under a suppressed read route, where no route carries them. Refused at generation, naming the struct: a key-less struct, an unknown sibling, two declarations on one segment, a name or type field that is not a `string` or `*string`, a key field that is none of `string`, `*string`, `resource.Key[S]` and `*resource.Key[S]`, a `resource.Key[S]` column without the declaration, the struct-scope form on a table or view, a rendered file under a suppressed read route, and a content function that is missing or has another signature. Examples: [MissionDocument.StoreKey](../lodestar/pkg/resources/mission_documents.go), a stored file; [ExpenseManifest](../lodestar/pkg/computedresources/expense_manifests.go), a rendered one. |
 | `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, the two optional parts `who: <tests>` and `where: <condition>`, on a global-scoped anchor `domain: Field` or `domain: Field.Path`, and in an application with several auths `auth: <the auth's name>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Where a global table's rows still belong to tenants, the set says where a row's tenant is found, `domain:`. Where the row carries its tenant's key itself, `domain:` names that column (`domain: TenantID`), and `zz_gen_bindings.dot` lists it under the set in the anchor's box (`subject.keys domain: TenantId`). Where a row belongs to a tenant through a parent (a person's place in a group, the group being kept in one tenant or in none), it names a foreign key of the row and then the path to the column that holds the tenant's key (`domain: GroupID.DomainID`), validated many-to-one as `via:` is, and drawn in `zz_gen_bindings.dot` as an `@domain` path is, dotted, under the set's name (`crewGroups domain: GroupId ⇒ DomainId`). In a request that has a tenant the set then holds that tenant's rows alone, and a row that names another tenant, or none, is left out; in a request that has no tenant it holds every row. Generation refuses a `domain:` on a domain-scoped anchor (its own `@domain` is the filter), on a `@subjectValue`, on a path that does not start at a foreign key of the row, and on a column or a path's end that is not text. Text is all a column's type says, so where generation knows which column of the table a `domain:` ends on holds its tenant, the end must be that column, and the refusal names it: on a domain-scoped table, the column its bare `@domain` sits on (a table that finds its tenant through `@domain(via: ...)` holds no tenant's key, so the path goes on through that foreign key); on the `@tenant` record, its key; on an auth's groups table, the store's `DomainId`. A global table that is none of these tells generation nothing of a tenant, so there the end is held to text alone, and that the column holds a tenant's key is the author's word. `NewGeneratedCollection` refuses a collection built by hand that gives a set a domain on a domain-scoped resource, or gives one to a subject value, so nothing takes the place of a resource's own tenant filter. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Whose people:** a set describes the people of one auth: its user column holds that auth's people and the set is looked up by their ids, so an engine opened for another auth takes no grant that reads it: one in its role file is refused when the file is loaded (`access.WithDefaultRoles`, `access.ValidateRoles`), one written to a custom role is refused, and one found in the store is left out and reported. An application with one auth need not say, and every set is that auth's. An application with several says which on every set it writes, `auth: crew`, the auth's name as its package names it (`@subjectSet(squadrons, value: SquadronID, auth: crew)`), since nothing in a schema says whose ids a user column holds: a table one auth's staff keep about another auth's people is served to the first and names the second. Generation refuses a set that says none where the application has several auths, naming them, and a name that is no auth of the application; a `@subjectValue` takes none, and the set of a person's groups that the generator declares for an auth names that auth itself, in an application with one auth too. A set follows a person through sets of its own auth alone: generation refuses a `who:` that tests a set labeled for another auth, the set of another auth's groups included, since through that test the set would hold rows for people it does not describe. The generated collection carries the name (`SubjectBindingData.Auth`) and the names of the auths its run knew (`CollectionData.Auths`), which the permission engine holds the name a role file is handed over under to, and the role-file check of an auth looks at that auth's sets and at no other auth's (`access.UnreadSetWarning`; `GeneratedCollection.SubjectSets(auth)`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `access.ValidateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row unless it writes a `domain:`, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; a `who:` naming a set that describes another auth's people where both sets say whose they are, the generated set of another auth's groups included (the message names both auths and where each is said); sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. **Impersonation:** the record decides what a person may do, so its generated write refuses the real person behind an impersonated session a row that names them, by the annotated column or a column a `who:` compares to the requester, before the write and after it (section 21, "The rules on who is asking"). |
@@ -943,8 +943,7 @@ across every application on this stack:
 Some calls a person should not be able to make by a slip of the hand: the one that
 opens a sign-in method to the world, the one that deletes a year of records. Such a
 method declares a warning, and the dialog a page runs it through shows the warning
-before anything is saved. Three things make a warning, and the method declares all of
-them:
+before anything is saved. A warning is made of these, and the method declares them:
 
 - **The consequence, in the server's words for that call.** The method's `Warning`
   writes it, inside the handler's transaction, with the request as the person has filled
@@ -959,10 +958,14 @@ them:
   sentence and one list carries notes in `Also`: each is a sentence (`Says`) with the
   names it speaks of (`Names`), and the dialog draws them under the first, in order. A
   note holds only what the caller may see, as `Names` does.
-- **The typed word.** `@warning(typed: retire)` names the word a person types before
-  the confirm button works.
-- **The warning style.** The library's method dialog draws the consequence in its
-  warning colors under a warning icon, with no configuration.
+- **The typed word, where the act calls for one.** `@warning(typed: retire)` names the
+  word a person types before the confirm button works. A bare `@warning` names none: the
+  dialog asks in the server's words and its button works once they are on the screen,
+  which suits an act a person does often and should still read first (taking a role
+  away, which says when the account goes with it).
+- **The style.** The library's method dialog draws the consequence of a method with a
+  typed word in its warning colors under a warning icon, and that of a method without
+  one as the dialog's question, with no configuration.
 
 ```go
 // RetireShip takes a ship out of service and cancels the missions it was assigned.
@@ -1696,7 +1699,7 @@ in words, each once, in the order they were buffered:
 
 | gRPC code | The transaction buffered | Status | Message |
 | --- | --- | --- | --- |
-| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key without `ON DELETE CASCADE` or as an interleaved parent under `ON DELETE NO ACTION`; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | One delete | 409 | `This hangar cannot be deleted while other records still refer to it.` |
+| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key, or as an interleaved parent; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | One delete | 409 | `This hangar cannot be deleted while other records still refer to it.` |
 | | Several deletes | 409 | `One of the hangars or ships this request deletes cannot be deleted while other records still refer to it.` |
 | | One create or update | 409 | `This ship refers to a record that does not exist, or holds a value that is too long for its field.` |
 | | Several creates or updates | 409 | `One of the ships or missions this request adds or changes refers to a record that does not exist, or holds a value that is too long for its field.` |
@@ -1772,9 +1775,8 @@ transaction, and answers the first delete that has one with a 409:
   (`@domain`) and the record is a tenant's, or is the tenant record, the count is of the
   rows of the record's own tenant (`DeleteKind.Tenant` and `DeleteTree.Tenant`, which the
   generator writes). A row of another tenant that names the record is not under it, and
-  what becomes of it is its foreign key's: one with no delete rule refuses the commit in
-  the commit's own sentence (the table that opens this section), and one declared
-  `ON DELETE CASCADE` has the database remove the row with the record, uncounted.
+  its foreign key refuses the commit in the commit's own sentence (the table that opens
+  this section).
 - A row the transaction's own patches deleted is left out of the count, by its key: a
   read inside the transaction does not see its buffered writes. So the rows and the
   record go together in one transaction, in either order. A row the transaction's
@@ -1783,14 +1785,14 @@ transaction, and answers the first delete that has one with a 409:
   are sent one after the other. A transaction that deleted more than 200 rows of a kind
   is not counted over that kind.
 - The count never refuses a delete the database would take. A kind whose rows the
-  database removes with a row of another table (`DeleteKind.RemovedWith`: a sortie goes
-  with its mission) is not counted once the transaction deleted a row of that table, and
-  a kind the database removes with the record itself is not in the description.
+  database removes with a row of another table (`DeleteKind.RemovedWith`) is not counted
+  once the transaction deleted a row of that table, and a kind the database removes with
+  the record itself is not in the description. That is so only of a link that still
+  carries the database's rule, which no link to an application's record does.
 
 What the count does not reach is still the commit's to refuse, in the sentences of the
-table above: a row under a row the database removes with the record (a hangar's ships
-go with it, and a sortie names a ship), and a row an update of the same transaction
-leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
+table above: a row under a row the database removes with the record, and a row an update
+of the same transaction leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
 removes the rows under a record with raw mutations and deletes the record with a patch in
 one transaction is refused over rows that are about to go, so those rows are deleted
 through their patches. The mock client holds no rows and refuses nothing here, and
@@ -1800,11 +1802,19 @@ Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go)
 
 ### A delete that takes what is under the record
 
+Rows are deleted in code only, never by the database. No foreign key and no interleave of
+an application's records says `ON DELETE CASCADE`: a row the database removes is not
+checked against the grants of the person who asked, leaves no change record, is not
+announced to open pages and keeps its stored files, and it counts toward the commit's
+mutation limit all the same. `impulse check` holds the schema to it (`no-delete-cascade`).
+What a delete takes with it is declared on the record and deleted by the library, as
+below. A record with rows under it and no declaration is refused, in words that say what
+to delete first.
+
 A record that declares what goes with it (`@deleteCascade`) is deleted together with the
 rows of the kinds it lists as taken, and the library deletes them in code: it finds the
 rows, checks each one as that row's own delete would be checked, and deletes them in the
-record's transaction, deepest first and the record last. A foreign key's own rule
-(`ON DELETE CASCADE`) is not what removes them.
+record's transaction, deepest first and the record last.
 
 Such a delete asks first. A delete of a record with rows to take deletes nothing unless
 it says it takes them, and is answered 428 (`httpio.HasPreconditionRequired`) with the
@@ -1853,16 +1863,14 @@ with nothing gone where it cannot be made whole:
   tenant), or the one the record's row resolves to (`DeleteTree.Tenant`), compared with
   the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
   where its `@domain` goes through them. A row of another tenant that names the record,
-  or a row under it, is not found, counted, named or taken, whoever asks, a trusted delete
-  included. What becomes of such a row is its foreign key's. One with no delete rule
-  refuses the commit, in the commit's own sentence, and nothing is deleted. One declared
-  `ON DELETE CASCADE` has the database remove the row with the row it names, uncounted
-  and with no change record. Only a foreign key that holds the tenant's key beside the
-  rest (a relay's `(SectorId, CaseNumber)` to its call's) keeps such a row from being
-  written; a foreign key on the other row's key alone does not. Which of the two a link is
-  written with is the schema's choice ("A link between two records of a tenant", below). A
-  record that is no tenant's has under it whatever its links put there, and so does a kind
-  whose rows are no tenant's.
+  or a row under it, is not found, counted, named or taken, whoever asks, a trusted
+  delete included. Its foreign key refuses the commit, in the commit's own sentence, and
+  nothing is deleted. Only a foreign key that holds the tenant's key beside the rest (a
+  relay's `(SectorId, CaseNumber)` to its call's) keeps such a row from being written; a
+  foreign key on the other row's key alone does not. Which of the two a link is written
+  with is the schema's choice ("A link between two records of a tenant", below). A
+  record that is no tenant's has under it whatever its links put there, and so does a
+  kind whose rows are no tenant's.
 - A foreign key of two or more columns is written with its columns in the order of the
   key it references: for an order keyed `(Depot, Number)`, a line's is
   `FOREIGN KEY (OrderDepot, OrderNumber) REFERENCES Orders (Depot, Number)`. The generator
@@ -1938,7 +1946,7 @@ what is under the record" gives above; the generator prints the line for one wri
 another order. A child interleaved in its parent is linked by the parent's key, so the link
 holds the tenant only where that key does. What becomes of a row that names another tenant's
 row is in the same part: no delete counts or takes it for the other tenant, and its foreign
-key's delete rule decides what the delete of the row it names does.
+key refuses the delete of the row it names while it stands.
 
 A record that links to a row of one tenant and to a row of another is a fault of the schema's
 design. A schema allows one where a record has two links that nothing holds to one tenant: two
@@ -1982,8 +1990,11 @@ Two consequences to know:
 The tenancy check's 404 for a referenced row outside the request's partition, and the 404
 a tenanted or tracked update answers when its row is missing, are unchanged; they run before
 the commit, so the same request answers 404 whatever the resource's shape. A request that
-deletes children and their parent in one transaction still succeeds in either order,
-because nothing is checked before the commit.
+deletes children and their parent in one transaction still succeeds in either order where
+the parent declares no `@deleteCascade`: its count runs once the transaction's function has
+returned and leaves out the rows the request deleted. A record that declares one is judged
+as its delete is buffered, so a row that refuses it (`refusedBy`) is deleted ahead of it in
+the request.
 
 ## 11. Value limits from the schema
 
@@ -2528,18 +2539,16 @@ keeps its objects, since the rows may hold them, and logs the keys for the clean
   is a row of its own, a table with `@file`, that the other rows reference by foreign
   key; the foreign-key refusal protects it while anything references it, and its own
   delete releases the object.
-- Rows the database deletes by cascade (`ON DELETE CASCADE`, an interleaved child) or
-  by a row deletion policy never pass through the patch machinery; their objects are the
-  orphaned-file cleanup's. An application that cares deletes the children by patch
-  first. The audit pass names the cascade tables.
+- Rows the database deletes by a row deletion policy never pass through the patch
+  machinery; their objects are the orphaned-file cleanup's. No table's rows go by a
+  cascade: rows are deleted in code only (`impulse check`, `no-delete-cascade`).
 - A crash between the commit and the delete leaves an object no row claims; the
   cleanup's.
 - A reader that located the row before the delete committed may find the object gone;
   the `@file` route answers 404 as for any absent object.
 
-**The audit pass.** The generator can tell you which `@file` tables the cascade
-limitation applies to. A finding of that kind is advisory, a shape the framework handles
-under a stated limitation, and raising it as a warning would print it on every
+**The audit pass.** A finding of the audit pass is advisory, a shape the framework
+handles under a stated limitation, and raising it as a warning would print it on every
 generation of every application that carries the shape, so the generator reports it
 through a separate pass instead: `Generator.Audit()` returns the findings of the last
 `Generate()` (a `[]Finding`, each a sealed kind beside `Warnings()`; nil before a run),
@@ -2547,22 +2556,12 @@ and a normal generation never prints them. An application's generate program pri
 on demand: `go run ./cmd/generate/resourcegenerator -audit` in Lodestar, which prints
 the warnings as `Warning: <text>` and then each finding as `Audit: <text>`, one per line
 (`impulse audit` runs the same for a skeleton application once it lands); `go generate
-./...` passes no flag and prints no finding. The first finding, `CascadeReleaseFinding`,
-names a resource that stores files on a table whose rows the database deletes by cascade,
-because the table is an interleaved child declared `ON DELETE CASCADE` (the finding
-names the parent) or a foreign key on it carries the `CASCADE` delete rule (the finding
-names the column), one finding per cause, in resource order: a cascade releases none of
-their objects and the orphaned-file cleanup removes them. The facts ride the table map the schema read
-records, `INFORMATION_SCHEMA.TABLES.ON_DELETE_ACTION` and
-`REFERENTIAL_CONSTRAINTS.DELETE_RULE`, so a cached schema audits like a fresh one.
-Further findings of this class arrive with their own register items. Example:
-[RefitTask.PhotoKey](../lodestar/pkg/resources/refit_tasks.go), interleaved in Refits on
-cascade.
+./...` passes no flag and prints no finding. No shape is reported today.
 
 **The orphaned-file cleanup.** An object no row holds is left behind only by a crash
-between the stream and the commit, a cascade, or a row deletion policy, and the
-framework ships the command that removes it: `filestore.Cleanup`, run as a command of
-the application's job process, one store per run. It lists the store's objects older
+between the stream and the commit or by a row deletion policy, and the framework ships
+the command that removes it: `filestore.Cleanup`, run as a command of the application's
+job process, one store per run. It lists the store's objects older
 than the window whose names are UUIDs, the keys the frame mints, keeps every key the
 store's `@file` columns hold, and deletes the rest. The keys come from the holders the
 generator writes into each resources package, `FileHolders()` in `zz_gen_file_holders.go`:
@@ -3849,12 +3848,11 @@ whose roles list a kind there reads its count, and a kind they may not list ther
 neither named nor counted (`, and records you can't see.` after the kinds they may list,
 or the question alone where they may list none). A tenant with nothing under it is
 deleted by the plain remove. A table of the application's that no resource
-describes is not a row the library can delete: it goes by the application's schema, a
-foreign key declared `ON DELETE CASCADE` in the same transaction, and one without the
-rule refuses the delete while its rows remain. An application that deletes a tenant in a
-transaction of its own buffers the record's generated delete patch with
-`WithEverythingUnder()` and calls `ClearTenant` there, and a program that generates no
-auth's management removes the memberships itself.
+describes is not a row the library can delete: its foreign key refuses the tenant's
+delete while its rows remain, so the application deletes them first, in code. An
+application that deletes a tenant in a transaction of its own buffers the record's
+generated delete patch with `WithEverythingUnder()` and calls `ClearTenant` there, and a
+program that generates no auth's management removes the memberships itself.
 
 Each thing the delete takes is an action of the class `access` when it is done alone (a
 role removed, a group deleted, an invitation withdrawn), so the generator gives the
@@ -4193,7 +4191,7 @@ POST <prefix>/remove-crew-password            {"userId"}                       E
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
 POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
-POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
+POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole (declares a warning)
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
 POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewListedGroups
@@ -4207,7 +4205,7 @@ POST <prefix>/set-crew-self-service-reset     {"on"}                           E
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
-POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles (declares a warning)
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
@@ -4776,7 +4774,9 @@ holding some of them is refused at generation.
   of roles (`CrewSectorHeldRoles`) by the person, the role and the group the role comes
   through, which is none for a role of the person's own, the row a request that names
   no group names. A row that comes through a group is refused (400), and the refusal
-  says where the role is changed.
+  says where the role is changed. It asks first (a bare `@warning`): the server says
+  whose role goes and where it is held, and that the account is deleted with it where it
+  is the last thing the person holds.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
@@ -5509,14 +5509,13 @@ own, outside any request, has no caller and is the application's act):
   refuse the real person their own row, their own set and the row their own value is
   read through.
 
-  A row removed with its parent, which may name the person, is a limit of its own. The
-  database removes the row when the parent's row is deleted (an interleaved table or a
-  foreign key declared `ON DELETE CASCADE`: a pass goes with the place it opens). No
-  write of the row is made, so the rule is not asked about the person it names, and a
-  mask that refuses the row's own writes does not refuse the parent's delete. Where
-  every such row gives something, the delete only takes away; where a row restricts (a
-  ban, a cap), the delete gives. An application closes it under the mask by refusing
-  each request that removes a row above it:
+  A row removed with its parent, which may name the person, is a limit of its own. A row
+  taken with the record it is under (the record's `@deleteCascade`, or its tenant's
+  delete) is deleted by the library and not through the row's own route, so the rule is
+  not asked about the person it names, and a mask that refuses the row's own writes does
+  not refuse the parent's delete. Where every such row gives something, the delete only
+  takes away; where a row restricts (a ban, a cap), the delete gives. An application
+  closes it under the mask by refusing each request that removes a row above it:
 
   - the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`);
   - the delete of each record further up while the cascade goes on, since the

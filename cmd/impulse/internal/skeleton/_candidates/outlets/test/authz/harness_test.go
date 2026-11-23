@@ -159,6 +159,11 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 	return "", ""
 }
 
+// TenantName names no tenant: the matrix gives the session library no tenant names.
+func (noSessionAPI) TenantName(accesstypes.Domain) string {
+	return ""
+}
+
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
 // here to mail through, and each says so.
 func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {

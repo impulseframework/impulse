@@ -183,7 +183,7 @@ func All() []Check {
 		generatorProgram{},
 		options{},
 		tenancyWired{},
-		tenantDeleteRule{},
+		noDeleteCascade{},
 		outletWired{},
 		outletShape{},
 		sitesWired{},

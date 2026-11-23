@@ -55,6 +55,20 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 				Rows: resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
 			},
 		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+		},
 	}
 }
 

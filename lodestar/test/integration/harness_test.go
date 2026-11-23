@@ -387,6 +387,13 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 	return "", ""
 }
 
+// TenantName names no tenant, so a sentence that speaks of one says it by the
+// application's word for a tenant alone. The names the crew auth is given are driven on
+// the served stack.
+func (noSessionAPI) TenantName(accesstypes.Domain) string {
+	return ""
+}
+
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
 // here to mail through, and each says so.
 func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {

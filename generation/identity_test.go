@@ -533,7 +533,7 @@ func Test_prepareIdentity(t *testing.T) {
 			"// @attribute(role)\n\t// @enumerate(CrewGivableRoles)\n\tRole string `validate:\"required\"`",
 			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason))",
 		},
-		"crewidentity/remove_crew_role.go":                      {"UserID impulse.UUID\n\tRole   string `validate:\"required\"`\n}", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
+		"crewidentity/remove_crew_role.go":                      {"UserID impulse.UUID\n\tRole   string `validate:\"required\"`\n}", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))", "// @answers(204)\n// @warning\n", "client.manager.RoleRemovalWarning(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`", "// @roleOf(Crew)\n\t\tPrincipalRole *string                   `spanner:\"PrincipalRole\"`", "Mask          accesstypes.NullMaskWords `spanner:\"Mask\"`"},
 		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {", "the Members auth has no password method: user %s holds no password to remove", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities", "func (store) Identities(context.Context, resource.ReadOnlyTransaction, impulse.UUID) ([]identity.Link, error) {\n\treturn nil, nil\n}"},
 		// The handlers are constructed over the application with its live derivations,
@@ -1120,6 +1120,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/remove_crew_ship_role.go": {
 			"type RemoveCrewShipRole struct {", "// @target(CrewShipHeldRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipHeldRole, key: Role)\n\tRole string",
 			"tenant.RemoveRole(ctx, txn, m.UserID, accesstypes.Role(m.Role))",
+			"// @answers(204)\n// @warning\n", "tenant.RoleRemovalWarning(ctx, txn, m.UserID, accesstypes.Role(m.Role))",
 		},
 		"crewidentity/invite_crew_ship_user.go": {
 			"InviteCrewShipUser struct {", "// @attribute(role)\n\t\t// @enumerate(CrewShipRoles)\n\t\tRoles []string", "tenant.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",

@@ -28,10 +28,14 @@ type (
 	// A ship is in one bay at a time: the create path's validator refuses to open a refit
 	// on a ship that has one still open.
 	//
+	// A refit's delete is declared (@deleteCascade): its tasks go with it, each through its
+	// own delete, so a task's photo is released with it.
+	//
 	// Demonstrates: @state, @domain.join-path, @transition.join-path-root, transition-owned-timestamp, @defaultsUpdateType, @validateUpdateType, change-tracking, condition.day-of-week, condition.time-of-day, condition.local-zone.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(RefitTask)
 	// @order(StatusID asc)
 	// @page(default: 10, max: 100)
 	// @validateCreateType(RefitCreateValidator)

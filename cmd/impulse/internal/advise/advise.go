@@ -270,13 +270,6 @@ var kinds = []kind{
 		edits:     "the `@resource` struct and the `@enumerate` removal (and the code that used its constants); or the pinned acceptance for a list that is fixed and merely long.",
 	},
 	{
-		name:      "Cascade release finding",
-		recognize: "`Audit: <Resource> stores files on <Table>, whose rows the database deletes by cascade ...`",
-		reading:   "A resource stores files on a table whose rows the database deletes by cascade (`ON DELETE CASCADE` on an interleave or a foreign key). Those rows never pass through the patch machinery, so the release of their objects at commit never runs for them; the application's sweep removes the objects later. An application that cares deletes the rows by patch before deleting the parent.",
-		question:  "Whether that is acceptable for this table: how long objects may linger after their rows are gone, what they cost meanwhile, and whether anything reads them in between.",
-		edits:     "a delete-by-patch of the child rows before the parent in the code path that deletes parents; or the schema change that drops the cascade; or acceptance, which nothing pins, said so in the resource's doc.",
-	},
-	{
 		name:      "Grant warning (a role warning, pinned in the deploy test)",
 		recognize: "`role <Role>: <Permission> on <Resource> is granted under \"<condition>\" without Read or List on <Row> ...`",
 		reading:   "A role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List. A caller holding the role learns from a Forbidden answer that the row exists, where a read would have answered NotFound. Granting Read or List on the row resource in this role, or in a role assigned with it, closes it; a Read whose condition is narrower than the write's leaks the same way.",

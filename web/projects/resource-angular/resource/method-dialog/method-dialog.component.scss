@@ -27,6 +27,22 @@
   background-color: var(--impulse-alert-warn-bg);
 }
 
+// A method that warns with no word to type: the server's words are the dialog's question,
+// read as the page's own question is (.question), with no warning colors and no icon; the
+// names and notes keep their layout under it. A question the page gives too stands above
+// it, a line apart.
+.warning.asks {
+  display: block;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+.question + .warning.asks {
+  margin-top: 12px;
+}
+
 .warning-icon {
   flex: none;
   color: var(--impulse-alert-warn-border);

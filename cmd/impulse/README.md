@@ -92,11 +92,10 @@ templates, this README, and the tool's source.
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
   deleted tenant takes the roles held in it, its standing invitations and its directory
-  with it, and the rows of every tenant-scoped table whose foreign key to the tenant
-  table says `ON DELETE CASCADE`, as the skeleton's sample table does; `impulse check`
-  fails on a table that carries a tenant's key without the rule, and on a table that
-  reaches its tenant through another row where a link of that way lacks it
-  (`tenant-delete-rule`). A
+  with it, and every row of the tenant in code, each through its kind's own delete. No
+  table's rows go by the database's rule: `impulse check` fails on a foreign key or an
+  interleave that says `ON DELETE CASCADE` on a link to one of the application's records
+  (`no-delete-cascade`). A
   session's tenant list is the roster filtered by where it holds a grant, and a tenant
   is offered only when the session may enter it: the application's tenant declaration
   (what the tenant declares about who may enter it, its directory and whether it
@@ -201,10 +200,9 @@ templates, this README, and the tool's source.
   warnings test pins the accepted set as typed values, so a new warning fails the
   application's CI until it is fixed or pinned.
 - **Audit finding**: an advisory finding about a shape the framework handles under a
-  stated limitation (a table storing files whose rows the database deletes by cascade),
-  printed as an `Audit:` line only when asked: the generate program's `-audit` flag, or
-  `impulse audit`, which runs every program that way. A normal generation never prints
-  one, and no test pins them.
+  stated limitation, printed as an `Audit:` line only when asked: the generate program's
+  `-audit` flag, or `impulse audit`, which runs every program that way. A normal
+  generation never prints one, and no test pins them. No shape is reported today.
 
 ## impulse new
 
@@ -684,7 +682,7 @@ the Go tool's rule about names is no rule of the browser's build.
 | `generator-program` | Every generator program uses options this release knows, with literal arguments: strings, booleans, lists and maps; a whole number or a constant expression of literals for `WithBodyLimit` (`2<<20`); and, for a request log word or a trace setting, the generation package's own constructor (`generation.LogOnEvent()`, `generation.TracesCapped(0.1)`, with `.MinSeverity(logging.Warning)` chained when wanted). A program the tool cannot read completely is one it cannot later edit or migrate. An option the framework has since removed (`WithDomainRoute`) is named with where its declaration went. A program that never reads `Warnings()` after it generates (in its own package, or in the main package that runs a declaring package) warns: the schema warnings a generation raises go unseen. The skeletons' runner prints them and pins the accepted set in a test. |
 | `options` | The generator programs declare one coherent option set, and the report states it: layout (flat or sites), sites, tenancy (the resource package's `@tenant` record, `WithConcealedDomains`), outlets, targets, and the request log words and trace settings a site declares (`WithRequestLog`, `OutletRequestLog`, `OutletTraces`, `WithMountedRoutes`). Handlers come with routes, `ForOutlet` names a declared session-serving outlet, the referenced directories exist, a `//go:generate` directive runs every program (its own directory, or a main package of the module that imports the package declaring it, the layout an application takes when its tests run the declaration in-process), the sites agree on tenancy, a second site lives under `apps/<site>/`, and each `GenerateIdentity` tree is one program's (a program removes from its tree the packages it does not write). |
 | `tenancy-wired` | A site whose resource package declares a tenant record (`@tenant`) has at least one struct annotated `@permissionScope(domain)` and a tenant roster built outside tests with the record's generated constructor (`New<Record>Roster`), handed the live service's tenants signal (`resource.WithTenantSignals`) and started (`Start`) in the package that binds it; a site declaring no record has no tenant-scoped structs. The generator refuses the rest (a tenant-scoped resource with no record, a record that is not a global, table-backed resource with one string key, a second record), the compiler holds the App to the generated contract's `TenantRoster()`, and the permission engine reaches every tenant with the roles held in every domain, so roles need no provisioning per tenant. |
-| `tenant-delete-rule` | Every table that carries a tenant's key on the row itself (a struct annotated `@resource` and `@permissionScope(domain)` whose `// @domain` field is its own column, `TenantId` in the skeletons) references the tenant table on that column with `ON DELETE CASCADE`, or is interleaved in the tenant table with it, so the one request that deletes a tenant takes the table's rows in the same transaction. The check reads the up migrations of the site's `file://` sources in order, statement by statement (`CREATE TABLE`, `ALTER TABLE ... ADD` and `DROP CONSTRAINT`, `DROP TABLE`), and fails on a table whose foreign key to the tenant table carries no delete rule (the delete of a tenant that still holds one of its rows would be refused) and on one that keeps the key with no foreign key at all (the rows of a deleted tenant would stay behind). A table that reaches its tenant through another row (`@domain(via: ...)`) is held to the rule on every link of that way: the check follows the join path from the table's own column to the row it names, then through the column of each field the path names, to the tenant table, and each link must be a foreign key that holds the column (alone or beside others) with `ON DELETE CASCADE`, or, where the table is interleaved in the row's table, the interleave with it: a table interleaved in the row it names goes by the interleave's rule, whatever a foreign key beside it says. Where several foreign keys hold a column, the way is through the table whose struct holds the path's field. It fails naming the first link that carries no rule, once for each table whose way passes that link, and a table whose last column declares no foreign key to the tenant table fails as a table that carries the key would. Every rule on a way is the database's, so it fires for a row of the way deleted by itself too: the rows behind it go with it, past their own resources' Delete grants and row conditions and with no change event. A reference that is on no table's way to its tenant is not read: the application rules it either way. The check does not judge the directories record, whose row the generated delete of the tenant removes with its change event. A table no migration it reads creates, a migration source that is not a `file://` path, a column of a way that no foreign key holds in a table interleaved in no parent, a join path on a field with no spanner tag, and a field of a join path that no struct of the resource package holds for the table the way reaches are a warning that names what was not read, never a pass. |
+| `no-delete-cascade` | Rows are deleted in code only, never by the database. No foreign key that references a table of the application's records, and no interleave in one, says `ON DELETE CASCADE`: a row the database removes is not checked against the grants of the person who asked, leaves no change record, is not announced to open pages and keeps its stored files. The check reads the up migrations of each site's `file://` sources in order, statement by statement (`CREATE TABLE`, `ALTER TABLE ... ADD` and `DROP CONSTRAINT`, an interleave's rule set afterwards, `DROP TABLE`), and fails on each such rule, naming the migration, the table and the foreign key. A table is one of the application's records when a struct of the site's resource package declares it; a rule on a link to any other table is counted in the result and not judged. A delete that should take rows with it is declared on the record (`// @deleteCascade`), a tenant's delete takes its rows in code, and a record with rows under it and no declaration is refused in words. A source that is not a `file://` path is a warning that names it. |
 | `outlet-wired` | Every outlet a program declares (the default from `GenerateRoutes` and each `WithRouterOutlet`) has its generated routes mounted: by the generated router (`GenerateRouter`) from the declaration itself, or, in an application that kept a hand-written router, by a hand-written file in the router package calling `generated<Outlet>Routes`. A session-serving outlet has a `GenerateTypescript` target naming it, and that browser project's development proxy forwards the outlet's prefix. An outlet with no `@outlet` members yet is noted, not failed. Each session outlet's line says `live` when the site's App wires the live service (its `LiveService` returns more than nil), since the generated router mounts the live routes on every session outlet; an App whose `LiveService` returns nil fails: every session outlet serves the live routes, and the live service is required in every application. |
 | `outlet-shape` | Every session outlet serving a browser application (`WebApp`) has its API prefix under the application's mount path: `<mount>/api`, `api` for an application at `/`. That is the one shape the skeletons carry, so each application's scope covers its own API, login, and callback routes; an outlet shaped otherwise works and the generator accepts it, so the check warns, naming the outlet, its prefix, and its mount path. The mount rule itself is the generator's: a browser application at `/` beside another is refused at generation, since an installed application's scope is every URL under its start. |
 | `sites-wired` | In the sites layout, every site has a main package under `apps/<site>/`, a process in the Procfile or process-compose file running it on its own `PORT`, and every site's router is imported by some package passing a collection to `access.New` (the data level, or the callers of an auth package that makes the call itself), so the collection the permission engine holds the roles and every grant to (the union, or one per auth) knows the site's resources. Every call of `access.New` outside tests counts, whichever engine it builds: a second engine in a tool or another main package that imports a site's router covers the site as the served auth's engine would. |
@@ -743,11 +741,8 @@ reason).
 `audit` runs every generator program of the application with `-audit`, from the module
 root, and prints what each raised: the schema warnings a generation always prints, and
 the audit pass's findings, advisory findings about shapes the framework handles under a
-stated limitation, which a normal generation never prints. Today's one finding names a
-resource that stores files on a table whose rows the database deletes by cascade
-(`ON DELETE CASCADE` on an interleave or a foreign key): those rows never pass through
-the patch machinery, so the release of their objects never runs for them and the
-application's sweep removes the objects later. The section is one heading per program,
+stated limitation, which a normal generation never prints. No shape is reported today.
+The section is one heading per program,
 `cmd/generate/resourcegenerator/generator.go (go run ./cmd/generate/resourcegenerator -audit)`,
 with the lines beneath it or `no findings`. A section, `feature flags`, lists every
 declared flag with its description and where it is used: the resources, fields and
@@ -850,8 +845,7 @@ printing the `Warning:` lines and, under `-audit`, the `Audit:` lines, and
 `warnings_test.go` pinning the accepted warnings. It regenerates the tree like
 `go generate` does, so it needs the Spanner emulator. It is a command of its own and not
 a check: the check is the gate on every change, and the audit is read by decision, before
-a release, after a schema change to a table that stores files, or when a stated
-limitation is in question.
+a release, or when a stated limitation is in question.
 
 ## impulse advise
 

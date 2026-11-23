@@ -835,6 +835,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveStaffRole warning denied",
+			method:       http.MethodPost,
+			target:       "/api/remove-staff-role",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RenameStaffUser denied",
 			method:       http.MethodPost,
 			target:       "/api/rename-staff-user",

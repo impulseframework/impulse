@@ -1407,6 +1407,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveStaffRole warning denied",
+			method:       http.MethodPost,
+			target:       "/api/remove-staff-role",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveStaffTenantGroupMember denied",
 			method:       http.MethodPost,
 			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member",
@@ -1449,6 +1457,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role",
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RemoveStaffTenantRole warning denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{

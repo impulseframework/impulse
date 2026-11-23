@@ -20,10 +20,7 @@ type (
 	// stamp, an output_only_update_fn, which also gives the resource the generated
 	// NewShipTouch that HailShip fires. Change tracking is on so a Hail lands in the
 	// ship's log with every field unchanged, and so a refused delete of a ship that has
-	// flown proves the change event buffered beside it is not named in the 409. A ship's
-	// refits go with it, as the ship goes with its hangar, by the delete rule on each
-	// link of a table's way to its sector; a sortie and a droid's report name the ship
-	// from outside that way and say nothing of a delete, so they refuse one.
+	// flown proves the change event buffered beside it is not named in the 409.
 	//
 	// No column on a ship names its sector, so a list of ships scans the whole table,
 	// every sector, and no index on Ships changes that; the generator says so at every
@@ -62,7 +59,14 @@ type (
 	// typed, and the ship's log, which serves every change of a ship, names a change of
 	// the key without the old value or the new one (test/integration/secret_test.go).
 	//
-	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.referential-refusal, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret, delete.rows-under-refusal.
+	// A ship declares no delete of what is under it, so nothing goes with it: its refits,
+	// the sorties flown on it and the droid reports filed on it refuse its delete before
+	// the commit, in a sentence that counts what is in the way ("This ship has 2 sorties.
+	// Delete them first."). The rows and the ship deleted in one request go through, in
+	// either order. A hangar's delete takes its ships with their refits and tasks (Hangar
+	// declares it).
+	//
+	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret, delete.rows-under-refusal.
 	//
 	// @resource
 	// @permissionScope(domain)

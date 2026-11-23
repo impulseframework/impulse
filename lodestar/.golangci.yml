@@ -166,6 +166,7 @@ linters:
           TestChangeRecordTenant|\
           TestDeleteCascade_takesWhatIsUnder|TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind|\
           TestMethodRequestFieldsNoTarget|TestMethodRequestFieldsList|TestMethodRequestFieldsTarget|\
+          TestRoleRemovalWarning|\
           TestRowsOfWrites|\
           TestSectorPilotsMethod|\
           TestTenantRemoval|\

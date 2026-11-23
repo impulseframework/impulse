@@ -19,8 +19,11 @@ import (
 // squadron has 3 missions. Move or delete them first." where the rows can be taken from
 // under the record without being deleted (DeleteLink.MayBeEmpty). The record's
 // description (DeleteTree) names the kinds to count: the kinds its @deleteCascade lists
-// under refusedBy, and the kinds with a row directly under the record that the
-// database does not remove with it (Under). The count runs once the
+// under refusedBy, and the kinds with a row directly under the record that the database
+// does not remove with it (Under). A record that declares its delete is judged earlier,
+// as the delete is buffered (deleteTaken), where a row of a refusedBy kind must be gone
+// before the record in the transaction; the count here is for a record that declares
+// none, and for a declared one that deleteTaken leaves to it. The count runs once the
 // transaction's function has returned, over every delete it buffered, so a request that
 // deletes the rows and the record together, in either order, is not refused: a read
 // inside the transaction does not see its own buffered writes, and each count leaves

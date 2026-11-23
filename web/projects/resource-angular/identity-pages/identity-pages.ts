@@ -1038,8 +1038,6 @@ class SideBuilder {
               label: 'End now',
               icon: 'timer_off',
               fill: (row) => this.heldRole(row),
-              confirm: (row) =>
-                `End ${roleInWords(String(row['role']))}${this.heldWhere(row)} for ${String(row['username'] ?? 'this person')} now? It is taken away, as any role is.`,
               successMessage: 'The role is ended.',
             },
           ],
@@ -1129,13 +1127,14 @@ class SideBuilder {
   /**
    * The roles a person holds, under the person's row: one list, each role saying where
    * it comes from. A role of the person's own says "Their own", carries the reason it
-   * was given for beside when it ends, and is taken away here. A role that comes through
-   * a group names the group and links to the group's page, where it is changed: the
-   * group loses the role there, or the person leaves the group. Where the server's list
-   * holds a person's own roles alone (a description from before the one list), the roles
-   * held through a group are a second list under it (rolesThroughGroupsOf). Give a role
-   * is offered above the list as well as in the person's menu (giveRole), the same
-   * dialog in both places.
+   * was given for beside when it ends, and is taken away here, after the server's own
+   * question (the method's warning): whose role goes, where it is held, and whether the
+   * account goes with it. A role that comes through a group names the group and links to
+   * the group's page, where it is changed: the group loses the role there, or the person
+   * leaves the group. Where the server's list holds a person's own roles alone (a
+   * description from before the one list), the roles held through a group are a second
+   * list under it (rolesThroughGroupsOf). Give a role is offered above the list as well
+   * as in the person's menu (giveRole), the same dialog in both places.
    */
   private rolesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
@@ -1181,9 +1180,6 @@ class SideBuilder {
             ...periodColumns,
             ['reason', 'Why'],
           ]),
-          // Read with each row and not drawn: the list sits under the person, and the
-          // question before a role is taken away names them.
-          ...this.columns(resource, [['username', 'Username']]).map((column) => ({ ...column, hidden: true })),
         ],
         rowMethods: this.present([
           [
@@ -1193,8 +1189,6 @@ class SideBuilder {
               icon: 'person_remove',
               // A role that comes through a group is not the person's to lose here.
               when: own,
-              confirm: (row) =>
-                `Take ${roleInWords(String(row['role']))} away from ${String(row['username'] ?? 'this person')}?`,
             },
           ],
         ]),
@@ -1234,12 +1228,11 @@ class SideBuilder {
           {
             label: 'Take the role away',
             icon: 'person_remove',
-            // A role that comes through a group is not the person's to lose here.
+            // A role that comes through a group is not the person's to lose here. The
+            // question is the server's: it names the person, whom a role row carries only
+            // by an id.
             when: own,
             fill: (row) => this.heldRole(row),
-            // The list sits under the person, and a role row carries their id, which
-            // nobody reads: the question names the role and where it is held.
-            confirm: (row) => `Take ${roleInWords(String(row['role']))}${this.heldWhere(row)} away from this person?`,
           },
         ],
       ]),
