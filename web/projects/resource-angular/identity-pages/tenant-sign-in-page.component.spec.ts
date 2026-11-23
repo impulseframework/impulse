@@ -1295,7 +1295,8 @@ describe('TenantSignInPageComponent', () => {
     const shareLink = (index: number): string =>
       element()
         .querySelectorAll('.impulse-tenant-sign-in-share')
-        [index]?.querySelector('a.impulse-tenant-sign-in-share-link')
+        .item(index)
+        ?.querySelector('a.impulse-tenant-sign-in-share-link')
         ?.getAttribute('href') ?? '';
     const withMembers: PermissionDigest = { ...listsPeople, MembersTeamUsers: { List: 'granted' } };
 
