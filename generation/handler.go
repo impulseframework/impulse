@@ -379,12 +379,13 @@ func (r *resourceGenerator) generateLive() error {
 
 // generateLiveDerivations writes the live derivations next to the resources, one file
 // per package holding published virtual or computed resources with that package's
-// LiveDerivations, one per auth whose generated management declares views (a tenant's
-// lists), in the auth's handlers package, and the handler package's assembly of them,
-// liveDerivations, which the generated handlers hand to every publish, an auth's
-// management's included. A package with no published resource gets no file, and the
-// stale sweep removes one an earlier run wrote: the computed package joins the sweep
-// here, by header, since nothing else writes into it.
+// LiveDerivations, one per auth whose generated management declares published resources
+// of its own (a tenant's lists, the lists of how a person signs in), in the auth's
+// handlers package, and the handler package's assembly of them, liveDerivations, which
+// the generated handlers hand to every publish, an auth's management's included. A
+// package with no published resource gets no file, and the stale sweep removes one an
+// earlier run wrote: the computed package joins the sweep here, by header, since nothing
+// else writes into it.
 func (r *resourceGenerator) generateLiveDerivations() error {
 	begin := time.Now()
 	if r.computed != "" {
@@ -396,7 +397,7 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	}
 	fileName := generatedGoFileName(liveDerivationsOutputName)
 	values := make([]string, 0, len(packages))
-	authViews := false
+	authRecords := false
 	for _, pkg := range packages {
 		destinationFilePath := filepath.Join(pkg.dir.Dir(), fileName)
 		data := &liveDerivationsPackageData{
@@ -406,7 +407,7 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 			Resources:          pkg.Resources,
 		}
 		if pkg.instance != nil {
-			authViews = true
+			authRecords = true
 			data.Source = fmt.Sprintf("Auth(%q)", pkg.instance.importPath)
 			data.Auth = pkg.instance.auth
 			data.TypesQualifier = packageQualifier(pkg.dir, pkg.instance.resources)
@@ -419,10 +420,10 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	}
 	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
 	if err := r.writeFormattedGoFile(destinationFilePath, "liveDerivationsTemplate", liveDerivationsTemplate, &liveDerivationsAssemblyData{
-		Source:    r.resource.Dir(),
-		Package:   r.handler.Package(),
-		Values:    values,
-		AuthViews: authViews,
+		Source:      r.resource.Dir(),
+		Package:     r.handler.Package(),
+		Values:      values,
+		AuthRecords: authRecords,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
@@ -432,8 +433,9 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	// with the application's, handed to them where the application constructs them
 	// (identityDelegatesTemplate), so a view of the application's that reads the auth's
 	// tables is told of a change the auth's management commits. What the package may
-	// hold is the record of the instance's own views (a tenant's lists), one of the
-	// values the application's assembly merges.
+	// hold is the record of the instance's own published resources (a tenant's lists,
+	// the lists of how a person signs in), one of the values the application's assembly
+	// merges.
 	return nil
 }
 

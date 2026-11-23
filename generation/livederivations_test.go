@@ -68,23 +68,27 @@ func Test_liveDerivationsPackageTemplate(t *testing.T) {
 			},
 		},
 		{
-			name: "the views of an auth's generated management, recorded in the auth's handlers package: the declarations package qualifies the views and the auth's own tables, the resources package the application's",
+			name: "the resources of an auth's generated management, recorded in the auth's handlers package: the declarations package qualifies the views and the auth's own tables, the methods package the computed list, the resources package the application's tables",
 			data: &liveDerivationsPackageData{Source: `Auth("example.com/acme/beacon/pkg/auth/crew")`, Package: "crewhandlers", ResourcesQualifier: "resources.", Auth: "Crew", TypesQualifier: "crewresources.", Resources: []derivedResourceData{
 				{
-					Type:    "CrewShipUser",
-					Comment: "CrewShipUsers: the tables its query reads.",
-					Tables:  []sourceTableData{{Type: "CrewSessionUser", Own: true, Global: true}, {Type: "CrewUserRole", Own: true, Global: true}, {Type: "Ship", Global: true}},
+					Type:      "CrewShipUser",
+					Qualifier: "crewresources.",
+					Comment:   "CrewShipUsers: the tables its query reads.",
+					Tables:    []sourceTableData{{Type: "CrewSessionUser", Own: true, Global: true}, {Type: "CrewUserRole", Own: true, Global: true}, {Type: "Ship", Global: true}},
 				},
-				{Type: "CrewShipLog", Comment: "CrewShipLogs: the tables its query reads.", Root: "CrewUserRole", RootOwn: true},
+				{Type: "CrewShipLog", Qualifier: "crewresources.", Comment: "CrewShipLogs: the tables its query reads.", Root: "CrewUserRole", RootOwn: true},
+				{Type: "CrewSignInWay", Qualifier: "crewidentity.", Comment: "CrewSignInWays: the tables declared with @changedBy.", Global: true, Tables: []sourceTableData{{Type: "CrewSessionIdentity", Own: true, Global: true}, {Type: "CrewSessionUser", Own: true, Global: true}}},
 			}},
 			wantContains: []string{
 				"package crewhandlers",
-				"// LiveDerivations records, for each view the Crew auth's generated management\n",
+				"// LiveDerivations records, for each published resource the Crew auth's generated\n",
 				"{Resource: crewresources.CrewShipUser{}.Resource(), Tables: []live.SourceTable{",
 				"{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},",
 				"{Name: crewresources.CrewUserRole{}.Resource(), Global: true},",
 				"{Name: resources.Ship{}.Resource(), Global: true},",
 				"{Resource: crewresources.CrewShipLog{}.Resource(), Root: crewresources.CrewUserRole{}.Resource()},",
+				"{Resource: crewidentity.CrewSignInWay{}.Resource(), Global: true, Tables: []live.SourceTable{",
+				"{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},",
 			},
 		},
 	}
@@ -136,9 +140,9 @@ func Test_liveDerivationsTemplate(t *testing.T) {
 		},
 		{
 			name: "an auth's record among the values, which the comment names",
-			data: &liveDerivationsAssemblyData{Source: "pkg/resources", Package: "app", Values: []string{"crewhandlers.LiveDerivations", "virtualresources.LiveDerivations"}, AuthViews: true},
+			data: &liveDerivationsAssemblyData{Source: "pkg/resources", Package: "app", Values: []string{"crewhandlers.LiveDerivations", "virtualresources.LiveDerivations"}, AuthRecords: true},
 			wantContains: []string{
-				"and of every auth whose generated management declares views, generated in\n// the auth's handlers package,",
+				"and of every auth whose generated management declares published\n// resources of its own, generated in the auth's handlers package,",
 				"var liveDerivations = live.Merge(\n\tcrewhandlers.LiveDerivations,\n\tvirtualresources.LiveDerivations,\n)",
 			},
 		},
@@ -291,9 +295,10 @@ func Test_liveDerivationsByPackage_authTables(t *testing.T) {
 
 // Test_liveDerivationsByPackage_identityViews pins the entry of a view an auth's
 // generated management declares itself: its record is the auth's handlers package's, the
-// auth's own tables are named by type and marked as declared beside the view, the
-// application's by type, and nothing as text; a view there that reads another auth's
-// table is refused as a fault of the generator.
+// view is qualified by the auth's declarations package, the auth's own tables are named
+// by type and marked as declared beside the view, the application's by type, and nothing
+// as text; a view there that reads another auth's table is refused as a fault of the
+// generator.
 func Test_liveDerivationsByPackage_identityViews(t *testing.T) {
 	t.Parallel()
 
@@ -311,22 +316,22 @@ func Test_liveDerivationsByPackage_identityViews(t *testing.T) {
 		{
 			name:   "the root is the auth's own, the other table the application's",
 			owners: map[string]*identityInstance{"Berth": crew},
-			want:   derivedResourceData{Type: "Roster", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", RootOwn: true, Tables: []sourceTableData{{Type: "Dock", Global: true}}},
+			want:   derivedResourceData{Type: "Roster", Qualifier: "crewresources.", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", RootOwn: true, Tables: []sourceTableData{{Type: "Dock", Global: true}}},
 		},
 		{
 			name:   "both are the auth's own",
 			owners: map[string]*identityInstance{"Berth": crew, "Dock": crew},
-			want:   derivedResourceData{Type: "Roster", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", RootOwn: true, Tables: []sourceTableData{{Type: "Dock", Own: true, Global: true}}},
+			want:   derivedResourceData{Type: "Roster", Qualifier: "crewresources.", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", RootOwn: true, Tables: []sourceTableData{{Type: "Dock", Own: true, Global: true}}},
 		},
 		{
 			name:    "a table of another auth",
 			owners:  map[string]*identityInstance{"Berth": crew, "Dock": members},
-			wantErr: `struct Roster: a view of the generated management of Auth("example.com/acme/beacon/pkg/auth/crew") reads Docks, a table of Auth("example.com/acme/beacon/pkg/auth/members")`,
+			wantErr: `struct Roster: a resource of the generated management of Auth("example.com/acme/beacon/pkg/auth/crew") names Docks, a table of Auth("example.com/acme/beacon/pkg/auth/members")`,
 		},
 		{
 			name:    "a root of another auth",
 			owners:  map[string]*identityInstance{"Berth": members},
-			wantErr: `reads Berths, a table of Auth("example.com/acme/beacon/pkg/auth/members")`,
+			wantErr: `names Berths, a table of Auth("example.com/acme/beacon/pkg/auth/members")`,
 		},
 	}
 
@@ -364,6 +369,46 @@ func Test_liveDerivationsByPackage_identityViews(t *testing.T) {
 				t.Errorf("liveDerivationsByPackage() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Test_liveDerivationsByPackage_identityComputed pins the record of an auth whose
+// generated management declares both a view and a computed resource: the two entries
+// are in the one record of the auth's handlers package, each qualified by the package
+// that declares its struct, the view by the auth's declarations package and the
+// computed resource by the auth's methods package, and the auth's own table is named
+// by type in both.
+func Test_liveDerivationsByPackage_identityComputed(t *testing.T) {
+	t.Parallel()
+
+	loaded, parsed := loadFixturePackage(t, "changedbyfixture")
+	structs := fixtureStructs(parsed)
+	crew := &identityInstance{auth: "Crew", importPath: crewAuthPath, resources: "pkg/identity/internal/crewresources", methods: "pkg/identity/crewidentity", handlers: "pkg/identity/crewhandlers"}
+	c := changedByClient(loaded)
+	berth, dock := fixtureTable(t, structs, "Berth", "DockID", "Slot"), fixtureTable(t, structs, "Dock", "ID")
+	dock.identity = crew
+	c.resources = []*resourceInfo{berth, dock}
+	roster := fixtureVirtualPublished(t, structs, "Roster")
+	tally := fixtureComputedPublished(t, structs, "Tally")
+	if err := c.resolvePublished([]*resourceInfo{roster}, []*computedResource{tally}); err != nil {
+		t.Fatalf("resolvePublished() error = %v", err)
+	}
+	roster.identity, tally.identity = crew, crew
+	c.resources = append(c.resources, roster)
+	c.computedResources = []*computedResource{tally}
+	c.virtual = "pkg/virtualresources"
+	r := &resourceGenerator{client: c}
+
+	got, err := r.liveDerivationsByPackage()
+	if err != nil {
+		t.Fatalf("liveDerivationsByPackage() error = %v", err)
+	}
+	want := []derivationsPackage{{dir: "pkg/identity/crewhandlers", instance: crew, Resources: []derivedResourceData{
+		{Type: "Roster", Qualifier: "crewresources.", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", Tables: []sourceTableData{{Type: "Dock", Own: true, Global: true}}},
+		{Type: "Tally", Qualifier: "crewidentity.", Comment: "Tallies: the tables declared with @changedBy. The set also names Visits, which no resource backs: no write to it is published, so it is left out.", Global: true, Tables: []sourceTableData{{Type: "Dock", Own: true, Global: true}}},
+	}}}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(derivationsPackage{}, identityInstance{})); diff != "" {
+		t.Errorf("liveDerivationsByPackage() mismatch (-want +got):\n%s", diff)
 	}
 }
 

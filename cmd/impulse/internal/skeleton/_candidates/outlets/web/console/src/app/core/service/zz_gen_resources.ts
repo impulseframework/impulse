@@ -1130,7 +1130,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     computed: true,
-    live: false,
+    live: true,
     rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
@@ -1206,7 +1206,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     computed: true,
-    live: false,
+    live: true,
     rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
