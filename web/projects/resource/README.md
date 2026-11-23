@@ -946,8 +946,10 @@ in any case and spacing. A refusal the server answers with its words resolves as
 (`outcome: 'refused'`, the `status` and the `message`) rather than throwing, so a page renders it
 in place, and `isTokenRefusal(result)` tells it from the result: a name over 200 characters, a
 lifetime over the maximum or an outlet the application has not (400 on an issue); no live token
-of the person's by that id (404 on a revoke); no pending device code, the one sentence for an
-unknown, expired, decided or consumed code (404 on a look-up or a decision). A 401 or 403 is not
+of the person's by that id (404 on a revoke: "This token is already revoked or expired, or it does
+not exist."); no device waiting on the code, one sentence for an unknown, expired, decided or
+consumed code (404 on a look-up or a decision: "No device is waiting for this code. Check the
+code, or start again on the device."). A 401 or 403 is not
 a refusal: it throws as every request does, so the client's error hook sends the person to sign
 in.
 

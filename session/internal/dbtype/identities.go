@@ -58,12 +58,10 @@ func UnlinkKeepsSignIn(links []*SessionIdentity, unlinked impulse.UUID, signsIn 
 		others++
 	}
 	if others > 0 {
-		return httpio.NewConflictMessageWithError(ErrLastSignInMethod,
-			"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
-				"link a directory sign-in the login page offers first, or give the user a password")
+		return httpio.NewConflictMessageWithError(ErrLastSignInMethod, LastWorkingSignInIdentityMessage)
 	}
 
-	return httpio.NewConflictMessageWithError(ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+	return httpio.NewConflictMessageWithError(ErrLastSignInMethod, LastSignInIdentityMessage)
 }
 
 // ErrPasswordChanged is returned when a password write that follows a proof of the
@@ -120,7 +118,7 @@ func (p PasswordProof) Check(held PasswordProof) error {
 		return nil
 	}
 	if len(held) == 0 || subtle.ConstantTimeCompare(p, held) != 1 {
-		return httpio.NewConflictMessageWithError(ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
+		return httpio.NewConflictMessageWithError(ErrPasswordChanged, PasswordChangedMessage)
 	}
 
 	return nil

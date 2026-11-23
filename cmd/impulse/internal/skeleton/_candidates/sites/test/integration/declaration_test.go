@@ -221,7 +221,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) {
 		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q", status, body, opens)
 	}
-	if status, body := open("Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this tenant") {
+	if status, body := open("Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "Nobody is not a role of this tenant. Choose one of the roles the picker lists.") {
 		t.Errorf("opening north with a role it does not have: status %d, want 400 saying so: %s", status, body)
 	}
 	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].DefaultSeat != nil {

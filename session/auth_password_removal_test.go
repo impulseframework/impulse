@@ -93,7 +93,7 @@ func TestAuth_PasswordRemoval_linksThatSignIn(t *testing.T) {
 	// registration the page does not list, and a Workspace the registration does not name.
 	okta, unlisted, elsewhere := link(sessioninfo.MethodOIDC, "okta"), link(sessioninfo.MethodAzure, tenantOther), link(sessioninfo.MethodGoogle, "other")
 	lastMeans := func() error {
-		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "The password is the account's only way to sign in. Link a directory sign-in first.")
 	}
 
 	tests := []struct {
@@ -120,12 +120,12 @@ func TestAuth_PasswordRemoval_linksThatSignIn(t *testing.T) {
 			name:      "a person whose links all sign nobody in keeps the password",
 			links:     []*sessionstorage.SessionIdentity{okta, unlisted, elsewhere},
 			refused:   true,
-			wantAdmin: "none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first",
+			wantAdmin: "None of the sign-in identities linked to the account can sign in any more, so the password is its only way to sign in. Link a directory sign-in the login page offers first.",
 		},
 		{
 			name:      "a person with no link keeps the password",
 			refused:   true,
-			wantAdmin: "the user has no other means of sign-in: link a directory sign-in first",
+			wantAdmin: "The password is the account's only way to sign in. Link a directory sign-in first.",
 		},
 	}
 	for _, tt := range tests {

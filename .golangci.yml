@@ -214,6 +214,11 @@ linters:
       - dbtype.SessionNotFound(
       - dbtype.SignInIdentityNotFound(
       - dbtype.SignInIdentityNotLinked(
+      - dbtype.TokenNotFound(
+      - dbtype.RefreshTokenNotFound(
+      - dbtype.DeviceCodeNotPending(
+      - dbtype.DeviceCodeNotRedeemable(
+      - dbtype.MailLinkNotLive(
       - sessioninfo.ImpersonatorRefusal(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(

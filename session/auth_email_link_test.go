@@ -170,7 +170,7 @@ func authConfirmByLinkCase3(t *testing.T) {
 		c := newLinkCase(t, holding(strPtr("pat@lakeside.edu"), &hourAgo))
 		c.links.expectConfirmation(c.f, c.userID, "pat.lee@lakeside.edu", nil)
 		rr := h.follow(c.f, c.sessionID, c.mailed(t, h, "pat.lee@lakeside.edu", time.Now()))
-		if rr.Code != http.StatusNotFound || decoded(t, rr)["message"] != httpio.Message(errLinkDead()) {
+		if rr.Code != http.StatusNotFound || decoded(t, rr)["message"] != "That link has expired or was already used. Ask for a new one." {
 			t.Errorf("%s() answered NotFound by the store = %d %s, want 404 with the dead link's sentence", h.name, rr.Code, rr.Body.String())
 		}
 

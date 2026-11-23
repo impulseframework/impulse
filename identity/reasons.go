@@ -128,7 +128,7 @@ func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransactio
 	}
 	lasts, offered := length.Duration()
 	if !offered {
-		return httpio.NewBadRequestMessagef("a role is taken for %s, %s, %s or %s, and %q is none of them: a longer need is an ordinary role with an end, given from the people pages",
+		return httpio.NewBadRequestMessagef("A role is taken for %s, %s, %s or %s, and %q is none of them. A longer need is an ordinary role with an end, given from the people pages.",
 			TakeOneHour, TakeFourHours, TakeEightHours, TakeOneDay, string(length))
 	}
 	reason, err = access.ValidateReason(reason)
@@ -136,7 +136,7 @@ func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransactio
 		return errors.Wrap(err, "access.ValidateReason()")
 	}
 	if reason == "" {
-		return httpio.NewBadRequestMessage("say why you need the role: a role taken for a set time carries a reason, one line that the people it is taken with can read")
+		return httpio.NewBadRequestMessage("Say why you need the role. A role taken for a set time carries a reason, one line that the people it is taken with can read.")
 	}
 	if m.grants == nil {
 		return errors.New("a request takes a role and the manager holds no role grants to judge it by: build it with identity.WithRoleGrants, as the generated client does")
@@ -151,9 +151,12 @@ func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransactio
 		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 	}
 	if !may {
-		const said = "you may not give yourself the role %s there, so you cannot take it: someone who may give the role gives it to you"
+		const (
+			said  = "You may not give yourself the role %s there, so you cannot take it. Someone who may give the role gives it to you."
+			cause = "you may not give yourself the role %s there, so you cannot take it: someone who may give the role gives it to you"
+		)
 
-		return httpio.NewForbiddenMessageWithErrorf(errors.Newf(said, string(role)), said, roleInWords(role))
+		return httpio.NewForbiddenMessageWithErrorf(errors.Newf(cause, string(role)), said, roleInWords(role))
 	}
 	from := m.now().UTC().Truncate(time.Microsecond)
 	period := accesstypes.Period{Start: from, End: from.Add(lasts)}

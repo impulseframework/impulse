@@ -8,7 +8,6 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -174,7 +173,7 @@ func (s *SessionStorageDriver) MailLinkByToken(ctx context.Context, tokenHash []
 		return nil, err
 	}
 	if len(links) == 0 {
-		return nil, httpio.NewNotFoundMessage("no live mail link")
+		return nil, dbtype.MailLinkNotLive()
 	}
 
 	return links[0], nil
@@ -227,7 +226,7 @@ func (s *SessionStorageDriver) FailMailLink(ctx context.Context, id impulse.UUID
 		return s.endMailLinkIn(ctx, txn, mailLinkMailFailed, idColumn, id.String(), now)
 	})
 	if errors.Is(err, errMailLinkNotLive) {
-		return httpio.NewNotFoundMessage("no live mail link")
+		return dbtype.MailLinkNotLive()
 	}
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -243,7 +242,7 @@ func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, column strin
 		return s.consumeMailLinkIn(ctx, txn, column, value, now)
 	})
 	if errors.Is(err, errMailLinkNotLive) {
-		return httpio.NewNotFoundMessage("no live mail link")
+		return dbtype.MailLinkNotLive()
 	}
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -257,7 +256,7 @@ func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, column strin
 func (s *SessionStorageDriver) ConsumeMailLinkIn(ctx context.Context, tx *spanner.ReadWriteTransaction, id impulse.UUID, now time.Time) error {
 	if err := s.consumeMailLinkIn(ctx, tx, idColumn, id.String(), now); err != nil {
 		if errors.Is(err, errMailLinkNotLive) {
-			return httpio.NewNotFoundMessage("no live mail link")
+			return dbtype.MailLinkNotLive()
 		}
 
 		return err

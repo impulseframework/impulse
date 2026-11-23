@@ -103,9 +103,9 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "choose the default role"},
-		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "is never a default role"},
-		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "is not a role held for the whole application"},
+		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it."},
+		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "The Super administrator role is never a default role, because every person who signed up would administer the application. Choose another role."},
+		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "Nobody is not a role held for the whole application. Choose one of the roles the picker lists."},
 		{name: "a method the auth does not register", body: `{"name":"google","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
 	}
 	for _, call := range refused {

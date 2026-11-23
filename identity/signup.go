@@ -262,10 +262,13 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil, SelfServiceReset: false}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
-		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
+		return httpio.NewBadRequestMessagef(
+			"No default role is chosen here, because a person who signs up creates %s of their own and administers it. Send the request without a role.",
+			withArticle(m.tenantWord),
+		)
 	case open.CreatesTenant:
 	case open.DefaultRole == "":
-		return httpio.NewBadRequestMessage("choose the default role: each person who signs up is given one, so a sign-in method cannot be opened without it")
+		return httpio.NewBadRequestMessage("Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it.")
 	default:
 		if err := m.requireSignUpRole(ctx, txn, open.DefaultRole); err != nil {
 			return err
@@ -349,7 +352,7 @@ func (m *Manager) SetSelfServiceReset(ctx context.Context, txn resource.ReadWrit
 	defer span.End()
 
 	if !m.signsInWithPassword() {
-		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset.")
 	}
 	if err := m.store.SetSelfServiceReset(ctx, txn, string(sessioninfo.MethodPassword), on); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSelfServiceReset()")
@@ -373,10 +376,16 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 		return nil, signInMethodNotFound(m.auth, name, names)
 	}
 	if registered[i].SyncsRoles {
-		return nil, httpio.NewConflictMessagef("the sign-in method %q takes its roles from its directory, which decides who may sign in: it is neither opened to sign-up nor made invite only here", name)
+		return nil, httpio.NewConflictMessageWithError(
+			errors.Newf("the sign-in method %q takes its roles from its directory, which decides who may sign in: it is neither opened to sign-up nor made invite only here", name),
+			"This way to sign in takes its roles from its directory, which decides who may sign in. It is neither opened to sign-up nor made invite only here.",
+		)
 	}
 	if registered[i].OwnRule {
-		return nil, httpio.NewConflictMessagef("the sign-in method %q is decided by the application's own account rule: it is neither opened to sign-up nor made invite only here", name)
+		return nil, httpio.NewConflictMessageWithError(
+			errors.Newf("the sign-in method %q is decided by the application's own account rule: it is neither opened to sign-up nor made invite only here", name),
+			"This way to sign in is decided by the application's own account rule. It is neither opened to sign-up nor made invite only here.",
+		)
 	}
 
 	return &registered[i], nil
@@ -401,9 +410,12 @@ func signUpRoleNotGiven(role accesstypes.Role) string {
 // tells nobody anything.
 func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
-		const said = "the %s role is never a default role: every person who signed up would administer the application; choose another role"
+		const (
+			said  = "The %s role is never a default role, because every person who signed up would administer the application. Choose another role."
+			cause = "the %s role is never a default role: every person who signed up would administer the application; choose another role"
+		)
 
-		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role)), said, roleInWords(role))
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role)), said, roleInWords(role))
 	}
 	may, err := m.mayGiveBySignUp(ctx, txn, role)
 	if err != nil {
@@ -422,9 +434,12 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if !exists {
-		const said = "%q is not a role held for the whole application: choose one of the roles the picker lists"
+		const (
+			said  = "%s is not a role held for the whole application. Choose one of the roles the picker lists."
+			cause = "%q is not a role held for the whole application: choose one of the roles the picker lists"
+		)
 
-		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role)), said, roleInWords(role))
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role)), said, roleInWords(role))
 	}
 
 	return nil

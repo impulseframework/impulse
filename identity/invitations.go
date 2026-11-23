@@ -81,11 +81,11 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 
 	email := strings.TrimSpace(inv.Email)
 	if email == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("an address is required: the invitation is mailed to it")
+		return impulse.NilUUID, httpio.NewBadRequestMessage("The invitation has no email address. Give the address to mail it to.")
 	}
 	roles := distinctRoles(inv.Roles)
 	if len(roles) == 0 {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: the roles are what the invitation gives")
+		return impulse.NilUUID, httpio.NewBadRequestMessage("The invitation names no role. Choose at least one role for it to give.")
 	}
 	req := &session.InvitationRequest{
 		Email: email, Name: "", TenantID: "", EveryTenant: inv.EveryDomain, RoleNames: make([]string, 0, len(roles)), NewTenant: nil,
@@ -202,18 +202,24 @@ func (m *Manager) refuseAbsentRole(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 		if inTenants {
-			const held = "%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s"
+			const (
+				held  = "The role %s is held in %s, and this invitation names none. Choose the %s it is for, or every %s."
+				cause = "%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s"
+			)
 
 			return httpio.NewBadRequestMessageWithErrorf(
-				errors.Newf(held, role, m.tenantWord, m.tenantWord, m.tenantWord),
-				held, roleInWords(role), m.tenantWord, m.tenantWord, m.tenantWord,
+				errors.Newf(cause, role, m.tenantWord, m.tenantWord, m.tenantWord),
+				held, roleInWords(role), withArticle(m.tenantWord), m.tenantWord, m.tenantWord,
 			)
 		}
 	}
 
-	const said = "role %q does not exist where the invitation gives it"
+	const (
+		said  = "The role %s does not exist where the invitation gives it. Choose one of the roles the picker lists."
+		cause = "role %q does not exist where the invitation gives it"
+	)
 
-	return httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, role), said, roleInWords(role))
+	return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, role), said, roleInWords(role))
 }
 
 // roleExistsIn reports whether the role exists in one of the scopes, by the rule a

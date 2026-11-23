@@ -35,9 +35,9 @@ func ValidateReason(reason string) (string, error) {
 	reason = strings.TrimSpace(reason)
 	switch {
 	case utf8.RuneCountInString(reason) > MaxReason:
-		return "", httpio.NewBadRequestMessagef("the reason is longer than %d characters: say it in one line", MaxReason)
+		return "", httpio.NewBadRequestMessagef("The reason is longer than %d characters. Say it in one line.", MaxReason)
 	case strings.ContainsFunc(reason, unicode.IsControl):
-		return "", httpio.NewBadRequestMessage("the reason is one line of plain text, and this one holds a line break or a character that cannot be shown: type it again as one line")
+		return "", httpio.NewBadRequestMessage("The reason is one line of plain text, and this one holds a line break or a character that cannot be shown. Type it again as one line.")
 	}
 
 	return reason, nil

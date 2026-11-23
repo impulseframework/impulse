@@ -257,7 +257,7 @@ func TestGeneratedIdentityPeriods(t *testing.T) {
 		status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role",
 			periodBody(t, map[string]any{"userId": w.ids["di"], "role": string(accesstypes.SuperAdministrator)}, period.Start, period.End))
 		assertStatus(t, status, http.StatusBadRequest, body)
-		if !strings.Contains(string(body), "takes no end and no start") {
+		if !strings.Contains(string(body), "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted.") {
 			t.Errorf("the refusal of a period on the Super Administrator role = %s, want it to say the role takes none", body)
 		}
 	}

@@ -151,7 +151,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 			return nil
 		})
 		refused(t, "an invitation into Bastion for the address of a person of Anvil", err)
-		if !strings.Contains(httpio.Message(err), "an account already holds the address "+odellAddress) {
+		if want := "An account already holds the address " + odellAddress + " and belongs to another sector, and a person belongs to one sector here. The invitation is not sent."; httpio.Message(err) != want {
 			t.Errorf("the refusal %q does not tell the sender the address has an account", httpio.Message(err))
 		}
 		if after := countRowsOf(ctx, t, s, "CrewSessionMailLinks", "Email", odellAddress); after != linksBefore {
@@ -305,7 +305,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			return (&crewidentity.RemoveCrewRole{UserID: staffID, Role: "ClientBrowser"}).Execute(ctx, txn, strict)
 		})
-		if !httpio.HasConflict(err) || !strings.Contains(httpio.Message(err), "holds roles in more than one tenant") {
+		if !httpio.HasConflict(err) || httpio.Message(err) != "This account holds roles in more than one sector, which only a person who also holds a role for the whole application or in every sector may. Take the roles in all but one sector away first." {
 			t.Fatalf("taking the only role outside the sectors from a person of two sectors: error = %v, want a Conflict that says so", err)
 		}
 		for _, sector := range []string{anvil, bastion, "anvil", "bastion"} {

@@ -53,14 +53,14 @@ func TestManager_DirectoryRole(t *testing.T) {
 		},
 		{
 			name: "a role the caller could give that the tenant does not hold is refused", role: "Steward",
-			wantBadRequest: `"Steward" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Steward"},
+			wantBadRequest: "Steward is not a role of this tenant. Choose one of the roles the picker lists.", wantAsked: []string{"give domain/alpha " + nobody + " Steward"},
 		},
 		{
 			name: "a role that exists nowhere is refused", role: "NightShiftLead",
-			wantBadRequest: `"Night shift lead" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " NightShiftLead"},
+			wantBadRequest: "Night shift lead is not a role of this tenant. Choose one of the roles the picker lists.", wantAsked: []string{"give domain/alpha " + nobody + " NightShiftLead"},
 		},
 		{name: "a call outside any request is the application's own act, held to the role's existence alone", role: "Warden", outside: true},
-		{name: "and still refuses a role the tenant does not hold", role: "Steward", outside: true, wantBadRequest: `"Steward" is not a role of this tenant`},
+		{name: "and still refuses a role the tenant does not hold", role: "Steward", outside: true, wantBadRequest: "Steward is not a role of this tenant. Choose one of the roles the picker lists."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestManager_DirectoryRole(t *testing.T) {
 			})
 			switch {
 			case tt.wantBadRequest != "":
-				if !httpio.HasBadRequest(err) || !strings.Contains(httpio.Message(err), tt.wantBadRequest) {
+				if !httpio.HasBadRequest(err) || httpio.Message(err) != tt.wantBadRequest {
 					t.Fatalf("DirectoryRole() error = %v, want a BadRequest saying %q", err, tt.wantBadRequest)
 				}
 			case tt.wantForbidden != "":
