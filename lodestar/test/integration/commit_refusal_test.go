@@ -14,7 +14,9 @@ package integration
 // request makes, by the sentence covering both causes. A squadron and the one mission
 // assigned to it, deleted in one transaction, succeed in either order: the squadron declares
 // nothing, so its count runs once the request's deletes are buffered and leaves the mission
-// out. A refit task created under a task number the refit already holds (a
+// out. A wing declares its delete, so it is judged as the delete is buffered: deleted ahead of
+// the one mission assigned to its squadron, in one request, it is refused, and nothing is
+// deleted. A refit task created under a task number the refit already holds (a
 // client-supplied compound key) and a ship created under a seeded registry (ShipsByRegistry)
 // are the duplicate-key and duplicate-unique-value refusals on a create (409); a client renamed
 // to another client's name is the duplicate unique value on an update (409); a client updated
@@ -26,8 +28,10 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
@@ -45,8 +49,26 @@ func TestCommitRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Wing Ward, written here, has one squadron, and the one mission assigned to it.
+	const (
+		wingWardID     = "40000000-0000-4000-8000-0000000000c1"
+		squadronWardID = "50000000-0000-4000-8000-0000000000c1"
+		missionWardID  = "80000000-0000-4000-8000-0000000000c1"
+	)
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.Insert("Wings", []string{"Id", "SectorId", "Name"}, []any{wingWardID, anvil, "Ward Wing"}),
+		spanner.Insert("Squadrons", []string{"Id", "WingId", "Name"}, []any{squadronWardID, wingWardID, "Ward"}),
+		spanner.InsertMap("Missions", map[string]any{
+			"Id": missionWardID, "SectorId": anvil, "ClientId": clientHalvardID, "KindId": "courier", "Title": "Ward run", "Hazard": 1, "Fee": *big.NewRat(100, 1),
+			"Deadline": time.Now().Add(24 * time.Hour), "BookedByUserId": "f0000000-0000-4000-8000-000000000004", "BookedByName": "marshal", "StatusId": "stood_down",
+			"AssignedSquadronId": squadronWardID,
+		}),
+	}); err != nil {
+		t.Fatalf("spanner.Apply(): %v", err)
+	}
+
 	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Squadrons", missionsResource},
+		accesstypes.Delete: {"Wings", "Squadrons", missionsResource},
 		accesstypes.Create: append(
 			append(
 				withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
@@ -189,6 +211,25 @@ func TestCommitRefusal(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("a wing deleted ahead of the mission assigned to its squadron, in one transaction, is refused", func(t *testing.T) {
+		t.Parallel()
+
+		wing := fmt.Sprintf(`{"op":"remove","path":%q,"value":{"everythingUnder":true}}`, opPath(anvil, "wings/"+wingWardID))
+		status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+wing+","+remove("missions/"+missionWardID)+"]")
+		assertStatus(t, status, http.StatusConflict, body)
+		if got, want := refusalMessage(t, body), "This wing has records under it that you can't see, so it can't be deleted."; got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+		for _, row := range [][2]string{{"Wings", wingWardID}, {"Squadrons", squadronWardID}, {"Missions", missionWardID}} {
+			switch _, err := db.Single().ReadRow(ctx, row[0], spanner.Key{row[1]}, []string{"Id"}); {
+			case spanner.ErrCode(err) == codes.NotFound:
+				t.Errorf("%s %s is gone after the refused delete", row[0], row[1])
+			case err != nil:
+				t.Fatalf("ReadRow(%s, %s): %v", row[0], row[1], err)
+			}
+		}
+	})
 }
 
 // TestDeleteAlone_refusesWhatTheCallerMayNotTake pins a hangar's delete by a caller who may

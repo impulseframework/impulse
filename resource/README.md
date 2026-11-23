@@ -1982,8 +1982,11 @@ Two consequences to know:
 The tenancy check's 404 for a referenced row outside the request's partition, and the 404
 a tenanted or tracked update answers when its row is missing, are unchanged; they run before
 the commit, so the same request answers 404 whatever the resource's shape. A request that
-deletes children and their parent in one transaction still succeeds in either order,
-because nothing is checked before the commit.
+deletes children and their parent in one transaction still succeeds in either order where
+the parent declares no `@deleteCascade`: its count runs once the transaction's function has
+returned and leaves out the rows the request deleted. A record that declares one is judged
+as its delete is buffered, so a row that refuses it (`refusedBy`) is deleted ahead of it in
+the request.
 
 ## 11. Value limits from the schema
 
