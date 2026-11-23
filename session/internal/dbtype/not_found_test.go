@@ -21,7 +21,8 @@ func TestNotFound(t *testing.T) {
 		name     string
 		err      error
 		sentence string
-		// kept is what was asked for: in the cause, and not in the message.
+		// kept is in the cause, and not in the message: what was asked for, or the store's
+		// own words for what is missing.
 		kept []string
 	}{
 		{name: "an account", err: AccountNotFound(id), sentence: "This account does not exist.", kept: []string{id.String()}},
@@ -33,6 +34,14 @@ func TestNotFound(t *testing.T) {
 			name: "a sign-in identity that is linked to no account", err: SignInIdentityNotLinked(sessioninfo.MethodWorkOS, "conn_lakeside", "subject-41"),
 			sentence: "This sign-in identity is not linked to an account.", kept: []string{string(sessioninfo.MethodWorkOS), "conn_lakeside", "subject-41"},
 		},
+		{name: "a token", err: TokenNotFound(), sentence: "This token is already revoked or expired, or it does not exist.", kept: []string{"no live token"}},
+		{name: "a refresh token", err: RefreshTokenNotFound(), sentence: "This refresh token is no longer valid. Sign in again.", kept: []string{"no live refresh token"}},
+		{name: "a device code no device is waiting on", err: DeviceCodeNotPending(), sentence: "No device is waiting for this code. Check the code, or start again on the device.", kept: []string{"no pending device code"}},
+		{
+			name: "a device code that cannot be redeemed", err: DeviceCodeNotRedeemable(),
+			sentence: "This device code is unknown or was already used. Start again on the device.", kept: []string{"no device code to redeem"},
+		},
+		{name: "a mailed link", err: MailLinkNotLive(), sentence: "That link has expired or was already used. Ask for a new one.", kept: []string{"no live mail link"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
