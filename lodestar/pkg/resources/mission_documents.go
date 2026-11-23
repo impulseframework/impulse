@@ -31,11 +31,9 @@ type (
 	// streams to it, and the generated setter of such a column takes the typed key, so
 	// a key minted for the default store does not compile into a document row.
 	//
-	// A document also goes with its mission, by the delete rule on its way to the
-	// sector: a mission deleted by patch, or a sector deleted with its missions, has the
-	// database remove the documents' rows, and a row removed that way releases nothing.
-	// Its stored file is the orphaned-file cleanup's (cmd/jobs cleanup-files), which
-	// `go run ./cmd/generate/resourcegenerator -audit` says of this table.
+	// A document also goes with its mission, in code: the mission's delete
+	// (Mission's @deleteCascade) and its sector's take each document through its own
+	// delete, so its stored file is released after the commit like any other.
 	//
 	// Demonstrates: filestore.named, @file.typed.
 	Documents struct{ resource.Store }

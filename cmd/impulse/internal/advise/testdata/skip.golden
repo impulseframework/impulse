@@ -47,12 +47,6 @@ A line's kind is told by its wording. The reading is impulse's and fixed; the qu
 
 *Edits on offer:* the `@resource` struct and the `@enumerate` removal (and the code that used its constants); or the pinned acceptance for a list that is fixed and merely long.
 
-**Cascade release finding** (`Audit: <Resource> stores files on <Table>, whose rows the database deletes by cascade ...`). A resource stores files on a table whose rows the database deletes by cascade (`ON DELETE CASCADE` on an interleave or a foreign key). Those rows never pass through the patch machinery, so the release of their objects at commit never runs for them; the application's sweep removes the objects later. An application that cares deletes the rows by patch before deleting the parent.
-
-*Question:* Whether that is acceptable for this table: how long objects may linger after their rows are gone, what they cost meanwhile, and whether anything reads them in between.
-
-*Edits on offer:* a delete-by-patch of the child rows before the parent in the code path that deletes parents; or the schema change that drops the cascade; or acceptance, which nothing pins, said so in the resource's doc.
-
 **Grant warning (a role warning, pinned in the deploy test)** (`role <Role>: <Permission> on <Resource> is granted under "<condition>" without Read or List on <Row> ...`). A role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List. A caller holding the role learns from a Forbidden answer that the row exists, where a read would have answered NotFound. Granting Read or List on the row resource in this role, or in a role assigned with it, closes it; a Read whose condition is narrower than the write's leaks the same way.
 
 *Question:* Whether the disclosure is intended: whether the row's existence is sensitive to this role, or the role is a writer who knows the rows anyway.

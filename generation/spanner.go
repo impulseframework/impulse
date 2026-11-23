@@ -218,10 +218,7 @@ const tableMapQuery string = `WITH DEPENDENCIES AS (
 			WHEN 1 THEN MAX(kcu4.COLUMN_NAME)
 			WHEN 2 THEN MAX(kcu2.COLUMN_NAME)
 			ELSE NULL
-			END) AS REFERENCED_COLUMN,
-			-- The delete rule of the column's foreign key, NULL on a key column with none; a
-			-- column in two foreign keys reads CASCADE when either cascades (MIN sorts it first).
-			MIN(rc.DELETE_RULE) AS DELETE_RULE
+			END) AS REFERENCED_COLUMN
 		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu1 -- All columns that are Primary Key or Foreign Key
 		JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON tc.CONSTRAINT_NAME = kcu1.CONSTRAINT_NAME -- Identify whether column is Primary Key or Foreign Key
 		-- All unique constraints (e.g. PK_Persons) referenced by foreign key constraints (e.g. FK_PersonPhones_PersonId)
@@ -247,7 +244,6 @@ const tableMapQuery string = `WITH DEPENDENCIES AS (
 		(d.IS_FOREIGN_KEY > 0 and d.IS_FOREIGN_KEY IS NOT NULL) as IS_FOREIGN_KEY,
 		d.REFERENCED_TABLE,
 		d.REFERENCED_COLUMN,
-		d.DELETE_RULE,
 		c.GENERATION_EXPRESSION,
 		c.ORDINAL_POSITION,
 		COALESCE(d.KEY_ORDINAL_POSITION, 1) AS KEY_ORDINAL_POSITION,

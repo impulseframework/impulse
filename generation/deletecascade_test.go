@@ -600,7 +600,7 @@ func Test_deleteCascade_refusals(t *testing.T) {
 // table's own Id.
 func underItsOwnKind(c *client, table, column string) {
 	meta := c.tableMap[table]
-	meta.Columns[column] = columnMeta{IsForeignKey: true, IsNullable: true, ReferencedTable: table, ReferencedColumn: "Id", DeleteRule: "NO ACTION", OrdinalPosition: 9}
+	meta.Columns[column] = columnMeta{IsForeignKey: true, IsNullable: true, ReferencedTable: table, ReferencedColumn: "Id", OrdinalPosition: 9}
 	meta.ForeignKeys = append(meta.ForeignKeys, foreignKeyMeta{Name: "FK_" + column, Columns: []string{column}, ReferencedTable: table, ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"})
 }
 

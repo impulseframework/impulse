@@ -89,7 +89,7 @@ func TestResetDevelopmentData(t *testing.T) {
 	}{
 		{name: "the demo world is emptied", table: "Missions", column: "Id", wantEmpty: true},
 		{name: "the tenants are emptied", table: "Sectors", column: "Id", wantEmpty: true},
-		{name: "an interleaved child on cascade is emptied with its parent", table: "RefitTasks", column: "Id", wantEmpty: true},
+		{name: "an interleaved child is emptied before its parent", table: "RefitTasks", column: "Id", wantEmpty: true},
 		{name: "a foreign-key parent is emptied after its children", table: "Clients", column: "Id", wantEmpty: true},
 		{name: "a custom role's grant, the interleaved child on cascade, is emptied first", table: "CrewRoleGrants", column: "Role", wantEmpty: true},
 		{name: "then the custom role it hung under", table: "CrewRoles", column: "Role", wantEmpty: true},

@@ -52,7 +52,18 @@ func (Ship) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
 					},
 				},
-				RemovedWith: []string{"Sectors"},
+			},
+			{
+				Resource: "Refits",
+				Words:    resource.DeleteWords{One: "refit", Many: "refits"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+					},
+				},
 			},
 			{
 				Resource: "Sorties",
@@ -65,7 +76,6 @@ func (Ship) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
 					},
 				},
-				RemovedWith: []string{"Missions", "Sectors"},
 			},
 		},
 	}
