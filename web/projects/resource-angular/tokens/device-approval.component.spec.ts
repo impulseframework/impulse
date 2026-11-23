@@ -193,10 +193,7 @@ describe('DeviceApprovalComponent decides', () => {
   });
 
   it('says no request waits when the decision is refused, the request having expired meanwhile, and asks for a code again', async () => {
-    const page = await pageOver(
-      { approve: { status: 404, body: { message: noDevice } } },
-      { input: 'BCDF-GHJK' },
-    );
+    const page = await pageOver({ approve: { status: 404, body: { message: noDevice } } }, { input: 'BCDF-GHJK' });
     await page.component.approve();
     await page.settle();
     expect(textOf(page.element.querySelector('.impulse-device-refused'))).toBe(noRequestSentence);
@@ -218,10 +215,7 @@ describe('DeviceApprovalComponent decides', () => {
 
 describe('DeviceApprovalComponent looks a code up', () => {
   it('says no request waits for a code the server refuses, with the form again, the code kept for correction', async () => {
-    const page = await pageOver(
-      { device: { status: 404, body: { message: noDevice } } },
-      { input: 'BCDF-GHJK' },
-    );
+    const page = await pageOver({ device: { status: 404, body: { message: noDevice } } }, { input: 'BCDF-GHJK' });
     expect(textOf(page.element.querySelector('.impulse-device-refused'))).toBe(
       'No request is waiting for that code. It may have expired or was already answered.',
     );
