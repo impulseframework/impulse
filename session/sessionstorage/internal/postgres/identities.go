@@ -234,7 +234,7 @@ func (s *SessionStorageDriver) InsertUserIn(ctx context.Context, tx pgx.Tx, user
 }
 
 // InsertSessionIn inserts the session row, its auth events and its custom session data
-// for a resolved request, inside tx.
+// for a resolved request, inside tx, and then removes the sessions idle more than 30 days.
 func (s *SessionStorageDriver) InsertSessionIn(ctx context.Context, tx pgx.Tx, id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) error {
 	if req.CustomData != nil && s.customData == nil {
 		return errors.New("custom session data provided but no custom session data config is attached")
@@ -264,6 +264,31 @@ func (s *SessionStorageDriver) InsertSessionIn(ctx context.Context, tx pgx.Tx, i
 		if err := s.insertCustomSessionData(ctx, tx, id, data, false); err != nil {
 			return err
 		}
+	}
+
+	return s.removeIdleSessions(ctx, tx)
+}
+
+// removeIdleSessions removes, inside a savepoint of tx, the sessions idle more than 30
+// days, with their auth events and custom session data by the foreign keys' cascade: a
+// session in use is never among them, since every request it serves moves UpdatedAt. It
+// is the last thing a sign-in writes. A removal that fails is rolled back to the
+// savepoint and logged, and the sign-in goes on; a savepoint that cannot be opened,
+// released or rolled back leaves tx unusable and is the sign-in's error.
+func (s *SessionStorageDriver) removeIdleSessions(ctx context.Context, tx pgx.Tx) error {
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "pgx.Tx.Begin()")
+	}
+	if !sessionsRemoval.remove(ctx, savepoint, s.sessionTable()) {
+		if err := savepoint.Rollback(ctx); err != nil {
+			return errors.Wrap(err, "pgx.Tx.Rollback()")
+		}
+
+		return nil
+	}
+	if err := savepoint.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil
