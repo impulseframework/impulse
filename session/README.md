@@ -305,7 +305,12 @@ DML what a later rule must read.
     password who already signs in through an identity is linked no second one on the
     name, on the same connection or another (see "Never a second identity on a name
     alone" below).
-    An address a user holds unverified is a reservation, not a match.
+    An address a user holds unverified is a reservation, not a match: the identity is
+    not linked to that user, and where the sign-in would make a new account beside it,
+    it is refused (`address_held_unconfirmed`, or `address_held_no_password` where that
+    user has no password), since the user may be the person. They sign in to that
+    account with its password, the code mailed to the address confirms it, and the same
+    sign-in then finds the account.
     The rule asks what the Auth registers. On an Auth with no password method nobody
     can enter a password, so a password a user holds there (one the API set, or one
     kept from a release that registered the method) asks for no confirmation: the user
@@ -2046,7 +2051,8 @@ How an address gets onto a user:
   and links nothing. An account made ahead under the address as its sign-in name,
   beside the account that holds the address, is reached so, and an administrator
   settles which is the person's by removing the duplicate account or its sign-in name.
-  An address another user holds unconfirmed refuses nobody, and neither does a
+  An address another user holds unconfirmed refuses no sign-in to an account the person
+  already has (it refuses only the making of a second account, above), and neither does a
   registration that holds no sign-in for an address (the point above). No other method's
   word is kept, whatever it puts in `Identity.EmailVerified` and whatever it is
   named: the people who run a provider can mark any address verified, so an Entra
@@ -3427,6 +3433,8 @@ table is the wire contract:
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, a sign-in whose method vouches for its address reached a user who holds no verified address while another user holds that address verified, or the identity resolved to another user than it waited on. |
+| `address_held_unconfirmed` | `RefusedAddressHeldUnconfirmed` | Auth: the sign-in would make a new account, its method vouches for its address, and an account with a password holds that address unconfirmed. Nothing is written; the person signs in to that account with its password and the mailed code confirms the address. |
+| `address_held_no_password` | `RefusedAddressHeldNoPassword` | Auth: the same, where the account that holds the address has no password to sign in with. Nothing is written; an administrator settles it. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. It is also the answer to a sign-in code mailed for an invitation, and to the sign-in that entered it, once that invitation was used, withdrawn or ran out: the code accepts nothing. |

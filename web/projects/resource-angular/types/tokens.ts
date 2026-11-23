@@ -234,6 +234,12 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   personal_account: 'Personal Microsoft accounts cannot sign in here. Use your work or school account.',
   organization_mismatch: 'This account belongs to a different organization than the one you signed in through.',
   identity_rejected: 'This account could not be matched to a user of this application.',
+  // A sign-in that would make a new account proves an address an account here holds unconfirmed: no second account is made.
+  address_held_unconfirmed:
+    'An account here already has this email address and has not confirmed it. Sign in to that account with its password and enter the code we email you. After that you can sign in this way too.',
+  // The same, where that account has no password to sign in with.
+  address_held_no_password:
+    'An account here already has this email address and has not confirmed it. Ask your administrator for help.',
   not_invited: 'This account has not been invited to this application.',
   // The login page names the invited address itself while the invitation stands; this is the sentence without it.
   invitation_address: 'This invitation is for another account. Sign in with the account it was sent to.',

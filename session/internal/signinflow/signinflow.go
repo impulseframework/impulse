@@ -488,11 +488,12 @@ func provenAddress(req *sessioninfo.NewSessionRequest, confirm bool) string {
 // the sign-in has shown none. The address the method verified for the identity
 // (Identity.EmailVerified: Google alone does, and only for a Gmail address or a
 // Workspace account's; no other method's word counts) counts for the user who holds
-// it verified, and one a user holds unverified matches no one. Or else the address is
-// proven, the invited address whose mailed code the sign-in entered, and it counts for
-// the user who holds it, confirmed or not: an address an administrator entered is kept
-// for its account, the invitation mailed to it is that account's own (ownInvitation),
-// and the code is what confirms it.
+// it verified, and one a user holds unverified matches no one. A sign-in that would
+// make a new account beside such a user is refused when the account is made
+// (provisionUser). Or else the address is proven, the invited address whose mailed code
+// the sign-in entered, and it counts for the user who holds it, confirmed or not: an
+// address an administrator entered is kept for its account, the invitation mailed to it
+// is that account's own (ownInvitation), and the code is what confirms it.
 //
 // It is what finds the account a person already has (preCreatedUser) and what keeps a
 // second account from being made for them (addressHeld). It is not what links a second
@@ -2171,7 +2172,8 @@ func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
 // code the sign-in entered. A person is one user whichever way they sign in, and an
 // address counts once the person has proven it: an address the method did not verify
 // matches no one, and neither does one the method verified that a user holds
-// unverified. nil when there is neither.
+// unverified. A sign-in that would make a new account beside such a user is refused
+// when the account is made (provisionUser). nil when there is neither.
 func preCreatedUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity, proven string) (*dbtype.User, error) {
 	user, err := d.UserByUsernameIn(ctx, tx, identity.SignInName)
 	if err != nil {
@@ -2213,7 +2215,7 @@ func applyResolution[Tx any](
 
 		return sessioninfo.UserNewLink, res.Tenant(), live, nil, nil
 	case signin.ProvisionUser:
-		live, stop, err = provisionUser(ctx, d, tx, req, res, decided.byInvitation, provenAddress(req, rules.ConfirmAddress))
+		live, stop, err = provisionUser(ctx, d, tx, req, res, decided.byInvitation, provenAddress(req, rules.ConfirmAddress), rules.NoPassword)
 		if err != nil || stop != nil {
 			return "", "", false, stop, err
 		}
@@ -2615,13 +2617,14 @@ func notInvitedRefusal() error {
 // provisionUser writes the user the rule provisioned (signin.ProvisionUser), linked to
 // the identity, and runs the rule's OnProvisioned. A sign-in whose known address (the
 // identity's verified one, or proven, the invited address whose mailed code it entered)
-// another user holds verified is refused instead (stop; see addressHeld). The
-// invitation the sign-in carries is consumed before the row is written, so a dead one
-// gives the new user nothing, not its address and not its grant, and a live one's
-// address goes on the row (invitedAddress); a user provisioned disabled cannot accept
-// and consumes nothing.
+// another user holds verified is refused instead (stop; see addressHeld), and so is one
+// whose verified address a user holds unconfirmed (heldUnconfirmed, which noPassword,
+// the rules' NoPassword, words). The invitation the sign-in carries is consumed before
+// the row is written, so a dead one gives the new user nothing, not its address and not
+// its grant, and a live one's address goes on the row (invitedAddress); a user
+// provisioned disabled cannot accept and consumes nothing.
 func provisionUser[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool, proven string,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool, proven string, noPassword bool,
 ) (live bool, stop, err error) {
 	newUser := res.NewUser()
 	if newUser == nil {
@@ -2631,6 +2634,9 @@ func provisionUser[Tx any](
 		return false, stop, nil
 	}
 	if stop, err = addressHeld(ctx, d, tx, req.Identity, proven); err != nil || stop != nil {
+		return false, stop, err
+	}
+	if stop, err = heldUnconfirmed(ctx, d, tx, req.Identity, noPassword); err != nil || stop != nil {
 		return false, stop, err
 	}
 	req.Username = newUser.Username
@@ -2676,8 +2682,8 @@ func provisionUser[Tx any](
 // make a second user for one person, and one without an address, since the address is
 // held. The refusal is identity_rejected with signin.ErrEmailHeld as its cause, which
 // names the holder for the log. An address the method did not verify holds nothing
-// against the provisioning, and neither does one it verified that a user holds
-// unverified.
+// against the provisioning. One it verified that a user holds unverified is refused by
+// the check that follows (heldUnconfirmed), in words of its own.
 func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity, proven string) (stop, err error) {
 	holder, address, err := knownHolder(ctx, d, tx, identity, proven)
 	if err != nil || holder == nil {
@@ -2686,6 +2692,40 @@ func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *ses
 	cause := fmt.Errorf("%w: the address %s belongs to user %s (%s)", signin.ErrEmailHeld, address, holder.Username, holder.ID)
 
 	return Refusal("", sessioninfo.RefusedIdentityRejected, cause, "identity rejected"), nil
+}
+
+// heldUnconfirmed refuses the provisioning of a new user for a sign-in whose method
+// vouches for its address (Identity.EmailVerified) where a user holds that address
+// unconfirmed: that user may be the person, and a second user made beside it would hold
+// no address and none of its roles. It is asked after addressHeld, which has found no
+// user who holds the address verified, so the holder Driver.UserByEmailIn finds holds
+// it unconfirmed. The identity is not linked to the holder either: whoever typed the
+// address there may know that account's password. The refusal says what to do: the
+// person signs in to that account with its password, the code mailed to the address
+// confirms it, and the same sign-in then finds the account (address_held_unconfirmed);
+// where the holder has no password, or the Auth registers no password method
+// (noPassword), so a password counts for nothing, an administrator settles it
+// (address_held_no_password). The cause, signin.ErrEmailHeldUnconfirmed, names the
+// address and the holder for the log. An address the method does not vouch for
+// refuses nobody here.
+func heldUnconfirmed[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity, noPassword bool) (stop, err error) {
+	if !identity.EmailVerified || identity.Email == "" {
+		return nil, nil
+	}
+	holder, err := d.UserByEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
+	}
+	if holder == nil {
+		return nil, nil
+	}
+	cause := fmt.Errorf("%w: the address %s is held, unconfirmed, by user %s (%s)", signin.ErrEmailHeldUnconfirmed, identity.Email, holder.Username, holder.ID)
+	code := sessioninfo.RefusedAddressHeldUnconfirmed
+	if noPassword || !holder.HasPassword {
+		code = sessioninfo.RefusedAddressHeldNoPassword
+	}
+
+	return Refusal("", code, cause, "the address this sign-in proves is held, unconfirmed, by an account"), nil
 }
 
 // invitedAddress gives a user provisioned by a sign-in that carries a live invitation

@@ -444,7 +444,8 @@ var (
 	// sign-in name, beside the user who holds the address, is reached so. Which of the
 	// two is the person's account is an administrator's to settle, by removing the
 	// duplicate account or its sign-in name, so the sign-in is refused and nothing is
-	// linked. An address another user holds unconfirmed refuses nobody. The code is
+	// linked. An address another user holds unconfirmed refuses nobody here; it refuses
+	// the making of a new user (ErrEmailHeldUnconfirmed). The code is
 	// sessioninfo.RefusedIdentityRejected.
 	ErrAddressHeldByAnother = errors.New(
 		"signin: the address the method vouches for is held, confirmed, by another user than the one the sign-in reached, who holds no confirmed address")
@@ -454,6 +455,17 @@ var (
 	// it provisions, so the sign-in is refused rather than a second user made for one
 	// person. The code is sessioninfo.RefusedIdentityRejected.
 	ErrEmailHeld = errors.New("signin: the identity's verified email address belongs to another user")
+	// ErrEmailHeldUnconfirmed is the cause when an account rule provisioned a new user
+	// for an identity whose verified address a user holds unconfirmed. That user may be
+	// the person, and a second user made beside it would hold no address and none of its
+	// roles, so the sign-in is refused and nothing is written. The identity is not
+	// linked to the holder either: whoever typed the address there may know that
+	// account's password. The holder confirms the address by signing in with the
+	// password and entering the code mailed to it, and the sign-in then finds the
+	// account. The code is sessioninfo.RefusedAddressHeldUnconfirmed, or
+	// sessioninfo.RefusedAddressHeldNoPassword where the holder has no password to sign
+	// in with.
+	ErrEmailHeldUnconfirmed = errors.New("signin: the identity's verified email address is held, unconfirmed, by a user")
 	// ErrGuestAccount is the cause when the standard rule refused a guest of the
 	// directory (Identity.Guest). The code is sessioninfo.RefusedGuestAccount.
 	ErrGuestAccount = errors.New("signin: the identity is a guest of its directory, not a member")

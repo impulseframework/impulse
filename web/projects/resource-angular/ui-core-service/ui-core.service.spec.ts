@@ -56,6 +56,16 @@ describe('UiCoreService login messages', () => {
       want: "This account already signs in through another organization's directory, so it cannot sign in through this one. Please sign in the way you have before.",
     },
     {
+      name: 'a sign-in that proves an address an account with a password holds unconfirmed says to sign in to that account and enter the code',
+      code: 'address_held_unconfirmed',
+      want: 'An account here already has this email address and has not confirmed it. Sign in to that account with its password and enter the code we email you. After that you can sign in this way too.',
+    },
+    {
+      name: 'a sign-in that proves an address an account with no password holds unconfirmed says whom to ask',
+      code: 'address_held_no_password',
+      want: 'An account here already has this email address and has not confirmed it. Ask your administrator for help.',
+    },
+    {
       name: "an invitation accepted through an organization's directory alone, met another way, says what to sign in with",
       code: 'organization_account_required',
       want: "This invitation is accepted with your organization's account. Sign in with that account, not with a password or a personal account.",
@@ -99,6 +109,8 @@ describe('UiCoreService login messages', () => {
       'personal_account',
       'organization_mismatch',
       'identity_rejected',
+      'address_held_unconfirmed',
+      'address_held_no_password',
       'not_invited',
       'guest_account',
       'policy_denied',

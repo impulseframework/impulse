@@ -339,6 +339,15 @@ const (
 	// RefusedIdentityRejected is the code for an external identity the application's
 	// user resolver rejected (for example, no invite or roster entry).
 	RefusedIdentityRejected LoginRefusalCode = "identity_rejected"
+	// RefusedAddressHeldUnconfirmed is the code for a sign-in that would make a new
+	// account and proves an address an account with a password holds unconfirmed. No
+	// second account is made: the person signs in to that account with its password,
+	// and the code mailed to the address confirms it.
+	RefusedAddressHeldUnconfirmed LoginRefusalCode = "address_held_unconfirmed"
+	// RefusedAddressHeldNoPassword is the code for the same sign-in where the account
+	// that holds the address has no password to sign in with: an administrator settles
+	// it.
+	RefusedAddressHeldNoPassword LoginRefusalCode = "address_held_no_password"
 	// RefusedByPolicy is the code for a sign-in the application's policy denied (for
 	// example, password sign-in for a tenant that requires SSO).
 	RefusedByPolicy LoginRefusalCode = "policy_denied"
