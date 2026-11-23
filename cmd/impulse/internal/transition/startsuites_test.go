@@ -525,10 +525,11 @@ func menuSpecPages(t *testing.T, spec string) []string {
 }
 
 // TestDirectoryStart_Apply_menuSpec holds a Directory roles start to a test of the menu
-// file that names the pages its routes carry. The base's names the Sign-in and Break
-// glass pages, which the library builds over lists the generator describes for an auth
-// that gives its own roles: an auth whose directory gives every role has neither, so
-// the base's test fails in the application's browser tests as the application was made.
+// file that names the pages its routes carry. The base's names the Break glass page,
+// which the library builds over a list the generator describes for an auth that gives
+// its own roles: an auth whose directory gives every role does not have it, so the
+// base's test fails in the application's browser tests as the application was made.
+// The Sign-in page stays: every auth has it, for its second factor.
 func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 	t.Parallel()
 
@@ -543,7 +544,7 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 		}
 	}
 	wantPages := slices.DeleteFunc(slices.Clone(basePages), func(page string) bool {
-		return page == "Sign-in" || page == "Break glass"
+		return page == "Break glass"
 	})
 
 	tests := []struct {
@@ -563,12 +564,16 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 			if diff := cmp.Diff(wantPages, menuSpecPages(t, spec)); diff != "" {
 				t.Errorf("the pages %s expects of the routes mismatch (-want +got):\n%s", menuSpec, diff)
 			}
-			// Nothing else of the test changed: the two lines are all the start took out.
-			if want := strings.NewReplacer("      'Sign-in',\n", "", "      'Break glass',\n", "").Replace(string(base)); spec != want {
-				t.Errorf("%s is not the base's less the two pages (-want +got):\n%s", menuSpec, cmp.Diff(want, spec))
+			// Nothing else of the test changed: the one line is all the start took out.
+			if want := strings.Replace(string(base), "      'Break glass',\n", "", 1); spec != want {
+				t.Errorf("%s is not the base's less the Break glass page (-want +got):\n%s", menuSpec, cmp.Diff(want, spec))
 			}
-			if got := linesWith(ch.Did, menuSpec+": the pages the menu file's test expects of the routes lose the ones the staff auth has no route for: ", []string{"Sign-in (", "; Break glass ("}); len(got) != 1 {
-				t.Errorf("the change does not say once that the menu file's test lost the two pages: %q", ch.Did)
+			prefix := menuSpec + ": the pages the menu file's test expects of the routes lose the ones the staff auth has no route for: "
+			if got := linesWith(ch.Did, prefix+"Break glass (", nil); len(got) != 1 {
+				t.Errorf("the change does not say once that the menu file's test lost the Break glass page: %q", ch.Did)
+			}
+			if got := linesWith(ch.Did, prefix, []string{"Sign-in ("}); len(got) != 0 {
+				t.Errorf("the change says the menu file's test lost the Sign-in page, which every auth's routes carry: %q", got)
 			}
 			if got := leftLine(ch, menuSpec+" "); len(got) != 0 {
 				t.Errorf("the change leaves the menu file's test to the author, and the start brought it to the routes: %q", got)
@@ -597,7 +602,7 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 		t.Parallel()
 
 		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
-		own := "it('names the pages', () => {\n  expect(pages()).toEqual(['Accounts', 'Sign-in', 'Feature flags']);\n});\n"
+		own := "it('names the pages', () => {\n  expect(pages()).toEqual(['Accounts', 'Break glass', 'Feature flags']);\n});\n"
 		a, ch := startedOver(t, &start, func(a *app.App) {
 			if err := os.WriteFile(a.Abs(menuSpec), []byte(own), 0o644); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
@@ -606,11 +611,11 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 		if got := read(t, a, menuSpec); got != own {
 			t.Errorf("%s was changed, and it does not list the pages as the base's does:\n%s", menuSpec, got)
 		}
-		if got := leftLine(ch, menuSpec+" names the Sign-in page, which the application's routes do not carry", "take the page out of the ones the test expects"); len(got) != 1 {
+		if got := leftLine(ch, menuSpec+" names the Break glass page, which the application's routes do not carry", "take the page out of the ones the test expects"); len(got) != 1 {
 			t.Errorf("the change does not leave the author the page the test still names: %q", ch.Left)
 		}
-		if got := leftLine(ch, menuSpec+" names the Break glass page"); len(got) != 0 {
-			t.Errorf("the change names a page the test does not: %q", got)
+		if got := leftLine(ch, menuSpec+" names the Sign-in page"); len(got) != 0 {
+			t.Errorf("the change names a page the application's routes carry: %q", got)
 		}
 		if got := linesWith(ch.Did, menuSpec+": ", nil); len(got) != 0 {
 			t.Errorf("the change says it changed the menu file's test: %q", got)
