@@ -311,6 +311,7 @@
                 "principalKind",
                 "principalRole",
                 "principalUserId",
+                "principalUsername",
                 "reason",
                 "sourceSessionId",
                 "startedAt"
@@ -664,6 +665,7 @@
                 "principalKind",
                 "principalRole",
                 "principalUserId",
+                "principalUsername",
                 "reason",
                 "sourceSessionId",
                 "startedAt"
@@ -1074,6 +1076,7 @@
                 "principalKind",
                 "principalRole",
                 "principalUserId",
+                "principalUsername",
                 "reason",
                 "sourceSessionId",
                 "startedAt"
@@ -1093,6 +1096,7 @@
                 "principalKind",
                 "principalRole",
                 "principalUserId",
+                "principalUsername",
                 "reason",
                 "sourceSessionId",
                 "startedAt"

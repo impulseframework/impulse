@@ -3,10 +3,13 @@ package resource
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
 
+	"github.com/cloudspannerecosystem/memefish"
+	"github.com/cloudspannerecosystem/memefish/token"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
@@ -32,6 +35,10 @@ type requestName struct {
 	NameField
 
 	jsonName string
+	// flagged says the name's source stands behind a flag that is off for the
+	// request (NameField.Features): no request may name it and none is given it,
+	// while a declared order by it orders by it (queryNames).
+	flagged bool
 }
 
 // RequestedName is one name field a query returns: the field, and the name a
@@ -137,8 +144,8 @@ func (q *QuerySet[Resource]) nameGrantScope(name *NameField) accesstypes.Scope {
 // namesInPlay returns the name fields a request brings into play, each once:
 // those its columns named, those it orders by (its sort, or the declared order),
 // those its filter names, and, where it named no columns, every name beside an
-// id the request may be given. A name beside an id a flag hides can never be
-// shown, so it is in play only where the order names it.
+// id the request may be given. A name beside an id a flag hides, or whose source
+// a flag hides, can never be shown, so it is in play only where the order names it.
 func (q *QuerySet[Resource]) namesInPlay() []accesstypes.Field {
 	fields := slices.Clone(q.shownNames)
 	for _, field := range slices.Concat(q.orderedNames(), q.filterNames) {
@@ -148,7 +155,7 @@ func (q *QuerySet[Resource]) namesInPlay() []accesstypes.Field {
 	}
 	if len(q.fields) == 0 && len(q.shownNames) == 0 && q.returnAccessibleFields {
 		for i := range q.names {
-			if q.requestable(q.names[i].Key) && !slices.Contains(fields, q.names[i].Field) {
+			if q.requestable(q.names[i].Key) && !q.names[i].flagged && !slices.Contains(fields, q.names[i].Field) {
 				fields = append(fields, q.names[i].Field)
 			}
 		}
@@ -360,10 +367,11 @@ func (q *QuerySet[Resource]) showName(field accesstypes.Field) {
 }
 
 // showNamesOf has a request that named no columns return the name beside every
-// id field it returns, less the names the person may not list.
+// id field it returns, less the names the person may not list and those a flag
+// hides.
 func (q *QuerySet[Resource]) showNamesOf(fields []accesstypes.Field) {
 	for i := range q.names {
-		if slices.Contains(fields, q.names[i].Key) && !q.nameGrant(q.names[i].Field).IsDenied() {
+		if slices.Contains(fields, q.names[i].Key) && !q.names[i].flagged && !q.nameGrant(q.names[i].Field).IsDenied() {
 			q.showName(q.names[i].Field)
 		}
 	}
@@ -515,6 +523,10 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
 		}
 
+		query, err := q.nameViewQuery(&name.NameField, registry)
+		if err != nil {
+			return nil, err
+		}
 		alias := registry.alias()
 		var where ExpressionNode = &loweredComparisonNode{
 			left:  columnComparand(alias, name.KeyColumn),
@@ -529,7 +541,7 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 				return nil, err
 			}
 		}
-		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, alias: alias, column: name.NameColumn, where: where})
+		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, query: query, alias: alias, column: name.NameColumn, where: where})
 		sql, err := gen.generateLoweredComparand(&lookup, registry)
 		if err != nil {
 			return nil, errors.Wrapf(err, "name field %s", field)
@@ -541,6 +553,81 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	}
 
 	return rendered, nil
+}
+
+// nameViewQuery returns the query of the view a name is read from, "" where the
+// name is read from a table. In the query it returns, each parameter the view binds
+// is written as a placeholder of the statement's own, bound under the view and the
+// parameter's name (bindShared): a view read twice in one statement binds each of its
+// parameters once, and two views that bind a parameter of one name never meet. A
+// parameter the view binds and its query never names is not bound. A name read from a
+// view the decoder was not handed is not read; a parameter of the view's whose name
+// starts with an underscore is refused as a list's own view's is (viewFromItem); and
+// a query that binds a parameter and cannot be read to its end is refused, since its
+// parameters cannot all be found.
+func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry) (string, error) {
+	if !name.View {
+		return "", nil
+	}
+	view, ok := q.nameViews[name.Resource]
+	if !ok {
+		return "", errors.New(noNameView(name, q.Resource()))
+	}
+	query, params := view.Subquery()
+	for _, param := range slices.Sorted(maps.Keys(params)) {
+		if strings.HasPrefix(param, "_") {
+			return "", errors.Newf("Subquery params for %s can not start with an _", name.Resource)
+		}
+	}
+	if len(params) == 0 {
+		return query, nil
+	}
+	toks, err := viewParamTokens(query, params)
+	if err != nil {
+		return "", errors.New(unreadableViewQuery(name, q.Resource(), err))
+	}
+	var b strings.Builder
+	last := 0
+	for _, tok := range toks {
+		b.WriteString(query[last:tok.Pos])
+		b.WriteString(registry.bindShared(fmt.Sprintf("views/%s/%s", name.Resource, tok.AsString), params[tok.AsString]))
+		last = int(tok.End)
+	}
+	b.WriteString(query[last:])
+
+	return b.String(), nil
+}
+
+// viewParamTokens returns the parameter tokens of a view's query that name a
+// parameter the view binds, compared exactly, in the query's order. Its error is the
+// lexer's, where the query cannot be read to its end.
+func viewParamTokens(query string, params map[string]any) ([]token.Token, error) {
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	var toks []token.Token
+	for {
+		if err := lex.NextToken(); err != nil {
+			return nil, err //nolint:wrapcheck // the lexer's own words are what the refusal quotes (unreadableViewQuery); a wrap would add its source line to them
+		}
+		if lex.Token.Kind == token.TokenEOF {
+			return toks, nil
+		}
+		if _, bound := params[lex.Token.AsString]; bound && lex.Token.Kind == token.TokenParam {
+			toks = append(toks, lex.Token)
+		}
+	}
+}
+
+// unreadableViewQuery says the query of the view a name is read from binds a
+// parameter and cannot be read to its end.
+func unreadableViewQuery(name *NameField, res accesstypes.Resource, err error) string {
+	return fmt.Sprintf("name field %s of %s is read from the view %s, and the view's query cannot be read to its end (%v): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole query. Correct the query at that place.", name.Field, res, name.Resource, err)
+}
+
+// noNameView says a name is read from a view the decoder holds no entry for.
+func noNameView(name *NameField, res accesstypes.Resource) string {
+	return fmt.Sprintf("name field %s of %s is read from the view %s, and the decoder holds no view of that name: hand the application's views to the decoder (WithNameViews), which the generated handlers do; regenerate them", name.Field, res, name.Resource)
 }
 
 // nameGrantCondition joins the condition a name's grant is held under to the

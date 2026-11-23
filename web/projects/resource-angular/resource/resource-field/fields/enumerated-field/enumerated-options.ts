@@ -43,8 +43,10 @@ export function keyDisplay(key: string, roleFields: ReadonlySet<string> = new Se
 }
 
 /**
- * What an option shows: the display fields the page configured, concatenated, or the
- * key where the page configured none (a form drawn from the metadata alone). A field
+ * What an option shows: the display fields handed in, concatenated, or the key where
+ * there are none. The picker hands in the page's, or, where the page configured none (a
+ * form drawn from the metadata alone), the field the source's metadata says its rows are
+ * known by (`nameField`); a source that declares no name is then shown by its key. A field
  * that holds a role's name (`roleFields`, the source's fields whose metadata lists
  * `roles`) is written in words, "Night shift lead" for `NightShiftLead`, as the server's
  * sentences name a role: a display field among them before the fields are joined, the

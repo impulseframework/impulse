@@ -35,8 +35,8 @@ func (s *SessionStorageDriver) ImpersonationEnabled() bool {
 // impersonationColumns are the record's columns after the SessionId marker, in
 // the order the session query selects and Session scans them.
 var impersonationColumns = []string{
-	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole",
-	"Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason",
+	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalUsername",
+	"PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason",
 }
 
 // impersonationSelect renders the impersonation columns for the session query:
@@ -72,8 +72,8 @@ func newImpersonationScan(sessionID impulse.UUID) *impersonationScan {
 // dests returns the scan destinations in impersonationColumns order.
 func (p *impersonationScan) dests() []any {
 	return []any{
-		&p.imp.ActorUsername, &p.actorUserID, &p.imp.ActorRealm, &p.sourceSessionID, &p.imp.PrincipalKind, &p.imp.PrincipalUserID, &p.imp.PrincipalRole,
-		&p.imp.Mask, &p.imp.Reason, &p.imp.StartedAt, &p.imp.ExpiresAt, &p.imp.EndedAt, &p.imp.EndReason,
+		&p.imp.ActorUsername, &p.actorUserID, &p.imp.ActorRealm, &p.sourceSessionID, &p.imp.PrincipalKind, &p.imp.PrincipalUserID, &p.imp.PrincipalUsername,
+		&p.imp.PrincipalRole, &p.imp.Mask, &p.imp.Reason, &p.imp.StartedAt, &p.imp.ExpiresAt, &p.imp.EndedAt, &p.imp.EndReason,
 	}
 }
 
@@ -152,13 +152,13 @@ func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s
-			("SessionId", "ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
+			("SessionId", "ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalUsername", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
 		`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 	args := []any{
-		id, imp.ActorUsername, actorUserID, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUserID, imp.PrincipalRole,
-		imp.Mask, imp.Reason, imp.ExpiresAt,
+		id, imp.ActorUsername, actorUserID, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUserID, imp.PrincipalUsername,
+		imp.PrincipalRole, imp.Mask, imp.Reason, imp.ExpiresAt,
 	}
 
 	if _, err := txn.Exec(ctx, query, args...); err != nil {

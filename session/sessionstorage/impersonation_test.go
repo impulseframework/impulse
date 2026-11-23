@@ -286,11 +286,12 @@ func Test_sessionStorage_impersonatedSessionWrite(t *testing.T) {
 							return impulse.NilUUID, errors.Newf("unexpected session %+v / request %+v", session, req)
 						}
 						want := &dbtype.InsertImpersonation{
-							ActorUsername:   "alice",
-							PrincipalKind:   dbtype.PrincipalKindUser,
-							PrincipalUserID: strPtr("bob"),
-							Mask:            strPtr("List,Read"),
-							ExpiresAt:       expires,
+							ActorUsername:     "alice",
+							PrincipalKind:     dbtype.PrincipalKindUser,
+							PrincipalUserID:   strPtr("bob"),
+							PrincipalUsername: strPtr("bob"),
+							Mask:              strPtr("List,Read"),
+							ExpiresAt:         expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {
 							return impulse.NilUUID, errors.New("unexpected InsertImpersonation: " + diff)
@@ -332,6 +333,70 @@ func Test_sessionStorage_impersonatedSessionWrite(t *testing.T) {
 			}
 			if !tt.wantErr && got != sessionID {
 				t.Errorf("sealed.CreateImpersonatedSession() = %v, want %v", got, sessionID)
+			}
+		})
+	}
+}
+
+// Test_sessionStorage_impersonatedSessionWrite_principalUsername pins the username the
+// record keeps for the person a session is held as: the request's Username, the identity
+// the session type resolved from that person's account, written beside the account's id.
+// A session held as a role is held as no person, and its record keeps no username.
+func Test_sessionStorage_impersonatedSessionWrite_principalUsername(t *testing.T) {
+	t.Parallel()
+
+	account := "0b9e6c1e-7f53-4f0a-9d7e-3c1f2a4b5d6e"
+	tests := []struct {
+		name          string
+		principal     accesstypes.Principal
+		username      string
+		wantUserID    *string
+		wantUsername  *string
+		wantPrincipal string
+	}{
+		{
+			name:          "held as a person: the person's username beside the account's id",
+			principal:     accesstypes.UserPrincipal(accesstypes.User(account)),
+			username:      "bob@partner.org",
+			wantUserID:    strPtr(account),
+			wantUsername:  strPtr("bob@partner.org"),
+			wantPrincipal: dbtype.PrincipalKindUser,
+		},
+		{
+			name:          "held as a role: no username",
+			principal:     accesstypes.RolePrincipal("PartnerViewer"),
+			username:      "alice",
+			wantPrincipal: dbtype.PrincipalKindRole,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockDB := NewMockdb(ctrl)
+			var written *dbtype.InsertImpersonation
+			mockDB.EXPECT().
+				InsertImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ *dbtype.InsertSession, _ *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (impulse.UUID, error) {
+					written = imp
+
+					return impulse.Must(impulse.NewUUID()), nil
+				})
+			storage := newSessionStorage(mockDB)
+
+			imp := &sessioninfo.Impersonation{Actor: "alice", Principal: tt.principal, ExpiresAt: time.Now().Add(time.Hour)}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: tt.username}
+			if _, err := sealed.CreateImpersonatedSession(context.Background(), &storage, req, imp); err != nil {
+				t.Fatalf("sealed.CreateImpersonatedSession() error = %v", err)
+			}
+			if written.PrincipalKind != tt.wantPrincipal {
+				t.Errorf("PrincipalKind = %q, want %q", written.PrincipalKind, tt.wantPrincipal)
+			}
+			if diff := cmp.Diff(tt.wantUserID, written.PrincipalUserID); diff != "" {
+				t.Errorf("PrincipalUserID mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantUsername, written.PrincipalUsername); diff != "" {
+				t.Errorf("PrincipalUsername mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

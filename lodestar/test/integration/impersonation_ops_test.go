@@ -82,12 +82,16 @@ func TestImpersonationOperator(t *testing.T) {
 		found := watchDeskRow(ctx, t, greer, minted)
 		// The record names the marshal by username and the cadet by the id of the
 		// account, which the desk's As column reads the username from: the list of the
-		// crew's accounts answers that id as the cadet's.
+		// crew's accounts answers that id as the cadet's. Beside the id it keeps the
+		// cadet's username as it was when the session began.
 		if actor, kind := cell[string](t, found, "actorUsername"), cell[string](t, found, "principalKind"); actor != "marshal" || kind != "User" {
 			t.Errorf("record = %v, want marshal holding a session as a user", found)
 		}
 		if principal, cadet := cell[string](t, found, "principalUserId"), crewAccountID(ctx, t, greer, "cadet"); principal != cadet {
 			t.Errorf("principalUserId = %s, want the cadet's account %s", principal, cadet)
+		}
+		if username := cell[string](t, found, "principalUsername"); username != "cadet" {
+			t.Errorf("principalUsername = %q, want the cadet's username", username)
 		}
 		if reason := cell[string](t, found, "reason"); reason != "watch desk walkthrough" {
 			t.Errorf("reason = %q, want the one the marshal gave", reason)
@@ -104,6 +108,30 @@ func TestImpersonationOperator(t *testing.T) {
 		// lifetime falls short of the cap by the commit's latency and never exceeds it.
 		if lifetime := instant(t, found, "expiresAt").Sub(instant(t, found, "startedAt")); lifetime > 2*time.Hour || lifetime < 2*time.Hour-5*time.Second {
 			t.Errorf("lifetime = %v, want the two-hour cap the mint route sets, less the commit's latency", lifetime)
+		}
+	})
+
+	t.Run("the desk filters by the username of the person a session is held as", func(t *testing.T) {
+		// The cadet's username finds the session; the marshal's does not, since the
+		// marshal established it and nobody holds a session as the marshal.
+		for _, tt := range []struct {
+			username string
+			want     bool
+		}{
+			{username: "cadet", want: true},
+			{username: "marshal", want: false},
+		} {
+			status, body := greer.do(ctx, http.MethodGet, watchDeskList+"?filter=principalUsername:eq:"+tt.username+"&limit=200", nil)
+			assertStatus(t, status, http.StatusOK, body)
+			held := false
+			for _, row := range decodeRows(t, body) {
+				if cell[string](t, row, "sessionId") == minted {
+					held = true
+				}
+			}
+			if held != tt.want {
+				t.Errorf("the desk filtered by principalUsername %q holds the session: %v, want %v: %s", tt.username, held, tt.want, body)
+			}
 		}
 	})
 
@@ -130,6 +158,9 @@ func TestImpersonationOperator(t *testing.T) {
 		// which is what the desk's As column reads.
 		if principal, cadet := cell[string](t, found, "principalUserId"), crewAccountID(ctx, t, mara, "cadet"); principal != cadet {
 			t.Errorf("principalUserId = %s, want the cadet's account %s", principal, cadet)
+		}
+		if username := cell[string](t, found, "principalUsername"); username != "cadet" {
+			t.Errorf("principalUsername = %q, want the cadet's username", username)
 		}
 		status, body := mara.do(ctx, http.MethodGet, consoleAPI+"/crew-session-users?limit=200", nil)
 		assertStatus(t, status, http.StatusOK, body)

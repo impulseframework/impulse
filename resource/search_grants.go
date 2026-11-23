@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -23,6 +24,32 @@ func (b *SearchBranch) fieldResource() accesstypes.Resource {
 	return accesstypes.Resource(fmt.Sprintf("%s.%s", b.Resource, b.Tag))
 }
 
+// hiddenBranches returns, by dotted name, the branches of all that searched (the
+// branches a request's box carries) leaves out: those behind a flag that is off.
+// Nil when the box carries every one.
+func hiddenBranches(all, searched []SearchBranch) map[string]struct{} {
+	var hidden map[string]struct{}
+	for i := range all {
+		if slices.ContainsFunc(searched, func(branch SearchBranch) bool { return branch.Name == all[i].Name }) {
+			continue
+		}
+		if hidden == nil {
+			hidden = make(map[string]struct{})
+		}
+		hidden[all[i].Name] = struct{}{}
+	}
+
+	return hidden
+}
+
+// branchHidden reports whether the request's box leaves the branch out because a
+// flag that is off hides it (hiddenBranches).
+func (q *QuerySet[Resource]) branchHidden(branch *SearchBranch) bool {
+	_, hidden := q.hiddenBranches[branch.Name]
+
+	return hidden
+}
+
 // searchBoxReachesPII reports whether the box, as this caller searches it, reads a
 // sensitive field: a PII box field (piiFields) or a PII @searchAlso branch the
 // caller's grants do not deny. A denied field drops out of the box, so a box whose
@@ -38,7 +65,7 @@ func (q *QuerySet[Resource]) searchBoxReachesPII(ctx context.Context, piiFields 
 	}
 	for i := range q.rMeta.searchBranches {
 		branch := &q.rMeta.searchBranches[i]
-		if !branch.PII {
+		if !branch.PII || q.branchHidden(branch) {
 			continue
 		}
 		if branch.Tag == "" {
@@ -88,9 +115,10 @@ func (q *QuerySet[Resource]) checkSearchFieldsReadable(ctx context.Context) erro
 	}
 	for i := range q.rMeta.searchBranches {
 		branch := &q.rMeta.searchBranches[i]
-		if branch.Tag == "" {
+		if branch.Tag == "" || q.branchHidden(branch) {
 			// The child field is exempt from field-level enforcement (a primary
-			// key): its readability follows the child resource's grant.
+			// key): its readability follows the child resource's grant. A hidden
+			// branch is no part of the box.
 			continue
 		}
 		res := branch.fieldResource()
@@ -212,7 +240,7 @@ func (q *QuerySet[Resource]) searchBranchGrants(dbType DBType, registry *paramRe
 	for i := range q.rMeta.searchBranches {
 		branch := &q.rMeta.searchBranches[i]
 		decision, ok := q.branchDecisions[branch.Name]
-		if !ok {
+		if !ok || q.branchHidden(branch) {
 			continue
 		}
 		expr, err := conditionalExpr(branch.fieldResource(), decision)
