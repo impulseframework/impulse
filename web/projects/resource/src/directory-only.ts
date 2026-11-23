@@ -53,7 +53,8 @@ export interface TenantSignInCondition {
 }
 
 /**
- * How many people hold a role in a tenant (`seated`), and how many of them the tenant's
+ * How many people a tenant's list of its people holds (`seated`: who holds a role there,
+ * and who signs in through its directory), and how many of them the tenant's
  * directory-only switch keeps out (`outside`): the people who have never signed in
  * through the tenant's directory, counted as the warning that turns the switch on counts
  * them.
@@ -119,7 +120,7 @@ export interface TenantSignInSettings {
   signedIn?: string;
   /** The organization's directory the person asking is signed in through, as people know it. */
   sessionDirectory?: string;
-  /** How many people hold a role in the tenant and how many of them the switch keeps out. */
+  /** How many people the tenant's list holds and how many of them the switch keeps out. */
   people?: DirectoryOnlyCount;
   /**
    * What turning the switch on takes of the person asking, in the order the server

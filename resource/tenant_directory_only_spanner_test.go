@@ -1063,10 +1063,10 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 // settings says of how the tenant stands, over the emulator: its directory by the name
 // people know it, on or off; the role a person gets the first time they sign in through
 // it, in words; whether the caller's auth has passwords; how the caller signed in, and
-// through which organization's directory; how many people the tenant seats and how many
-// of them the switch keeps out, summed over the entries the rules were given, with each
-// auth's share; for a record that declares no switch, no flag, condition or count; and
-// the second factor's part, said in the words its method refuses in.
+// through which organization's directory; how many people the tenant's list holds and how
+// many of them the switch keeps out, summed over the entries the rules were given, with
+// each auth's share; for a record that declares no switch, no flag, condition or count;
+// and the second factor's part, said in the words its method refuses in.
 func TestTenantDirectoryRules_signInSettings(t *testing.T) {
 	t.Parallel()
 

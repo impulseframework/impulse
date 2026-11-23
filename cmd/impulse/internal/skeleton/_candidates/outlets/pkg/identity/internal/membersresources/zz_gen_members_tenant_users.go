@@ -26,22 +26,24 @@ func (MembersTenantUser) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersTenantUserReadSets holds one Set per read operation.
 type membersTenantUserRead struct {
-	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	DomainID               string       `json:"domainId"`
-	Username               string       `json:"username"`
-	Name                   *string      `json:"name"`
-	Email                  *string      `json:"email"`
-	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-	Disabled               bool         `json:"disabled"`
-	PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-	CreatedAt              time.Time    `json:"createdAt"`
-	LastSignInAt           *time.Time   `json:"lastSignInAt"`
-	HeldElsewhere          bool         `json:"heldElsewhere"`
-	HeldGlobally           bool         `json:"heldGlobally"`
-	HeldHere               bool         `json:"heldHere"`
-	HeldInEveryTenant      bool         `json:"heldInEveryTenant"`
-	OutsideDirectory       bool         `json:"outsideDirectory"`
-	CannotEnter            *string      `json:"cannotEnter"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	Username                  string       `json:"username"`
+	Name                      *string      `json:"name"`
+	Email                     *string      `json:"email"`
+	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+	Disabled                  bool         `json:"disabled"`
+	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	HeldHere                  bool         `json:"heldHere"`
+	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
+	OutsideDirectory          bool         `json:"outsideDirectory"`
+	CannotEnter               *string      `json:"cannotEnter"`
 }
 
 var membersTenantUserReadSets resource.SetCache[MembersTenantUser, membersTenantUserRead]
@@ -164,6 +166,8 @@ func (c *MembersTenantUserColumns) All() *MembersTenantUserColumns {
 		"HeldGlobally",
 		"HeldHere",
 		"HeldInEveryTenant",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 		"OutsideDirectory",
 		"CannotEnter",
 	}
@@ -255,6 +259,18 @@ func (c *MembersTenantUserColumns) HeldInEveryTenant() *MembersTenantUserColumns
 	return c
 }
 
+func (c *MembersTenantUserColumns) ManagedHere() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *MembersTenantUserColumns) ManagedByAnotherDirectory() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 func (c *MembersTenantUserColumns) OutsideDirectory() *MembersTenantUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -305,6 +321,14 @@ func (p MembersTenantUserQueryPartialClause) HeldHere() MembersTenantUserQueryId
 
 func (p MembersTenantUserQueryPartialClause) HeldInEveryTenant() MembersTenantUserQueryIdent[bool] {
 	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
+}
+
+func (p MembersTenantUserQueryPartialClause) ManagedHere() MembersTenantUserQueryIdent[bool] {
+	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p MembersTenantUserQueryPartialClause) ManagedByAnotherDirectory() MembersTenantUserQueryIdent[bool] {
+	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 func (p MembersTenantUserQueryPartialClause) OutsideDirectory() MembersTenantUserQueryIdent[bool] {
@@ -431,6 +455,14 @@ func (c *membersTenantUserSort) HeldHere() *MembersTenantUserSort {
 
 func (c *membersTenantUserSort) HeldInEveryTenant() *MembersTenantUserSort {
 	return c.addField("HeldInEveryTenant")
+}
+
+func (c *membersTenantUserSort) ManagedHere() *MembersTenantUserSort {
+	return c.addField("ManagedHere")
+}
+
+func (c *membersTenantUserSort) ManagedByAnotherDirectory() *MembersTenantUserSort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 func (c *membersTenantUserSort) OutsideDirectory() *MembersTenantUserSort {

@@ -14,7 +14,8 @@ import (
 
 type (
 	// StaffTenantUser is one person of the Staff auth as one Tenant sees
-	// them: a row for each person who holds a role in the tenant or in every tenant, with
+	// them: a row for each person who holds a role in the tenant or in every tenant,
+	// and for each person who signs in through the tenant's directory, with
 	// the columns of StaffSessionUser. A person is one account for the whole application, so
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
@@ -23,7 +24,7 @@ type (
 	// ended, or has not begun, is not one of its people, whether or not the role's row
 	// still stands. StaffTenantUserRole lists a role that has not begun, with its period.
 	//
-	// Four columns are facts about the person that no table holds, each under the name a
+	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
 	// (heldGlobally) says the person holds a role for the whole application. HeldHere
@@ -32,11 +33,17 @@ type (
 	// tenant, or through a group kept for the whole application, holds nothing here, and
 	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
 	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
-	// how the application's own staff come to be among each tenant's people. A role file
-	// uses them to say what a tenant may see and do of a person who is not the tenant's
-	// alone. The list filters and sorts by the username and by the four facts; the
-	// account's other columns are no filter keys, so a role file may grant any of them
-	// under a condition at no cost to a page.
+	// how the application's own staff come to be among each tenant's people.
+	// ManagedHere (managedHere) says this tenant manages the person's account: the
+	// person signs in through the tenant's directory, or signs in through no tenant's
+	// directory and holds something in this tenant and nothing anywhere else.
+	// ManagedByAnotherDirectory (managedByAnotherDirectory) says the person signs in
+	// through another tenant's directory, and that tenant manages the account. An account
+	// no tenant manages is the application's own administrators' to manage. A role file
+	// uses the facts to say what a tenant may see and do of a person whose account it
+	// does not manage. The list filters and sorts by the username and by the six facts;
+	// the account's other columns are no filter keys, so a role file may grant any of
+	// them under a condition at no cost to a page.
 	//
 	// Two more columns say what the tenant's directory-only switch does to the person.
 	// OutsideDirectory says the person has no sign-in through the tenant's directory, so
@@ -45,9 +52,11 @@ type (
 	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
 	// in through this tenant's directory, so cannot enter while this tenant is
 	// directory only"), and nothing on every other row: the sentence never says the
-	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
-	// not from who can sign in, so a person the switch keeps out stays in it with their
-	// roles. A super administrator is outside no tenant's directory. Neither is the
+	// directory's connection, which is a key and no name. A person the switch keeps out
+	// stays in the list with their roles, and a person who signs in through the tenant's
+	// directory is a row whether or not they hold anything in the tenant (HeldHere says
+	// which), so the tenant that manages the account finds it. A super administrator is
+	// outside no tenant's directory. Neither is the
 	// tenant's own administrator who has a password: a person who holds one of the roles
 	// the application names as a tenant's administrator's in the tenant itself enters it
 	// with the password and a code mailed to them, so the switch keeps them out of nothing
@@ -84,7 +93,11 @@ type (
 		// @attribute(heldHere)
 		HeldHere bool `spanner:"HeldHere" index:"true"`
 		// @attribute(heldInEveryTenant)
-		HeldInEveryTenant         bool    `spanner:"HeldInEveryTenant"         index:"true"`
+		HeldInEveryTenant bool `spanner:"HeldInEveryTenant" index:"true"`
+		// @attribute(managedHere)
+		ManagedHere bool `spanner:"ManagedHere" index:"true"`
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool    `spanner:"ManagedByAnotherDirectory" index:"true"`
 		OutsideDirectory          bool    `spanner:"OutsideDirectory"          index:"true"`
 		CannotEnter               *string `spanner:"CannotEnter"`
 		AdministratorWithPassword bool    `spanner:"AdministratorWithPassword" index:"true"`
@@ -93,9 +106,16 @@ type (
 
 // staffTenantUserQuery selects the people of every tenant: who holds a role in a
 // tenant (StaffUserRoles, one tenant's memberships, and the memberships held in
-// every tenant once per row of Tenants), joined to the account by the id a
-// membership names its person by.
+// every tenant once per row of Tenants), and who signs in through a tenant's
+// directory (TenantDirectories and StaffSessionIdentities), joined to the account by the id a
+// membership names its person by. Who manages each account is read over the columns of
+// that select, so where the person holds roles is read once for a row.
 const staffTenantUserQuery = `
+SELECT
+  * EXCEPT (ThroughHere, ThroughAnother),
+  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+FROM (
 SELECT
   u.Id AS Id,
   t.DomainId AS DomainId,
@@ -158,6 +178,20 @@ SELECT
           AND (er.EndsAt IS NULL OR er.EndsAt > CURRENT_TIMESTAMP())
       )
   )) AS HeldInEveryTenant,
+  EXISTS (
+    SELECT 1 FROM StaffSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM StaffSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId != t.DomainId
+    )
+  ) AS ThroughAnother,
   (td.TenantId IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM StaffSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
@@ -256,10 +290,17 @@ FROM (
   WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.TenantId AS DomainId, du AS UserId
+  FROM TenantDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM StaffSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
 ) t
 JOIN StaffSessionUsers u ON u.Id = t.UserId
 LEFT JOIN Tenants ts ON ts.Id = t.DomainId
 LEFT JOIN TenantDirectories td ON td.TenantId = ts.Id
+) p
 `
 
 // staffTenantUserAdministrators are the roles whose holders administer a tenant, as the

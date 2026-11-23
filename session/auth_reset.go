@@ -123,6 +123,12 @@ func errNoPasswordToReset() error {
 	return httpio.NewConflictMessage("No link was sent: the account has no password to reset, or no confirmed email address to send the link to")
 }
 
+// errResetPasswordDisabled is the refusal of an administrator's link for an account
+// whose password the tenants' sign-in settings disable (SetPasswordDisabledCheck).
+func errResetPasswordDisabled() error {
+	return httpio.NewConflictMessage("No link was sent: this account signs in through its organization's directory only, so a password would not sign it in")
+}
+
 // passwordResetRequest is PasswordReset().Request().
 func (a *Auth[S, U, Tx]) passwordResetRequest() http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -172,7 +178,8 @@ func (a *Auth[S, U, Tx]) requestOwnReset(ctx context.Context, email string) erro
 }
 
 // mailOwnReset mails the reset link a person asked for to email, when an account holds
-// the address confirmed and holds a password; any other address is mailed nothing.
+// the address confirmed and holds a password the tenants' sign-in settings do not
+// disable; any other address is mailed nothing.
 func (a *Auth[S, U, Tx]) mailOwnReset(ctx context.Context, email string) error {
 	user, err := a.storage.UserByEmail(ctx, email)
 	if err != nil {
@@ -183,6 +190,13 @@ func (a *Auth[S, U, Tx]) mailOwnReset(ctx context.Context, email string) error {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
 	}
 	if !resettable(user, email) {
+		return nil
+	}
+	disabled, err := a.passwordDisabled(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	if disabled {
 		return nil
 	}
 
@@ -230,7 +244,9 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 // ask for themselves. Nothing about the account changes until the person uses the link.
 // The link goes to the address the account holds confirmed, and to an account that
 // holds a password: any other account is refused (Conflict), in one sentence that names
-// both causes. An address sent five reset links within fifteen minutes and using
+// both causes. An account whose password the tenants' sign-in settings disable
+// (SetPasswordDisabledCheck) is refused too, in a sentence of its own: a password would
+// not sign it in. An address sent five reset links within fifteen minutes and using
 // none is refused with a *sessioninfo.LoginRefusal carrying RefusedTooManyEmails and
 // the wait (sessioninfo.RetryAfterOf), whoever asked for them. Who may ask for whom is
 // the caller's to decide before it calls. It needs the password method.
@@ -249,6 +265,13 @@ func (p *AuthAPI[S, U, Tx]) SendPasswordReset(ctx context.Context, userID impuls
 	if !user.EmailVerified() || !resettable(user, *user.Email) {
 		return errNoPasswordToReset()
 	}
+	disabled, err := a.passwordDisabled(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if disabled {
+		return errResetPasswordDisabled()
+	}
 	if err := a.limitResetMail(ctx, *user.Email); err != nil {
 		return err
 	}
@@ -258,7 +281,9 @@ func (p *AuthAPI[S, U, Tx]) SendPasswordReset(ctx context.Context, userID impuls
 
 // resetLink reads the live reset link token names and the account it is for, and
 // answers NotFound, as a dead link is, for a link whose account is gone or no longer
-// holds the address the link was mailed to, confirmed, and a password.
+// holds the address the link was mailed to, confirmed, and a password, and for an
+// account whose password the tenants' sign-in settings have disabled since the link was
+// mailed.
 func (a *Auth[S, U, Tx]) resetLink(ctx context.Context, token string) (link *sessionstorage.MailLink, user *sessionstorage.SessionUser, err error) {
 	link, err = a.liveLink(ctx, token, sessionstorage.MailLinkPasswordReset)
 	if err != nil {
@@ -276,6 +301,13 @@ func (a *Auth[S, U, Tx]) resetLink(ctx context.Context, token string) (link *ses
 		return nil, nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
 	if !resettable(user, link.Email) {
+		return nil, nil, errLinkDead()
+	}
+	disabled, err := a.passwordDisabled(ctx, user.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if disabled {
 		return nil, nil, errLinkDead()
 	}
 

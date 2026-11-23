@@ -401,6 +401,7 @@ func TestManager_SendPasswordResetLink(t *testing.T) {
 		return resource.WithCaller(ctx, &resource.Caller{Permissions: callerPermissions{user: erin}, Scope: accesstypes.DomainScope("alpha")})
 	}
 	noPassword := httpio.NewConflictMessage("No link was sent: the account has no password to reset, or no confirmed email address to send the link to")
+	passwordDisabled := httpio.NewConflictMessage("No link was sent: this account signs in through its organization's directory only, so a password would not sign it in")
 	tests := []struct {
 		name       string
 		user       impulse.UUID
@@ -419,6 +420,10 @@ func TestManager_SendPasswordResetLink(t *testing.T) {
 		{
 			name: "an account with nothing to reset is said in the session library's sentence", user: userID, mailErr: noPassword,
 			wantReason: "No link was sent: the account has no password to reset, or no confirmed email address to send the link to",
+		},
+		{
+			name: "an account whose password its organization's sign-in settings disable is said in the session library's sentence", user: userID, mailErr: passwordDisabled,
+			wantReason: "No link was sent: this account signs in through its organization's directory only, so a password would not sign it in",
 		},
 		{name: "any other failure is a message that could not be sent", user: userID, mailErr: errStore, wantReason: "The message could not be sent. Try again in a few minutes"},
 	}

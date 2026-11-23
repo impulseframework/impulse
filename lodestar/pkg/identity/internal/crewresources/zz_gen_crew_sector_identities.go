@@ -26,19 +26,21 @@ func (CrewSectorIdentity) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSectorIdentityReadSets holds one Set per read operation.
 type crewSectorIdentityRead struct {
-	ID            impulse.UUID `json:"id"            perm:"-"`
-	DomainID      string       `json:"domainId"`
-	UserID        impulse.UUID `json:"userId"`
-	Username      string       `json:"username"`
-	Method        string       `json:"method"`
-	Connection    string       `json:"connection"`
-	Subject       string       `json:"subject"`
-	Tenant        *string      `json:"tenant"`
-	EmailAtLink   *string      `json:"emailAtLink"`
-	CreatedAt     time.Time    `json:"createdAt"`
-	LastUsedAt    time.Time    `json:"lastUsedAt"`
-	HeldElsewhere bool         `json:"heldElsewhere"`
-	HeldGlobally  bool         `json:"heldGlobally"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	UserID                    impulse.UUID `json:"userId"`
+	Username                  string       `json:"username"`
+	Method                    string       `json:"method"`
+	Connection                string       `json:"connection"`
+	Subject                   string       `json:"subject"`
+	Tenant                    *string      `json:"tenant"`
+	EmailAtLink               *string      `json:"emailAtLink"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastUsedAt                time.Time    `json:"lastUsedAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 }
 
 var crewSectorIdentityReadSets resource.SetCache[CrewSectorIdentity, crewSectorIdentityRead]
@@ -160,6 +162,8 @@ func (c *CrewSectorIdentityColumns) All() *CrewSectorIdentityColumns {
 		"LastUsedAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 	}
 
 	return c
@@ -243,6 +247,18 @@ func (c *CrewSectorIdentityColumns) HeldGlobally() *CrewSectorIdentityColumns {
 	return c
 }
 
+func (c *CrewSectorIdentityColumns) ManagedHere() *CrewSectorIdentityColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *CrewSectorIdentityColumns) ManagedByAnotherDirectory() *CrewSectorIdentityColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 type CrewSectorIdentityQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -285,6 +301,14 @@ func (p CrewSectorIdentityQueryPartialClause) HeldElsewhere() CrewSectorIdentity
 
 func (p CrewSectorIdentityQueryPartialClause) HeldGlobally() CrewSectorIdentityQueryIdent[bool] {
 	return CrewSectorIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p CrewSectorIdentityQueryPartialClause) ManagedHere() CrewSectorIdentityQueryIdent[bool] {
+	return CrewSectorIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p CrewSectorIdentityQueryPartialClause) ManagedByAnotherDirectory() CrewSectorIdentityQueryIdent[bool] {
+	return CrewSectorIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 type CrewSectorIdentityQueryClause struct {
@@ -403,6 +427,14 @@ func (c *crewSectorIdentitySort) HeldElsewhere() *CrewSectorIdentitySort {
 
 func (c *crewSectorIdentitySort) HeldGlobally() *CrewSectorIdentitySort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *crewSectorIdentitySort) ManagedHere() *CrewSectorIdentitySort {
+	return c.addField("ManagedHere")
+}
+
+func (c *crewSectorIdentitySort) ManagedByAnotherDirectory() *CrewSectorIdentitySort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 type CrewSectorIdentitySort struct {

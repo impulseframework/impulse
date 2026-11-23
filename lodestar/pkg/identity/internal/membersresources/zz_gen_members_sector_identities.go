@@ -26,19 +26,21 @@ func (MembersSectorIdentity) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersSectorIdentityReadSets holds one Set per read operation.
 type membersSectorIdentityRead struct {
-	ID            impulse.UUID `json:"id"            perm:"-"`
-	DomainID      string       `json:"domainId"`
-	UserID        impulse.UUID `json:"userId"`
-	Username      string       `json:"username"`
-	Method        string       `json:"method"`
-	Connection    string       `json:"connection"`
-	Subject       string       `json:"subject"`
-	Tenant        *string      `json:"tenant"`
-	EmailAtLink   *string      `json:"emailAtLink"`
-	CreatedAt     time.Time    `json:"createdAt"`
-	LastUsedAt    time.Time    `json:"lastUsedAt"`
-	HeldElsewhere bool         `json:"heldElsewhere"`
-	HeldGlobally  bool         `json:"heldGlobally"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	UserID                    impulse.UUID `json:"userId"`
+	Username                  string       `json:"username"`
+	Method                    string       `json:"method"`
+	Connection                string       `json:"connection"`
+	Subject                   string       `json:"subject"`
+	Tenant                    *string      `json:"tenant"`
+	EmailAtLink               *string      `json:"emailAtLink"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastUsedAt                time.Time    `json:"lastUsedAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 }
 
 var membersSectorIdentityReadSets resource.SetCache[MembersSectorIdentity, membersSectorIdentityRead]
@@ -160,6 +162,8 @@ func (c *MembersSectorIdentityColumns) All() *MembersSectorIdentityColumns {
 		"LastUsedAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 	}
 
 	return c
@@ -243,6 +247,18 @@ func (c *MembersSectorIdentityColumns) HeldGlobally() *MembersSectorIdentityColu
 	return c
 }
 
+func (c *MembersSectorIdentityColumns) ManagedHere() *MembersSectorIdentityColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *MembersSectorIdentityColumns) ManagedByAnotherDirectory() *MembersSectorIdentityColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 type MembersSectorIdentityQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -285,6 +301,14 @@ func (p MembersSectorIdentityQueryPartialClause) HeldElsewhere() MembersSectorId
 
 func (p MembersSectorIdentityQueryPartialClause) HeldGlobally() MembersSectorIdentityQueryIdent[bool] {
 	return MembersSectorIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p MembersSectorIdentityQueryPartialClause) ManagedHere() MembersSectorIdentityQueryIdent[bool] {
+	return MembersSectorIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p MembersSectorIdentityQueryPartialClause) ManagedByAnotherDirectory() MembersSectorIdentityQueryIdent[bool] {
+	return MembersSectorIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 type MembersSectorIdentityQueryClause struct {
@@ -403,6 +427,14 @@ func (c *membersSectorIdentitySort) HeldElsewhere() *MembersSectorIdentitySort {
 
 func (c *membersSectorIdentitySort) HeldGlobally() *MembersSectorIdentitySort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *membersSectorIdentitySort) ManagedHere() *MembersSectorIdentitySort {
+	return c.addField("ManagedHere")
+}
+
+func (c *membersSectorIdentitySort) ManagedByAnotherDirectory() *MembersSectorIdentitySort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 type MembersSectorIdentitySort struct {

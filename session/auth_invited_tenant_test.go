@@ -68,7 +68,7 @@ func carried(rr *httptest.ResponseRecorder) []*http.Cookie {
 func signUpInvitedSeatsNobody(t *testing.T, f *authFixture, cookies []*http.Cookie) (pendingID impulse.UUID, after []*http.Cookie) {
 	t.Helper()
 
-	pendingID, after = signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
+	pendingID, after = signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"})
 	for _, c := range after {
 		if c.Name == invitedTenantCookie {
 			t.Fatalf("SignUp() set the cookie %+v, want none before the code: nothing is accepted yet", c)

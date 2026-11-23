@@ -75,10 +75,11 @@ type TenantSignInSettings struct {
 	SecondFactor *DirectorySecondFactor `json:"secondFactor,omitempty"`
 }
 
-// DirectoryOnlyCount is how many people hold a role in a tenant, Seated, and how many
-// of them the tenant's directory-only switch keeps out, Outside: the people who have
-// never signed in through the tenant's directory, counted as the warning that turns the
-// switch on counts them (DirectoryOutsiders), so the two always say the same number.
+// DirectoryOnlyCount is how many people a tenant's list of its people holds, Seated (who
+// holds a role there, and who signs in through its directory), and how many of them the
+// tenant's directory-only switch keeps out, Outside: the people who have never signed in
+// through the tenant's directory, counted as the warning that turns the switch on counts
+// them (DirectoryOutsiders), so the two always say the same number.
 type DirectoryOnlyCount struct {
 	Seated  int `json:"seated"`
 	Outside int `json:"outside"`
@@ -90,9 +91,9 @@ type DirectoryOnlyCount struct {
 }
 
 // DirectoryOnlyShare is one auth's part of a tenant's count: how many of that auth's
-// people the tenant seats, and how many of them the switch keeps out. Label is what a
-// page calls the auth's people, and People the tenant's list of them as grants name it,
-// which a page opens to show who they are.
+// people the tenant's list holds, and how many of them the switch keeps out. Label is
+// what a page calls the auth's people, and People the tenant's list of them as grants
+// name it, which a page opens to show who they are.
 type DirectoryOnlyShare struct {
 	Label   string               `json:"label"`
 	People  accesstypes.Resource `json:"people"`
@@ -196,8 +197,8 @@ type DirectoryPeople struct {
 	// (DirectoryOutsider, DirectoryAdministrator).
 	List   accesstypes.Resource
 	Fields []accesstypes.Tag
-	// Seated counts the auth's people the tenant seats, for the read of the switch; a
-	// nil reader counts nobody.
+	// Seated counts the auth's people in the tenant's list of its people, for the read of
+	// the switch; a nil reader counts nobody.
 	Seated SeatedCount
 	// Outsiders reads the people the switch would keep out.
 	Outsiders DirectoryOutsiders
@@ -819,20 +820,20 @@ func turnsOn(value any) bool {
 // transaction, with what a page of them says of how the tenant stands: its directory as
 // people know it, the role a person gets the first time they sign in through it, in
 // words, whether the caller's auth has passwords, how the caller signed in, whether the
-// tenant is directory only, and how many people the tenant seats and how many of them
-// the switch keeps out (CountedBy), counted as the warning counts them, with each auth's
-// share of both (DirectoryOnlyCount.Shares). While the switch is off it also says what
-// turning it on takes of the caller (TenantSignInSettings.Conditions): each condition
-// the call would hold them to, whether they meet it, and what they do where they do
-// not, in the words the call refuses in. Where the directories record carries the
-// second-factor column it says the second factor's part (DirectorySecondFactor). A
-// tenant with no directory is refused before anything is asked of the person, so no
-// condition is said for it, nobody is counted, and no part of the second factor is
-// said. For a tenant record that declares no switch, no flag is read: the tenant is not
-// directory only, no condition of the switch is said, and nobody is counted. A tenant
-// the record does not hold is NotFound where the record declares the switch; without
-// one it reads as a tenant with no directory, and the generated router's guard of the
-// tenant's route has answered it NotFound before.
+// tenant is directory only, and how many people the tenant's list holds and how many of
+// them the switch keeps out (CountedBy), counted as the warning counts them, with each
+// auth's share of both (DirectoryOnlyCount.Shares). While the switch is off it also says
+// what turning it on takes of the caller (TenantSignInSettings.Conditions): each
+// condition the call would hold them to, whether they meet it, and what they do where
+// they do not, in the words the call refuses in. Where the directories record carries the
+// second-factor column it says the second factor's part (DirectorySecondFactor). A tenant
+// with no directory is refused before anything is asked of the person, so no condition is
+// said for it, nobody is counted, and no part of the second factor is said. For a tenant
+// record that declares no switch, no flag is read: the tenant is not directory only, no
+// condition of the switch is said, and nobody is counted. A tenant the record does not
+// hold is NotFound where the record declares the switch; without one it reads as a tenant
+// with no directory, and the generated router's guard of the tenant's route has answered
+// it NotFound before.
 func (r *TenantDirectoryRules) SignInSettings(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*TenantSignInSettings, error) {
 	if !r.columns.declared() {
 		return nil, errors.New("resource: a tenant's directory rules need the directories record's columns: build them with the generated New<Record>DirectoryRules")
@@ -926,8 +927,8 @@ func (r *TenantDirectoryRules) defaultRoleInWords(ctx context.Context, txn ReadW
 	return words.RoleInWords(string(directory.DefaultRole)), nil
 }
 
-// count sums, over the rules' people, how many people tenant seats and how many of them
-// its switch keeps out, and says each auth's share where its entry names its list of
+// count sums, over the rules' people, how many people tenant's list holds and how many of
+// them its switch keeps out, and says each auth's share where its entry names its list of
 // people (DirectoryOnlyShare), in the rules' order; nil for rules that count nobody.
 func (r *TenantDirectoryRules) count(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyCount, error) {
 	if len(r.people) == 0 {

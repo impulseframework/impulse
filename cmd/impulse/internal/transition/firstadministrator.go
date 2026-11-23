@@ -73,7 +73,7 @@ var deployDocPiece = piece{
 // invitation: that the log is no mailbox to invite a first administrator through, so the
 // mailbox comes before the first release.
 var dataLevelDocPiece = piece{
-	before:  "// relay takes over once the version is pinned; a release to any other environment is\n// refused until it is.",
+	before:  "// application with no mailbox, or with a mailbox and no app password yet, does not\n// start: the links and codes it mails are secrets, and a log is no place for them.",
 	after:   "func openMailSender(",
 	without: "\n",
 }

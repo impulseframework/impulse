@@ -180,10 +180,10 @@ export const routes: Routes = [
         // The sector's people and its invitations, with a person's row page (the roles
         // held here and the identities under it): the tenant's side of the same generated
         // management, built by the library from the same description. The Sector Marshal
-        // sees Disable on a person the sector holds alone and no such entry on a person
-        // who also holds a role elsewhere: the role file's condition on the method's
-        // grant decides, row by row, and no page repeats it. The Marshal's grant on the
-        // method that gives a role carries a condition on the role given
+        // sees Disable on a person whose account the sector manages and no such entry on
+        // a person whose account it does not manage: the role file's condition on the
+        // method's grant decides, row by row, and no page repeats it. The Marshal's grant
+        // on the method that gives a role carries a condition on the role given
         // (new.role != 'SectorMarshal' in pkg/auth/crew/roles.json), so the dialog
         // rehearses the call with a dry run when a role is picked.
         //

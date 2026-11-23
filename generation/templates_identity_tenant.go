@@ -14,23 +14,24 @@ const (
 {{- if .ForTenant }}
 //
 // It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
-// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there, and what the tenant may do to a person who
-// also holds a role outside it is the role file's to say, in a condition on the
-// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
+// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who is no
+// row of that list is not found there, and whether the tenant may do this to a person is
+// the role file's to say, in a condition on the method's grant that reads the facts of
+// the row: managedHere says this tenant manages the person's account.
 {{- end }}`
 
 	// identityTenantResetNote is the paragraph the tenant's method that mails a reset
-	// link adds to its comment. It leaves nothing to a condition of the role file: a
-	// tenant's administrator sends the link to any person of the tenant.
+	// link adds to its comment. It is the role file's condition that keeps the link from
+	// a person another tenant's directory manages.
 	identityTenantResetNote = `
 {{- if .ForTenant }}
 //
 // It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
-// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there. Every person of the tenant may be sent the
-// link, whoever else they hold a role with: it goes to the person's own mailbox and
-// changes nothing until they use it, so its grant needs no condition on the row.
+// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who is no
+// row of that list is not found there. The link goes to the person's own mailbox and
+// changes nothing until they use it, so a tenant that does not manage the account may
+// still send it; the role file's condition on the grant keeps it from a person another
+// tenant's directory manages (managedHere = true OR managedByAnotherDirectory = false).
 {{- end }}`
 
 	// identityTenantInvitationNote is the paragraph a tenant's method that names an
@@ -50,10 +51,10 @@ const (
 //
 // It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
 // row of {{ .TenantIdentity }}, the tenant's own list of its people's identities. An
-// identity of a person who holds no role in the tenant is not found there, and what the
-// tenant may do to a person who also holds a role outside it is the role file's to say,
-// in a condition on the method's grant that reads the facts of the row (heldElsewhere,
-// heldGlobally).
+// identity of a person who is no row of the tenant's list of people is not found there,
+// and whether the tenant may do this to a person is the role file's to say, in a
+// condition on the method's grant that reads the facts of the row: managedHere says
+// this tenant manages the person's account.
 {{- end }}`
 
 	// identityTenantScope is the annotation that makes a method a tenant's.
@@ -266,8 +267,9 @@ type (
 	// the password it has signs the person in, and their sessions stand, until the
 	// link is used. The link works once and the message says who asked. The answer
 	// says whether the link went (Sent) and, where it did not, why (Reason): the
-	// account has no password to reset or no confirmed address, or the address was
-	// mailed too often.` + identityTenantResetNote + `
+	// account has no password to reset or no confirmed address, its password is
+	// disabled by its organization's sign-in settings, or the address was mailed too
+	// often.` + identityTenantResetNote + `
 	//
 	// @rpc` + identityTenantScope + `
 	// @outlet({{ .Outlets }})` + identityCredentialClass + `
@@ -652,7 +654,10 @@ import (
 // A person who removes a role from themselves keeps an administrator role nobody else
 // would hold in the tenant (identity.WithAdministratorRoles names them). A person left
 // with no role anywhere is deleted with their identity links and sessions, in the same
-// transaction: an account nothing admits is not kept.
+// transaction: an account nothing admits is not kept. An account that signs in through a
+// tenant's directory is that tenant's to delete: it goes this way only with the last thing
+// it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's
+// list of its people.
 //
 // The method declares a warning with no word to type: asked first, the server says whose
 // role goes and where it is held, and, where it is the last thing the person holds, that
@@ -811,8 +816,10 @@ import (
 // the tenant goes, and their place in each group kept in it. What reaches the tenant another
 // way stays: a role held in every tenant, a role for the whole application and a place in a
 // group kept for the whole application. A person left holding nothing that has not ended is
-// deleted with their sign-in identities and sessions, and a person who reaches the tenant no
-// more is told by mail.
+// deleted with their sign-in identities and sessions. An account that signs in through a
+// tenant's directory is that tenant's to delete: it goes this way only with the last thing
+// it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's
+// list of its people. A person who reaches the tenant no more is told by mail.
 //
 // It is a tenant's method: it names a row of {{ .TenantUser }}, the tenant's own list of the
 // auth's people. It takes only what is the tenant's own, so its grant needs no condition on

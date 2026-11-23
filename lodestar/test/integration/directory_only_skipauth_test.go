@@ -32,11 +32,11 @@ import (
 // settings restrict its own door alone: the warden, a marshal in every sector signed in
 // through the persona provider, enters Bastion through its directory and every other
 // sector however he signed in, and the rigger, by password, enters Anvil and finds
-// Bastion on her chart marked closed, with the reason. Bastion's list of its people is
-// made from who holds a role there, not from who can sign in: the rigger stays in it,
-// and while Bastion is directory only her row says she cannot enter; the warden's, who
-// signed in through the directory, and the governor's, a super administrator, say
-// nothing.
+// Bastion on her chart marked closed, with the reason. Bastion's list of its people
+// keeps everyone who holds a role there, whether or not they can sign in: the rigger
+// stays in it, and while Bastion is directory only her row says she cannot enter; the
+// warden's, who signed in through the directory, and the governor's, a super
+// administrator, say nothing.
 //
 // The switch is the sector's own: its marshal turns it, with the sector's two methods
 // (MakeSectorDirectoryOnly and EndSectorDirectoryOnly, in the sector's scope), and reads

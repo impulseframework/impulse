@@ -88,8 +88,8 @@ export function tenantStandsLine(stands: TenantStands): string {
 }
 
 /**
- * How many of the tenant's people the directory-only switch keeps out: the people who
- * hold a role in the tenant (`seated`) and have never signed in through its directory
+ * How many of the tenant's people the directory-only switch keeps out: of the people in
+ * the tenant's list (`seated`), those who have never signed in through its directory
  * (`outside`), said as what the switch would do while it is off and what it does while it
  * is on.
  */

@@ -214,7 +214,7 @@ func (tn Tenancy) holdAdministratorRole(a *app.App, file, reference *roleFile, s
 	ch.didf("%s: the role %s, a domain role, which a %s's administrator holds: %s, on the %s auth's people in one %s, their groups and the roles they hold there%s%s", rel, role, tn.oneLower(), grants, auth, tn.oneLower(), tn.directoryWords(), leftOutWords(left))
 	switch {
 	case proof != nil:
-		ch.didf("%s: the test that proves each of the %d condition(s) on the served stack, written with the role since impulse check holds every conditional grant to a test that proves it (conditions-proven): a %[3]s's administrator changes the account of a person the %[3]s holds alone, and is refused for a person another %[3]s or the whole application holds too; reads the address of a person no other %[3]s holds; takes a role held in the %[3]s, and not one held in every %[3]s; and withdraws an invitation while it stands%[4]s", tenantPeopleTest, len(conditional), tn.oneLower(), tn.proofSignInWords(a, seat))
+		ch.didf("%s: the test that proves each of the %d condition(s) on the served stack, written with the role since impulse check holds every conditional grant to a test that proves it (conditions-proven): a %[3]s's administrator changes the account of a person whose account the %[3]s manages, and is refused for a person whose account another %[3]s or the application's own administrators manage; reads the name, the address and whether the account is disabled of every person of the %[3]s, and the rest of an account the %[3]s manages%[5]s; takes a role held in the %[3]s, and not one held in every %[3]s; and withdraws an invitation while it stands%[4]s", tenantPeopleTest, len(conditional), tn.oneLower(), tn.proofSignInWords(a, seat), tn.proofResetWords(a, seat))
 		ch.didf("%s: written again with its provesGrant marked for the application's lint (//nolint:unparam), as the tenanted skeleton's is: every grant the new test proves is the %s role's, and the lint refuses a parameter that takes one value in every call", integrationHarness, role)
 	case len(conditional) > 0:
 		unproven := make([]string, 0, len(conditional))
@@ -236,6 +236,17 @@ func (tn Tenancy) proofSignInWords(a *app.App, seat *app.AuthPackage) string {
 	}
 
 	return fmt.Sprintf("; the %s auth has no password sign-in, so the test signs people in through the simulated directory (the session library's skipAuth build tag), and under the default build it is skipped, and says so", seat.Name)
+}
+
+// proofResetWords says, of an application whose auth has a password sign-in, what the
+// test that proves the conditions shows of the password reset link a tenant's
+// administrator sends; an auth with no password has no such link, and nothing is said.
+func (tn Tenancy) proofResetWords(a *app.App, seat *app.AuthPackage) string {
+	if !authHasPassword(a, seat) {
+		return ""
+	}
+
+	return fmt.Sprintf("; sends a password reset link to everyone but a person another %[1]s's directory manages", tn.oneLower())
 }
 
 // unreadWords says why the role could not be cut to what the application serves: no
@@ -589,7 +600,7 @@ func (tn Tenancy) holdDeployTest(a *app.App, ch *Change) error {
 // the command wrote that test, and the grants under no condition where it did not.
 func (tn Tenancy) grantsWords(a *app.App) string {
 	if tn.carriesConditions(a) {
-		return fmt.Sprintf("the grants the tenanted skeleton's `%s` holds, on what this application serves, each under the condition the skeleton holds it to (the methods that change a person's account are a tenant's administrator's for a person the tenant holds alone, and never for one another tenant or the whole application holds too), and the command wrote the test that proves each condition on the served stack beside it, `%s`, since `impulse check` refuses a conditional grant no test proves", referenceTenantAdministrator, tenantPeopleTest)
+		return fmt.Sprintf("the grants the tenanted skeleton's `%s` holds, on what this application serves, each under the condition the skeleton holds it to (the methods that change a person's account are a tenant's administrator's for a person whose account the tenant manages, and never for one whose account another tenant or the application's own administrators manage), and the command wrote the test that proves each condition on the served stack beside it, `%s`, since `impulse check` refuses a conditional grant no test proves", referenceTenantAdministrator, tenantPeopleTest)
 	}
 
 	return fmt.Sprintf("the grants the tenanted skeleton's `%s` holds under no condition, on what this application serves, and the grants the skeleton holds under a condition are yours to add, each with the test that proves it, since `impulse check` refuses a conditional grant no test proves (the change's lines name them and say why the command wrote no such test, and until then a tenant's administrator does none of them)", referenceTenantAdministrator)

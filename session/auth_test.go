@@ -2185,6 +2185,18 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wantCode:   sessioninfo.RefusedIdentityRejected,
 		},
 		{
+			name:     "a link the store refuses because the account signs in through another tenant's directory answers second_directory, and the pending identity is spent",
+			wait:     confirmation,
+			password: "pw",
+			prepare: func(f *authFixture, pendingID impulse.UUID) {
+				f.expectConsume(pendingID)
+				refused := signinflow.Refusal("", sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory, "the account already signs in through another tenant's directory")
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.Wrap(refused, "signinflow.LinkConfirmed()"))
+			},
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   sessioninfo.RefusedSecondDirectory,
+		},
+		{
 			name:       "an identity waiting for MFA has nothing to confirm",
 			wait:       &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"},
 			password:   "pw",

@@ -1042,7 +1042,7 @@ r=$(req governor GET "$API/sectors/$BASTION_ID/sector-directories"); assert_py "
 # do and saves nothing. While it is on, Bastion's list of its people says who it keeps
 # out, and the warning has nothing to turn on.
 KEPT_OUT="Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
-r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list is made from who holds a role there, not from who can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[\"$KEPT_OUT\"]"
+r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list keeps everyone who holds a role there, whether or not they can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[\"$KEPT_OUT\"]"
 assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==[\"$KEPT_OUT\",\"$KEPT_OUT\"] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
 MAKE_ONLY="$API/sectors/$BASTION_ID/make-sector-directory-only"
 END_ONLY="$API/sectors/$BASTION_ID/end-sector-directory-only"
@@ -1317,9 +1317,10 @@ login marshal
 # administrator does, so the session disables and enables an account as the marshal may.
 #
 # The refusal is shown on a person the marshal's own grant reaches, so it is the mask's
-# and not her roles': her sector's credential methods stop at a person who holds a role
-# anywhere else, as every seeded person does, so she first invites one into Anvil, who
-# accepts with a password of their own and is then a person Anvil holds alone, and runs
+# and not her roles': her sector's credential methods stop at a person whose account the
+# sector does not manage, and Anvil, which has no directory, manages no seeded person's
+# (each holds a role somewhere else), so she first invites one into Anvil, who accepts
+# with a password of their own and is then a person whose account Anvil manages, and runs
 # the method herself, as a dry run.
 r=$(req marshal GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the marshal's own digest carries her sector's credential methods" "$r" "'Execute' in rows.get('RequireCrewSectorPasswordChange',{}) and 'Execute' in rows.get('SetCrewSectorUserEmail',{})"
 r=$(req marshal POST "$ANVIL/invite-crew-sector-user" '{"email":"gus@example.com","roles":["Cadet"]}'); check "the marshal invites a person into Anvil" 200 "$r"

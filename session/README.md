@@ -305,7 +305,12 @@ DML what a later rule must read.
     password who already signs in through an identity is linked no second one on the
     name, on the same connection or another (see "Never a second identity on a name
     alone" below).
-    An address a user holds unverified is a reservation, not a match.
+    An address a user holds unverified is a reservation, not a match: the identity is
+    not linked to that user, and where the sign-in would make a new account beside it,
+    it is refused (`address_held_unconfirmed`, or `address_held_no_password` where that
+    user has no password), since the user may be the person. They sign in to that
+    account with its password, the code mailed to the address confirms it, and the same
+    sign-in then finds the account.
     The rule asks what the Auth registers. On an Auth with no password method nobody
     can enter a password, so a password a user holds there (one the API set, or one
     kept from a release that registered the method) asks for no confirmation: the user
@@ -451,7 +456,12 @@ DML what a later rule must read.
   subject under the same name (their directory account deleted and made again) is
   therefore followed only where the account holds the address verified and the method
   verifies it; elsewhere the sign-in is refused until the new identity is linked one
-  of those ways.
+  of those ways. No sign-in puts an account under a second tenant's directory: where a
+  tenant declares the directory the identity came through, and the user already signs in
+  through a directory another tenant declares, the sign-in is refused
+  (`second_directory`, `signin.ErrLinkSecondDirectory`) before any confirmation is asked
+  for, and nothing is linked. The tenant whose directory a person signs in through
+  manages their account, so there is one at most.
 
   The standard rule writes nothing for a guest of the directory (an Entra B2B guest,
   refused with `guest_account`: a guest's preferred username is an address the
@@ -794,10 +804,11 @@ The rules, in order, once the user is known:
    A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
    is refused with `connection_not_in_tenant`. A sign-in with a personal account
    (through Google or Microsoft, with an account that is in no organization's
-   directory, so no tenant's) is refused with `directory_only_personal_account`. Any
-   other, a password or a session the application started itself, is refused with
-   `directory_only`. The codes are apart so that a login page says what is true of how
-   the person signed in: a person who used no password is not told to stop using one.
+   directory, so no tenant's) is refused with `directory_only_personal_account`. A
+   sign-in with a password is refused with `directory_only`, and any other, a session
+   the application started itself, with `directory_only_session`. The codes are apart
+   so that a login page says what is true of how the person signed in: a person who
+   used no password is not told to stop using one.
 
 Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
 rule after the tenant policy, for what the tenant policy cannot know:
@@ -1640,7 +1651,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
 | `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
-| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address. See "A password reset". |
+| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address, and for one whose password the tenants' sign-in settings disable. See "A password reset". |
 | `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
 | `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
@@ -1919,6 +1930,10 @@ you a link". There is no second mail.
   link still opens. Once one is set, the old one is refused from then on, every session
   of the person ends, the other reset links of the account are withdrawn, and the person
   signs in with the new password: completing a reset starts no session.
+- **No link for a disabled password.** A person whose password the tenants' sign-in
+  settings disable (`SetPasswordDisabledCheck`, "The tenant policy") is mailed none: an
+  administrator's send is a Conflict that says so, the person's own request mails
+  nothing, and a link mailed before the setting changed is dead.
 - **The link writes over the password it was followed for, and no other.** Completing
   it spends the link and then writes the new password only while the account still
   holds the password it held when the link was read (`AuthStore.ChangeUserPassword`,
@@ -2052,7 +2067,8 @@ How an address gets onto a user:
   and links nothing. An account made ahead under the address as its sign-in name,
   beside the account that holds the address, is reached so, and an administrator
   settles which is the person's by removing the duplicate account or its sign-in name.
-  An address another user holds unconfirmed refuses nobody, and neither does a
+  An address another user holds unconfirmed refuses no sign-in to an account the person
+  already has (it refuses only the making of a second account, above), and neither does a
   registration that holds no sign-in for an address (the point above). No other method's
   word is kept, whatever it puts in `Identity.EmailVerified` and whatever it is
   named: the people who run a provider can mark any address verified, so an Entra
@@ -2421,9 +2437,12 @@ one it sends.
   `{"mfaIsRequired": true}` and holds the sign-up as a pending sign-in that names no
   user, for the code mailed to the invited address (`Pending().SendCode()`), the
   username and the password's hash kept in the browser's encrypted pending cookie and
-  bound to that invitation. A username or an address another account holds is answered
-  409 before anything is held or mailed. A chosen username with an @ in it that is not
-  the invited address is answered 400 before anything is held or mailed.
+  bound to that invitation. An address another account holds is answered 409 before
+  anything is held or mailed. A username another account has is answered 409 once the
+  code is entered and never before: whoever holds the link may have been forwarded it,
+  and is told nothing of which accounts exist until the invited address is proven. A
+  chosen username with an @ in it that is not the invited address is answered 400
+  before anything is held or mailed.
   `Pending().VerifyCode()` with the code then
   creates the user with the invitation's address verified and signs them in, the
   invitation accepted on the way. Five wrong codes end the code with nothing written,
@@ -3433,6 +3452,8 @@ table is the wire contract:
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, a sign-in whose method vouches for its address reached a user who holds no verified address while another user holds that address verified, or the identity resolved to another user than it waited on. |
+| `address_held_unconfirmed` | `RefusedAddressHeldUnconfirmed` | Auth: the sign-in would make a new account, its method vouches for its address, and an account with a password holds that address unconfirmed. Nothing is written; the person signs in to that account with its password and the mailed code confirms the address. |
+| `address_held_no_password` | `RefusedAddressHeldNoPassword` | Auth: the same, where the account that holds the address has no password to sign in with. Nothing is written; an administrator settles it. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. It is also the answer to a sign-in code mailed for an invitation, and to the sign-in that entered it, once that invitation was used, withdrawn or ran out: the code accepts nothing. |
@@ -3450,9 +3471,11 @@ table is the wire contract:
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: an administrator required a new password of the signed-in user; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), and either a directory-only tenant's directory signs the account in and this is not that directory, or every tenant that seats the person is directory only and none of them has that directory as its own. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
 | `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
+| `directory_only_session` | `RefusedDirectoryOnlySession` | Auth, the tenant policy: a session the application started itself, with no password and through no directory, for a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person typed no password, so a login page names none. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
+| `second_directory` | `RefusedSecondDirectory` | Auth: the sign-in came through a directory a tenant declares and reached a user who already signs in through a directory another tenant declares. An account signs in through one tenant's directory at most, so nothing is linked and no confirmation is asked for. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count; the codes of the address's own sign-ins are counted apart from everything else); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |

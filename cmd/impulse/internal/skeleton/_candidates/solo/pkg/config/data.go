@@ -134,7 +134,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 
 	// The sender every auth mails through: the Workspace relay where the deployment names
 	// a mailbox, the log in development.
-	sender, err := openMailSender(env)
+	sender, err := openMailSender(env, core.Environment())
 	if err != nil {
 		return nil, err
 	}
@@ -286,8 +286,10 @@ type dataConfig struct {
 	// MailMailbox and MailAppPassword send the auths' mail through the Google Workspace
 	// SMTP relay as the mailbox (a no-reply address of the organization's domain, with
 	// two-step verification and an app password, the secret); MailFrom is the address the
-	// mail is from when it is not the mailbox, an alias of its account. Unset, as in
-	// development, the mail is written to the log and nothing is sent.
+	// mail is from when it is not the mailbox, an alias of its account. Unset in
+	// development (APP_ENVIRONMENT=development), the session library's logging stand-in
+	// writes each message to the log instead of sending it; unset anywhere else, the
+	// application does not start.
 	MailMailbox     string `env:"APP_MAIL_MAILBOX"`
 	MailFrom        string `env:"APP_MAIL_FROM"`
 	MailAppPassword string `env:"APP_MAIL_APP_PASSWORD" secret:"true"`
@@ -319,19 +321,33 @@ func (env *dataConfig) staffSettings(collection access.PermissionCollection, sig
 	}
 }
 
-// openMailSender opens the sender every auth mails through: the Google Workspace SMTP
-// relay as the mailbox the deployment names (APP_MAIL_MAILBOX, with its app password),
-// or the log where none is named, as in development, where nothing is sent and a
-// developer follows the link from the log. A mailbox named without its app password is
-// the first environment before an operator adds the secret's version (the stack's
-// secret_versions, where no entry means not yet): the log stands in there too, and the
-// relay takes over once the version is pinned; a release to any other environment is
-// refused until it is. The log is no mailbox (mail.Delivers): while nobody of an auth
-// holds the Super Administrator role the migrate command refuses to invite its first
-// administrator through it, since an invitation's link is never written to a log, so
-// the mailbox and its app password come before the first release.
-func openMailSender(env *dataConfig) (mail.Sender, error) {
+// developmentEnvironment is the name the development template gives the environment
+// (APP_ENVIRONMENT=development): the one environment whose mail the log may take.
+const developmentEnvironment = "development"
+
+// errNoMailbox refuses to open the data level outside development with no mailbox to
+// send as.
+var errNoMailbox = errors.New("the application has no mailbox to send as, so it does not start: APP_MAIL_MAILBOX and APP_MAIL_APP_PASSWORD are not both set, and mail is written to the log in development alone (APP_ENVIRONMENT=development), since the links and codes it carries are secrets. Give this environment its mailbox and the mailbox's app password, then start it again")
+
+// openMailSender opens the mail driver the auths send through: the Google Workspace
+// SMTP relay as the configured mailbox with its app password (APP_MAIL_MAILBOX,
+// APP_MAIL_APP_PASSWORD). In development, and nowhere else, the session library's
+// logging stand-in takes its place where the two are not both set: it writes each
+// message to the log, link included, and sends nothing, so development follows the link
+// from the log. Development is the environment the process is told it runs in
+// (APP_ENVIRONMENT=development, as the development template sets it). Anywhere else an
+// application with no mailbox, or with a mailbox and no app password yet, does not
+// start: the links and codes it mails are secrets, and a log is no place for them. The
+// log is no mailbox (mail.Delivers): while nobody of an auth holds the Super
+// Administrator role the migrate command refuses to invite its first administrator
+// through it, since an invitation's link is never written to a log, so the mailbox and
+// its app password come before the first release.
+func openMailSender(env *dataConfig, environment string) (mail.Sender, error) {
 	if env.MailMailbox == "" || env.MailAppPassword == "" {
+		if environment != developmentEnvironment {
+			return nil, errNoMailbox
+		}
+
 		return mail.Log{}, nil
 	}
 	sender, err := workspace.New(&workspace.Settings{Mailbox: env.MailMailbox, From: env.MailFrom, AppPassword: env.MailAppPassword, Name: staff.Application})

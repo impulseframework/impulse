@@ -348,6 +348,15 @@ const (
 	// RefusedIdentityRejected is the code for an external identity the application's
 	// user resolver rejected (for example, no invite or roster entry).
 	RefusedIdentityRejected LoginRefusalCode = "identity_rejected"
+	// RefusedAddressHeldUnconfirmed is the code for a sign-in that would make a new
+	// account and proves an address an account with a password holds unconfirmed. No
+	// second account is made: the person signs in to that account with its password,
+	// and the code mailed to the address confirms it.
+	RefusedAddressHeldUnconfirmed LoginRefusalCode = "address_held_unconfirmed"
+	// RefusedAddressHeldNoPassword is the code for the same sign-in where the account
+	// that holds the address has no password to sign in with: an administrator settles
+	// it.
+	RefusedAddressHeldNoPassword LoginRefusalCode = "address_held_no_password"
 	// RefusedByPolicy is the code for a sign-in the application's policy denied (for
 	// example, password sign-in for a tenant that requires SSO).
 	RefusedByPolicy LoginRefusalCode = "policy_denied"
@@ -433,11 +442,17 @@ const (
 	// person whose every tenant admits its people through its own directory only, none
 	// of which is the directory the sign-in came through.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
-	// RefusedDirectoryOnly is the code for a sign-in with a password, or a session the
-	// application starts itself, by a person whose account a directory-only tenant's
-	// directory signs in, or whose every tenant admits its people through its own
-	// directory only, under the tenant policy.
+	// RefusedDirectoryOnly is the code for a sign-in with a password by a person whose
+	// account a directory-only tenant's directory signs in, or whose every tenant admits
+	// its people through its own directory only, under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
+	// RefusedDirectoryOnlySession is the code for a session the application starts
+	// itself, with no password and through no directory, for a person whose account a
+	// directory-only tenant's directory signs in, or whose every tenant admits its people
+	// through its own directory only, under the tenant policy. It is told apart from
+	// RefusedDirectoryOnly so that a login page speaks of no password where the person
+	// typed none.
+	RefusedDirectoryOnlySession LoginRefusalCode = "directory_only_session"
 	// RefusedDirectoryOnlyPersonalAccount is the code for a sign-in with a personal
 	// account (through Google or Microsoft, with an account that is in no
 	// organization's directory) by a person whose account a directory-only tenant's
@@ -454,6 +469,11 @@ const (
 	// invitation it carries, or the default role of the directory it came through,
 	// would seat the person in a second tenant.
 	RefusedOtherTenant LoginRefusalCode = "other_tenant"
+	// RefusedSecondDirectory is the code for a sign-in through one tenant's directory
+	// that reached an account which already signs in through another tenant's
+	// directory. An account signs in through one tenant's directory at most, so nothing
+	// is linked.
+	RefusedSecondDirectory LoginRefusalCode = "second_directory"
 	// RefusedOrganizationAccountRequired is the code for a sign-in or an acceptance that
 	// carried an invitation which makes a tenant entered through its directory only
 	// (NewTenant.DirectoryOnly), by a person who did not come through an organization's

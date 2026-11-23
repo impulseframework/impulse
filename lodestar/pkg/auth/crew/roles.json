@@ -1520,13 +1520,14 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
                 "heldHere",
                 "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
                 "outsideDirectory",
                 "cannotEnter"
               ]
@@ -1534,11 +1535,12 @@
             {
               "resource": "CrewSectorUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CrewSectorUserRoles",
@@ -1585,20 +1587,17 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "CrewSectorIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CrewSectorSignInWays",
@@ -1608,9 +1607,11 @@
                 "connection",
                 "through",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "password = false OR heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CrewSectorRoles",
@@ -1879,24 +1880,26 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
                 "heldHere",
                 "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
                 "cannotEnter"
               ]
             },
             {
               "resource": "CrewSectorUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CrewSectorUserRoles",
@@ -1929,20 +1932,17 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "CrewSectorIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SectorDirectories",
@@ -2334,53 +2334,54 @@
             },
             {
               "resource": "DisableCrewSectorUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EnableCrewSectorUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "DeleteCrewSectorUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RemoveCrewSectorUser"
             },
             {
               "resource": "RenameCrewSectorUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetCrewSectorUserEmail",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetCrewSectorUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
-              "resource": "SendCrewSectorUserPasswordResetLink"
+              "resource": "SendCrewSectorUserPasswordResetLink",
+              "condition": "managedHere = true OR managedByAnotherDirectory = false"
             },
             {
               "resource": "RequireCrewSectorPasswordChange",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RevokeCrewSectorUserTrustedDevices",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EndCrewSectorUserSessions",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "UnlinkCrewSectorSessionIdentity",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RemoveCrewSectorPassword",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CreateCrewSectorGroup"
