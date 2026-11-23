@@ -219,6 +219,14 @@ var impersonatorActs = []struct {
 		},
 	},
 	{
+		name: "RemoveFromTenant", says: "remove yourself from a tenant",
+		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
+			_, err := m.RemoveFromTenant(ctx, txn, who.id, "alpha")
+
+			return err
+		},
+	},
+	{
 		name: "Invite", says: "invite yourself",
 		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
 			_, err := m.Invite(ctx, txn, &Invitation{Email: who.email, Roles: []accesstypes.Role{"Steward"}}, nil)
