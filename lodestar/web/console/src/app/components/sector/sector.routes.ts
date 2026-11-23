@@ -1,14 +1,15 @@
 import { Type } from '@angular/core';
 import { Route } from '@angular/router';
+import { apiDescriptor } from '@app/service/zz_gen_api';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
 import { frameRoutes, page, pageRoute, tenantGuard } from '@impulseframework/resource-angular/auth-frame';
+import { tenantSignInPage, tenantSignInRoute } from '@impulseframework/resource-angular/identity-pages';
 import { DashboardComponent } from '@components/ui/dashboard/dashboard.component';
 import { BriefingComponent } from './briefing/briefing.component';
 import { FlightDeckComponent } from './flight-deck/flight-deck.component';
 import { HangarDeckComponent } from './hangar-deck/hangar-deck.component';
 import { RosterComponent } from './roster/roster.component';
-import { SectorSignInComponent } from './sector-sign-in/sector-sign-in.component';
 import { ShipsLogComponent } from './ships-log/ships-log.component';
 
 const list = Permissions.List;
@@ -54,13 +55,12 @@ export const deckPages = {
   }),
 } as const;
 
-/** Who may enter the sector: its declared directories and whether they are the only way in. */
-export const sectorSignInPage = page({
-  label: 'Sign-in settings',
-  icon: 'login',
-  route: [DomainRoutePath, 'sign-in'],
-  permission: { resource: Resources.SectorDirectories, permission: list },
-});
+/**
+ * Who may enter the sector: its declared directories and whether they are the only way in.
+ *
+ * Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
+ */
+export const sectorSignInPage = tenantSignInPage(apiDescriptor, { auth: 'Crew' });
 
 /**
  * sectorRoute is the sector segment, `sectors/:sectorID` (the generated DomainRoutePath,
@@ -116,11 +116,7 @@ export const sectorRoute = (pages: Route[]): Route => {
         loadComponent: (): Promise<Type<BriefingComponent>> =>
           import('./briefing/briefing.component').then((comp) => comp.BriefingComponent),
       }),
-      pageRoute(sectorSignInPage, {
-        path: 'sign-in',
-        loadComponent: (): Promise<Type<SectorSignInComponent>> =>
-          import('./sector-sign-in/sector-sign-in.component').then((comp) => comp.SectorSignInComponent),
-      }),
+      tenantSignInRoute(apiDescriptor, { auth: 'Crew' }),
       // The person's account and API keys pages: the library's, in every place.
       ...frameRoutes(),
       { path: '**', redirectTo: 'dashboard' },
