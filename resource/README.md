@@ -3477,11 +3477,11 @@ tenant that is directory only already has nothing to turn on, so the read names 
 condition for either. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
-skeletons' Sign-in page runs each through the library's method dialog
+library's Sign-in settings page runs each through its method dialog
 (`openMethodDialog`), which draws the warning with its list of people and the typed
 word, and turning the flag off is a plain confirmation. The page offers the method that
-turns it on only where the tenant has a directory, and shows the read's conditions
-beside it.
+turns it on only where the tenant has a directory and the person meets every condition
+of the read, and shows in its place each condition they do not meet.
 
 The read also says what a page of the tenant's sign-in settings shows
 (`DirectoryOnlyState`): `Directory`, the tenant's directory as people know it;
