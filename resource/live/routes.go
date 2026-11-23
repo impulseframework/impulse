@@ -36,12 +36,32 @@ const (
 // parameter spells them, the tenants' keys separated by commas: the page's filter on
 // the tenant travels with the renewal, and the server works the set out again from it.
 // It names no key and no domain. Without Domains the list is of every tenant.
+//
+// A list a page subscribes to because it shows names read from it (NamesHeader) carries
+// NameField, the resource's name field as the grants name it, when the name is not the
+// resource's key: the server re-checks List on that field, the grant the page's read
+// asked, since a person may hold the name's grant and not the list's. It names no key
+// and is never a list across tenants. The record keeps it as the resource's list in the
+// domain, as it keeps any list.
 type SubscriptionRequest struct {
 	Resource      string `json:"resource"`
 	Key           string `json:"key,omitempty"`
 	Domain        string `json:"domain,omitempty"`
 	AcrossTenants bool   `json:"acrossTenants,omitempty"`
 	Domains       string `json:"domains,omitempty"`
+	NameField     string `json:"nameField,omitempty"`
+}
+
+// checked is the resource the renewal re-checks the subscription's grant on: the
+// resource's name field for a list held for its names (NameField), the resource itself
+// otherwise.
+func (s *SubscriptionRequest) checked() accesstypes.Resource {
+	res := accesstypes.Resource(s.Resource)
+	if s.NameField == "" {
+		return res
+	}
+
+	return res.ResourceWithTag(accesstypes.Tag(s.NameField))
 }
 
 // narrowed is the page's filter on the tenant a renewal of a list across tenants
@@ -114,7 +134,8 @@ func (o *renewOptions) declares(res accesstypes.Resource) bool {
 
 // RenewHandler serves POST <prefix>/live/renew: the tab's subscriptions are each
 // re-checked against the user's grants (Read for a row, List for a list, in the
-// subscription's domain or the global scope), the kept ones are written with a fresh
+// subscription's domain or the global scope; List on the name field for a list held for
+// its names, SubscriptionRequest.NameField), the kept ones are written with a fresh
 // expiry in one batch, and the answer says which were kept and which dropped. A list
 // across tenants is re-checked by working its set out again (resource.TenantsListed):
 // the tenants the session reaches now, narrowed by the filter the renewal carries, in
@@ -164,6 +185,12 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 			}
 			if !sub.AcrossTenants && sub.Domains != "" {
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("the %s subscription carries domains and is not a list across tenants: one tenant's list names its tenant in domain", sub.Resource))
+			}
+			if sub.NameField != "" && sub.Key != "" {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("the %s subscription names a key and a name field: a page's names are read from the resource's list, which names no key", sub.Resource))
+			}
+			if sub.NameField != "" && sub.AcrossTenants {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("the %s subscription across tenants names a name field: a page's names are read from the list of one tenant, or of none, never from a list across tenants", sub.Resource))
 			}
 		}
 
@@ -282,7 +309,7 @@ func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOption
 			key.perm = accesstypes.Read
 		}
 		keys[i] = key
-		groups[key] = append(groups[key], accesstypes.Resource(sub.Resource))
+		groups[key] = append(groups[key], sub.checked())
 	}
 
 	decided := make(map[recheckKey]accesstypes.Decisions, len(groups))
@@ -306,7 +333,7 @@ func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOption
 
 			continue
 		}
-		if decided[keys[i]][accesstypes.Resource(sub.Resource)].IsDenied() {
+		if decided[keys[i]][sub.checked()].IsDenied() {
 			dropped = append(dropped, sub)
 
 			continue

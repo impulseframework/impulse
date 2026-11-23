@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,6 +92,129 @@ type gateFunc func(ctx context.Context) (bool, error)
 
 func (g gateFunc) Permitted(ctx context.Context) (bool, error) {
 	return g(ctx)
+}
+
+// namedQuery is a Query whose gate answers through a function and whose names are read
+// from the lists sources names, or which fails to say with err.
+type namedQuery struct {
+	gate    gateFunc
+	sources []resource.NameSource
+	err     error
+}
+
+func (q namedQuery) Permitted(ctx context.Context) (bool, error) {
+	return q.gate(ctx)
+}
+
+func (q namedQuery) NameSources(context.Context) ([]resource.NameSource, error) {
+	return q.sources, q.err
+}
+
+// registerCounted is the Fake keeping what each Register call was handed, so a test sees
+// how many writes a request made to the record and what each held.
+type registerCounted struct {
+	*Fake
+
+	mu    sync.Mutex
+	calls [][]Subscription
+}
+
+func (c *registerCounted) Register(ctx context.Context, subs []Subscription) error {
+	c.mu.Lock()
+	c.calls = append(c.calls, slices.Clone(subs))
+	c.mu.Unlock()
+
+	return c.Fake.Register(ctx, subs)
+}
+
+// writes returns what each Register call was handed, in the order of the calls.
+func (c *registerCounted) writes() [][]Subscription {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return slices.Clone(c.calls)
+}
+
+// checkOneWrite checks that the request wrote the record once, with want in that order
+// and every subscription under the expiry of the first, or, for no want, not at all.
+func checkOneWrite(t *testing.T, svc *registerCounted, want []Subscription) {
+	t.Helper()
+
+	writes := svc.writes()
+	if len(want) == 0 {
+		if len(writes) != 0 {
+			t.Errorf("Register() calls = %v, want none", writes)
+		}
+
+		return
+	}
+	if len(writes) != 1 {
+		t.Fatalf("Register() calls = %v, want one write to the record", writes)
+	}
+	if diff := cmp.Diff(want, writes[0], cmpopts.IgnoreFields(Subscription{}, "Expiry")); diff != "" {
+		t.Errorf("Register() mismatch (-want +got):\n%s", diff)
+	}
+	for _, sub := range writes[0] {
+		if sub.Expiry.IsZero() || !sub.Expiry.Equal(writes[0][0].Expiry) {
+			t.Errorf("subscription %s of %s expires at %v, want the expiry of the request's own, %v", sub.ID(), sub.Resource, sub.Expiry, writes[0][0].Expiry)
+		}
+	}
+}
+
+// namesOn reads NamesHeader off an answer: nil where the answer carries none.
+func namesOn(t *testing.T, header http.Header) *Names {
+	t.Helper()
+
+	value := header.Get(NamesHeader)
+	if value == "" {
+		return nil
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		t.Fatalf("url.PathUnescape(%s) error = %v", NamesHeader, err)
+	}
+	var names Names
+	if err := json.Unmarshal([]byte(decoded), &names); err != nil {
+		t.Fatalf("json.Unmarshal(%s) error = %v", NamesHeader, err)
+	}
+
+	return &names
+}
+
+// lockedBuffer is a buffer the standard logger may write from any goroutine.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+// takeStandardLog puts a buffer on the standard logger, which a request with no logger
+// of its own logs through, until the test ends. One test of the package takes it; the
+// lines of tests running beside it land in it too, and it looks for its own.
+func takeStandardLog(t *testing.T) *lockedBuffer {
+	t.Helper()
+
+	logged := new(lockedBuffer)
+	previous := log.Writer()
+	log.SetOutput(logged)
+	t.Cleanup(func() {
+		log.SetOutput(previous)
+	})
+
+	return logged
 }
 
 // permit, refuse and failing are the gates the subscribe tests answer with: the
@@ -314,16 +440,19 @@ func TestRefusing(t *testing.T) {
 func TestSubscribe(t *testing.T) {
 	t.Parallel()
 
+	squadrons := resource.NameSource{Resource: "Squadrons", Field: "name", Domain: "anvil"}
 	tests := []struct {
-		name   string
-		ctx    func(ctx context.Context) context.Context
-		header string
-		gate   gateFunc
-		sub    *Subscription
-		want   []Subscription
+		name      string
+		ctx       func(ctx context.Context) context.Context
+		header    string
+		gate      gateFunc
+		sources   []resource.NameSource
+		sub       *Subscription
+		want      []Subscription
+		wantNames *Names
 	}{
 		{
-			name:   "a permitted list request registers the list before the query",
+			name:   "a permitted list request registers the list before the query, and names nothing",
 			header: "tab-1",
 			gate:   permit,
 			sub:    ListSubscription("Ships", "anvil"),
@@ -337,6 +466,75 @@ func TestSubscribe(t *testing.T) {
 			want:   []Subscription{{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Ships", Key: "s1"}},
 		},
 		{
+			name:    "a list showing names read from two lists registers the three in one write and names the two",
+			header:  "tab-1",
+			gate:    permit,
+			sources: []resource.NameSource{squadrons, {Resource: "Makers", Field: "name"}},
+			sub:     ListSubscription("Ships", "anvil"),
+			want: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Ships", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
+			},
+			wantNames: &Names{
+				Of:    SubscriptionRequest{Resource: "Ships", Domain: "anvil"},
+				Names: []SubscriptionRequest{{Resource: "Squadrons", Domain: "anvil", NameField: "name"}, {Resource: "Makers", NameField: "name"}},
+			},
+		},
+		{
+			name:    "a read showing a name registers the row and the list; of names the row by its key and no domain",
+			header:  "tab-1",
+			gate:    permit,
+			sources: []resource.NameSource{squadrons},
+			sub:     &Subscription{Resource: "Ships", Key: "s1", Domain: "anvil"},
+			want: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Ships", Key: "s1"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"},
+			},
+			wantNames: &Names{
+				Of:    SubscriptionRequest{Resource: "Ships", Key: "s1"},
+				Names: []SubscriptionRequest{{Resource: "Squadrons", Domain: "anvil", NameField: "name"}},
+			},
+		},
+		{
+			name:    "a name that is its resource's key: the list, named with no name field",
+			header:  "tab-1",
+			gate:    permit,
+			sources: []resource.NameSource{{Resource: "Bays", Domain: "anvil"}},
+			sub:     ListSubscription("Ships", "anvil"),
+			want: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Ships", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Bays", Domain: "anvil"},
+			},
+			wantNames: &Names{
+				Of:    SubscriptionRequest{Resource: "Ships", Domain: "anvil"},
+				Names: []SubscriptionRequest{{Resource: "Bays", Domain: "anvil"}},
+			},
+		},
+		{
+			name:    "a name read from the request's own list is neither registered twice nor named",
+			header:  "tab-1",
+			gate:    permit,
+			sources: []resource.NameSource{{Resource: "Crews", Field: "name", Domain: "anvil"}, squadrons},
+			sub:     ListSubscription("Crews", "anvil"),
+			want: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Crews", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"},
+			},
+			wantNames: &Names{
+				Of:    SubscriptionRequest{Resource: "Crews", Domain: "anvil"},
+				Names: []SubscriptionRequest{{Resource: "Squadrons", Domain: "anvil", NameField: "name"}},
+			},
+		},
+		{
+			name:    "names read from the request's own list alone: the list once, and nothing named",
+			header:  "tab-1",
+			gate:    permit,
+			sources: []resource.NameSource{{Resource: "Crews", Field: "name", Domain: "anvil"}},
+			sub:     ListSubscription("Crews", "anvil"),
+			want:    []Subscription{{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Crews", Domain: "anvil"}},
+		},
+		{
 			name: "the same name through another auth registers under that auth",
 			ctx: func(ctx context.Context) context.Context {
 				return withSession(ctx, membersAuth, "dispatcher")
@@ -347,30 +545,34 @@ func TestSubscribe(t *testing.T) {
 			want:   []Subscription{{Principal: "members|dispatcher", Tab: "tab-1", Resource: "Ships", Domain: "anvil"}},
 		},
 		{
-			name:   "a refused request registers nothing",
-			header: "tab-1",
-			gate:   refuse,
-			sub:    ListSubscription("Ships", "anvil"),
+			name:    "a refused request registers nothing and names nothing",
+			header:  "tab-1",
+			gate:    refuse,
+			sources: []resource.NameSource{squadrons},
+			sub:     ListSubscription("Ships", "anvil"),
 		},
 		{
-			name:   "a gate that fails registers nothing and the request goes on",
-			header: "tab-1",
-			gate:   failing,
-			sub:    ListSubscription("Ships", "anvil"),
+			name:    "a gate that fails registers nothing and the request goes on",
+			header:  "tab-1",
+			gate:    failing,
+			sources: []resource.NameSource{squadrons},
+			sub:     ListSubscription("Ships", "anvil"),
 		},
 		{
-			name: "a request without the header registers nothing",
-			gate: permit,
-			sub:  ListSubscription("Ships", "anvil"),
+			name:    "a request without the header registers nothing",
+			gate:    permit,
+			sources: []resource.NameSource{squadrons},
+			sub:     ListSubscription("Ships", "anvil"),
 		},
 		{
 			name: "a principal id over the uid limit registers nothing and the request goes on",
 			ctx: func(ctx context.Context) context.Context {
 				return withSession(ctx, crewAuth, longName(MaxPrincipalIDLength+1))
 			},
-			header: "tab-1",
-			gate:   permit,
-			sub:    ListSubscription("Ships", "anvil"),
+			header:  "tab-1",
+			gate:    permit,
+			sources: []resource.NameSource{squadrons},
+			sub:     ListSubscription("Ships", "anvil"),
 		},
 		{
 			name: "a request no auth was bound to registers nothing and the request goes on",
@@ -387,7 +589,7 @@ func TestSubscribe(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			fake := NewFake()
+			svc := &registerCounted{Fake: NewFake()}
 			ctx := withSession(t.Context(), crewAuth, "dispatcher")
 			if tt.ctx != nil {
 				ctx = tt.ctx(t.Context())
@@ -396,19 +598,60 @@ func TestSubscribe(t *testing.T) {
 			if tt.header != "" {
 				req.Header.Set(SubscribeHeader, tt.header)
 			}
+			w := httptest.NewRecorder()
 
-			Subscribe(ctx, req, fake, tt.gate, tt.sub)
+			Subscribe(ctx, w, req, svc, namedQuery{gate: tt.gate, sources: tt.sources}, tt.sub)
 
-			got := fake.Subscriptions()
-			if diff := cmp.Diff(tt.want, got, cmpopts.IgnoreFields(Subscription{}, "Expiry"), cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Subscriptions() mismatch (-want +got):\n%s", diff)
-			}
-			for _, sub := range got {
-				if sub.Expiry.IsZero() {
-					t.Errorf("subscription %s has no expiry", sub.ID())
-				}
+			checkOneWrite(t, svc, tt.want)
+			if diff := cmp.Diff(tt.wantNames, namesOn(t, w.Header())); diff != "" {
+				t.Errorf("%s mismatch (-want +got):\n%s", NamesHeader, diff)
 			}
 		})
+	}
+}
+
+// TestSubscribe_namesHeader pins the header's text, before its percent-encoding, for a
+// list of ships in anvil that shows each ship's squadron by name.
+func TestSubscribe_namesHeader(t *testing.T) {
+	t.Parallel()
+
+	ctx := withSession(t.Context(), crewAuth, "dispatcher")
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/ships", http.NoBody)
+	req.Header.Set(SubscribeHeader, "tab-1")
+	w := httptest.NewRecorder()
+
+	Subscribe(ctx, w, req, NewFake(), namedQuery{gate: permit, sources: []resource.NameSource{{Resource: "Squadrons", Field: "name", Domain: "anvil"}}}, ListSubscription("Ships", "anvil"))
+
+	got, err := url.PathUnescape(w.Header().Get(NamesHeader))
+	if err != nil {
+		t.Fatalf("url.PathUnescape() error = %v", err)
+	}
+	if want := `{"of":{"resource":"Ships","domain":"anvil"},"names":[{"resource":"Squadrons","domain":"anvil","nameField":"name"}]}`; got != want {
+		t.Errorf("%s = %s, want %s", NamesHeader, got, want)
+	}
+}
+
+// TestSubscribe_namesUnread pins a request whose names' lists cannot be read: its own
+// subscription is registered alone, the answer names nothing, and the failure is logged.
+func TestSubscribe_namesUnread(t *testing.T) {
+	t.Parallel()
+
+	logged := takeStandardLog(t)
+	svc := &registerCounted{Fake: NewFake()}
+	ctx := withSession(t.Context(), crewAuth, "dispatcher")
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/ships", http.NoBody)
+	req.Header.Set(SubscribeHeader, "tab-unread")
+	w := httptest.NewRecorder()
+
+	Subscribe(ctx, w, req, svc, namedQuery{gate: permit, err: errors.New("the grants are down")}, ListSubscription("Ships", "anvil"))
+
+	checkOneWrite(t, svc, []Subscription{{Principal: "crew|dispatcher", Tab: "tab-unread", Resource: "Ships", Domain: "anvil"}})
+	if names := namesOn(t, w.Header()); names != nil {
+		t.Errorf("%s = %+v, want none", NamesHeader, names)
+	}
+	want := "live: reading the lists the names of the Ships request of tab tab-unread are read from failed; the request's own subscription is registered without them: the grants are down"
+	if !strings.Contains(logged.String(), want) {
+		t.Errorf("the log =\n%s\nwant it to say:\n%s", logged.String(), want)
 	}
 }
 
@@ -420,9 +663,40 @@ func TestSubscribe_recordFailureIsLogged(t *testing.T) {
 	ctx := withSession(t.Context(), crewAuth, "dispatcher")
 	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/ships", http.NoBody)
 	req.Header.Set(SubscribeHeader, "tab-1")
+	w := httptest.NewRecorder()
 
-	// The request is still answered: Subscribe returns, nothing panics.
-	Subscribe(ctx, req, fake, gateFunc(permit), ListSubscription("Ships", "anvil"))
+	// The request is still answered: Subscribe returns, nothing panics, and the answer
+	// names no list the record did not take.
+	Subscribe(ctx, w, req, fake, namedQuery{gate: permit, sources: []resource.NameSource{{Resource: "Squadrons", Field: "name", Domain: "anvil"}}}, ListSubscription("Ships", "anvil"))
+
+	if names := namesOn(t, w.Header()); names != nil {
+		t.Errorf("%s = %+v, want none: the record took nothing", NamesHeader, names)
+	}
+}
+
+// TestSubscribe_namesChange pins what registering the names' lists is for: a tab whose
+// page lists ships in anvil by their squadrons' names is told, in its change set, of a
+// write to a squadron in anvil, as a page listing the squadrons there is, and of none in
+// cinder.
+func TestSubscribe_namesChange(t *testing.T) {
+	t.Parallel()
+
+	fake := NewFake()
+	ctx := withSession(t.Context(), crewAuth, "dispatcher")
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/ships", http.NoBody)
+	req.Header.Set(SubscribeHeader, "tab-1")
+	Subscribe(ctx, httptest.NewRecorder(), req, fake, namedQuery{gate: permit, sources: []resource.NameSource{{Resource: "Squadrons", Field: "name", Domain: "anvil"}}}, ListSubscription("Ships", "anvil"))
+
+	for domain, write := range map[accesstypes.Domain]string{"anvil": "write-anvil", "cinder": "write-cinder"} {
+		if _, err := fake.Publish(t.Context(), domain, Writes{ID: write, Rows: map[accesstypes.Resource][]resource.RowChange{"Squadrons": {{Key: "q1"}}}}); err != nil {
+			t.Fatalf("Publish(%s) error = %v", domain, err)
+		}
+	}
+
+	want := []FakeChange{{ChangeDocument: ChangeDocument{Kind: ListChange, Resource: "Squadrons", Domain: "anvil"}, Write: "write-anvil"}}
+	if diff := cmp.Diff(want, fake.Changes("crew|dispatcher"), cmpopts.IgnoreFields(FakeChange{}, "ID", "At")); diff != "" {
+		t.Errorf("Changes() mismatch (-want +got):\n%s", diff)
+	}
 }
 
 func TestSetCacheControl(t *testing.T) {

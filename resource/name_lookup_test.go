@@ -428,3 +428,231 @@ func TestNameLookup_hiddenID(t *testing.T) {
 		}
 	})
 }
+
+// sourcedPass is a tenant's resource whose rows point to two squadrons, a home one
+// and a visiting one, whose names are read from one list; to a level, an
+// enumeration table; to a maker, a resource of no tenant; and to a bay, a tenant's
+// resource known by its key.
+type sourcedPass struct {
+	ID              string  `spanner:"Id"              postgres:"Id"`
+	SectorID        string  `spanner:"SectorId"        postgres:"SectorId"`
+	HomeSquadronID  *string `spanner:"HomeSquadronId"  postgres:"HomeSquadronId"`
+	VisitSquadronID *string `spanner:"VisitSquadronId" postgres:"VisitSquadronId"`
+	LevelID         string  `spanner:"LevelId"         postgres:"LevelId"`
+	MakerID         *string `spanner:"MakerId"         postgres:"MakerId"`
+	BayID           *string `spanner:"BayId"           postgres:"BayId"`
+}
+
+// Resource names the resource in grants and routes.
+func (sourcedPass) Resource() accesstypes.Resource {
+	return "DockPasses"
+}
+
+// DefaultConfig is the resource's configuration.
+func (sourcedPass) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the resource's name fields as the generator writes them.
+func (sourcedPass) NameFields() []NameField {
+	return []NameField{
+		{Field: "HomeSquadronName", Key: "HomeSquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "VisitSquadronName", Key: "VisitSquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "LevelName", Key: "LevelID", Table: "PassLevels", KeyColumn: "Id", NameColumn: "Description"},
+		{Field: "MakerName", Key: "MakerID", Resource: "Makers", Tag: "name", Table: "Makers", KeyColumn: "Id", NameColumn: "Name"},
+		{Field: "BayName", Key: "BayID", Resource: "Bays", Table: "Bays", KeyColumn: "Code", NameColumn: "Code", TenantColumn: "SectorId"},
+	}
+}
+
+// sourcedPassRequest is sourcedPass's list request type as the generator writes it.
+type sourcedPassRequest struct {
+	ID                string  `json:"id"                index:"true" perm:"-"`
+	SectorID          string  `json:"sectorId"          index:"true"`
+	HomeSquadronID    *string `json:"homeSquadronId"    index:"true"`
+	VisitSquadronID   *string `json:"visitSquadronId"   index:"true"`
+	LevelID           string  `json:"levelId"           index:"true"`
+	MakerID           *string `json:"makerId"           index:"true"`
+	BayID             *string `json:"bayId"             index:"true"`
+	HomeSquadronName  *string `json:"homeSquadronName"  index:"true" nameof:"HomeSquadronID"`
+	VisitSquadronName *string `json:"visitSquadronName" index:"true" nameof:"VisitSquadronID"`
+	LevelName         *string `json:"levelName"         index:"true" nameof:"LevelID"`
+	MakerName         *string `json:"makerName"         index:"true" nameof:"MakerID"`
+	BayName           *string `json:"bayName"           index:"true" nameof:"BayID"`
+}
+
+// decodeSources decodes a list request in sector-1 under the stub and runs none of
+// the read's checks, as a live handler has it when it subscribes.
+func decodeSources[Resource Resourcer, Request any](t *testing.T, target string, perms UserPermissions) *QuerySet[Resource] {
+	t.Helper()
+
+	resSet, err := NewSet[Resource, Request](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[Resource, Request](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+	decoder.collection = lookupCollection(t)
+	key, err := NewCursorKey("dGVzdC1jdXJzb3Ita2V5LW1hdGVyaWFsLTMyLWJ5dGVzIQ==")
+	if err != nil {
+		t.Fatalf("NewCursorKey() error = %v", err)
+	}
+	decoder = decoder.WithCursorKey(key)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+	qSet, err := decoder.Decode(req, perms, inSector1)
+	if err != nil {
+		t.Fatalf("QueryDecoder.Decode(%s) error = %v", target, err)
+	}
+
+	return qSet
+}
+
+// TestNameSources pins the lists a query's names are read from, which a live page
+// that shows them subscribes to: each name in play that points to a resource and
+// whose grant the person holds, outright or under a condition, answers that
+// resource's list in the tenant its names are read in, with the name field as the
+// grants name it; each list once, in the order the request type declares the names.
+func TestNameSources(t *testing.T) {
+	t.Parallel()
+
+	squadrons := NameSource{Resource: "Squadrons", Field: "name", Domain: "sector-1"}
+	crews := NameSource{Resource: "Crews", Field: "name", Domain: "sector-1"}
+	tests := []struct {
+		name   string
+		decode func(*testing.T) *QuerySet[lookupPass]
+		want   []NameSource
+	}{
+		{
+			name: "a column asking for a tenant's name: its list in the request's tenant, with the field",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				return decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id,squadronName&sort=id&limit=2", &nameGrantPermissions{})
+			},
+			want: []NameSource{squadrons},
+		},
+		{
+			name: "a sort by a name no column shows",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				return decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id&sort=squadronName&limit=2", &nameGrantPermissions{})
+			},
+			want: []NameSource{squadrons},
+		},
+		{
+			name: "a filter by a name no column shows",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				return decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id&filter=squadronName:eq:Red&sort=id&limit=2", &nameGrantPermissions{})
+			},
+			want: []NameSource{squadrons},
+		},
+		{
+			name: "an enumeration table's name: nothing",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				return decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id,levelName&sort=id&limit=2", &nameGrantPermissions{})
+			},
+		},
+		{
+			name: "a denied name: nothing; the name beside it still answers",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				return decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id,squadronName,crewName&sort=id&limit=2", deniedInSector1(squadronNameGrant))
+			},
+			want: []NameSource{crews},
+		},
+		{
+			name: "a name held under a condition: its list",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				perms := &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+					{scope: inSector1, perm: accesstypes.List, res: squadronNameGrant}: conditionalOn(squadronNameGrant, "rank = 1"),
+				}}
+
+				return decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id,squadronName&sort=id&limit=2", perms)
+			},
+			want: []NameSource{squadrons},
+		},
+		{
+			name: "a set that enforces no grants: every name's list",
+			decode: func(t *testing.T) *QuerySet[lookupPass] {
+				return lookupQuerySet(t, Paging{}, "/?columns=id,crewName,squadronName,levelName&sort=id&limit=2")
+			},
+			want: []NameSource{squadrons, crews},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.decode(t).NameSources(t.Context())
+			if err != nil {
+				t.Fatalf("NameSources() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("NameSources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	others := []struct {
+		name   string
+		target string
+		want   []NameSource
+	}{
+		{
+			name:   "no columns: every granted name's list, two names of one list once, in the order the request type declares them",
+			target: "/?sort=id&limit=2",
+			want: []NameSource{
+				{Resource: "Squadrons", Field: "name", Domain: "sector-1"},
+				{Resource: "Makers", Field: "name"},
+				{Resource: "Bays", Domain: "sector-1"},
+			},
+		},
+		{
+			name:   "a name of a resource of no tenant: its list under no tenant",
+			target: "/?columns=id,makerName&sort=id&limit=2",
+			want:   []NameSource{{Resource: "Makers", Field: "name"}},
+		},
+		{
+			name:   "a name that is the pointed-to resource's key: its list with no field",
+			target: "/?columns=id,bayName&sort=id&limit=2",
+			want:   []NameSource{{Resource: "Bays", Domain: "sector-1"}},
+		},
+	}
+	for _, tt := range others {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := decodeSources[sourcedPass, sourcedPassRequest](t, tt.target, &nameGrantPermissions{}).NameSources(t.Context())
+			if err != nil {
+				t.Fatalf("NameSources() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("NameSources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("asked before the read and after it: the same answer, the name's grant asked once", func(t *testing.T) {
+		t.Parallel()
+
+		perms := &nameGrantPermissions{}
+		qSet := decodeSources[lookupPass, lookupPassRequest](t, "/?columns=id,squadronName&sort=id&limit=2", perms)
+		before, err := qSet.NameSources(t.Context())
+		if err != nil {
+			t.Fatalf("NameSources() before the read error = %v", err)
+		}
+		if err := qSet.checkPermissions(t.Context(), SpannerDBType); err != nil {
+			t.Fatalf("checkPermissions() error = %v", err)
+		}
+		after, err := qSet.NameSources(t.Context())
+		if err != nil {
+			t.Fatalf("NameSources() after the read error = %v", err)
+		}
+		if diff := cmp.Diff([]NameSource{squadrons}, before); diff != "" {
+			t.Errorf("NameSources() before the read mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(before, after); diff != "" {
+			t.Errorf("NameSources() after the read mismatch (-before +after):\n%s", diff)
+		}
+		if calls := perms.askedFor(squadronNameGrant); len(calls) != 1 {
+			t.Errorf("calls naming %s = %+v, want one: the read asks nothing again", squadronNameGrant, calls)
+		}
+	})
+}

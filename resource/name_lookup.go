@@ -663,3 +663,51 @@ func (r Row[Resource]) Name(field accesstypes.Field) *string {
 
 	return name
 }
+
+// NameSource is one list a query's names are read from: the pointed-to resource,
+// its name field as the grants name it (empty where the name is the resource's
+// key), and the tenant the names are read in (empty where the resource belongs to
+// no tenant). A live page that shows the names subscribes to that list, so a write
+// to the pointed-to resource reaches the page as it reaches the list's own.
+type NameSource struct {
+	Resource accesstypes.Resource
+	Field    accesstypes.Tag
+	Domain   accesstypes.Domain
+}
+
+// NameSources returns the lists the query's names are read from: for each name in
+// play (namesInPlay) that points to a resource and whose own grant the person holds,
+// outright or under a condition, the resource's list in the tenant the names are
+// read in, the request's where the resource belongs to a tenant. Each list comes
+// once, in the order the request type declares the names: two names read from one
+// list are one. An enumeration table's name answers nothing: it has no resource to
+// subscribe to. The names' grants are settled as the read settles them
+// (checkNameGrants), once a request, so the read that follows asks nothing again. A
+// name the read closes with the declared order still answers: the person holds its
+// grant, and the list tells them nothing the grant does not. On a set that enforces
+// no grants every such name answers.
+func (q *QuerySet[Resource]) NameSources(ctx context.Context) ([]NameSource, error) {
+	if err := q.checkNameGrants(ctx); err != nil {
+		return nil, err
+	}
+	inPlay := q.namesInPlay()
+	var sources []NameSource
+	for i := range q.names {
+		name := &q.names[i]
+		if name.Resource == "" || !slices.Contains(inPlay, name.Field) {
+			continue
+		}
+		if q.resourceSet != nil && q.nameGrants[name.Field].IsDenied() {
+			continue
+		}
+		source := NameSource{Resource: name.Resource, Field: name.Tag}
+		if name.TenantColumn != "" {
+			source.Domain, _ = q.scope.Domain()
+		}
+		if !slices.Contains(sources, source) {
+			sources = append(sources, source)
+		}
+	}
+
+	return sources, nil
+}

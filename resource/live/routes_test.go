@@ -171,6 +171,139 @@ func TestRenewHandler(t *testing.T) {
 	}
 }
 
+// namesDigest is the grants a renewal of names subscriptions re-checks against: the
+// dispatcher may list the squadrons' names in anvil and not the squadrons, may list the
+// crews there and not their names, may list the makers' names, which belong to no
+// tenant, and the bays in anvil, whose name is their key.
+var namesDigest = map[string]accesstypes.Decision{
+	"List|anvil|Squadrons.name": accesstypes.Granted(),
+	"List|anvil|Crews":          accesstypes.Granted(),
+	"List|global|Makers.name":   accesstypes.Granted(),
+	"List|anvil|Bays":           accesstypes.Granted(),
+}
+
+// TestRenewHandler_names pins the renewal of a list a page holds for the names it shows:
+// it is re-checked by List on the name field, the grant the page's read asked, kept or
+// dropped by that alone, and written as the resource's list in the tenant; one names no
+// key and is never a list across tenants.
+func TestRenewHandler_names(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantKept   []SubscriptionRequest
+		wantDrop   []SubscriptionRequest
+		wantSubs   []Subscription
+		wantBody   string
+	}{
+		{
+			name:       "kept by the name's grant though the list's is not held, echoed with its name field; the record holds the list",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept:   []SubscriptionRequest{{Resource: "Squadrons", Domain: "anvil", NameField: "name"}},
+			wantDrop:   []SubscriptionRequest{},
+			wantSubs:   []Subscription{{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"}},
+		},
+		{
+			name:       "dropped where the name's grant is denied though the list's is held",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Crews","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept:   []SubscriptionRequest{},
+			wantDrop:   []SubscriptionRequest{{Resource: "Crews", Domain: "anvil", NameField: "name"}},
+		},
+		{
+			name: "one list sent with its name field and without: each decided by its own grant",
+			body: `{"tab":"tab-1","subscriptions":[
+				{"resource":"Squadrons","domain":"anvil","nameField":"name"},
+				{"resource":"Squadrons","domain":"anvil"},
+				{"resource":"Crews","domain":"anvil"},
+				{"resource":"Crews","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept: []SubscriptionRequest{
+				{Resource: "Squadrons", Domain: "anvil", NameField: "name"},
+				{Resource: "Crews", Domain: "anvil"},
+			},
+			wantDrop: []SubscriptionRequest{
+				{Resource: "Squadrons", Domain: "anvil"},
+				{Resource: "Crews", Domain: "anvil", NameField: "name"},
+			},
+			wantSubs: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Crews", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"},
+			},
+		},
+		{
+			name: "a name of no tenant is re-checked globally; a name that is the key, as the list",
+			body: `{"tab":"tab-1","subscriptions":[
+				{"resource":"Makers","nameField":"name"},
+				{"resource":"Bays","domain":"anvil"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept: []SubscriptionRequest{
+				{Resource: "Makers", NameField: "name"},
+				{Resource: "Bays", Domain: "anvil"},
+			},
+			wantDrop: []SubscriptionRequest{},
+			wantSubs: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Bays", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
+			},
+		},
+		{
+			name:       "a name field with a key is refused",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons","key":"q1","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Squadrons subscription names a key and a name field: a page's names are read from the resource's list, which names no key",
+		},
+		{
+			name:       "a name field across tenants is refused",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Hangars","acrossTenants":true,"nameField":"name"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Hangars subscription across tenants names a name field: a page's names are read from the list of one tenant, or of none, never from a list across tenants",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := NewFake()
+			handler := RenewHandler(fake, permissionsFor(&grantTable{decisions: namesDigest}), WithListsAcrossTenants(declaredLists{"Hangars"}))
+			req := httptest.NewRequestWithContext(withSession(t.Context(), crewAuth, "dispatcher"), http.MethodPost, "/api/live/renew", strings.NewReader(tt.body))
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if tt.wantStatus != http.StatusOK {
+				if !strings.Contains(rr.Body.String(), tt.wantBody) {
+					t.Errorf("body = %q, want it to contain %q", rr.Body.String(), tt.wantBody)
+				}
+				if got := fake.Subscriptions(); len(got) != 0 {
+					t.Errorf("a refused renewal wrote %v", got)
+				}
+
+				return
+			}
+			var resp RenewResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v: %s", err, rr.Body.String())
+			}
+			if diff := cmp.Diff(tt.wantKept, resp.Kept); diff != "" {
+				t.Errorf("kept mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantDrop, resp.Dropped); diff != "" {
+				t.Errorf("dropped mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantSubs, fake.Subscriptions(), cmpopts.IgnoreFields(Subscription{}, "Expiry"), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Subscriptions() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestRenewHandler_tooMany(t *testing.T) {
 	t.Parallel()
 
