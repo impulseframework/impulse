@@ -376,6 +376,9 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if got, _ := people[supportID]["cannotEnter"].(string); got != keptOut {
 		t.Errorf("north's people: the support login's row says %q, want %q", got, keptOut)
 	}
+	if got := people[supportID]["outsideDirectory"]; got != true {
+		t.Errorf("north's people: the support login's row marks them outside the directory = %v, want true: the mark their sentence is said from", got)
+	}
 	for _, id := range []string{s.adminID, s.memberID} {
 		if row, listed := people[id]; !listed || row["cannotEnter"] != nil {
 			t.Errorf("north's people: the row of %s is listed = %v saying %v, want listed saying nothing", id, listed, row["cannotEnter"])
