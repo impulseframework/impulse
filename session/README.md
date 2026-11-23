@@ -804,10 +804,11 @@ The rules, in order, once the user is known:
    A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
    is refused with `connection_not_in_tenant`. A sign-in with a personal account
    (through Google or Microsoft, with an account that is in no organization's
-   directory, so no tenant's) is refused with `directory_only_personal_account`. Any
-   other, a password or a session the application started itself, is refused with
-   `directory_only`. The codes are apart so that a login page says what is true of how
-   the person signed in: a person who used no password is not told to stop using one.
+   directory, so no tenant's) is refused with `directory_only_personal_account`. A
+   sign-in with a password is refused with `directory_only`, and any other, a session
+   the application started itself, with `directory_only_session`. The codes are apart
+   so that a login page says what is true of how the person signed in: a person who
+   used no password is not told to stop using one.
 
 Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
 rule after the tenant policy, for what the tenant policy cannot know:
@@ -2425,9 +2426,12 @@ one it sends.
   `{"mfaIsRequired": true}` and holds the sign-up as a pending sign-in that names no
   user, for the code mailed to the invited address (`Pending().SendCode()`), the
   username and the password's hash kept in the browser's encrypted pending cookie and
-  bound to that invitation. A username or an address another account holds is answered
-  409 before anything is held or mailed. A chosen username with an @ in it that is not
-  the invited address is answered 400 before anything is held or mailed.
+  bound to that invitation. An address another account holds is answered 409 before
+  anything is held or mailed. A username another account has is answered 409 once the
+  code is entered and never before: whoever holds the link may have been forwarded it,
+  and is told nothing of which accounts exist until the invited address is proven. A
+  chosen username with an @ in it that is not the invited address is answered 400
+  before anything is held or mailed.
   `Pending().VerifyCode()` with the code then
   creates the user with the invitation's address verified and signs them in, the
   invitation accepted on the way. Five wrong codes end the code with nothing written,
@@ -3456,8 +3460,9 @@ table is the wire contract:
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: an administrator required a new password of the signed-in user; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), and either a directory-only tenant's directory signs the account in and this is not that directory, or every tenant that seats the person is directory only and none of them has that directory as its own. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
 | `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
+| `directory_only_session` | `RefusedDirectoryOnlySession` | Auth, the tenant policy: a session the application started itself, with no password and through no directory, for a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person typed no password, so a login page names none. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `second_directory` | `RefusedSecondDirectory` | Auth: the sign-in came through a directory a tenant declares and reached a user who already signs in through a directory another tenant declares. An account signs in through one tenant's directory at most, so nothing is linked and no confirmation is asked for. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
