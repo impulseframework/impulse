@@ -60,8 +60,9 @@ func (a *App) Missions() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewMissionQueryFromQuerySet(querySet)
 
@@ -218,8 +219,9 @@ func (a *App) Mission() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewMissionQueryFromQuerySet(querySet).SetID(id)
 
@@ -364,8 +366,9 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		// lands during the query is not missed: one subscription over the tenants the
 		// list reads for the person, and none of a tenant it does not. A set of more
 		// tenants than one subscription holds registers nothing, and the list is
-		// served plain.
-		liveness := live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)
+		// served plain. With it the request registers the lists the names it shows
+		// are read from.
+		liveness := live.SubscribeAcrossTenants(ctx, w, r, a.LiveService(), querySet)
 
 		res := resources.NewMissionQueryFromQuerySet(querySet)
 

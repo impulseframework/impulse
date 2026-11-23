@@ -97,7 +97,7 @@ func TestSubscribeAcrossTenants_ceiling(t *testing.T) {
 			r := httptest.NewRequestWithContext(withSession(t.Context(), crewAuth, "dispatcher"), http.MethodGet, "/hangars?"+VersionParam+"=1794890922227000", http.NoBody)
 			r.Header.Set(SubscribeHeader, "tab-1")
 
-			liveness := SubscribeAcrossTenants(r.Context(), r, fake, acrossList{set: tenantKeys(tt.tenants)})
+			liveness := SubscribeAcrossTenants(r.Context(), httptest.NewRecorder(), r, fake, &acrossList{set: tenantKeys(tt.tenants)})
 
 			if got := liveness.Plain(); got != tt.wantPlain {
 				t.Errorf("Plain() = %v, want %v", got, tt.wantPlain)
