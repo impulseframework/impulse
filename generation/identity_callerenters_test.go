@@ -508,7 +508,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 	roleNote := "// It names no row: a page runs it from a row of the roles people hold, filling the\n" +
 		"// request from the row. Where the role is one of a citadel's administrator roles held\n" +
 		"// in that citadel itself, such a row offers it only to a caller whose session enters\n" +
-		"// the citadel (@callerEnters); the method refuses anyone else.\n//\n// @rpc"
+		"// the citadel (@callerEnters); the method refuses anyone else.\n//\n// The method declares a warning"
 	groupRoleNote := "// Where the group is kept in a citadel and the role is one of that citadel's\n" +
 		"// administrator roles held there, a row of the roles the groups hold offers it only to a\n" +
 		"// caller whose session enters the citadel (@callerEnters); the method refuses anyone\n" +

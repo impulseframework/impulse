@@ -714,10 +714,16 @@ type fakeSessions struct {
 	// the buttons a person signs in to a method's directories with.
 	named  map[string]string
 	labels map[sessioninfo.AuthMethod]string
+	// tenantNames are what the application calls its tenants, by key.
+	tenantNames map[accesstypes.Domain]string
 }
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
 	return s.named[connection], s.labels[method]
+}
+
+func (s fakeSessions) TenantName(tenant accesstypes.Domain) string {
+	return s.tenantNames[tenant]
 }
 
 // asked records a message the rules asked the session library to mail, and answers the

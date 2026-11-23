@@ -268,10 +268,9 @@ describe('Break glass', () => {
     expect(end.label).toBe('End now');
     const row = { userId: 'u1', username: 'dana', role: 'NightShiftLead', kind: 'domain', domainId: 'alpha' };
     expect(end.fill?.(row)).toEqual({ userId: 'u1', role: 'NightShiftLead', domain: 'alpha', everyDomain: false });
-    // The question names the role in words; the request carries its name as stored.
-    expect((end.confirm as (row: RecordData) => string)(row)).toBe(
-      'End Night shift lead in this sector for dana now? It is taken away, as any role is.',
-    );
+    // The page asks no question of its own: the method's warning is the question, in the
+    // server's words.
+    expect(end.confirm).toBeUndefined();
     // What the removal is filled from is read with each row and not drawn.
     expect(hidden(heldNow)).toEqual(expect.arrayContaining(['kind', 'userId']));
   });

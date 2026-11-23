@@ -9,9 +9,9 @@ import (
 )
 
 // TestResolveWarning pins the @warning contract: the declaration and the Warning method
-// go together, the typed word is required and one lowercase word, the transaction form
-// is the only one, an upload declares none, and each malformed shape is refused naming
-// the struct and what to write.
+// go together, a bare declaration names no typed word and one with a word holds it to one
+// lowercase word, the transaction form is the only one, an upload declares none, and each
+// malformed shape is refused naming the struct and what to write.
 func TestResolveWarning(t *testing.T) {
 	t.Parallel()
 
@@ -20,17 +20,21 @@ func TestResolveWarning(t *testing.T) {
 	tests := []struct {
 		name       string
 		structName string
-		wantTyped  string
+		want       *rpcWarning
 		wantErr    string
 	}{
-		{name: "a declared warning with its method", structName: "WarningForm", wantTyped: "open"},
+		{name: "a declared warning with its method", structName: "WarningForm", want: &rpcWarning{Typed: "open"}},
+		{name: "a bare warning with its method declares no typed word", structName: "WarningBare", want: &rpcWarning{Typed: ""}},
 		{name: "a method that declares nothing warns of nothing", structName: "TxnForm"},
-		{name: "a Warning method without the declaration is refused", structName: "WarningUndeclared", wantErr: "the method declares Warning but no @warning; declare the word a person types before the call is confirmed, for example @warning(typed: open)"},
+		{name: "a Warning method without the declaration is refused", structName: "WarningUndeclared", wantErr: "the method declares Warning but no @warning; declare @warning, or @warning(typed: open) to have a person type a word before the call is confirmed"},
 		{name: "the declaration without a Warning method is refused", structName: "WarningNoMethod", wantErr: "@warning is declared but the method has no Warning; write the warning for the call beside Execute: Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)"},
+		{name: "a bare declaration without a Warning method is refused", structName: "WarningBareNoMethod", wantErr: "@warning is declared but the method has no Warning; write the warning for the call beside Execute: Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)"},
 		{name: "the client form cannot warn", structName: "WarningClientForm", wantErr: "@warning requires the transaction form of Execute"},
 		{name: "an upload cannot warn", structName: "WarningUpload", wantErr: "@warning on an upload"},
-		{name: "the typed word is required, as typed:", structName: "WarningNoTyped", wantErr: "expected 0 positional argument(s), found 1"},
+		{name: "a typed word is written as typed:", structName: "WarningNoTyped", wantErr: "expected 0 positional argument(s), found 1"},
 		{name: "the typed word is one lowercase word", structName: "WarningBadWord", wantErr: "the typed word is one lowercase word of 2 to 24 letters"},
+		{name: "the typed word has no capital", structName: "WarningCapitalWord", wantErr: "the typed word is one lowercase word of 2 to 24 letters"},
+		{name: "typed: is the one argument", structName: "WarningOtherKey", wantErr: `unknown argument "word"`},
 		{name: "a Warning that answers no warning is refused", structName: "WarningWrongResult", wantErr: "Warning is declared returning (string, error); a @warning method declares Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)"},
 		{name: "a Warning with other parameters is refused", structName: "WarningWrongParams", wantErr: "Warning is declared taking (context.Context, *rpcform.Client)"},
 		{name: "a Warning over another client is refused", structName: "WarningOtherClient", wantErr: "whose client is not the one Execute takes"},
@@ -69,10 +73,10 @@ func TestResolveWarning(t *testing.T) {
 				t.Fatalf("resolveWarning(%s) error = %v", tt.structName, err)
 			}
 			switch {
-			case tt.wantTyped == "" && rpcMethod.Warning != nil:
+			case tt.want == nil && rpcMethod.Warning != nil:
 				t.Errorf("Warning = %+v, want none", rpcMethod.Warning)
-			case tt.wantTyped != "" && (rpcMethod.Warning == nil || rpcMethod.Warning.Typed != tt.wantTyped):
-				t.Errorf("Warning = %+v, want typed %q", rpcMethod.Warning, tt.wantTyped)
+			case tt.want != nil && (rpcMethod.Warning == nil || *rpcMethod.Warning != *tt.want):
+				t.Errorf("Warning = %+v, want %+v", rpcMethod.Warning, tt.want)
 			}
 		})
 	}

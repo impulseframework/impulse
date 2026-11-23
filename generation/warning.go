@@ -16,12 +16,15 @@ import (
 //
 //	Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)
 //
+// A bare @warning declares no word: the dialog asks in the server's words and holds its
+// button only until they are on the screen.
+//
 // The declaration and the method go together; generation refuses one without the
 // other, naming the struct. The generated frame answers the warning to a request that
 // asks for it (resource.WarningHeader) in place of running the call, inside the
 // handler's transaction, which it rolls back, so the method runs in the transaction
-// form; the metadata carries the typed word, which the dialog a page runs the method
-// through holds its confirm button for.
+// form; the metadata carries the typed word, where there is one, which the dialog a
+// page runs the method through holds its confirm button for.
 
 // warningTypedArgKey is the named argument of @warning: the word a person types before
 // the confirm button works.
@@ -39,7 +42,8 @@ var typedWord = regexp.MustCompile(`^[a-z]{2,24}$`)
 
 // rpcWarning is a method's @warning declaration.
 type rpcWarning struct {
-	// Typed is the word a person types before the confirm button works.
+	// Typed is the word a person types before the confirm button works; empty where the
+	// method declares none.
 	Typed string
 }
 
@@ -48,23 +52,15 @@ func resolveWarning(rpcMethod *rpcMethodInfo, pStruct *parser.Struct, annotation
 	declares := pStruct.Method(warningMethodName) != nil
 	if !annotations.Struct.Has(warningKeyword) {
 		if declares {
-			return errors.Newf("struct %s: the method declares %s but no @%s; declare the word a person types before the call is confirmed, for example @%s(%s: open)", pStruct.Name(), warningMethodName, warningKeyword, warningKeyword, warningTypedArgKey)
+			return errors.Newf("struct %s: the method declares %s but no @%s; declare @%s, or @%s(%s: open) to have a person type a word before the call is confirmed", pStruct.Name(), warningMethodName, warningKeyword, warningKeyword, warningKeyword, warningTypedArgKey)
 		}
 
 		return nil
 	}
 
-	invocations, err := annotations.Struct.Get(warningKeyword).ParseInvocations(&genlang.ArgSpec{
-		Keys:     []string{warningTypedArgKey},
-		Required: []string{warningTypedArgKey},
-	})
+	typed, err := warningTypedWord(pStruct, annotations.Struct.Get(warningKeyword))
 	if err != nil {
-		return errors.Wrapf(err, "@%s on %s", warningKeyword, pStruct.Name())
-	}
-	typedText, _ := invocations[0].Named(warningTypedArgKey)
-	typed := strings.TrimSpace(typedText)
-	if !typedWord.MatchString(typed) {
-		return errors.Newf("struct %s: @%s(%s: %s): the typed word is one lowercase word of 2 to 24 letters, such as open or delete", pStruct.Name(), warningKeyword, warningTypedArgKey, typedText)
+		return err
 	}
 
 	switch {
@@ -83,6 +79,25 @@ func resolveWarning(rpcMethod *rpcMethodInfo, pStruct *parser.Struct, annotation
 	rpcMethod.Warning = &rpcWarning{Typed: typed}
 
 	return nil
+}
+
+// warningTypedWord reads the word a @warning has a person type: none for the bare
+// declaration, and for @warning(typed: word) the word, held to one lowercase word.
+func warningTypedWord(pStruct *parser.Struct, arg genlang.Arg) (string, error) {
+	if arg.Count() == 0 {
+		return "", nil
+	}
+	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Keys: []string{warningTypedArgKey}})
+	if err != nil {
+		return "", errors.Wrapf(err, "@%s on %s", warningKeyword, pStruct.Name())
+	}
+	typedText, _ := invocations[0].Named(warningTypedArgKey)
+	typed := strings.TrimSpace(typedText)
+	if !typedWord.MatchString(typed) {
+		return "", errors.Newf("struct %s: @%s(%s: %s): the typed word is one lowercase word of 2 to 24 letters, such as open or delete", pStruct.Name(), warningKeyword, warningTypedArgKey, typedText)
+	}
+
+	return typed, nil
 }
 
 // checkWarningSignature holds the struct's Warning method to its one form: the

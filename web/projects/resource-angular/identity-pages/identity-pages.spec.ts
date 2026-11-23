@@ -790,15 +790,9 @@ describe("identityPages, the whole application's side", () => {
       expect(heldIn(tt.row)).not.toContain('a1111111');
       expect(remove.fill?.(tt.row)).toEqual(tt.body);
     }
-    // The question names no key: the row the person clicked names the sector, and the
-    // page the list sits on names the person, whom a role row knows by id alone. It names
-    // the role in words.
-    const confirm = remove.confirm as (row: RecordData) => string;
-    expect(cases.map((tt) => confirm(tt.row))).toEqual([
-      'Take Clerk away from this person?',
-      'Take Night shift lead in this sector away from this person?',
-      'Take Marshal in every sector away from this person?',
-    ]);
+    // The page asks no question of its own: the method's warning is the question, in the
+    // server's words, which name the person a role row knows by id alone.
+    expect(remove.confirm).toBeUndefined();
   });
 
   it("offers Give a role above the list of a person's roles as well as in the person's menu, filled from the person", () => {
@@ -1098,13 +1092,9 @@ describe("identityPages, a tenant's side", () => {
       ['role', 'Role', false],
       ['everyDomain', 'In every sector', false],
       ['createdAt', 'Given', false],
-      // Read with the row for the question that names the person, and not drawn.
-      ['username', 'Username', true],
     ]);
-    const remove = presentation(roles.rowMethods, 'RemoveCrewSectorRole');
-    expect((remove.confirm as (row: RecordData) => string)({ role: 'NightShiftLead', username: 'ada' })).toBe(
-      'Take Night shift lead away from ada?',
-    );
+    // The method's warning is the question before the role goes, in the server's words.
+    expect(presentation(roles.rowMethods, 'RemoveCrewSectorRole').confirm).toBeUndefined();
     expect(children(people).map((child) => child.title)).toEqual(['Roles held here', 'Sign-in identities']);
   });
 
@@ -2266,16 +2256,15 @@ describe('identityPages, an application without tenants', () => {
       ['expiresAt', 'Expires'],
       ['consumedAt', 'Used'],
     ]);
-    // A role is taken away from where it is held, the whole application: the request and
-    // the question name no place, whatever kind the row says.
+    // A role is taken away from where it is held, the whole application: the request names
+    // no place, whatever kind the row says, and the question is the method's warning, in the
+    // server's words.
     const remove = presentation(roles.rowMethods, 'RemoveOfficeRole');
     expect(remove.fill?.({ userId: 'u-1', role: 'Clerk', kind: 'global', domainId: '' })).toEqual({
       userId: 'u-1',
       role: 'Clerk',
     });
-    expect((remove.confirm as (row: RecordData) => string)({ role: 'Clerk' })).toBe(
-      'Take Clerk away from this person?',
-    );
+    expect(remove.confirm).toBeUndefined();
     const take = presentation(groupRoles.rowMethods, 'TakeOfficeGroupRole');
     expect(take.fill?.({ groupId: 'g-1', role: 'Clerk', kind: 'global', domainId: '' })).toEqual({
       groupId: 'g-1',
