@@ -29,9 +29,10 @@ import (
 // token asserting no application role (no_roles), both before any row is written; the
 // identity's sign-in name (Identity.SignInName: the user principal name on Entra, the
 // verified email on Google) is the username, and an identity without one is refused
-// (no_email). A pre-created user under that name, matched without regard to case, or
-// one who holds the identity's address verified when the method verified it
-// (Identity.EmailVerified), is linked: after a password confirmation when the user has
+// (no_email). A pre-created user under that name, matched as a username is (one with an
+// @ in it by the case of its ASCII letters alone), or one who holds the identity's
+// address verified when the method verified it (Identity.EmailVerified), is linked:
+// after a password confirmation when the user has
 // a password, outright when the user has none and signs in through no other connection
 // yet. A person no user was created for is decided by what an administrator chose for
 // the method in the running application, its row of the sign-in methods table, read in

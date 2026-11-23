@@ -239,6 +239,31 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
+			name:     "open: an account whose username only reads like the sign-in name is another person's: the stranger is provisioned under their own name beside it",
+			accounts: Open,
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				// The Kelvin sign (U+212A) for the k: another address, so another username.
+				return passwordUser(ctx, t, d, "pat.lee@la\u212Aeside.edu")
+			},
+			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				assertProvisioned(ctx, t, d, err, req, entra("oid-pat", name), "tenant-1")
+				if req.UserID == seeded.ID {
+					t.Errorf("the sign-in reached the account under %+q, want the stranger's own", seeded.Username)
+				}
+				links, err := d.IdentitiesByUser(ctx, seeded.ID)
+				if err != nil || len(links) != 0 {
+					t.Errorf("IdentitiesByUser(the account under %+q) = %v, %v; want none", seeded.Username, links, err)
+				}
+				found, err := d.UserByUserName(ctx, seeded.Username)
+				switch {
+				case err != nil:
+					t.Errorf("UserByUserName(%+q) error = %v, want the account under it", seeded.Username, err)
+				case found.ID != seeded.ID:
+					t.Errorf("UserByUserName(%+q) found user %v, want the account under it", seeded.Username, found.ID)
+				}
+			},
+		},
+		{
 			name:     "open: a pre-created password-less user who signs in through another connection is refused, as any untrusted link is",
 			accounts: Open,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {

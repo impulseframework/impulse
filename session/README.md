@@ -292,7 +292,8 @@ DML what a later rule must read.
   - **A person who has an account is linked to it.** A user the application created is
     found by the username first and then by the address: the user under the identity's
     **sign-in name** (the user principal name on Entra, the verified email on Google),
-    matched without regard to case, or else the user who holds the identity's address
+    matched as a username is (one with an @ in it by the case of its ASCII letters
+    alone, as an address is), or else the user who holds the identity's address
     verified, when the method vouches for the address (Google alone does, and only for
     a Gmail address or a Workspace account's; see "Users and their email address"),
     since a person is one user whichever way they sign in. The link is made after a
@@ -382,10 +383,9 @@ DML what a later rule must read.
   account by its address, and answers for a Gmail address and for a Workspace
   account's. The name must also be the account's own: its username as the library
   compares two addresses (the case of ASCII letters aside, every other character as
-  written), or the address the account holds confirmed. The stores find a username more
-  widely than that (they fold Unicode's case and normalization), so a name that only
-  reads like the account's is not the account's, and waits for the code as any name the
-  method does not vouch for. Any other name is the provider's word alone (a Google account can be made
+  written), or the address the account holds confirmed. The stores find a username
+  with an @ in it in that same way, so a name that only reads like the account's
+  finds another account or none. Any other name is the provider's word alone (a Google account can be made
   under any address from outside Google, an identity provider's administrators give
   the names they like, and Microsoft Entra ID answers for no address), so the sign-in
   waits for the code mailed to the address the account holds, whether or not its

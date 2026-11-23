@@ -231,7 +231,7 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 // UserByUsernameIn reads the user named username inside tx, matched on the normalized
 // username as UserByUserName matches it, or nil when there is none.
 func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner.ReadWriteTransaction, username string) (*dbtype.User, error) {
-	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)`, s.userTableName))
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedUsername = %s`, s.userTableName, usernameFold("@username")))
 	stmt.Params["username"] = username
 
 	var user *dbtype.User

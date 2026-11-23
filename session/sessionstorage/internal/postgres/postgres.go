@@ -112,6 +112,20 @@ func (s *SessionStorageDriver) usernameIndex() string {
 	return s.userTableName + "_NormalizedUsername_idx"
 }
 
+// usernameFold is the form the normalized username column holds, over operand (the
+// column's source or a parameter), which every lookup by username compares the column
+// with. A username with an @ in it reads as an email address and is folded as an
+// address is: its ASCII capital letters lowercased and every other character as
+// written, which must equal util.LowerASCII. Any other username is put in Unicode's
+// normalization and full case folding. The folding names the collation the column is
+// declared under, so it is the same whatever collation the database was created with,
+// and the comparison and the column's unique index are under one collation and a
+// lookup uses the index. It is translate() and not addressFold's lower() under "C":
+// two collations named in one expression are an error.
+func usernameFold(operand string) string {
+	return fmt.Sprintf(`(CASE WHEN strpos(%[1]s, '@') > 0 THEN translate(%[1]s, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ELSE casefold(normalize(%[1]s) COLLATE "pg_unicode_fast") END)`, operand)
+}
+
 // emailIndex is the unique index on the user table's normalized email, named after the
 // table as the shipped DDL names it (<UserTable>_NormalizedEmail_idx).
 func (s *SessionStorageDriver) emailIndex() string {
@@ -555,8 +569,8 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM %s
-		WHERE "NormalizedUsername" = casefold(normalize($1))
-	`, s.userSelectColumns(), s.userTable())
+		WHERE "NormalizedUsername" = %s
+	`, s.userSelectColumns(), s.userTable(), usernameFold("$1"))
 
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, username); err != nil {
