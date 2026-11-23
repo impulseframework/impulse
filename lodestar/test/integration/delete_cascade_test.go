@@ -35,6 +35,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -470,12 +471,31 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	)
 
 	// Every row a case writes has an id of its own: a kind's three hex digits, then a
-	// count over the whole test.
-	written := 0
+	// count over the whole test. The cases run side by side, so the count is atomic, and
+	// what a case asks of the database is about its own rows.
+	var written atomic.Int64
 	id := func(kind string) string {
-		written++
+		return fmt.Sprintf("%s00000-0000-4000-8000-0000000d%04d", kind, written.Add(1))
+	}
+	// changes counts the change records of one row.
+	changes := func(t *testing.T, table, rowID string) int64 {
+		t.Helper()
 
-		return fmt.Sprintf("%s00000-0000-4000-8000-0000000d%04d", kind, written)
+		iter := db.Single().Query(ctx, spanner.Statement{
+			SQL:    "SELECT COUNT(*) FROM DataChangeEvents WHERE TableName = @table AND RowId = @row",
+			Params: map[string]any{"table": table, "row": rowID},
+		})
+		defer iter.Stop()
+		row, err := iter.Next()
+		if err != nil {
+			t.Fatalf("counting the change records of %s %s: %v", table, rowID, err)
+		}
+		var count int64
+		if err := row.Columns(&count); err != nil {
+			t.Fatalf("row.Columns: %v", err)
+		}
+
+		return count
 	}
 	write := func(t *testing.T, rows ...*spanner.Mutation) {
 		t.Helper()
@@ -616,17 +636,18 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	}
 
 	t.Run("a refit's tasks are asked about, then taken, and a task's photo is released", func(t *testing.T) {
+		t.Parallel()
+
 		hull, bay, photo := id("7d0"), id("ad0"), id("5d1")
 		write(t, ship(hull, hangarAnvilDockID), refit(bay, hull), task(bay, 1, photo), task(bay, 2, ""))
 		if err := stores.files.Put(ctx, photo, "image/png", strings.NewReader("PNG hull seals")); err != nil {
 			t.Fatalf("storing the task's photo: %v", err)
 		}
 
-		before := countChangeEvents(ctx, t, db, "Refits")
 		askedThenTaken(t, batch, opPath(anvil, "refits/"+bay), "Delete this refit and everything under it: 2 refit tasks. This can't be undone.",
 			[]takenRow{rowByID("Refits", bay), taskRow(bay, 1), taskRow(bay, 2)}, photo)
-		if got := countChangeEvents(ctx, t, db, "Refits") - before; got != 1 {
-			t.Errorf("the refit's delete wrote %d change records for Refits, want 1", got)
+		if got := changes(t, "Refits", bay); got != 1 {
+			t.Errorf("the refit's delete wrote %d change records for it, want 1", got)
 		}
 		if !stands(t, rowByID("Ships", hull)) {
 			t.Error("the refit's ship is gone with the refit")
@@ -634,6 +655,8 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	})
 
 	t.Run("a sortie's expenses are asked about, then taken, and a penalty refuses the delete", func(t *testing.T) {
+		t.Parallel()
+
 		run, flight, fuel, supplies := id("8d0"), id("9d0"), id("9d1"), id("9d1")
 		write(t, mission(run, ""), sortie(flight, run, shipLanternID), expense(fuel, flight, "fuel"), expense(supplies, flight, "supplies"))
 
@@ -650,17 +673,18 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	})
 
 	t.Run("a ship's refits and their tasks are asked about, then taken, and a sortie or a droid report refuses it", func(t *testing.T) {
+		t.Parallel()
+
 		hull, bay := id("7d0"), id("ad0")
 		write(t, ship(hull, hangarAnvilDockID), refit(bay, hull), task(bay, 1, ""))
 
-		ships, refits := countChangeEvents(ctx, t, db, "Ships"), countChangeEvents(ctx, t, db, "Refits")
 		askedThenTaken(t, batch, opPath(anvil, "ships/"+hull), "Delete this ship and everything under it: 1 refit, 1 refit task. This can't be undone.",
 			[]takenRow{rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
-		if got := countChangeEvents(ctx, t, db, "Ships") - ships; got != 1 {
-			t.Errorf("the ship's delete wrote %d change records for Ships, want 1", got)
+		if got := changes(t, "Ships", hull); got != 1 {
+			t.Errorf("the ship's delete wrote %d change records for the ship, want 1", got)
 		}
-		if got := countChangeEvents(ctx, t, db, "Refits") - refits; got != 1 {
-			t.Errorf("the ship's delete wrote %d change records for Refits, want 1", got)
+		if got := changes(t, "Refits", bay); got != 1 {
+			t.Errorf("the ship's delete wrote %d change records for its refit, want 1", got)
 		}
 
 		flown, run, flight := id("7d0"), id("8d0"), id("9d0")
@@ -675,6 +699,8 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	})
 
 	t.Run("a hangar's pass and its ship, with the ship's refit and task, are asked about with every count, then taken", func(t *testing.T) {
+		t.Parallel()
+
 		dock, visit, hull, bay := id("6d0"), id("6d1"), id("7d0"), id("ad0")
 		write(t, hangar(dock), pass(visit, dock, "UserId", marshal), ship(hull, dock), refit(bay, hull), task(bay, 1, ""))
 
@@ -686,6 +712,8 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	})
 
 	t.Run("a squadron's membership and pass are asked about, then taken, and a mission assigned to it refuses it", func(t *testing.T) {
+		t.Parallel()
+
 		flight, visit := id("5d0"), id("6d1")
 		write(t, squadron(flight, wingForgeID), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
 
@@ -699,6 +727,8 @@ func TestDeleteCascade_sixRecords(t *testing.T) {
 	})
 
 	t.Run("a wing's squadron, with its membership and pass, is asked about, then taken", func(t *testing.T) {
+		t.Parallel()
+
 		forge, flight, visit := id("4d0"), id("5d0"), id("6d1")
 		write(t, wing(forge), squadron(flight, forge), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
 
