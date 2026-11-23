@@ -112,7 +112,7 @@ func TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver(t *
 	d := NewSessionStorageDriver(db.Pool)
 	d.EnableAuth()
 	cfg := drivertest.AuthConfig{Auth: true}
-	drivertest.SeedSignInSettings(ctx, t, d, drivertest.AuthWithAppTables, cfg)
+	drivertest.SeedSignInSettings(ctx, t, d, drivertest.AuthWithAppTables, &cfg)
 	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "deadlock@lakeside.edu"}, nil)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
@@ -141,7 +141,7 @@ func TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver(t *
 		return signin.Link(user.ID, false), nil
 	}
 	cfg.Resolve = resolve
-	signIn := drivertest.NewSignIn(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} })
+	signIn := drivertest.NewSignIn(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} })
 
 	identities := []*sessioninfo.Identity{
 		{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", Subject: "idp_deadlock", Email: "deadlock@lakeside.edu"},

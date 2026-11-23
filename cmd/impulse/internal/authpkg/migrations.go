@@ -186,11 +186,11 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
 -- interleaved child's key must begin with the parent's, so the events reference their
 -- session through a cascading foreign key instead.
-`, p, who, guidCheck) + eventsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
+`, p, who, guidCheck) + eventsUp(p, who) + signInSettingsUp(p) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
 // eventsUp creates the auth events, pending sign-ins, sign-in attempts and sign-in
-// methods tables, the second part of the sessions migration; mailLinksUp follows it.
+// methods tables, the second part of the sessions migration; signInSettingsUp follows it.
 func eventsUp(p, who string) string {
 	return fmt.Sprintf(`CREATE TABLE %[1]sSessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
@@ -287,7 +287,13 @@ CREATE TABLE %[1]sSessionSignInMethods (
     UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
--- The sign-in settings: what an administrator chose, in the running application, for the
+`, p, who, guidCheck)
+}
+
+// signInSettingsUp creates the sign-in settings table, the next part of the sessions
+// migration; mailLinksUp follows it.
+func signInSettingsUp(p string) string {
+	return fmt.Sprintf(`-- The sign-in settings: what an administrator chose, in the running application, for the
 -- whole auth. The table holds at most one row, the Auth's, under the one name it takes
 -- ('auth'). RequireSecondFactor says everyone is asked for a second factor when they sign
 -- in, and RememberBrowserDays for how many days a browser a person asked to be remembered
@@ -302,7 +308,7 @@ CREATE TABLE %[1]sSessionSignInSettings (
     CONSTRAINT CK_%[1]sSessionSignInSettingsName CHECK (Name = 'auth'),
 ) PRIMARY KEY (Name);
 
-`, p, who, guidCheck)
+`, p)
 }
 
 // mailLinksUp creates the mail links table, the next part of the sessions migration;

@@ -359,7 +359,10 @@ func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHa
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE TokenHash = @tokenHash AND RevokedAt IS NULL AND ExpiresAt > @now AND CreatedAt > @rememberedAfter`, trustedDeviceColumns, s.trustedDevicesTableName))
+	stmt := spanner.NewStatement(fmt.Sprintf(
+		`SELECT %s FROM %s WHERE TokenHash = @tokenHash AND RevokedAt IS NULL AND ExpiresAt > @now AND CreatedAt > @rememberedAfter`,
+		trustedDeviceColumns, s.trustedDevicesTableName,
+	))
 	stmt.Params["tokenHash"] = tokenHash
 	stmt.Params["now"] = now
 	stmt.Params["rememberedAfter"] = rememberedAfter

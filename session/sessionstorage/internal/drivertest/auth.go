@@ -306,7 +306,7 @@ func openedFor(audience signin.Audience) *string {
 // the driver; a harness calls it once its driver is built. The row is opened for the
 // audience the method has. It writes nothing for any other choice, so an invite-only
 // instance runs with no row.
-func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
+func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg *AuthConfig) {
 	t.Helper()
 
 	if cfg.Accounts != Open {
@@ -401,7 +401,7 @@ func NewConfirmAddressByLink[Tx any](
 // NewSignUp returns an instance's SignUp over d: the flow's password sign-up through
 // MethodName with cfg's sign-up hook, given the driver's transaction through adapt.
 func NewSignUp[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
 	seat := adaptSignUp(cfg, adapt)
 
@@ -416,7 +416,7 @@ func NewSignUp[Tx any](
 }
 
 // adaptSignUp is cfg's sign-up hook over the driver's transaction, nil for none.
-func adaptSignUp[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.SignUpSeater[Tx] {
+func adaptSignUp[Tx any](cfg *AuthConfig, adapt func(tx Tx) HookTx) signinflow.SignUpSeater[Tx] {
 	if cfg.SignUp == nil {
 		return nil
 	}
@@ -438,7 +438,7 @@ func oneProof(proven []dbtype.PasswordProof) dbtype.PasswordProof {
 // NewLinkConfirmed returns an instance's LinkConfirmed over d: the flow's confirmed
 // link with cfg's admission, each hook given the driver's transaction through adapt.
 func NewLinkConfirmed[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
 	directories, seat, _ := adaptAdmission(cfg, adapt)
 
@@ -455,7 +455,7 @@ func NewLinkConfirmed[Tx any](
 // reader, the seater and the reader of whether a tenant is all a person holds, each nil
 // for none.
 func adaptAdmission[Tx any](
-	cfg AuthConfig, adapt func(tx Tx) HookTx,
+	cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx], signinflow.OnlyInTenant[Tx]) {
 	if cfg.Admission == nil {
 		return nil, nil, nil
@@ -483,7 +483,7 @@ func adaptAdmission[Tx any](
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
 // acceptor, given the driver's transaction through adapt.
 func NewAccept[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error {
 	accept := adaptAccept(cfg, adapt)
 
@@ -497,7 +497,7 @@ func NewAccept[Tx any](
 }
 
 // adaptAccept is cfg's acceptor over the driver's transaction, nil for none.
-func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.InvitationAcceptor[Tx] {
+func adaptAccept[Tx any](cfg *AuthConfig, adapt func(tx Tx) HookTx) signinflow.InvitationAcceptor[Tx] {
 	if cfg.Accept == nil {
 		return nil
 	}
@@ -510,7 +510,7 @@ func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.In
 // NewSignIn returns an instance's SignIn over d: the sign-in flow with cfg's account
 // rules and policy, each given the driver's transaction through adapt.
 func NewSignIn[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
 	signIn := newSignIn(d, cfg, adapt)
 
@@ -522,7 +522,7 @@ func NewSignIn[Tx any](
 // NewSignInByCode returns an instance's SignInByCode over d: NewSignIn's flow, for a
 // sign-in that enters the account's own mailed code and carries the address it confirms.
 func NewSignInByCode[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error) {
 	signIn := newSignIn(d, cfg, adapt)
 
@@ -535,7 +535,7 @@ func NewSignInByCode[Tx any](
 // sign-in that completes a sign-up through an invitation and carries the account it
 // makes.
 func NewSignUpInvited[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error) {
 	signIn := newSignIn(d, cfg, adapt)
 
@@ -548,7 +548,7 @@ func NewSignUpInvited[Tx any](
 // proof, claim and account are the rules' Proven, CodeAddress and NewAccount, nil for
 // none.
 func newSignIn[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress, account *dbtype.InsertSessionUser) (impulse.UUID, error) {
 	var rule signin.AccountRule[Tx]
 	switch {

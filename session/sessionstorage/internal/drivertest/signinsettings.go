@@ -42,7 +42,7 @@ func NewSignInSettingsIn[Tx any](d signinflow.Driver[Tx]) func(ctx context.Conte
 // through the driver; a harness calls it once its driver is built. It writes nothing for
 // NoSettingsRow, nor where schema holds no auth migrations, whose database has no such
 // table.
-func SeedSignInSettings(ctx context.Context, t *testing.T, d AuthDriver, schema AuthSchema, cfg AuthConfig) {
+func SeedSignInSettings(ctx context.Context, t *testing.T, d AuthDriver, schema AuthSchema, cfg *AuthConfig) {
 	t.Helper()
 
 	if schema == WithoutAuth || cfg.Settings == NoSettingsRow {
