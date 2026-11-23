@@ -16,12 +16,13 @@ type Method interface {
 		InviteCrewSectorUser | InviteCrewUser | MakeCrewInviteOnly | OpenCrewSignUp |
 		RemoveCrewGroupMember | RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
 		RemoveCrewSectorPassword | RemoveCrewSectorRole | RenameCrewSectorUser | RenameCrewUser |
-		RequireCrewPasswordChange | RequireCrewSectorPasswordChange |
+		RequireCrewPasswordChange | RequireCrewSecondFactor | RequireCrewSectorPasswordChange |
 		RevokeCrewSectorUserTrustedDevices | RevokeCrewSessionToken |
 		RevokeCrewUserTrustedDevices | SendCrewSectorUserPasswordResetLink |
-		SendCrewUserPasswordResetLink | SetCrewSectorUserEmail | SetCrewSectorUserName |
-		SetCrewSelfServiceReset | SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole |
-		TakeCrewRole | TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity |
-		UnlinkCrewSessionIdentity | UnlockCrewSignIn | WithdrawCrewInvitation |
-		WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
+		SendCrewUserPasswordResetLink | SetCrewRememberedBrowsers | SetCrewSectorUserEmail |
+		SetCrewSectorUserName | SetCrewSelfServiceReset | SetCrewUserEmail | SetCrewUserName |
+		StopRequiringCrewSecondFactor | TakeCrewGroupRole | TakeCrewRole |
+		TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity |
+		UnlockCrewSignIn | WithdrawCrewInvitation | WithdrawCrewInvitedSector |
+		WithdrawCrewSectorInvitation
 }

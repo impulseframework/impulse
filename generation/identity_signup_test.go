@@ -66,8 +66,9 @@ func assertFileContains(t *testing.T, file string, want, wantNot []string) {
 // invite only again; the store's two calls; and the hook that gives the default role.
 // The default role is one the opener could give a person directly, so the package
 // answers the role file's grants on giving a role though the auth keeps no groups, and
-// the client hands them to the rules. An auth whose directory writes its roles has none
-// of it.
+// the client hands them to the rules. An auth whose directory writes its roles has the
+// list alone, whose rows say why nothing is chosen there: the Sign-in page is every
+// auth's, for what every sign-in asks for (identity_signinsettings_test.go).
 func Test_prepareIdentity_signUp(t *testing.T) {
 	// The generator writes relative to where the program runs, and the working directory
 	// belongs to the whole process: no t.Parallel here.
@@ -85,9 +86,10 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		"crewidentity/make_crew_invite_only.go",
 		"crewidentity/open_crew_sign_up.go",
 		"internal/crewresources/crew_session_sign_in_methods.go",
-		// The table is declared for the members too, since the schema holds it; their
-		// directory writes the roles, so nothing chooses over it.
+		// The table is declared for the members too, since the schema holds it, and the
+		// list is drawn; their directory writes the roles, so nothing chooses over it.
 		"internal/membersresources/members_session_sign_in_methods.go",
+		"membersidentity/members_sign_in_methods.go",
 	}
 	if diff := cmp.Diff(want, signUpFiles(t)); diff != "" {
 		t.Errorf("the sources of the sign-up part (-want +got):\n%s", diff)
@@ -187,13 +189,15 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 	// up to the crew creates a ship of their own, so the crew carries the choice. The
 	// members sign in on the portal, where no ship is created, and the application
 	// assigns their roles in a ship: a person who signed up there would get nothing, so
-	// the members carry no choice, though their schema holds the table.
+	// the members carry no choice, though their schema holds the table: they have the
+	// list alone.
 	want := []string{
 		"crewidentity/crew_sign_in_methods.go",
 		"crewidentity/make_crew_invite_only.go",
 		"crewidentity/open_crew_sign_up.go",
 		"internal/crewresources/crew_session_sign_in_methods.go",
 		"internal/membersresources/members_session_sign_in_methods.go",
+		"membersidentity/members_sign_in_methods.go",
 	}
 	if diff := cmp.Diff(want, signUpFiles(t)); diff != "" {
 		t.Errorf("the sources of the sign-up part (-want +got):\n%s", diff)

@@ -240,6 +240,10 @@ func (a *App) CrewListedRoleGrants() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedRoleGrants()
 }
 
+func (a *App) CrewRememberLengths() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewRememberLengths()
+}
+
 func (a *App) CrewSectorDirectoryRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorDirectoryRoles()
 }
@@ -254,6 +258,10 @@ func (a *App) CrewSectorSignInWays() http.HandlerFunc {
 
 func (a *App) CrewSignInMethods() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSignInMethods()
+}
+
+func (a *App) CrewSignInSettings() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSignInSettings()
 }
 
 func (a *App) CrewSignInWays() http.HandlerFunc {
@@ -412,6 +420,10 @@ func (a *App) RequireCrewPasswordChange() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RequireCrewPasswordChange()
 }
 
+func (a *App) RequireCrewSecondFactor() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).RequireCrewSecondFactor()
+}
+
 func (a *App) RequireCrewSectorPasswordChange() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RequireCrewSectorPasswordChange()
 }
@@ -436,6 +448,10 @@ func (a *App) SendCrewUserPasswordResetLink() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SendCrewUserPasswordResetLink()
 }
 
+func (a *App) SetCrewRememberedBrowsers() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SetCrewRememberedBrowsers()
+}
+
 func (a *App) SetCrewSectorUserEmail() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSectorUserEmail()
 }
@@ -454,6 +470,10 @@ func (a *App) SetCrewUserEmail() http.HandlerFunc {
 
 func (a *App) SetCrewUserName() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewUserName()
+}
+
+func (a *App) StopRequiringCrewSecondFactor() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).StopRequiringCrewSecondFactor()
 }
 
 func (a *App) TakeCrewGroupRole() http.HandlerFunc {
@@ -610,6 +630,18 @@ func (a *App) MembersListedRoleGrants() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersListedRoleGrants()
 }
 
+func (a *App) MembersRememberLengths() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersRememberLengths()
+}
+
+func (a *App) MembersSignInMethods() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSignInMethods()
+}
+
+func (a *App) MembersSignInSettings() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSignInSettings()
+}
+
 func (a *App) DeleteMembersSectorUser() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).DeleteMembersSectorUser()
 }
@@ -654,12 +686,20 @@ func (a *App) RenameMembersUser() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RenameMembersUser()
 }
 
+func (a *App) RequireMembersSecondFactor() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).RequireMembersSecondFactor()
+}
+
 func (a *App) RevokeMembersSectorUserTrustedDevices() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RevokeMembersSectorUserTrustedDevices()
 }
 
 func (a *App) RevokeMembersUserTrustedDevices() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RevokeMembersUserTrustedDevices()
+}
+
+func (a *App) SetMembersRememberedBrowsers() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersRememberedBrowsers()
 }
 
 func (a *App) SetMembersSectorUserEmail() http.HandlerFunc {
@@ -676,6 +716,10 @@ func (a *App) SetMembersUserEmail() http.HandlerFunc {
 
 func (a *App) SetMembersUserName() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersUserName()
+}
+
+func (a *App) StopRequiringMembersSecondFactor() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).StopRequiringMembersSecondFactor()
 }
 
 func (a *App) UnlinkMembersSectorSessionIdentity() http.HandlerFunc {

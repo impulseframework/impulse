@@ -716,6 +716,89 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+func (store) SignInSettingsRow(ctx context.Context, reader resource.ReadOnlyTransaction) (*identity.SignInSettingsRow, error) {
+	row, err := staffresources.NewStaffSessionSignInSettingQuery().
+		AddColumns(staffresources.NewStaffSessionSignInSettingColumns().Name().RequireSecondFactor().RememberBrowserDays()).
+		SetName(session.SignInSettingsRowName).
+		Read(ctx, reader)
+	switch {
+	case httpio.HasNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, errors.Wrap(err, "staffresources.StaffSessionSignInSettingQuery.Read()")
+	}
+
+	return &identity.SignInSettingsRow{RequireSecondFactor: row.Data.RequireSecondFactor, RememberBrowserDays: row.Data.RememberBrowserDays}, nil
+}
+
+func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error {
+	// The one field is written, and the days a browser is remembered stand as they are:
+	// where there is no row, one is created with the session library's default days.
+	// Either write leaves its change event under the caller, the record of who made the
+	// choice and when.
+	found, err := signInSettingsRowFound(ctx, txn)
+	if err != nil {
+		return err
+	}
+	if found {
+		patch := staffresources.NewStaffSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "staffresources.StaffSessionSignInSettingUpdatePatch.Buffer()")
+		}
+
+		return nil
+	}
+	patch := staffresources.NewStaffSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
+		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "staffresources.StaffSessionSignInSettingCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error {
+	// The one field is written, and whether the second factor is required stands as it
+	// is: where there is no row, one is created with it required. Either write leaves its
+	// change event under the caller, the record of who made the choice and when.
+	found, err := signInSettingsRowFound(ctx, txn)
+	if err != nil {
+		return err
+	}
+	if found {
+		patch := staffresources.NewStaffSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "staffresources.StaffSessionSignInSettingUpdatePatch.Buffer()")
+		}
+
+		return nil
+	}
+	patch := staffresources.NewStaffSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
+		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "staffresources.StaffSessionSignInSettingCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// signInSettingsRowFound reports whether the sign-in settings row stands, read in the
+// transaction that writes it.
+func signInSettingsRowFound(ctx context.Context, txn resource.ReadWriteTransaction) (bool, error) {
+	_, err := staffresources.NewStaffSessionSignInSettingQuery().
+		AddColumns(staffresources.NewStaffSessionSignInSettingColumns().Name()).
+		SetName(session.SignInSettingsRowName).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		return true, nil
+	case httpio.HasNotFound(err):
+		return false, nil
+	default:
+		return false, errors.Wrap(err, "staffresources.StaffSessionSignInSettingQuery.Read()")
+	}
+}
+
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := staffresources.NewStaffSessionTrustedDeviceQuery().

@@ -31,7 +31,7 @@ func Test_identityOn(t *testing.T) {
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
 		for _, name := range names {
 			switch {
-			case strings.HasSuffix(name, "s") && !strings.HasPrefix(name, "End") && !strings.HasPrefix(name, "Revoke"):
+			case strings.HasSuffix(name, "s") && !strings.HasPrefix(name, "End") && !strings.HasPrefix(name, "Revoke") && !strings.HasPrefix(name, "Set"):
 				resources = append(resources, &tsAPIResource{Name: name})
 			default:
 				methods = append(methods, &tsAPIMethod{Name: name})
@@ -237,6 +237,29 @@ func Test_identityOn(t *testing.T) {
 					Scope:   accesstypes.GlobalPermissionScope,
 					Lists:   []identityPart{part("users", "CrewSessionUsers"), part("signInMethods", "CrewSignInMethods")},
 					Methods: []identityPart{part("setSelfServiceReset", "SetCrewSelfServiceReset")},
+				}},
+			}},
+		},
+		{
+			name:      "what every sign-in asks for is two lists after the sign-in methods and three methods after the reset switch",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served: []string{
+				"CrewSessionUsers", "CrewSignInMethods", "CrewSignInSettings", "CrewRememberLengths",
+				"SetCrewSelfServiceReset", "RequireCrewSecondFactor", "StopRequiringCrewSecondFactor", "SetCrewRememberedBrowsers",
+			},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{{
+					Scope: accesstypes.GlobalPermissionScope,
+					Lists: []identityPart{
+						part("users", "CrewSessionUsers"), part("signInMethods", "CrewSignInMethods"),
+						part("signInSettings", "CrewSignInSettings"), part("rememberLengths", "CrewRememberLengths"),
+					},
+					Methods: []identityPart{
+						part("setSelfServiceReset", "SetCrewSelfServiceReset"), part("requireSecondFactor", "RequireCrewSecondFactor"),
+						part("stopRequiringSecondFactor", "StopRequiringCrewSecondFactor"), part("setRememberedBrowsers", "SetCrewRememberedBrowsers"),
+					},
 				}},
 			}},
 		},

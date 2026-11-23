@@ -50,7 +50,7 @@ var (
 	crewEveryTable = slices.Concat(crewIdentityTables, []string{
 		"CrewSessionIdentities", "CrewSessionTokens", "CrewSessionMailLinks", "CrewSessionSignInAttempts",
 		"CrewSessionAuthEvents", "CrewSessionImpersonations", "CrewSessionTrustedDevices", "CrewRoleGrants",
-		"CrewSessionSignInMethods",
+		"CrewSessionSignInMethods", "CrewSessionSignInSettings",
 	})
 )
 
@@ -159,7 +159,7 @@ func Test_identityInstances(t *testing.T) {
 				{
 					auth: "Crew", accessor: "CrewIdentity", outlets: []string{"default"},
 					resources: "pkg/identity/internal/crewresources", methods: "pkg/identity/crewidentity", handler: "pkg/identity/crewhandlers",
-					tables: []string{"authEvents", "identities", "impersonations", "mailLinks", "memberships", "roleGrants", "roles", "sessions", "signInAttempts", "signInMethods", "tokens", "trustedDevices", "users"},
+					tables: []string{"authEvents", "identities", "impersonations", "mailLinks", "memberships", "roleGrants", "roles", "sessions", "signInAttempts", "signInMethods", "signInSettings", "tokens", "trustedDevices", "users"},
 				},
 				{
 					auth: "Members", accessor: "MembersIdentity", outlets: []string{"portal", "default"},
@@ -357,7 +357,9 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/client.go",
 		"crewidentity/crew_givable_roles.go",
 		"crewidentity/crew_listed_role_grants.go",
+		"crewidentity/crew_remember_lengths.go",
 		"crewidentity/crew_sign_in_methods.go",
+		"crewidentity/crew_sign_in_settings.go",
 		"crewidentity/crew_sign_in_ways.go",
 		"crewidentity/crew_sign_up_roles.go",
 		"crewidentity/crew_take_lengths.go",
@@ -376,12 +378,15 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/remove_crew_role.go",
 		"crewidentity/rename_crew_user.go",
 		"crewidentity/require_crew_password_change.go",
+		"crewidentity/require_crew_second_factor.go",
 		"crewidentity/revoke_crew_session_token.go",
 		"crewidentity/revoke_crew_user_trusted_devices.go",
 		"crewidentity/send_crew_user_password_reset_link.go",
+		"crewidentity/set_crew_remembered_browsers.go",
 		"crewidentity/set_crew_self_service_reset.go",
 		"crewidentity/set_crew_user_email.go",
 		"crewidentity/set_crew_user_name.go",
+		"crewidentity/stop_requiring_crew_second_factor.go",
 		"crewidentity/store.go",
 		"crewidentity/take_crew_role.go",
 		"crewidentity/unlink_crew_session_identity.go",
@@ -396,6 +401,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_mail_links.go",
 		"internal/crewresources/crew_session_sign_in_attempts.go",
 		"internal/crewresources/crew_session_sign_in_methods.go",
+		"internal/crewresources/crew_session_sign_in_settings.go",
 		"internal/crewresources/crew_session_tokens.go",
 		"internal/crewresources/crew_session_trusted_devices.go",
 		"internal/crewresources/crew_session_users.go",

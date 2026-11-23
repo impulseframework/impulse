@@ -218,6 +218,11 @@ export interface RequireStaffPasswordChange {
 /** The statuses RequireStaffPasswordChange declares; the method chooses one per response. */
 export type RequireStaffPasswordChangeStatus = 204;
 
+export interface RequireStaffSecondFactorConfig {}
+export interface RequireStaffSecondFactor {}
+/** The statuses RequireStaffSecondFactor declares; the method chooses one per response. */
+export type RequireStaffSecondFactorStatus = 204;
+
 export interface RevokeStaffSessionTokenConfig {
   tokenId: string | FieldPointer;
 }
@@ -247,6 +252,15 @@ export interface SendStaffUserPasswordResetLinkResult {
   sent: boolean;
   reason: string;
 }
+
+export interface SetStaffRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetStaffRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetStaffRememberedBrowsers declares; the method chooses one per response. */
+export type SetStaffRememberedBrowsersStatus = 204;
 
 export interface SetStaffSelfServiceResetConfig {
   on: boolean | FieldPointer;
@@ -281,6 +295,11 @@ export interface SetStaffUserName {
 }
 /** The statuses SetStaffUserName declares; the method chooses one per response. */
 export type SetStaffUserNameStatus = 204;
+
+export interface StopRequiringStaffSecondFactorConfig {}
+export interface StopRequiringStaffSecondFactor {}
+/** The statuses StopRequiringStaffSecondFactor declares; the method chooses one per response. */
+export type StopRequiringStaffSecondFactorStatus = 204;
 
 export interface TakeStaffGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -632,6 +651,12 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
+  [Methods.RequireStaffSecondFactor]: {
+    route: 'require-staff-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
+  },
   [Methods.RevokeStaffSessionToken]: {
     route: 'revoke-staff-session-token',
     target: { resource: Resources.StaffSessionTokens, key: { tokenId: 'id' } },
@@ -657,6 +682,14 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetStaffRememberedBrowsers]: {
+    route: 'set-staff-remembered-browsers',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.StaffRememberLengths, required: true },
     ],
   },
   [Methods.SetStaffSelfServiceReset]: {
@@ -686,6 +719,13 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'name', displayType: 'string', optional: true },
     ],
+  },
+  [Methods.StopRequiringStaffSecondFactor]: {
+    route: 'stop-requiring-staff-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
   },
   [Methods.TakeStaffGroupRole]: {
     route: 'take-staff-group-role',

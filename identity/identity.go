@@ -185,6 +185,20 @@ type Store interface {
 	// link on the row of the sign-in method of the name, and nothing else of the row:
 	// a method with no row gets one that is invite only.
 	SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error
+	// SignInSettingsRow reads the row of the sign-in settings table: what an
+	// administrator chose for every sign-in of the auth. reader is the caller's
+	// transaction or the application's client. It answers nil where there is no row,
+	// and a schema that holds no such table answers nil.
+	SignInSettingsRow(ctx context.Context, reader resource.ReadOnlyTransaction) (*SignInSettingsRow, error)
+	// SetRequireSecondFactor writes whether everyone is asked for a second factor on the
+	// row, and nothing else of it: where there is no row, one is created with the days a
+	// browser is remembered at session.DefaultRememberedBrowserDays. The write keeps who
+	// made it and when (the table's change events).
+	SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error
+	// SetRememberBrowserDays writes for how many days a remembered browser skips the
+	// second factor on the row, and nothing else of it: where there is no row, one is
+	// created with the second factor required. The write keeps who made it and when.
+	SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.

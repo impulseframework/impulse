@@ -365,6 +365,11 @@ export interface RenameMembersUser {
 /** The statuses RenameMembersUser declares; the method chooses one per response. */
 export type RenameMembersUserStatus = 204;
 
+export interface RequireMembersSecondFactorConfig {}
+export interface RequireMembersSecondFactor {}
+/** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
+export type RequireMembersSecondFactorStatus = 204;
+
 export interface RevokeMembersSessionTokenConfig {
   tokenId: string | FieldPointer;
 }
@@ -391,6 +396,15 @@ export interface RevokeMembersUserTrustedDevices {
 }
 /** The statuses RevokeMembersUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeMembersUserTrustedDevicesStatus = 204;
+
+export interface SetMembersRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetMembersRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetMembersRememberedBrowsers declares; the method chooses one per response. */
+export type SetMembersRememberedBrowsersStatus = 204;
 
 export interface SetMembersTenantUserEmailConfig {
   userId: string | FieldPointer;
@@ -441,6 +455,11 @@ export interface SetMembersUserName {
 }
 /** The statuses SetMembersUserName declares; the method chooses one per response. */
 export type SetMembersUserNameStatus = 204;
+
+export interface StopRequiringMembersSecondFactorConfig {}
+export interface StopRequiringMembersSecondFactor {}
+/** The statuses StopRequiringMembersSecondFactor declares; the method chooses one per response. */
+export type StopRequiringMembersSecondFactorStatus = 204;
 
 export interface TakeMembersGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -943,6 +962,12 @@ const methodMap: MethodMap = {
       { fieldName: 'username', displayType: 'string', required: true },
     ],
   },
+  [Methods.RequireMembersSecondFactor]: {
+    route: 'require-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
+  },
   [Methods.RevokeMembersSessionToken]: {
     route: 'revoke-members-session-token',
     target: { resource: Resources.MembersSessionTokens, key: { tokenId: 'id' } },
@@ -968,6 +993,14 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetMembersRememberedBrowsers]: {
+    route: 'set-members-remembered-browsers',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersRememberLengths, required: true },
     ],
   },
   [Methods.SetMembersTenantUserEmail]: {
@@ -1009,6 +1042,13 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'name', displayType: 'string', optional: true },
     ],
+  },
+  [Methods.StopRequiringMembersSecondFactor]: {
+    route: 'stop-requiring-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
   },
   [Methods.TakeMembersGroupRole]: {
     route: 'take-members-group-role',

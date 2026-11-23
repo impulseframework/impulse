@@ -36,7 +36,11 @@ const (
 	identityListSessions       = "sessions"
 	identityListSignInAttempts = "signInAttempts"
 	identityListSignInMethods  = "signInMethods"
-	identityListSignUpRoles    = "signUpRoles"
+	// What every sign-in asks for, and the lengths a browser is remembered for
+	// (identity_signinsettings.go).
+	identityListSignInSettings  = "signInSettings"
+	identityListRememberLengths = "rememberLengths"
+	identityListSignUpRoles     = "signUpRoles"
 	// The invitations that make a tenant and still stand (identity_invitedtenant.go).
 	identityListInvitedTenants = "invitedTenants"
 	// The lists over the groups of people (identity_groups.go): the groups, the people
@@ -133,6 +137,8 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListSessions, data.Session()},
 		{identityListSignInAttempts, data.SignInAttempt()},
 		{identityListSignInMethods, data.SignInMethod()},
+		{identityListSignInSettings, data.SignInSetting()},
+		{identityListRememberLengths, data.RememberLength()},
 		{identityListSignUpRoles, data.SignUpRole()},
 		{identityListGroups, groups},
 		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
@@ -189,6 +195,9 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
 			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
 			identityPart{"setSelfServiceReset", "Set" + i.auth + "SelfServiceReset"},
+			identityPart{"requireSecondFactor", "Require" + i.auth + "SecondFactor"},
+			identityPart{"stopRequiringSecondFactor", "StopRequiring" + i.auth + "SecondFactor"},
+			identityPart{"setRememberedBrowsers", "Set" + i.auth + "RememberedBrowsers"},
 			identityPart{identityMethodTakeRole, i.takeRoleMethod()},
 		)
 		if i.invitesTenants() {

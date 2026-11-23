@@ -211,6 +211,8 @@ type GeneratedHandlers interface {
 
 	CrewListedRoleGrants() http.HandlerFunc
 
+	CrewRememberLengths() http.HandlerFunc
+
 	CrewRoles() http.HandlerFunc
 
 	CrewSectorDirectoryRoles() http.HandlerFunc
@@ -271,6 +273,8 @@ type GeneratedHandlers interface {
 	CrewSessionUser() http.HandlerFunc
 
 	CrewSignInMethods() http.HandlerFunc
+
+	CrewSignInSettings() http.HandlerFunc
 
 	CrewSignInWays() http.HandlerFunc
 
@@ -393,6 +397,8 @@ type GeneratedHandlers interface {
 
 	MembersListedRoleGrants() http.HandlerFunc
 
+	MembersRememberLengths() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersSectorHeldRoles() http.HandlerFunc
@@ -427,6 +433,10 @@ type GeneratedHandlers interface {
 
 	MembersSessionUsers() http.HandlerFunc
 	MembersSessionUser() http.HandlerFunc
+
+	MembersSignInMethods() http.HandlerFunc
+
+	MembersSignInSettings() http.HandlerFunc
 
 	MembersUserRoles() http.HandlerFunc
 
@@ -492,7 +502,11 @@ type GeneratedHandlers interface {
 
 	RequireCrewPasswordChange() http.HandlerFunc
 
+	RequireCrewSecondFactor() http.HandlerFunc
+
 	RequireCrewSectorPasswordChange() http.HandlerFunc
+
+	RequireMembersSecondFactor() http.HandlerFunc
 
 	ResumeMission() http.HandlerFunc
 
@@ -526,6 +540,8 @@ type GeneratedHandlers interface {
 
 	ServiceLedgers() http.HandlerFunc
 
+	SetCrewRememberedBrowsers() http.HandlerFunc
+
 	SetCrewSectorUserEmail() http.HandlerFunc
 
 	SetCrewSectorUserName() http.HandlerFunc
@@ -537,6 +553,8 @@ type GeneratedHandlers interface {
 	SetCrewUserName() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
+
+	SetMembersRememberedBrowsers() http.HandlerFunc
 
 	SetMembersSectorUserEmail() http.HandlerFunc
 
@@ -574,6 +592,10 @@ type GeneratedHandlers interface {
 	StandingOrders() http.HandlerFunc
 
 	StartFlightTest() http.HandlerFunc
+
+	StopRequiringCrewSecondFactor() http.HandlerFunc
+
+	StopRequiringMembersSecondFactor() http.HandlerFunc
 
 	TakeCrewGroupRole() http.HandlerFunc
 
@@ -764,6 +786,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
 	bounded.Post("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
 
+	crewRememberLengthsHandler := h.CrewRememberLengths()
+	bounded.Get("/console/api/crew-remember-lengths", crewRememberLengthsHandler)
+	bounded.Post("/console/api/crew-remember-lengths", crewRememberLengthsHandler)
+
 	crewRolesHandler := h.CrewRoles()
 	bounded.Get("/console/api/crew-roles", crewRolesHandler)
 	bounded.Post("/console/api/crew-roles", crewRolesHandler)
@@ -915,6 +941,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewSignInMethodsHandler := h.CrewSignInMethods()
 	bounded.Get("/console/api/crew-sign-in-methods", crewSignInMethodsHandler)
 	bounded.Post("/console/api/crew-sign-in-methods", crewSignInMethodsHandler)
+
+	crewSignInSettingsHandler := h.CrewSignInSettings()
+	bounded.Get("/console/api/crew-sign-in-settings", crewSignInSettingsHandler)
+	bounded.Post("/console/api/crew-sign-in-settings", crewSignInSettingsHandler)
 
 	crewSignInWaysHandler := h.CrewSignInWays()
 	bounded.Get("/console/api/crew-sign-in-ways", crewSignInWaysHandler)
@@ -1098,6 +1128,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/console/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 
+	membersRememberLengthsHandler := h.MembersRememberLengths()
+	bounded.Get("/console/api/members-remember-lengths", membersRememberLengthsHandler)
+	bounded.Post("/console/api/members-remember-lengths", membersRememberLengthsHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/console/api/members-roles", membersRolesHandler)
 	bounded.Post("/console/api/members-roles", membersRolesHandler)
@@ -1185,6 +1219,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	membersSessionUserHandler := h.MembersSessionUser()
 	bounded.Get("/console/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 	bounded.Post("/console/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+
+	membersSignInMethodsHandler := h.MembersSignInMethods()
+	bounded.Get("/console/api/members-sign-in-methods", membersSignInMethodsHandler)
+	bounded.Post("/console/api/members-sign-in-methods", membersSignInMethodsHandler)
+
+	membersSignInSettingsHandler := h.MembersSignInSettings()
+	bounded.Get("/console/api/members-sign-in-settings", membersSignInSettingsHandler)
+	bounded.Post("/console/api/members-sign-in-settings", membersSignInSettingsHandler)
 
 	membersUserRolesHandler := h.MembersUserRoles()
 	bounded.Get("/console/api/members-user-roles", membersUserRolesHandler)
@@ -1304,7 +1346,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/require-crew-password-change", h.RequireCrewPasswordChange())
 
+	asked.Post("/console/api/require-crew-second-factor", h.RequireCrewSecondFactor())
+
 	asked.Post("/console/api/sectors/{sectorID}/require-crew-sector-password-change", domainGuard(h.RequireCrewSectorPasswordChange()))
+
+	asked.Post("/console/api/require-members-second-factor", h.RequireMembersSecondFactor())
 
 	asked.Post("/console/api/sectors/{sectorID}/resume-mission", domainGuard(h.ResumeMission()))
 
@@ -1360,6 +1406,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/service-ledgers", serviceLedgersHandler)
 	bounded.Post("/console/api/service-ledgers", serviceLedgersHandler)
 
+	asked.Post("/console/api/set-crew-remembered-browsers", h.SetCrewRememberedBrowsers())
+
 	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
 
 	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-name", domainGuard(h.SetCrewSectorUserName()))
@@ -1371,6 +1419,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/set-crew-user-name", h.SetCrewUserName())
 
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/console/api/set-feature", h.SetFeature())
+
+	asked.Post("/console/api/set-members-remembered-browsers", h.SetMembersRememberedBrowsers())
 
 	asked.Post("/console/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
 
@@ -1445,6 +1495,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/standing-orders", standingOrdersHandler)
 
 	asked.Post("/console/api/sectors/{sectorID}/start-flight-test", domainGuard(h.StartFlightTest()))
+
+	asked.Post("/console/api/stop-requiring-crew-second-factor", h.StopRequiringCrewSecondFactor())
+
+	asked.Post("/console/api/stop-requiring-members-second-factor", h.StopRequiringMembersSecondFactor())
 
 	asked.Post("/console/api/take-crew-group-role", h.TakeCrewGroupRole())
 
@@ -1622,6 +1676,8 @@ type GeneratedPortalHandlers interface {
 
 	MembersListedRoleGrants() http.HandlerFunc
 
+	MembersRememberLengths() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersSectorHeldRoles() http.HandlerFunc
@@ -1657,6 +1713,10 @@ type GeneratedPortalHandlers interface {
 	MembersSessionUsers() http.HandlerFunc
 	MembersSessionUser() http.HandlerFunc
 
+	MembersSignInMethods() http.HandlerFunc
+
+	MembersSignInSettings() http.HandlerFunc
+
 	MembersUserRoles() http.HandlerFunc
 
 	Missions() http.HandlerFunc
@@ -1671,11 +1731,15 @@ type GeneratedPortalHandlers interface {
 
 	RenameMembersUser() http.HandlerFunc
 
+	RequireMembersSecondFactor() http.HandlerFunc
+
 	RevokeMembersSectorUserTrustedDevices() http.HandlerFunc
 
 	RevokeMembersUserTrustedDevices() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
+
+	SetMembersRememberedBrowsers() http.HandlerFunc
 
 	SetMembersSectorUserEmail() http.HandlerFunc
 
@@ -1686,6 +1750,8 @@ type GeneratedPortalHandlers interface {
 	SetMembersUserName() http.HandlerFunc
 
 	StandDownMission() http.HandlerFunc
+
+	StopRequiringMembersSecondFactor() http.HandlerFunc
 
 	UnlinkMembersSectorSessionIdentity() http.HandlerFunc
 
@@ -1789,6 +1855,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 
+	membersRememberLengthsHandler := h.MembersRememberLengths()
+	bounded.Get("/portal/api/members-remember-lengths", membersRememberLengthsHandler)
+	bounded.Post("/portal/api/members-remember-lengths", membersRememberLengthsHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
@@ -1877,6 +1947,14 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 	bounded.Post("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 
+	membersSignInMethodsHandler := h.MembersSignInMethods()
+	bounded.Get("/portal/api/members-sign-in-methods", membersSignInMethodsHandler)
+	bounded.Post("/portal/api/members-sign-in-methods", membersSignInMethodsHandler)
+
+	membersSignInSettingsHandler := h.MembersSignInSettings()
+	bounded.Get("/portal/api/members-sign-in-settings", membersSignInSettingsHandler)
+	bounded.Post("/portal/api/members-sign-in-settings", membersSignInSettingsHandler)
+
 	membersUserRolesHandler := h.MembersUserRoles()
 	bounded.Get("/portal/api/members-user-roles", membersUserRolesHandler)
 	bounded.Post("/portal/api/members-user-roles", membersUserRolesHandler)
@@ -1907,11 +1985,15 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	asked.Post("/portal/api/rename-members-user", h.RenameMembersUser())
 
+	asked.Post("/portal/api/require-members-second-factor", h.RequireMembersSecondFactor())
+
 	asked.Post("/portal/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
 
 	asked.Post("/portal/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
 
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/set-feature", h.SetFeature())
+
+	asked.Post("/portal/api/set-members-remembered-browsers", h.SetMembersRememberedBrowsers())
 
 	asked.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
 
@@ -1922,6 +2004,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
 
 	asked.Post("/portal/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
+
+	asked.Post("/portal/api/stop-requiring-members-second-factor", h.StopRequiringMembersSecondFactor())
 
 	asked.Post("/portal/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
 

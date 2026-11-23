@@ -207,6 +207,8 @@ type GeneratedHandlers interface {
 
 	RequireStaffPasswordChange() http.HandlerFunc
 
+	RequireStaffSecondFactor() http.HandlerFunc
+
 	RequireStaffTenantPasswordChange() http.HandlerFunc
 
 	RevokeStaffSessionToken() http.HandlerFunc
@@ -220,6 +222,8 @@ type GeneratedHandlers interface {
 	SendStaffUserPasswordResetLink() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
+
+	SetStaffRememberedBrowsers() http.HandlerFunc
 
 	SetStaffSelfServiceReset() http.HandlerFunc
 
@@ -256,6 +260,8 @@ type GeneratedHandlers interface {
 
 	StaffListedRoleGrants() http.HandlerFunc
 
+	StaffRememberLengths() http.HandlerFunc
+
 	StaffRoles() http.HandlerFunc
 
 	StaffSessions() http.HandlerFunc
@@ -281,6 +287,8 @@ type GeneratedHandlers interface {
 	StaffSessionUser() http.HandlerFunc
 
 	StaffSignInMethods() http.HandlerFunc
+
+	StaffSignInSettings() http.HandlerFunc
 
 	StaffSignInWays() http.HandlerFunc
 
@@ -326,6 +334,8 @@ type GeneratedHandlers interface {
 	StaffUserGroupRole() http.HandlerFunc
 
 	StaffUserRoles() http.HandlerFunc
+
+	StopRequiringStaffSecondFactor() http.HandlerFunc
 
 	TakeStaffGroupRole() http.HandlerFunc
 
@@ -485,6 +495,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/require-staff-password-change", h.RequireStaffPasswordChange())
 
+	asked.Post("/console/api/require-staff-second-factor", h.RequireStaffSecondFactor())
+
 	asked.Post("/console/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
 
 	asked.Post("/console/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
@@ -498,6 +510,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/send-staff-user-password-reset-link", h.SendStaffUserPasswordResetLink())
 
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/console/api/set-feature", h.SetFeature())
+
+	asked.Post("/console/api/set-staff-remembered-browsers", h.SetStaffRememberedBrowsers())
 
 	asked.Post("/console/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
 
@@ -565,6 +579,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 	bounded.Post("/console/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 
+	staffRememberLengthsHandler := h.StaffRememberLengths()
+	bounded.Get("/console/api/staff-remember-lengths", staffRememberLengthsHandler)
+	bounded.Post("/console/api/staff-remember-lengths", staffRememberLengthsHandler)
+
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/console/api/staff-roles", staffRolesHandler)
 	bounded.Post("/console/api/staff-roles", staffRolesHandler)
@@ -628,6 +646,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSignInMethodsHandler := h.StaffSignInMethods()
 	bounded.Get("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
 	bounded.Post("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
+
+	staffSignInSettingsHandler := h.StaffSignInSettings()
+	bounded.Get("/console/api/staff-sign-in-settings", staffSignInSettingsHandler)
+	bounded.Post("/console/api/staff-sign-in-settings", staffSignInSettingsHandler)
 
 	staffSignInWaysHandler := h.StaffSignInWays()
 	bounded.Get("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
@@ -736,6 +758,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffUserRolesHandler := h.StaffUserRoles()
 	bounded.Get("/console/api/staff-user-roles", staffUserRolesHandler)
 	bounded.Post("/console/api/staff-user-roles", staffUserRolesHandler)
+
+	asked.Post("/console/api/stop-requiring-staff-second-factor", h.StopRequiringStaffSecondFactor())
 
 	asked.Post("/console/api/take-staff-group-role", h.TakeStaffGroupRole())
 
@@ -872,6 +896,8 @@ type GeneratedPortalHandlers interface {
 
 	MembersListedRoleGrants() http.HandlerFunc
 
+	MembersRememberLengths() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersSessions() http.HandlerFunc
@@ -895,6 +921,10 @@ type GeneratedPortalHandlers interface {
 
 	MembersSessionUsers() http.HandlerFunc
 	MembersSessionUser() http.HandlerFunc
+
+	MembersSignInMethods() http.HandlerFunc
+
+	MembersSignInSettings() http.HandlerFunc
 
 	MembersTakeLengths() http.HandlerFunc
 
@@ -947,6 +977,8 @@ type GeneratedPortalHandlers interface {
 
 	RenameMembersUser() http.HandlerFunc
 
+	RequireMembersSecondFactor() http.HandlerFunc
+
 	RevokeMembersSessionToken() http.HandlerFunc
 
 	RevokeMembersTenantUserTrustedDevices() http.HandlerFunc
@@ -955,6 +987,8 @@ type GeneratedPortalHandlers interface {
 
 	SetFeature() http.HandlerFunc
 
+	SetMembersRememberedBrowsers() http.HandlerFunc
+
 	SetMembersTenantUserEmail() http.HandlerFunc
 
 	SetMembersTenantUserName() http.HandlerFunc
@@ -962,6 +996,8 @@ type GeneratedPortalHandlers interface {
 	SetMembersUserEmail() http.HandlerFunc
 
 	SetMembersUserName() http.HandlerFunc
+
+	StopRequiringMembersSecondFactor() http.HandlerFunc
 
 	TakeMembersGroupRole() http.HandlerFunc
 
@@ -1123,6 +1159,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 
+	membersRememberLengthsHandler := h.MembersRememberLengths()
+	bounded.Get("/portal/api/members-remember-lengths", membersRememberLengthsHandler)
+	bounded.Post("/portal/api/members-remember-lengths", membersRememberLengthsHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
@@ -1182,6 +1222,14 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersSessionUserHandler := h.MembersSessionUser()
 	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 	bounded.Post("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+
+	membersSignInMethodsHandler := h.MembersSignInMethods()
+	bounded.Get("/portal/api/members-sign-in-methods", membersSignInMethodsHandler)
+	bounded.Post("/portal/api/members-sign-in-methods", membersSignInMethodsHandler)
+
+	membersSignInSettingsHandler := h.MembersSignInSettings()
+	bounded.Get("/portal/api/members-sign-in-settings", membersSignInSettingsHandler)
+	bounded.Post("/portal/api/members-sign-in-settings", membersSignInSettingsHandler)
 
 	membersTakeLengthsHandler := h.MembersTakeLengths()
 	bounded.Get("/portal/api/members-take-lengths", membersTakeLengthsHandler)
@@ -1291,6 +1339,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	asked.Post("/portal/api/rename-members-user", h.RenameMembersUser())
 
+	asked.Post("/portal/api/require-members-second-factor", h.RequireMembersSecondFactor())
+
 	asked.Post("/portal/api/revoke-members-session-token", h.RevokeMembersSessionToken())
 
 	asked.Post("/portal/api/tenants/{tenantID}/revoke-members-tenant-user-trusted-devices", domainGuard(h.RevokeMembersTenantUserTrustedDevices()))
@@ -1299,6 +1349,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/set-feature", h.SetFeature())
 
+	asked.Post("/portal/api/set-members-remembered-browsers", h.SetMembersRememberedBrowsers())
+
 	asked.Post("/portal/api/tenants/{tenantID}/set-members-tenant-user-email", domainGuard(h.SetMembersTenantUserEmail()))
 
 	asked.Post("/portal/api/tenants/{tenantID}/set-members-tenant-user-name", domainGuard(h.SetMembersTenantUserName()))
@@ -1306,6 +1358,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/set-members-user-email", h.SetMembersUserEmail())
 
 	asked.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
+
+	asked.Post("/portal/api/stop-requiring-members-second-factor", h.StopRequiringMembersSecondFactor())
 
 	asked.Post("/portal/api/take-members-group-role", h.TakeMembersGroupRole())
 

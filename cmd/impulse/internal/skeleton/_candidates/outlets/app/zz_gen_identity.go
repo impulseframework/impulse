@@ -232,8 +232,16 @@ func (a *App) StaffListedRoleGrants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedRoleGrants()
 }
 
+func (a *App) StaffRememberLengths() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffRememberLengths()
+}
+
 func (a *App) StaffSignInMethods() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSignInMethods()
+}
+
+func (a *App) StaffSignInSettings() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSignInSettings()
 }
 
 func (a *App) StaffSignInWays() http.HandlerFunc {
@@ -400,6 +408,10 @@ func (a *App) RequireStaffPasswordChange() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RequireStaffPasswordChange()
 }
 
+func (a *App) RequireStaffSecondFactor() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).RequireStaffSecondFactor()
+}
+
 func (a *App) RequireStaffTenantPasswordChange() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RequireStaffTenantPasswordChange()
 }
@@ -424,6 +436,10 @@ func (a *App) SendStaffUserPasswordResetLink() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SendStaffUserPasswordResetLink()
 }
 
+func (a *App) SetStaffRememberedBrowsers() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).SetStaffRememberedBrowsers()
+}
+
 func (a *App) SetStaffSelfServiceReset() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffSelfServiceReset()
 }
@@ -442,6 +458,10 @@ func (a *App) SetStaffUserEmail() http.HandlerFunc {
 
 func (a *App) SetStaffUserName() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffUserName()
+}
+
+func (a *App) StopRequiringStaffSecondFactor() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StopRequiringStaffSecondFactor()
 }
 
 func (a *App) TakeStaffGroupRole() http.HandlerFunc {
@@ -690,6 +710,18 @@ func (a *App) MembersListedRoleGrants() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersListedRoleGrants()
 }
 
+func (a *App) MembersRememberLengths() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersRememberLengths()
+}
+
+func (a *App) MembersSignInMethods() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSignInMethods()
+}
+
+func (a *App) MembersSignInSettings() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSignInSettings()
+}
+
 func (a *App) MembersTakeLengths() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersTakeLengths()
 }
@@ -818,6 +850,10 @@ func (a *App) RenameMembersUser() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RenameMembersUser()
 }
 
+func (a *App) RequireMembersSecondFactor() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).RequireMembersSecondFactor()
+}
+
 func (a *App) RevokeMembersSessionToken() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RevokeMembersSessionToken()
 }
@@ -828,6 +864,10 @@ func (a *App) RevokeMembersTenantUserTrustedDevices() http.HandlerFunc {
 
 func (a *App) RevokeMembersUserTrustedDevices() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RevokeMembersUserTrustedDevices()
+}
+
+func (a *App) SetMembersRememberedBrowsers() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersRememberedBrowsers()
 }
 
 func (a *App) SetMembersTenantUserEmail() http.HandlerFunc {
@@ -844,6 +884,10 @@ func (a *App) SetMembersUserEmail() http.HandlerFunc {
 
 func (a *App) SetMembersUserName() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersUserName()
+}
+
+func (a *App) StopRequiringMembersSecondFactor() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).StopRequiringMembersSecondFactor()
 }
 
 func (a *App) TakeMembersGroupRole() http.HandlerFunc {
