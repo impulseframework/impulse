@@ -795,3 +795,231 @@ func TestTenantPolicy_Refused(t *testing.T) {
 		})
 	}
 }
+
+// passwordDisabledCase is one person PasswordsDisabledByTenants is asked about: their
+// memberships, what they administer and what their tenants declare, with the store's
+// and the reader's errors.
+type passwordDisabledCase struct {
+	name            string
+	held            accesstypes.RoleCollection
+	heldErr         error
+	administered    []accesstypes.Domain
+	administeredErr error
+	declared        map[accesstypes.Domain]*TenantDeclaration
+	readErr         error
+	// want is the check's answer; wantErr says it fails instead, with the store's or
+	// the reader's error.
+	want    bool
+	wantErr bool
+}
+
+// passwordDisabledCases are the people TestPasswordsDisabledByTenants asks about, and
+// whose answers TestPasswordsDisabledByTenants_isThePolicysDecision holds to the policy's.
+func passwordDisabledCases() []passwordDisabledCase {
+	global := accesstypes.GlobalPolicyScope()
+	every := accesstypes.EveryDomainPolicyScope()
+	lakeside := accesstypes.DomainPolicyScope("lakeside")
+	riverside := accesstypes.DomainPolicyScope("riverside")
+	member := []accesstypes.Role{"Member"}
+	directoryOnly := &TenantDeclaration{Directories: []Directory{lakesideEntra}, DirectoryOnly: true}
+	open := &TenantDeclaration{Directories: []Directory{lakesideEntra}}
+	bothDirectoryOnly := map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly, "riverside": directoryOnly}
+
+	return []passwordDisabledCase{
+		{
+			name:     "a member of one tenant, which is directory only",
+			held:     accesstypes.RoleCollection{lakeside: member},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			want:     true,
+		},
+		{
+			name:     "a member of two tenants, both directory only",
+			held:     accesstypes.RoleCollection{lakeside: member, riverside: member},
+			declared: bothDirectoryOnly,
+			want:     true,
+		},
+		{
+			name:         "a member of two directory-only tenants who administers one of them keeps the administrators' way in",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}, riverside: member},
+			administered: []accesstypes.Domain{"lakeside"},
+			declared:     bothDirectoryOnly,
+			want:         false,
+		},
+		{
+			name:     "a super administrator",
+			held:     accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}, lakeside: member},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			want:     false,
+		},
+		{
+			name:     "a member of a directory-only tenant and of one that is not",
+			held:     accesstypes.RoleCollection{lakeside: member, riverside: member},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly, "riverside": open},
+			want:     false,
+		},
+		{
+			name:     "a member of a directory-only tenant who holds a role in every tenant",
+			held:     accesstypes.RoleCollection{lakeside: member, every: member},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			want:     false,
+		},
+		{
+			name:     "a member of a directory-only tenant who holds a global role",
+			held:     accesstypes.RoleCollection{lakeside: member, global: {"Auditor"}},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			want:     false,
+		},
+		{
+			name: "a member of a tenant that declares nothing",
+			held: accesstypes.RoleCollection{lakeside: member},
+			want: false,
+		},
+		{
+			name:     "a person who holds no role anywhere",
+			held:     accesstypes.RoleCollection{},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			want:     false,
+		},
+		{
+			name:    "the role store fails to list the memberships",
+			heldErr: errors.New("roles blip"),
+			wantErr: true,
+		},
+		{
+			name:            "the role store fails to list the tenants administered",
+			held:            accesstypes.RoleCollection{lakeside: member},
+			administeredErr: errors.New("administered blip"),
+			declared:        map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantErr:         true,
+		},
+		{
+			name:    "the reader fails",
+			held:    accesstypes.RoleCollection{lakeside: member},
+			readErr: errors.New("row blip"),
+			wantErr: true,
+		},
+	}
+}
+
+func TestPasswordsDisabledByTenants(t *testing.T) {
+	t.Parallel()
+
+	patID := impulse.Must(impulse.UUIDFromString("9a700000-0000-4000-8000-000000000001"))
+	for _, tt := range passwordDisabledCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			roles := &fakeRoleManager{held: tt.held, heldErr: tt.heldErr, administered: tt.administered, administeredErr: tt.administeredErr}
+			reader := &fakeDeclarations{declared: tt.declared, err: tt.readErr}
+			check := PasswordsDisabledByTenants(roles, func(ctx context.Context, tenant accesstypes.Domain) (*TenantDeclaration, error) {
+				return reader.read(ctx, fakeTx{}, tenant)
+			})
+
+			got, err := check(t.Context(), patID)
+
+			// The memberships are read under the id of the person asked about.
+			if diff := cmp.Diff([]accesstypes.User{accesstypes.User(patID.String())}, roles.asked); diff != "" {
+				t.Errorf("users the role store was asked for mismatch (-want +got):\n%s", diff)
+			}
+			if tt.wantErr {
+				failure := tt.heldErr
+				if failure == nil {
+					failure = tt.administeredErr
+				}
+				if failure == nil {
+					failure = tt.readErr
+				}
+				if !errors.Is(err, failure) {
+					t.Fatalf("check() error = %v, want one carrying %v", err, failure)
+				}
+				if got {
+					t.Error("check() = true with an error, want false")
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("check() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("check() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPasswordsDisabledByTenants_isThePolicysDecision(t *testing.T) {
+	t.Parallel()
+
+	patID := impulse.Must(impulse.UUIDFromString("9a700000-0000-4000-8000-000000000001"))
+	for _, tt := range passwordDisabledCases() {
+		if tt.wantErr {
+			continue
+		}
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			policyRoles := &fakeRoleManager{held: tt.held, administered: tt.administered}
+			policyReader := &fakeDeclarations{declared: tt.declared}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, UserID: patID, Username: "pat@lakeside.edu", Identity: passwordIdentity}
+			decision, err := TenantPolicy(policyRoles, policyReader.read)(t.Context(), fakeTx{}, req)
+			if err != nil {
+				t.Fatalf("TenantPolicy() error = %v", err)
+			}
+			refused := decision.Outcome() == DenySignIn && decision.Refusal() == sessioninfo.RefusedDirectoryOnly
+
+			checkRoles := &fakeRoleManager{held: tt.held, administered: tt.administered}
+			checkReader := &fakeDeclarations{declared: tt.declared}
+			got, err := PasswordsDisabledByTenants(checkRoles, func(ctx context.Context, tenant accesstypes.Domain) (*TenantDeclaration, error) {
+				return checkReader.read(ctx, fakeTx{}, tenant)
+			})(t.Context(), patID)
+			if err != nil {
+				t.Fatalf("check() error = %v", err)
+			}
+
+			if got != refused {
+				t.Errorf("check() = %v, but the policy refuses the password as directory_only: %v (outcome %v, code %q)", got, refused, decision.Outcome(), decision.Refusal())
+			}
+			// The two read the same facts, in the same order.
+			if diff := cmp.Diff(policyReader.asked, checkReader.asked, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("tenants read mismatch (-policy +check):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPasswordsDisabledByTenants_Refused(t *testing.T) {
+	t.Parallel()
+
+	reader := func(context.Context, accesstypes.Domain) (*TenantDeclaration, error) {
+		return nil, nil
+	}
+	tests := []struct {
+		name  string
+		build func()
+		want  string
+	}{
+		{
+			name:  "no role store",
+			build: func() { PasswordsDisabledByTenants(nil, reader) },
+			want:  "signin: PasswordsDisabledByTenants was given no role store: pass the access library's user manager",
+		},
+		{
+			name:  "no declaration reader",
+			build: func() { PasswordsDisabledByTenants(&fakeRoleManager{}, nil) },
+			want:  "signin: PasswordsDisabledByTenants was given no declaration reader: pass a reader of a tenant's declaration that needs no transaction (on Spanner, resource.OutsideSignIn over the sign-in's reader)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			defer func() {
+				if got := recover(); got != tt.want {
+					t.Errorf("panic = %v, want %q: a wiring mistake is found at startup", got, tt.want)
+				}
+			}()
+			tt.build()
+		})
+	}
+}
