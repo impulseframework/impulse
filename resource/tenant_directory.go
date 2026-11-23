@@ -51,6 +51,10 @@ type TenantDirectoryRules struct {
 	// a password (PasswordsBy): the directory-only switch is turned on by a person who
 	// has one.
 	passwords []CallerPassword
+	// secondFactors answer, one for each auth, whether its sign-in settings ask everyone
+	// for a second factor now (SecondFactorsBy): a tenant vouches for its directory's own
+	// second factor only where the application asks somebody for one.
+	secondFactors []AuthSecondFactor
 	// counters count, one for each auth, the people a tenant seats and the ones its
 	// directory-only switch keeps out (CountedBy), for the read of the switch.
 	counters []DirectoryCounter

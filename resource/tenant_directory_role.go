@@ -42,6 +42,10 @@ type TenantDirectory struct {
 	// through the directory, "" where the tenant admits the directory's people by
 	// invitation only.
 	DefaultRole accesstypes.Role
+	// SecondFactor says the tenant says the directory asks its people for a second
+	// factor of its own (@directorySecondFactor); false where the record carries no such
+	// column.
+	SecondFactor bool
 }
 
 // Directory answers tenant's directory as committed, in the caller's transaction: the
@@ -55,35 +59,63 @@ func (r *TenantDirectoryRules) Directory(ctx context.Context, txn ReadWriteTrans
 	if r.columns.DirectoriesKeyColumn == "" || r.columns.DefaultSeatColumn == "" {
 		return nil, errors.New("resource: the directories record declares no default seat column (@directoryDefaultSeat), so a tenant's directory has no default role to set")
 	}
+	directory, err := r.directoryRow(ctx, txn, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if directory != nil {
+		return directory, nil
+	}
+
+	return nil, httpio.NewConflictMessagef("This %[1]s has no directory, so there is nobody to open it to. Set its directory first: sign in through your organization's directory and make it this %[1]s's directory.", r.word)
+}
+
+// directoryRow reads tenant's row of the directories record as committed, in the
+// caller's transaction: its key, its directory, its default seat where the record
+// carries that column, and the tenant's word for the directory's second factor where it
+// carries that one. A tenant with no directory is answered nil.
+func (r *TenantDirectoryRules) directoryRow(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*TenantDirectory, error) {
+	if r.columns.DirectoriesKeyColumn == "" {
+		return nil, errors.New("resource: the directories record's columns name no key column (DirectoriesKeyColumn), so a tenant's directory row cannot be read")
+	}
 	if txn.DBType() != SpannerDBType {
 		return nil, errTenantDirectoryUnsupportedDatabase
 	}
 	g := newSQLGenerator(Spanner)
+	seat, secondFactor := "''", "FALSE"
+	if r.columns.DefaultSeatColumn != "" {
+		seat = fmt.Sprintf("COALESCE(%s, '')", g.quoteIdentifier(r.columns.DefaultSeatColumn))
+	}
+	if r.columns.SecondFactorColumn != "" {
+		secondFactor = g.quoteIdentifier(r.columns.SecondFactorColumn)
+	}
 	statement := spanner.Statement{
-		SQL: fmt.Sprintf("SELECT CAST(%s AS %s) AS RowKey, %s AS Method, %s AS Connection, COALESCE(%s, '') AS DefaultSeat FROM %s WHERE CAST(%s AS %s) = @%s",
+		SQL: fmt.Sprintf("SELECT CAST(%s AS %s) AS RowKey, %s AS Method, %s AS Connection, %s AS DefaultSeat, %s AS SecondFactor FROM %s WHERE CAST(%s AS %s) = @%s",
 			g.quoteIdentifier(r.columns.DirectoriesKeyColumn), columnTypeString, g.quoteIdentifier(r.columns.MethodColumn), g.quoteIdentifier(r.columns.ConnectionColumn),
-			g.quoteIdentifier(r.columns.DefaultSeatColumn), g.quoteIdentifier(r.columns.DirectoriesTable),
+			seat, secondFactor, g.quoteIdentifier(r.columns.DirectoriesTable),
 			g.quoteIdentifier(r.columns.TenantColumn), columnTypeString, domainParamName),
 		Params: map[string]any{domainParamName: string(tenant)},
 	}
 	var rows []struct {
-		RowKey      string `spanner:"RowKey"`
-		Method      string `spanner:"Method"`
-		Connection  string `spanner:"Connection"`
-		DefaultSeat string `spanner:"DefaultSeat"`
+		RowKey       string `spanner:"RowKey"`
+		Method       string `spanner:"Method"`
+		Connection   string `spanner:"Connection"`
+		DefaultSeat  string `spanner:"DefaultSeat"`
+		SecondFactor bool   `spanner:"SecondFactor"`
 	}
 	if err := spxscan.Select(ctx, txn.SpannerReadOnlyTransaction(), &rows, statement); err != nil {
 		return nil, errors.Wrap(err, "spxscan.Select()")
 	}
 	for _, row := range rows {
 		return &TenantDirectory{
-			Key:         row.RowKey,
-			Directory:   signin.Directory{Method: sessioninfo.AuthMethod(row.Method), Connection: row.Connection},
-			DefaultRole: accesstypes.Role(row.DefaultSeat),
+			Key:          row.RowKey,
+			Directory:    signin.Directory{Method: sessioninfo.AuthMethod(row.Method), Connection: row.Connection},
+			DefaultRole:  accesstypes.Role(row.DefaultSeat),
+			SecondFactor: row.SecondFactor,
 		}, nil
 	}
 
-	return nil, httpio.NewConflictMessagef("This %[1]s has no directory, so there is nobody to open it to. Set its directory first: sign in through your organization's directory and make it this %[1]s's directory.", r.word)
+	return nil, nil
 }
 
 // OpenToDirectoryWarning says what opening a tenant to its directory's people with role
