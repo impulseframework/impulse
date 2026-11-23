@@ -111,10 +111,13 @@ func (m *Manager) JudgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 // directly would not: each membership that has not ended is held to the rule on a
 // directory-only tenant's administrators (requireEnteringToChange) and to the grant of the
 // method that takes one role away, asked for that role (RoleGrants.MayTake), and each
-// place to what taking the person out of the group needs (refuseTakingPlace). The rule
-// that keeps a tenant's last administrator is not asked: it holds a person's own leaving,
-// and another person removes them. The person is told at the address they confirmed,
-// read before anything goes, unless they stay one of the tenant's people another way.
+// place to what the role grants ask of taking the person out of the group
+// (refuseTakingPlace). The grant of the group's own method is not asked: the removal's
+// own grant says who takes a person out of the tenant, their places in its groups with
+// them. The rule that keeps a tenant's last administrator is not asked: it holds a
+// person's own leaving, and another person removes them. The person is told at the
+// address they confirmed, read before anything goes, unless they stay one of the
+// tenant's people another way.
 //
 // What the person holds is read as committed: remove one person from one tenant per
 // transaction.
@@ -142,24 +145,8 @@ func (m *Manager) RemoveFromTenant(ctx context.Context, txn resource.ReadWriteTr
 			}
 		}
 	}
-	if judged.deletesAccount {
-		if err := m.deleteLeftWithNothing(ctx, txn, userID, "they were removed from the last "+m.tenantWord+" they were in"); err != nil {
-			return false, err
-		}
-	}
-	for _, memberships := range [][]access.MembershipKey{judged.memberships, judged.endedMemberships} {
-		for i := range memberships {
-			if err := m.store.DeleteMembership(ctx, txn, &memberships[i]); err != nil {
-				return false, errors.Wrap(err, "identity.Store.DeleteMembership()")
-			}
-		}
-	}
-	for _, places := range [][]access.GroupMemberKey{judged.places, judged.endedPlaces} {
-		for i := range places {
-			if err := m.store.DeleteGroupMember(ctx, txn, &places[i]); err != nil {
-				return false, errors.Wrap(err, "identity.Store.DeleteGroupMember()")
-			}
-		}
+	if err := m.applyLeaving(ctx, txn, userID, judged, "they were removed from the last "+m.tenantWord+" they were in"); err != nil {
+		return false, err
 	}
 	logger.FromCtx(ctx).Infof("identity: %s was removed from the %s %s by an administrator: %d role(s) of their own and %d place(s) in its groups are removed",
 		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.places))
@@ -282,10 +269,12 @@ func (m *Manager) judgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 // refuseRemovingFromTenant holds what a removal takes in the tenant, of what has not
 // ended, to the rules of taking each away: a membership of the person's own to the rule
 // on a directory-only tenant's administrators and to the grant of the method that takes
-// one role away (RoleGrants.MayTake), and a place in a group of the tenant to what taking
-// the person out of the group needs. The grants are asked only of a request: a call
-// outside any request is the application's own act. It answers whether the person has a
-// place in a group of the tenant.
+// one role away (RoleGrants.MayTake), and a place in a group of the tenant to what the
+// role grants ask of taking the person out of the group (refuseTakingPlace). The grant of
+// the group's own method is not asked: the removal's own grant says who takes a person
+// out of the tenant, their places in its groups with them. The grants are asked only of
+// a request: a call outside any request is the application's own act. It answers
+// whether the person has a place in a group of the tenant.
 func (m *Manager) refuseRemovingFromTenant(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, userID impulse.UUID, domain accesstypes.Domain) (inGroups bool, err error) {
 	requested := !resource.CallerFrom(ctx).IsZero()
 	if requested && m.grants == nil {
