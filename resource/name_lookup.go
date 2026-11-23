@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cloudspannerecosystem/memefish"
+	"github.com/cloudspannerecosystem/memefish/token"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
@@ -554,10 +556,15 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 }
 
 // nameViewQuery returns the query of the view a name is read from, "" where the
-// name is read from a table, and binds the view's parameters into the statement's
-// (bindView). A name read from a view the decoder was not handed is not read, and a
-// parameter of the view's whose name starts with an underscore is refused as a
-// list's own view's is (viewFromItem); so is one another view binds.
+// name is read from a table. In the query it returns, each parameter the view binds
+// is written as a placeholder of the statement's own, bound under the view and the
+// parameter's name (bindShared): a view read twice in one statement binds each of its
+// parameters once, and two views that bind a parameter of one name never meet. A
+// parameter the view binds and its query never names is not bound. A name read from a
+// view the decoder was not handed is not read; a parameter of the view's whose name
+// starts with an underscore is refused as a list's own view's is (viewFromItem); and
+// a query that binds a parameter and cannot be read to its end is refused, since its
+// parameters cannot all be found.
 func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry) (string, error) {
 	if !name.View {
 		return "", nil
@@ -572,11 +579,50 @@ func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegis
 			return "", errors.Newf("Subquery params for %s can not start with an _", name.Resource)
 		}
 	}
-	if collision := registry.bindView(name.Resource, params); collision != "" {
-		return "", errors.Newf("named parameter collision: %s statement already contains named parameter %q", q.Resource(), collision)
+	if len(params) == 0 {
+		return query, nil
 	}
+	toks, err := viewParamTokens(query, params)
+	if err != nil {
+		return "", errors.New(unreadableViewQuery(name, q.Resource(), err))
+	}
+	var b strings.Builder
+	last := 0
+	for _, tok := range toks {
+		b.WriteString(query[last:tok.Pos])
+		b.WriteString(registry.bindShared(fmt.Sprintf("views/%s/%s", name.Resource, tok.AsString), params[tok.AsString]))
+		last = int(tok.End)
+	}
+	b.WriteString(query[last:])
 
-	return query, nil
+	return b.String(), nil
+}
+
+// viewParamTokens returns the parameter tokens of a view's query that name a
+// parameter the view binds, compared exactly, in the query's order. Its error is the
+// lexer's, where the query cannot be read to its end.
+func viewParamTokens(query string, params map[string]any) ([]token.Token, error) {
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	var toks []token.Token
+	for {
+		if err := lex.NextToken(); err != nil {
+			return nil, err
+		}
+		if lex.Token.Kind == token.TokenEOF {
+			return toks, nil
+		}
+		if _, bound := params[lex.Token.AsString]; bound && lex.Token.Kind == token.TokenParam {
+			toks = append(toks, lex.Token)
+		}
+	}
+}
+
+// unreadableViewQuery says the query of the view a name is read from binds a
+// parameter and cannot be read to its end.
+func unreadableViewQuery(name *NameField, res accesstypes.Resource, err error) string {
+	return fmt.Sprintf("name field %s of %s is read from the view %s, and the view's query cannot be read to its end (%v): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole query. Correct the query at that place.", name.Field, res, name.Resource, err)
 }
 
 // noNameView says a name is read from a view the decoder holds no entry for.

@@ -46,6 +46,25 @@ func (underscoreLabelsView) Subquery() (query string, params map[string]any) {
 	return "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @_leftOut", map[string]any{"_leftOut": "Green"}
 }
 
+// unreadableLabelsView is a view of squadron labels that binds a parameter and whose
+// query the lexer cannot read to its end: it never closes a string literal.
+type unreadableLabelsView struct{}
+
+// Subquery is the view's query.
+func (unreadableLabelsView) Subquery() (query string, params map[string]any) {
+	return "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @leftOutLabel AND Name != 'Gray", map[string]any{"leftOutLabel": "Green"}
+}
+
+// squadronTagsView is a second view of the squadrons, each known by its tag, which
+// binds a parameter of the labels view's name to another value: it leaves the red
+// squadron out.
+type squadronTagsView struct{}
+
+// Subquery is the view's query.
+func (squadronTagsView) Subquery() (query string, params map[string]any) {
+	return "SELECT Id, SectorId, Name AS Tag FROM Squadrons WHERE Name != @leftOutLabel", map[string]any{"leftOutLabel": "Red"}
+}
+
 // labelViews hands the squadron labels' view to a decoder.
 var labelViews = NameViews{"SquadronLabels": squadronLabelsView{}}
 
@@ -210,19 +229,22 @@ func labelStatement(t *testing.T, target string, perms UserPermissions, dbType D
 }
 
 // labelsFrom is the view's query as a statement reads it under the alias, folded to
-// one line, for the database.
+// one line, for the database: its parameter written as the statement's first
+// placeholder of its own, @_c1.
 func labelsFrom(dbType DBType, alias string) string {
+	query := strings.Replace(squadronLabelsQuery, "@leftOutLabel", "@_c1", 1)
 	if dbType == PostgresDBType {
-		return fmt.Sprintf("(%s ) AS %q", squadronLabelsQuery, alias)
+		return fmt.Sprintf("(%s ) AS %q", query, alias)
 	}
 
-	return fmt.Sprintf("(%s ) AS %#q", squadronLabelsQuery, alias)
+	return fmt.Sprintf("(%s ) AS %#q", query, alias)
 }
 
 // TestNameView_statement pins what a statement writes for a name read from a view:
 // the lookup and the filter read the view's query under their own alias where a
 // table's name would be, held to the request's tenant by the view's own column, and
-// the view's parameter joins the statement's, once where the name is both shown and
+// the view's parameter is written in that query as a placeholder of the statement's
+// own, never under its own name, one placeholder where the name is both shown and
 // filtered by.
 func TestNameView_statement(t *testing.T) {
 	t.Parallel()
@@ -231,10 +253,12 @@ func TestNameView_statement(t *testing.T) {
 		name   string
 		target string
 		want   map[DBType]string
+		reads  int
 	}{
 		{
 			name:   "shown",
 			target: "/?columns=id,squadronName&sort=id&limit=2",
+			reads:  1,
 			want: bothDatabases(
 				"(SELECT `ca1`.`Label` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`Id` = `HangarPasses`.`SquadronId` AND `ca1`.`SectorId` = @domain) AS zzNameSquadronName",
 				`(SELECT "ca1"."Label" FROM `+labelsFrom(PostgresDBType, "ca1")+` WHERE "ca1"."Id" = "HangarPasses"."SquadronId" AND "ca1"."SectorId" = @domain) AS "zzNameSquadronName"`,
@@ -242,6 +266,7 @@ func TestNameView_statement(t *testing.T) {
 		},
 		{
 			name:   "filtered by eq",
+			reads:  1,
 			target: "/?columns=id&filter=squadronName:eq:Red&sort=id&limit=2",
 			want: bothDatabases(
 				"WHERE `SquadronId` IN (SELECT `ca1`.`Id` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`SectorId` = @domain AND `Label` = @_p1)",
@@ -250,6 +275,7 @@ func TestNameView_statement(t *testing.T) {
 		},
 		{
 			name:   "filtered by isnotnull",
+			reads:  1,
 			target: "/?columns=id&filter=squadronName:isnotnull&sort=id&limit=2",
 			want: bothDatabases(
 				"WHERE `SquadronId` IN (SELECT `ca1`.`Id` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`SectorId` = @domain AND `Label` IS NOT NULL)",
@@ -258,6 +284,7 @@ func TestNameView_statement(t *testing.T) {
 		},
 		{
 			name:   "filtered by isnull",
+			reads:  1,
 			target: "/?columns=id&filter=squadronName:isnull&sort=id&limit=2",
 			want: bothDatabases(
 				"WHERE (`SquadronId` IS NULL OR `SquadronId` NOT IN (SELECT `ca1`.`Id` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`SectorId` = @domain AND `Label` IS NOT NULL))",
@@ -265,7 +292,8 @@ func TestNameView_statement(t *testing.T) {
 			),
 		},
 		{
-			name:   "shown and filtered by: one binding of the view's parameter",
+			name:   "shown and filtered by: the lookup and the filter's key set name one placeholder",
+			reads:  2,
 			target: "/?columns=id,squadronName&filter=squadronName:eq:Red&sort=id&limit=2",
 			want: bothDatabases(
 				"WHERE `SquadronId` IN (SELECT `ca2`.`Id` FROM "+labelsFrom(SpannerDBType, "ca2")+" WHERE `ca2`.`SectorId` = @domain AND `Label` = @_p1)",
@@ -280,11 +308,15 @@ func TestNameView_statement(t *testing.T) {
 
 			for dbType, want := range tt.want {
 				stmt := labelStatement(t, tt.target, &nameGrantPermissions{}, dbType)
-				if sql := oneLine(stmt.SQL); !strings.Contains(sql, want) {
+				sql := oneLine(stmt.SQL)
+				if !strings.Contains(sql, want) {
 					t.Errorf("%s statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
 				}
-				if got := stmt.Params["leftOutLabel"]; got != "Green" {
-					t.Errorf("%s params = %v, want the view's leftOutLabel bound to Green", dbType, stmt.Params)
+				if reads := strings.Count(sql, "Name != @_c1"); reads != tt.reads {
+					t.Errorf("%s statement reads the view's query with its parameter as @_c1 %d times, want %d:\n%s", dbType, reads, tt.reads, sql)
+				}
+				if _, own := stmt.Params["leftOutLabel"]; own || stmt.Params["_c1"] != "Green" {
+					t.Errorf("%s params = %v, want the view's leftOutLabel bound to Green as _c1, and nothing under its own name", dbType, stmt.Params)
 				}
 			}
 		})
@@ -297,8 +329,8 @@ func TestNameView_statement(t *testing.T) {
 			{scope: inSector1, perm: accesstypes.List, res: squadronLabelGrant}: conditionalOn(squadronLabelGrant, "label = 'Red'"),
 		}}
 		lookups := bothDatabases(
-			"(SELECT `ca1`.`Label` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`Id` = `HangarPasses`.`SquadronId` AND `ca1`.`SectorId` = @domain AND (`ca1`.`Label` = @_c1))",
-			`(SELECT "ca1"."Label" FROM `+labelsFrom(PostgresDBType, "ca1")+` WHERE "ca1"."Id" = "HangarPasses"."SquadronId" AND "ca1"."SectorId" = @domain AND ("ca1"."Label" = @_c1))`,
+			"(SELECT `ca1`.`Label` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`Id` = `HangarPasses`.`SquadronId` AND `ca1`.`SectorId` = @domain AND (`ca1`.`Label` = @_c2))",
+			`(SELECT "ca1"."Label" FROM `+labelsFrom(PostgresDBType, "ca1")+` WHERE "ca1"."Id" = "HangarPasses"."SquadronId" AND "ca1"."SectorId" = @domain AND ("ca1"."Label" = @_c2))`,
 		)
 		for dbType, lookup := range lookups {
 			stmt := labelStatement(t, "/?columns=id,squadronName&sort=squadronName&limit=2", perms, dbType)
@@ -308,8 +340,8 @@ func TestNameView_statement(t *testing.T) {
 					t.Errorf("%s statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
 				}
 			}
-			if stmt.Params["_c1"] != "Red" || stmt.Params["leftOutLabel"] != "Green" {
-				t.Errorf("%s params = %v, want the label Red bound as _c1 and the view's leftOutLabel", dbType, stmt.Params)
+			if _, own := stmt.Params["leftOutLabel"]; own || stmt.Params["_c1"] != "Green" || stmt.Params["_c2"] != "Red" {
+				t.Errorf("%s params = %v, want the view's leftOutLabel bound to Green as _c1 and the label Red as _c2", dbType, stmt.Params)
 			}
 		}
 	})
@@ -327,8 +359,8 @@ func TestNameView_statement(t *testing.T) {
 			if sql := oneLine(stmt.SQL); !strings.Contains(sql, want) {
 				t.Errorf("%s count statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
 			}
-			if got := stmt.Params["leftOutLabel"]; got != "Green" {
-				t.Errorf("%s count params = %v, want the view's leftOutLabel bound to Green", dbType, stmt.Params)
+			if _, own := stmt.Params["leftOutLabel"]; own || stmt.Params["_c1"] != "Green" {
+				t.Errorf("%s count params = %v, want the view's leftOutLabel bound to Green as _c1, and nothing under its own name", dbType, stmt.Params)
 			}
 		}
 	})
@@ -336,9 +368,10 @@ func TestNameView_statement(t *testing.T) {
 
 // TestNameView_decoder pins what a decoder refuses of a name read from a view: a
 // view it is not handed, where it is handed views and where it never is; a view
-// whose query opens with WITH; a parameter of the view's that starts with an
-// underscore; and a parameter of the list's own view's that the name's view binds
-// too.
+// whose query opens with WITH; a view that binds a parameter and whose query cannot
+// be read to its end; and a parameter of the view's that starts with an underscore.
+// A parameter of the list's own view's that the name's view binds too is no refusal:
+// each view keeps its own value.
 func TestNameView_decoder(t *testing.T) {
 	t.Parallel()
 
@@ -357,6 +390,11 @@ func TestNameView_decoder(t *testing.T) {
 			name:  "handed a view whose query opens with WITH",
 			views: NameViews{"SquadronLabels": withLabelsView{}},
 			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.",
+		},
+		{
+			name:  "handed a view that binds a parameter and whose query cannot be read to its end",
+			views: NameViews{"SquadronLabels": unreadableLabelsView{}},
+			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, and the view's query cannot be read to its end (syntax error: :1:91: unclosed string literal): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole query. Correct the query at that place.",
 		},
 	}
 	for _, tt := range panics {
@@ -408,15 +446,6 @@ func TestNameView_decoder(t *testing.T) {
 			},
 			want: "Subquery params for SquadronLabels can not start with an _",
 		},
-		{
-			name: "the list's own view binds the name's view's parameter",
-			build: func(t *testing.T) (*Statement, error) {
-				decoder := newLabelDecoder[labelPassView, labelPassRequest](t, labelViews)
-
-				return decodeLabels(t, decoder, "/?columns=id,squadronName&sort=id&limit=2", &nameGrantPermissions{}, SpannerDBType).stmt(SpannerDBType)
-			},
-			want: `named parameter collision: PassViews statement already contains named parameter "leftOutLabel"`,
-		},
 	}
 	for _, tt := range refusals {
 		t.Run(tt.name, func(t *testing.T) {
@@ -427,6 +456,101 @@ func TestNameView_decoder(t *testing.T) {
 				t.Errorf("stmt() error = %v, want it to contain %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestNameView_ownViewSharesAParameterName pins that a list of a view whose own query
+// binds a parameter of the name the name's view binds too reads each: the list's
+// under its own name, with the list's value, and the name's view's under a
+// placeholder of the statement's own, with the view's.
+func TestNameView_ownViewSharesAParameterName(t *testing.T) {
+	t.Parallel()
+
+	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+		decoder := newLabelDecoder[labelPassView, labelPassRequest](t, labelViews)
+		stmt, err := decodeLabels(t, decoder, "/?columns=id,squadronName&sort=id&limit=2", &nameGrantPermissions{}, dbType).stmt(dbType)
+		if err != nil {
+			t.Fatalf("stmt(%s) error = %v", dbType, err)
+		}
+		if stmt.Params["leftOutLabel"] != "sector-9" || stmt.Params["_c1"] != "Green" {
+			t.Errorf("%s params = %v, want the list's leftOutLabel bound to sector-9 and the name's view's to Green as _c1", dbType, stmt.Params)
+		}
+		if sql := oneLine(stmt.SQL); !strings.Contains(sql, labelsFrom(dbType, "ca1")) {
+			t.Errorf("%s statement =\n%s\nwant the name's view read with its parameter as @_c1:\n%s", dbType, sql, labelsFrom(dbType, "ca1"))
+		}
+	}
+}
+
+// escortPass is the fixture's pass with a second squadron, its escort, whose name is
+// read from the view of squadron tags.
+type escortPass struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SectorID   string  `spanner:"SectorId"   postgres:"SectorId"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+	EscortID   *string `spanner:"EscortId"   postgres:"EscortId"`
+}
+
+// Resource names the resource in grants and routes.
+func (escortPass) Resource() accesstypes.Resource {
+	return "HangarPasses"
+}
+
+// DefaultConfig is the resource's configuration.
+func (escortPass) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the resource's name fields as the generator writes them: the
+// squadron's from the labels view, the escort's from the tags view.
+func (escortPass) NameFields() []NameField {
+	return append(labelNameFields(), NameField{Field: "EscortName", Key: "EscortID", Resource: "SquadronTags", Tag: "tag", Table: "SquadronTags", KeyColumn: "Id", NameColumn: "Tag", View: true, TenantColumn: "SectorId"})
+}
+
+// escortPassRequest is escortPass's list request type.
+type escortPassRequest struct {
+	ID           string  `json:"id"           index:"true" perm:"-"`
+	SectorID     string  `json:"sectorId"     index:"true"`
+	SquadronID   *string `json:"squadronId"   index:"true"`
+	SquadronName *string `json:"squadronName" index:"true" nameof:"SquadronID"`
+	EscortID     *string `json:"escortId"     index:"true"`
+	EscortName   *string `json:"escortName"   index:"true" nameof:"EscortID"`
+}
+
+// TestNameView_twoViewsBindOneParameterName pins that a list whose names are read
+// from two views that bind a parameter of one name to two values writes each view's
+// query with a placeholder of its own, bound to that view's value.
+func TestNameView_twoViewsBindOneParameterName(t *testing.T) {
+	t.Parallel()
+
+	views := NameViews{"SquadronLabels": squadronLabelsView{}, "SquadronTags": squadronTagsView{}}
+	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+		decoder := newLabelDecoder[escortPass, escortPassRequest](t, views)
+		stmt, err := decodeLabels(t, decoder, "/?columns=id,squadronName,escortName&sort=id&limit=2", &nameGrantPermissions{}, dbType).stmt(dbType)
+		if err != nil {
+			t.Fatalf("stmt(%s) error = %v", dbType, err)
+		}
+		sql := oneLine(stmt.SQL)
+		for _, view := range []struct {
+			query string
+			value string
+		}{
+			{query: "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @", value: "Green"},
+			{query: "SELECT Id, SectorId, Name AS Tag FROM Squadrons WHERE Name != @", value: "Red"},
+		} {
+			at := strings.Index(sql, view.query)
+			if at < 0 {
+				t.Errorf("%s statement =\n%s\nwant it to read the view %q", dbType, sql, view.query)
+
+				continue
+			}
+			placeholder, _, _ := strings.Cut(sql[at+len(view.query):], " ")
+			if got := stmt.Params[placeholder]; got != view.value || !strings.HasPrefix(placeholder, "_c") {
+				t.Errorf("%s statement reads %q with @%s, bound to %v, want a placeholder of the statement's own bound to %s; params = %v", dbType, view.query, placeholder, got, view.value, stmt.Params)
+			}
+		}
+		if _, own := stmt.Params["leftOutLabel"]; own {
+			t.Errorf("%s params = %v, want nothing under the views' own parameter name", dbType, stmt.Params)
+		}
 	}
 }
 

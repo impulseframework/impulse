@@ -144,12 +144,17 @@ func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryD
 		if !ok {
 			panic(noNameView(&name.NameField, res.Resource()))
 		}
-		query, _ := view.Subquery()
+		query, params := view.Subquery()
 		if withClause, _ := extractWithClause(query); withClause != "" {
 			panic(fmt.Sprintf("name field %s of %s is read from the view %s, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.", name.Field, res.Resource(), name.Resource))
 		}
 		if withTable, used := firstWithTableUsed(query, withTables); used {
 			panic(fmt.Sprintf("the query of %s opens with a WITH table named %s, and the query of the view %s, which the name %s is read from, uses that name too: a statement over %s would read the WITH table's rows there. Rename the WITH table in the query of %s.", res.Resource(), withTable, name.Resource, name.Field, res.Resource(), res.Resource()))
+		}
+		if len(params) > 0 {
+			if _, err := viewParamTokens(query, params); err != nil {
+				panic(unreadableViewQuery(&name.NameField, res.Resource(), err))
+			}
 		}
 	}
 	d.nameViews = views

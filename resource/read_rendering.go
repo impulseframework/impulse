@@ -2,7 +2,6 @@ package resource
 
 import (
 	"fmt"
-	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -644,24 +643,17 @@ func loweredSQLGenerator(dbType DBType) (*sqlGenerator, error) {
 	}
 }
 
-// mergeRegistryParams folds the statement registry's bound values, the
-// parameters of the views its names are read from, and referenced reserved
-// parameters into the statement's parameter map. The lowered @_c… names are
-// disjoint from the filter (@_p…) and keyset (@_<column>) namespaces by
-// construction, so a collision can only come from a virtual resource's
-// subquery params.
+// mergeRegistryParams folds the statement registry's bound values and
+// referenced reserved parameters into the statement's parameter map. The
+// lowered @_c… names are disjoint from the filter (@_p…) and keyset
+// (@_<column>) namespaces by construction, so a collision can only come from
+// a virtual resource's subquery params.
 func (q *QuerySet[Resource]) mergeRegistryParams(registry *paramRegistry, params map[string]any) error {
 	for _, param := range registry.boundParams() {
 		if _, ok := params[param.Name]; ok {
 			return errors.Newf("named parameter collision: %s statement already contains named parameter %q", q.Resource(), param.Name)
 		}
 		params[param.Name] = param.Value
-	}
-	for _, name := range slices.Sorted(maps.Keys(registry.viewParams)) {
-		if _, ok := params[name]; ok {
-			return errors.Newf("named parameter collision: %s statement already contains named parameter %q", q.Resource(), name)
-		}
-		params[name] = registry.viewParams[name].value
 	}
 	for _, name := range registry.referencedNames() {
 		if _, ok := params[name]; ok {

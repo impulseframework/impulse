@@ -2,14 +2,12 @@ package resource
 
 import (
 	"fmt"
-	"maps"
 	"math/big"
 	"slices"
 	"strings"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/shopspring/decimal"
 )
 
@@ -57,15 +55,6 @@ type paramRegistry struct {
 	// shared holds the placeholders of the values several fragments of the
 	// statement read, by the key they were bound under (bindShared).
 	shared map[string]string
-	// viewParams are the parameters of the views the statement's names are read
-	// from, by name, each with the view that binds it (bindView).
-	viewParams map[string]viewParam
-}
-
-// viewParam is one parameter a view's query binds, and the view.
-type viewParam struct {
-	view  accesstypes.Resource
-	value any
 }
 
 func newParamRegistry() *paramRegistry {
@@ -124,26 +113,6 @@ func paramValue(value any) any {
 	default:
 		return value
 	}
-}
-
-// bindView records the parameters of a view's query a name is read from. A
-// parameter the same view bound already is one binding: two names read from one
-// view, or a name shown and filtered by, read the same query. It returns the first
-// parameter, by name, that another view binds already, "" where there is none.
-func (r *paramRegistry) bindView(view accesstypes.Resource, params map[string]any) (collision string) {
-	for _, name := range slices.Sorted(maps.Keys(params)) {
-		if bound, ok := r.viewParams[name]; ok && bound.view != view {
-			return name
-		}
-	}
-	if r.viewParams == nil && len(params) > 0 {
-		r.viewParams = make(map[string]viewParam, len(params))
-	}
-	for name, value := range params {
-		r.viewParams[name] = viewParam{view: view, value: value}
-	}
-
-	return ""
 }
 
 // reference records the statement's use of a fixed named parameter and
