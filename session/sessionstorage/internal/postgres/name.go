@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/jackc/pgx/v5"
@@ -28,7 +28,7 @@ func (s *SessionStorageDriver) SetUserName(ctx context.Context, userID impulse.U
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return dbtype.AccountNotFound(userID)
 	}
 
 	return nil

@@ -63,7 +63,7 @@ func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, email); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("no user holds the email address %q", email)
+			return nil, dbtype.EmailNotFound(email)
 		}
 
 		return nil, errors.Wrap(err, "pgxscan.Get()")
@@ -97,7 +97,7 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return dbtype.AccountNotFound(userID)
 	}
 
 	return nil
@@ -120,7 +120,7 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 		if tag.RowsAffected() == 0 {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 		end := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = now() WHERE "ConsumedAt" IS NULL AND "PendingId" IN (SELECT "Id" FROM %s WHERE "UserId" = $1)`,
 			s.factorCodesTable(), s.pendingTable())
@@ -171,7 +171,7 @@ func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx pgx.Tx,
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return dbtype.AccountNotFound(userID)
 	}
 
 	return nil
