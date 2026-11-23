@@ -173,7 +173,7 @@ func trackingConfig(a *app.App, resourceDir string) string {
 // and no auth is handed a directory reader or sets a directory admission.
 func (tn Tenancy) editAuths(a *app.App, site *app.Site, g *app.Generator, early *earlyRoster, ch *Change) error {
 	if len(a.AuthPackages) == 0 {
-		ch.skipf("no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.%s()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare", tn.DeclarationReader())
+		ch.skipf("no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.%[1]s()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare, and set signin.PasswordsDisabledByTenants(<engine>.UserManager(), resource.OutsideSignIn(<the Spanner client>, <handlers>.%[1]s())) on it with SetPasswordDisabledCheck, which the account page's Password line follows", tn.DeclarationReader())
 
 		return nil
 	}
@@ -188,7 +188,7 @@ func (tn Tenancy) editAuths(a *app.App, site *app.Site, g *app.Generator, early 
 			}
 		}
 		if auth == nil {
-			ch.skipf("%s: the %s auth constructs no session.NewAuth the scan reads, so no sign-in rule was set on it; set signin.TenantPolicy over the generated reader on its session with SetSignInPolicy", pkg.Dir, pkg.Name)
+			ch.skipf("%s: the %s auth constructs no session.NewAuth the scan reads, so no sign-in rule was set on it; set signin.TenantPolicy over the generated reader on its session with SetSignInPolicy, and signin.PasswordsDisabledByTenants over the same reader (through resource.OutsideSignIn) with SetPasswordDisabledCheck, which the account page's Password line follows", pkg.Dir, pkg.Name)
 
 			continue
 		}
@@ -372,7 +372,7 @@ func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, ser
 	}
 	edited, err = app.AddStructField(rel, edited, "Settings", field)
 	if errors.Is(err, app.ErrNoAnchor) {
-		ch.skipf("%s: no Settings struct to carry the reader; hand %s.%s() to the %s auth where it is built and set signin.TenantPolicy over it on its session", rel, pkg.Name, tn.DeclarationReader(), pkg.Name)
+		ch.skipf("%s: no Settings struct to carry the reader; hand %s.%s() to the %s auth where it is built and set signin.TenantPolicy over it on its session, and signin.PasswordsDisabledByTenants over the same reader (through resource.OutsideSignIn) with SetPasswordDisabledCheck, which the account page's Password line follows", rel, pkg.Name, tn.DeclarationReader(), pkg.Name)
 
 		return nil
 	} else if err != nil {
@@ -515,7 +515,7 @@ func nilReaderChecks(pkgName, reader, directoryReader string, admission bool) st
 func authCarries(checked string, ruleSet, admission, makes bool) string {
 	set := ""
 	if ruleSet {
-		set = ", and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles)"
+		set = ", and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) with the password-disabled check beside it (signin.PasswordsDisabledByTenants over the same reader, through resource.OutsideSignIn)"
 		if admission {
 			set += " and the directory admission (session.Auth.SetDirectoryAdmission over the directory reader, the default role given by the identity client's DirectorySeated in the transaction that creates the person)"
 		}
