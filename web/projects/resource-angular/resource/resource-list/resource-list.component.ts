@@ -130,6 +130,7 @@ import {
   foundRolesLimit,
   listEmptyMessage,
   listSorts,
+  noRecordsFound,
   queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
@@ -693,6 +694,28 @@ export class ResourceListComponent implements OnInit {
       this.boxActive() || this.store.columnFilters().length > 0 ? undefined : this.config().emptyMessage,
     ),
   );
+
+  /**
+   * What a list under a record says in place of its table when it holds nothing: the page's
+   * own sentence (the config's emptyMessage), else "No hangar passes." from the word its rows
+   * go by. Empty wherever the table is drawn: for the list a page is built on, before the first
+   * answer, for a refusal or a failed request, where the person may see no column, and while a
+   * column filter or the search box narrows the list, whose table then says what it always did.
+   */
+  emptyLine = computed(() => {
+    const underRecord = this.isRootList() === false && !!this.config().parentRelation?.childKey;
+    if (!underRecord || !this.store.firstPageAnswered() || this.store.page().rows.length > 0) {
+      return '';
+    }
+    if (this.store.pageError() !== undefined || this.noListableColumns()) {
+      return '';
+    }
+    if (this.boxActive() || this.store.columnFilters().length > 0) {
+      return '';
+    }
+    const many = this.rowWords()?.many.trim() ?? '';
+    return this.config().emptyMessage || (many !== '' ? `No ${many}.` : noRecordsFound);
+  });
 
   /**
    * The digest's List state of each field of the page's resource, by field name: what

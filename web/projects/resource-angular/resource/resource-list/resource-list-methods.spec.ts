@@ -52,6 +52,7 @@ const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
 const people = 'SectorPeople' as Resource;
 const ships = 'Ships' as Resource;
 const berths = 'Berths' as Resource;
+const passes = 'HangarPasses' as Resource;
 
 const metas: Record<string, ResourceMeta> = {
   [people]: {
@@ -69,6 +70,12 @@ const metas: Record<string, ResourceMeta> = {
   [berths]: {
     route: 'berths',
     fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
+  } as ResourceMeta,
+  // A resource whose metadata carries the word its rows go by.
+  [passes]: {
+    route: 'hangar-passes',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('username')],
+    rowWords: { one: 'hangar pass', many: 'hangar passes' },
   } as ResourceMeta,
 };
 
@@ -109,6 +116,16 @@ const descriptor: ApiDescriptor = {
       resource: berths,
       property: 'berths',
       route: 'berths',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+    },
+    [passes]: {
+      resource: passes,
+      property: 'hangarPasses',
+      route: 'hangar-passes',
       scope: 'domain',
       consolidated: false,
       keys: ['id'],
@@ -197,8 +214,11 @@ function declared(of: Element, names: string[], without: string[] = []): string 
 describe('ResourceListComponent row methods', () => {
   /** The rows the list is served; a test of an empty list says so before it creates the list. */
   let served: typeof rows;
+  /** What the server answers for the people in place of their rows, where a test says. */
+  let refusal: TransportResponse | undefined;
   beforeEach(() => {
     served = rows;
+    refusal = undefined;
   });
   let fixture: ComponentFixture<ResourceListComponent>;
   let transport: ScriptedTransport;
@@ -213,6 +233,7 @@ describe('ResourceListComponent row methods', () => {
     options: Omit<ListViewConfigOptions, 'elements' | 'listColumns'>,
     granted: PermissionDigest = {},
     parent?: RecordData,
+    isRootList?: boolean,
   ): Promise<void> => {
     const digest: PermissionDigest = { ...listsPeople, ...granted };
     const config = listViewConfig({ elements: [], listColumns: [{ id: 'username' as FieldName }], ...options });
@@ -222,7 +243,10 @@ describe('ResourceListComponent row methods', () => {
         return { status: 200, body: digest };
       }
       if (url.pathname === '/api/sectors/anvil/sector-people') {
-        return { status: 200, body: served, headers: { 'total-count': String(served.length) } };
+        return refusal ?? { status: 200, body: served, headers: { 'total-count': String(served.length) } };
+      }
+      if (url.pathname === '/api/sectors/anvil/hangar-passes') {
+        return { status: 200, body: [], headers: { 'total-count': '0' } };
       }
       if (url.pathname === '/api/ships') {
         return { status: 200, body: [{ id: 's-1', name: 'Kestrel' }], headers: { 'total-count': '1' } };
@@ -257,6 +281,9 @@ describe('ResourceListComponent row methods', () => {
     if (parent) {
       // The row a child list sits under.
       fixture.componentRef.setInput('relatedData', parent);
+    }
+    if (isRootList !== undefined) {
+      fixture.componentRef.setInput('isRootList', isRootList);
     }
     // The dialog is the method dialog's own spec; here it records what it is opened with
     // and closes with what the test says.
@@ -828,6 +855,132 @@ describe('ResourceListComponent row methods', () => {
 
     fixture.componentInstance.store.searchText.set('ada');
     expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
+  });
+
+  // A list under a record: drawn on a row's page from the row, by its parentRelation, and
+  // handed false for isRootList, as a row's page hands each list under it.
+  const underPerson: Pick<ListViewConfigOptions, 'parentRelation'> = {
+    parentRelation: { parentKey: 'id' as FieldName, childKey: 'personId' as FieldName },
+  };
+  const person: RecordData = { id: 'u-9', username: 'cy' };
+  const addPerson: MethodPresentation = { method: 'CreatePerson' as Method, label: 'Add a person' };
+  const listsPasses: PermissionDigest = { [passes]: { List: 'granted' }, [`${passes}.username`]: { List: 'granted' } };
+  const emptyLine = (): HTMLElement | null => element().querySelector('p.impulse-resource-list-empty');
+
+  it("says of a list under a record that holds nothing the page's own sentence in one line, in place of its table and its pager, under its title and its buttons", async () => {
+    served = [];
+    await create(
+      {
+        primaryResource: people,
+        ...underPerson,
+        title: 'People',
+        emptyMessage: 'Nobody serves here.',
+        listMethods: [addPerson],
+      },
+      { CreatePerson: { Execute: 'granted' } },
+      person,
+      false,
+    );
+
+    expect(fixture.componentInstance.emptyLine()).toBe('Nobody serves here.');
+    const line = emptyLine();
+    expect(line?.textContent?.trim()).toBe('Nobody serves here.');
+    expect(line?.classList.contains('impulse-resource-list-indent')).toBe(true);
+    // No table: no heading row, no "No records found", no pager.
+    expect(element().querySelector('impulse-grid')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-resource-container')).toBeNull();
+    expect(element().textContent).not.toContain('No records found');
+    // What stands above the list is drawn as it is.
+    expect(element().querySelector('h1.impulse-resource-list-title')?.textContent).toBe('People');
+    expect(element().querySelectorAll('button.impulse-resource-list-method')).toHaveLength(1);
+    // Body text in the secondary words' color, with no box around it.
+    const style = declared(line as Element, ['.impulse-resource-list-empty']);
+    expect(style).toContain('margin: 8px 0 0');
+    expect(style).toContain('font-size: 14px');
+    expect(style).toContain('line-height: 20px');
+    expect(style).toContain('color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6))');
+    expect(style).not.toContain('border');
+    expect(style).not.toContain('background');
+  });
+
+  for (const tt of [
+    { name: 'from the word its rows go by', resource: passes, want: 'No hangar passes.' },
+    { name: 'as the plain text where its metadata carries no word', resource: people, want: 'No records found' },
+  ]) {
+    it(`says of a list under a record that holds nothing and gives no sentence of its own that it is empty, ${tt.name}`, async () => {
+      served = [];
+      await create({ primaryResource: tt.resource, ...underPerson }, listsPasses, person, false);
+
+      expect(emptyLine()?.textContent?.trim()).toBe(tt.want);
+      expect(element().querySelector('impulse-grid')).toBeNull();
+    });
+  }
+
+  for (const tt of [
+    {
+      name: 'a column filter',
+      narrow: (list: ResourceListComponent) =>
+        list.store.columnFilters.set([{ field: 'username', operator: 'eq', value: 'zed' }]),
+    },
+    { name: 'the search box', narrow: (list: ResourceListComponent) => list.store.searchText.set('zed') },
+  ]) {
+    it(`draws the table of a list under a record that ${tt.name} narrows to no row, which says the plain text`, async () => {
+      served = [];
+      await create({ primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.' }, {}, person, false);
+      tt.narrow(fixture.componentInstance);
+      await settle();
+
+      expect(fixture.componentInstance.emptyLine()).toBe('');
+      expect(emptyLine()).toBeNull();
+      expect(element().querySelector('impulse-grid')).not.toBeNull();
+      expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
+    });
+  }
+
+  it('draws the table of a list under a record whose request the server refused, with the refusal in its words', async () => {
+    refusal = { status: 403, body: { message: 'the caller may not list the people' } };
+    await create({ primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.' }, {}, person, false);
+
+    expect(emptyLine()).toBeNull();
+    expect(element().querySelector('impulse-grid')).not.toBeNull();
+    expect(element().textContent).toContain('You do not have permission to see this list.');
+  });
+
+  for (const tt of [
+    { name: 'the list a page is built on', isRootList: undefined },
+    { name: "a list above or under the page's own, which names no parent row", isRootList: false },
+  ]) {
+    it(`draws the table of ${tt.name} that holds nothing, which says the page's own sentence`, async () => {
+      served = [];
+      await create({ primaryResource: people, emptyMessage: 'Nobody serves here.' }, {}, undefined, tt.isRootList);
+
+      expect(emptyLine()).toBeNull();
+      expect(element().querySelector('impulse-grid')).not.toBeNull();
+      expect(element().textContent).toContain('Nobody serves here.');
+    });
+  }
+
+  it('keeps the one line of a list under a record while it is read again after a method ran above it, and draws the table when a row arrives', async () => {
+    served = [];
+    await create(
+      { primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.', listMethods: [addPerson] },
+      { CreatePerson: { Execute: 'granted' } },
+      person,
+      false,
+    );
+    expect(emptyLine()).not.toBeNull();
+
+    served = rows;
+    (element().querySelector('button.impulse-resource-list-method') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    // Read again: the page it holds is the one without rows until the answer lands.
+    expect(fixture.componentInstance.store.pageStatus()).toBe('loading');
+    expect(emptyLine()).not.toBeNull();
+    await settle();
+
+    expect(emptyLine()).toBeNull();
+    expect(element().querySelector('impulse-grid')).not.toBeNull();
+    expect(element().querySelectorAll('tr.impulse-row')).toHaveLength(2);
   });
 
   it('does not offer a filled method the digest does not grant', async () => {

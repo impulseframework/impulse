@@ -77,45 +77,49 @@
       </button>
     </div>
   }
-  @if (showSearchBox()) {
-    <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
-      <impulse-search-box
-        [placeholder]="searchPlaceholder()"
-        [hint]="searchHint()"
-        [value]="store.searchText()"
-        [total]="store.page().total"
-        (textChange)="onSearchChange($event)" />
-    </div>
-  } @else if (searchNotice()) {
-    <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
-      <p class="impulse-resource-list-search-refused">{{ searchNotice() }}</p>
+  @if (emptyLine()) {
+    <p class="impulse-resource-list-empty" [class.impulse-resource-list-indent]="indentTitle()">{{ emptyLine() }}</p>
+  } @else {
+    @if (showSearchBox()) {
+      <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
+        <impulse-search-box
+          [placeholder]="searchPlaceholder()"
+          [hint]="searchHint()"
+          [value]="store.searchText()"
+          [total]="store.page().total"
+          (textChange)="onSearchChange($event)" />
+      </div>
+    } @else if (searchNotice()) {
+      <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
+        <p class="impulse-resource-list-search-refused">{{ searchNotice() }}</p>
+      </div>
+    }
+    <div class="impulse-resource-list-resource-container">
+      <impulse-grid
+        [rowData]="tableRowData()"
+        [columnDefs]="columns()"
+        [rowKey]="rowKey()"
+        [enableRowExpansion]="config().enableRowExpansion"
+        [enableVirtualScroll]="config().enableVirtualScroll"
+        [detailTemplate]="expandedRowTemplate"
+        [loading]="loadingRowData()"
+        [emptyMessage]="emptyMessage()"
+        [sorts]="store.sorts()"
+        [filters]="store.columnFilters()"
+        [filterability]="filterability()"
+        [externalFilterFields]="configFilterFields()"
+        [searches]="searches()"
+        [filterInputs]="filterInputs()"
+        [filterChoices]="filterChoices()"
+        [boxActive]="boxActive()"
+        [page]="store.page()"
+        (sortChange)="onSortChange($event)"
+        (filterChange)="onFilterChange($event)"
+        (filterMenuOpened)="onFilterMenuOpened($event)"
+        (pageTurn)="onPageTurn($event)">
+      </impulse-grid>
     </div>
   }
-  <div class="impulse-resource-list-resource-container">
-    <impulse-grid
-      [rowData]="tableRowData()"
-      [columnDefs]="columns()"
-      [rowKey]="rowKey()"
-      [enableRowExpansion]="config().enableRowExpansion"
-      [enableVirtualScroll]="config().enableVirtualScroll"
-      [detailTemplate]="expandedRowTemplate"
-      [loading]="loadingRowData()"
-      [emptyMessage]="emptyMessage()"
-      [sorts]="store.sorts()"
-      [filters]="store.columnFilters()"
-      [filterability]="filterability()"
-      [externalFilterFields]="configFilterFields()"
-      [searches]="searches()"
-      [filterInputs]="filterInputs()"
-      [filterChoices]="filterChoices()"
-      [boxActive]="boxActive()"
-      [page]="store.page()"
-      (sortChange)="onSortChange($event)"
-      (filterChange)="onFilterChange($event)"
-      (filterMenuOpened)="onFilterMenuOpened($event)"
-      (pageTurn)="onPageTurn($event)">
-    </impulse-grid>
-  </div>
 </div>
 
 <ng-template #expandedRowTemplate let-rowData>

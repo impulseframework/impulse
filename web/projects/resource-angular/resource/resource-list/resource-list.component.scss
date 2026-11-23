@@ -153,6 +153,15 @@
   color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
 }
 
+// A list under a record that holds nothing says so in one line where its table would be: body
+// text in the secondary words' color, with no box around it.
+.impulse-resource-list-empty {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+}
+
 // What holds the rows keeps the room the styles sheet gives the container of a resource's
 // page, a little air above it and a border's width around it, so the rows stand where they
 // did under a name of the list's own.

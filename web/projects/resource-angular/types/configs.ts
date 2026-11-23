@@ -1160,6 +1160,10 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * flags."). It is said only of the whole list: a list narrowed by a filter or the
    * search box that leaves no row says the plain text, and a refusal, a failed request
    * and a list with no column the person may see keep their own words.
+   *
+   * A list under a record (one drawn on a row's page from the row, by its parentRelation)
+   * that holds no row draws the sentence alone, in place of its table and its pager; one
+   * that gives no sentence says "No hangar passes.", from the word its rows go by.
    */
   emptyMessage?: string;
   /**
