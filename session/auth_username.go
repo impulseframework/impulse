@@ -28,10 +28,11 @@ func errUsernameIsAddress() error {
 // usernameHeldMessage is the refusal of a username someone else holds.
 const usernameHeldMessage = "Someone else has that username."
 
-// readsAsAddress reports whether a username reads as an email address: whether it has an
-// @ (U+0040) in it. Both databases match a username by case folding and canonical
-// normalization, under which no other character becomes an @, so a name without one is
-// found by no address and by no sign-in name that has one.
+// readsAsAddress reports whether a username reads as an email address: whether it has
+// an @ (U+0040) in it. Both databases match a username with an @ in it by the case of
+// its ASCII letters alone and any other by canonical normalization and case folding,
+// and under neither does another character become an @, so a name without one is found
+// by no address and by no sign-in name that has one.
 func readsAsAddress(name string) bool {
 	return strings.Contains(name, "@")
 }
