@@ -46,6 +46,11 @@ const (
 
 	// noTenantNamedMessage is said of a request that names no tenant.
 	noTenantNamedMessage = "Name the %s to leave."
+
+	// leavingAsSomeoneElseMessage is said in a session that acts as someone else, in the
+	// words the rule on the person who impersonates gives the same act
+	// (sessioninfo.ImpersonatorRefusal).
+	leavingAsSomeoneElseMessage = "You are acting as someone else, so you cannot leave %s."
 )
 
 // PersonTenant is one tenant a person holds something in, as their own account page
@@ -132,7 +137,10 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 // in a group kept for the whole application. The person is refused, and nothing is
 // written, where:
 //
-//   - they act as someone else (refuseImpersonatorAsSubject);
+//   - the request runs in a session that acts as someone else, whoever it names
+//     (Forbidden): a person leaves at their own word alone, and what a leaving takes
+//     outlives the session. The real person behind the session naming themselves is
+//     refused by the rule for that, with its line (refuseImpersonatorAsSubject);
 //   - the request names no tenant (Bad Request);
 //   - they hold nothing in the tenant now, which is also the answer for a tenant that
 //     does not exist (Not Found);
@@ -158,6 +166,12 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 
 	if err := m.refuseImpersonatorAsSubject(ctx, userID, "leave "+withArticle(m.tenantWord)); err != nil {
 		return false, err
+	}
+	if actsAsSomeoneElse(ctx) {
+		logger.FromCtx(ctx).Infof("impersonation: a session that acts as someone else asked for %s to leave %s: refused, since a person leaves only at their own word",
+			User(userID), withArticle(m.tenantWord))
+
+		return false, httpio.NewForbiddenMessagef(leavingAsSomeoneElseMessage, withArticle(m.tenantWord))
 	}
 	if domain == "" {
 		return false, httpio.NewBadRequestMessagef(noTenantNamedMessage, m.tenantWord)

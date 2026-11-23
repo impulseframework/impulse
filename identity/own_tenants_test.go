@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // The sentences of a person's leaving, in the word the tests' manager calls a tenant.
@@ -670,27 +671,47 @@ func TestManager_LeaveTenant_notIn(t *testing.T) {
 	}
 }
 
-// TestManager_LeaveTenant_impersonator pins that the real person behind a session that
-// acts as someone else does not leave a tenant of their own from it, by the rule that
-// nobody is the subject of what they do while they act as someone else.
+// TestManager_LeaveTenant_impersonator pins that nobody leaves a tenant from a session
+// that acts as someone else, whoever it names: the real person behind the session naming
+// themselves, by the rule that nobody is the subject of what they do while they act as
+// someone else; the person the session views as; and the person a session started by a
+// person of another application names.
 func TestManager_LeaveTenant_impersonator(t *testing.T) {
 	t.Parallel()
 
-	store := leavingStore()
-	store.memberships[danaAlphaReader], store.memberships[danaGlobal] = true, true
-	m, _, _ := leavingManager(t, store, false)
-
-	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		_, err := m.LeaveTenant(viewedBy(asCaller(ctx, erin), userID), txn, userID, "alpha", false)
-
-		return err
-	})
-	want := actingAsSomeoneElse + "leave a sector."
-	if !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), want) {
-		t.Fatalf("LeaveTenant() error = %v, want the refusal %q", err, want)
+	foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+	tests := map[string]func(ctx context.Context) context.Context{
+		"the real person behind the session names themselves": func(ctx context.Context) context.Context {
+			return viewedBy(asCaller(ctx, erin), userID)
+		},
+		"a session that views as dana, started by erin, names dana": func(ctx context.Context) context.Context {
+			return viewedBy(asCaller(ctx, dana), otherUser)
+		},
+		"a session a person of another application started names dana": func(ctx context.Context) context.Context {
+			return context.WithValue(asCaller(ctx, dana), sessioninfo.CtxSessionInfo, foreign)
+		},
 	}
-	if len(store.writes) != 0 {
-		t.Errorf("buffered writes = %v, want none", store.writes)
+	for name, session := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := leavingStore()
+			store.memberships[danaAlphaReader], store.memberships[danaGlobal] = true, true
+			m, _, _ := leavingManager(t, store, false)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				_, err := m.LeaveTenant(session(ctx), txn, userID, "alpha", false)
+
+				return err
+			})
+			want := actingAsSomeoneElse + "leave a sector."
+			if !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), want) {
+				t.Fatalf("LeaveTenant() error = %v, want the refusal %q", err, want)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none", store.writes)
+			}
+		})
 	}
 }
 
