@@ -20,7 +20,7 @@ func (a *App) PilotCertifications() http.HandlerFunc {
 	type pilotCertification struct {
 		UserID            string  `json:"userId"            index:"true"             perm:"-"`
 		CertificationID   string  `json:"certificationId"   index:"true"             perm:"-"`
-		CertificationName *string `json:"certificationName" nameof:"CertificationID"`
+		CertificationName *string `json:"certificationName" nameof:"CertificationID" index:"true"`
 	}
 
 	type response []map[string]any

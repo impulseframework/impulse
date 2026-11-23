@@ -29,7 +29,7 @@ func (a *App) DistressCalls() http.HandlerFunc {
 		FiledByUserID string              `json:"filedByUserId"`
 		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
-		SectorName    *string             `json:"sectorName"    nameof:"SectorID"`
+		SectorName    *string             `json:"sectorName"    nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any

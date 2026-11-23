@@ -22,7 +22,7 @@ func (a *App) Wings() http.HandlerFunc {
 		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
 		SectorID   impulse.UUID `json:"sectorId"   index:"true"`
 		Name       string       `json:"name"       index:"true"`
-		SectorName *string      `json:"sectorName" nameof:"SectorID"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any

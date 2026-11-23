@@ -1149,7 +1149,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresOn', displayType: 'civildate', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'releasedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always' },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.CrewGroups]: {
     route: 'crew-groups',
@@ -1696,7 +1696,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.DistressRelays]: {
     route: 'sectors/{sectorID}/distress-relays',
@@ -1712,7 +1712,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'relayedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'relayedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always', readOnly: true },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.FeeByKinds]: {
     route: 'fee-by-kinds',
@@ -1735,7 +1735,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['startswith'] },
       { fieldName: 'zone', displayType: 'string', required: true, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.HangarPasses]: {
     route: 'sectors/{sectorID}/hangar-passes',
@@ -1752,7 +1752,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }, { fieldName: 'levelName', of: 'levelId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'levelName', of: 'levelId', filterable: 'always' }],
   },
   [Resources.MembersHeldRoles]: {
     route: 'members-held-roles',
@@ -2059,7 +2059,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'settlement', displayType: 'number', decimal: true, required: false, isIndex: false },
     ],
     searchFields: ['title', 'deadline'],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }, { fieldName: 'kindName', of: 'kindId' }, { fieldName: 'requiredCertName', of: 'requiredCertId' }, { fieldName: 'statusName', of: 'statusId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'requiredCertName', of: 'requiredCertId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionBoards]: {
     route: 'sectors/{sectorID}/mission-boards',
@@ -2078,7 +2078,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],
     searchFields: ['title', 'clientName'],
-    nameFields: [{ fieldName: 'kindName', of: 'kindId' }, { fieldName: 'statusName', of: 'statusId' }],
+    nameFields: [{ fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',
@@ -2147,7 +2147,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'certificationId', primaryKey: { ordinalPosition: 1 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "deep_space", display: "Deep space" }, { id: "escort", display: "Escort" }, { id: "hazmat", display: "Hazardous materials" }, { id: "salvage", display: "Salvage" }] },
     ],
-    nameFields: [{ fieldName: 'certificationName', of: 'certificationId' }],
+    nameFields: [{ fieldName: 'certificationName', of: 'certificationId', filterable: 'always' }],
   },
   [Resources.Refits]: {
     route: 'sectors/{sectorID}/refits',
@@ -2164,7 +2164,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'openedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'statusName', of: 'statusId' }],
+    nameFields: [{ fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.RefitTasks]: {
     route: 'sectors/{sectorID}/refit-tasks',
@@ -2206,7 +2206,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.SectorPilots]: {
     route: 'sectors/{sectorID}/sector-pilots',
@@ -2251,7 +2251,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'hardened', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'inService', displayType: 'boolean', required: false, schemaDefault: true, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'roleName', of: 'roleId' }],
+    nameFields: [{ fieldName: 'roleName', of: 'roleId', filterable: 'always' }],
   },
   [Resources.Sorties]: {
     route: 'sectors/{sectorID}/sorties',
@@ -2327,7 +2327,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.BriefingTemplates]: {
     route: 'briefing-templates',

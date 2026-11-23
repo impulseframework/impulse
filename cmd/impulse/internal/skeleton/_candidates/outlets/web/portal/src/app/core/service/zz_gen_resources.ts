@@ -452,7 +452,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
   [Resources.MembersGroups]: {
     route: 'members-groups',

@@ -20,7 +20,10 @@ CREATE TABLE Squadrons (
   SectorId STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
   Rank INT64 NOT NULL,
+  Name_Search TOKENLIST AS (TOKENIZE_SUBSTRING(Name)) HIDDEN,
 ) PRIMARY KEY (Id);
+
+CREATE SEARCH INDEX SquadronsSearch ON Squadrons(Name_Search) STORING (SectorId, Rank);
 
 CREATE TABLE PassLevels (
   Id STRING(36) NOT NULL,

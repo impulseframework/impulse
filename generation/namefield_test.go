@@ -13,7 +13,8 @@ import (
 
 // nameFixtureTables is the synthetic schema behind the namefixture structs: every table
 // keyed by one Id, each pointing column a foreign key except the two a struct declares
-// with @enumerate, and Grades shaped as an enumeration table.
+// with @enumerate, Grades shaped as an enumeration table, and Seals with a search index
+// over its motto.
 func nameFixtureTables() map[string]*tableMetadata {
 	pk := columnMeta{IsPrimaryKey: true, IsIndex: true, IsUniqueIndex: true}
 	plain := columnMeta{}
@@ -21,6 +22,13 @@ func nameFixtureTables() map[string]*tableMetadata {
 	to := func(table string) columnMeta {
 		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id"}
 	}
+	indexedTo := func(table string) columnMeta {
+		column := to(table)
+		column.IsIndex = true
+
+		return column
+	}
+	indexed := columnMeta{IsIndex: true}
 
 	return map[string]*tableMetadata{
 		"Bases":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain}},
@@ -44,6 +52,20 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Sorties":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "KitId": to("Kits")}},
 		"Detours":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CrateId": to("Crates")}},
 		"Astrays":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings")}},
+		"Badges":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": indexed}},
+		"Seals": {
+			PkCount: 1,
+			Columns: map[string]columnMeta{
+				"Id": pk, "Motto": {SpannerType: "STRING(MAX)"},
+				"Motto_Search": {SpannerType: tokenListType, GenerationExpression: "TOKENIZE_SUBSTRING(Motto)"},
+			},
+			Indexes: []indexMeta{{Name: "SealsSearch", Search: true, Key: []indexColumn{{Column: "Motto_Search"}}}},
+		},
+		"Wards": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Alias": indexed}},
+		"Dockets": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "BadgeId": indexedTo("Badges"), "Grade": indexedTo("Grades"), "SealId": indexedTo("Seals"),
+			"SpareSealId": to("Seals"), "LooseBadgeId": to("Badges"), "KitId": indexedTo("Kits"), "WardId": indexedTo("Wards"),
+		}},
 	}
 }
 
@@ -162,6 +184,185 @@ func Test_resolveNameFields(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("name fields of %s mismatch (-want +got):\n%s", tt.resource, diff)
+			}
+		})
+	}
+}
+
+// docketNameFields resolves the namefixture's Docket and returns its name fields by Go
+// name, with the resource.
+func docketNameFields(t *testing.T) (docket *resourceInfo, names map[string]*nameField) {
+	t.Helper()
+
+	c, err := nameFixtureResources(t, "Badge", "Seal", "Ward", "Kit", "Docket")
+	if err != nil {
+		t.Fatalf("nameFixtureResources() error = %v", err)
+	}
+	for _, res := range c.resources {
+		if res.Name() != "Docket" {
+			continue
+		}
+		names = make(map[string]*nameField, len(res.NameFields))
+		for _, name := range res.NameFields {
+			names[name.Name()] = name
+		}
+
+		return res, names
+	}
+	t.Fatal("the fixture resolved no Docket")
+
+	return nil, nil
+}
+
+// Test_nameFieldFilters pins what a filter may do with each name field, in the list
+// request types' tag and in the TypeScript metadata: a name counts as indexed where the id
+// and the pointed-to name are both indexed (an enumeration table's always is), is
+// filterable beside an indexed field where both are filterable otherwise, answers the
+// pointed-to name's matches where the id is indexed, carries pii where the pointed-to
+// name is PII, and says nothing where the id or the pointed-to name is not filterable.
+func Test_nameFieldFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		field          string
+		wantTag        string
+		wantFilterable string
+		wantSearch     string
+	}{
+		{
+			name:           "an indexed id to an indexed name",
+			field:          "BadgeName",
+			wantTag:        `json:"badgeName" nameof:"BadgeID" index:"true"`,
+			wantFilterable: "always",
+		},
+		{
+			name:           "an indexed id to an enumeration table",
+			field:          "GradeName",
+			wantTag:        `json:"gradeName" nameof:"Grade" index:"true"`,
+			wantFilterable: "always",
+		},
+		{
+			name:           "an indexed id to a name with a search fact and no index",
+			field:          "SealName",
+			wantTag:        `json:"sealName" nameof:"SealID" allow_filter:"true" search:"token=Motto_Search;index=SealsSearch;role=text;contains"`,
+			wantFilterable: "withIndexed",
+			wantSearch:     "'contains'",
+		},
+		{
+			name:           "an allow_filter id to a name with a search fact answers no match",
+			field:          "SpareSealName",
+			wantTag:        `json:"spareSealName" nameof:"SpareSealID" allow_filter:"true"`,
+			wantFilterable: "withIndexed",
+		},
+		{
+			name:    "an id that is not filterable",
+			field:   "LooseBadgeName",
+			wantTag: `json:"looseBadgeName" nameof:"LooseBadgeID"`,
+		},
+		{
+			name:    "a name that is not filterable where it lives",
+			field:   "KitName",
+			wantTag: `json:"kitName" nameof:"KitID"`,
+		},
+		{
+			name:           "a PII name",
+			field:          "WardName",
+			wantTag:        `json:"wardName" nameof:"WardID" index:"true" pii:"true"`,
+			wantFilterable: "always",
+		},
+	}
+
+	_, names := docketNameFields(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			name := names[tt.field]
+			if name == nil {
+				t.Fatalf("Docket has no name field %s", tt.field)
+			}
+			if got := name.ListStructTag(); got != tt.wantTag {
+				t.Errorf("ListStructTag() = %s, want %s", got, tt.wantTag)
+			}
+			if got := name.TypescriptFilterable(); got != tt.wantFilterable {
+				t.Errorf("TypescriptFilterable() = %q, want %q", got, tt.wantFilterable)
+			}
+			if got := name.TypescriptSearch(); got != tt.wantSearch {
+				t.Errorf("TypescriptSearch() = %q, want %q", got, tt.wantSearch)
+			}
+		})
+	}
+}
+
+// Test_nameFieldFilterTemplates pins where the name's filter facts are written: the list's
+// and the list across tenants' request types carry ListStructTag, the read's request type
+// StructTag alone, and the metadata's nameFields entry its filterable, search and pii, in
+// that order.
+func Test_nameFieldFilterTemplates(t *testing.T) {
+	t.Parallel()
+
+	docket, _ := docketNameFields(t)
+	// The fixture's resolution types no field for TypeScript, and the metadata draws
+	// each field with its type.
+	for _, f := range docket.Fields {
+		f.typescriptType = "string"
+	}
+	listTag := "SealName *string `json:\"sealName\" nameof:\"SealID\" allow_filter:\"true\" search:\"token=Motto_Search;index=SealsSearch;role=text;contains\"`"
+	readTag := "SealName *string `json:\"sealName\" nameof:\"SealID\"`"
+	handlerData := handlerContentData{ResourcePackage: "resources", Resource: docket, VirtualResourcesPackage: "virtualresources", ApplicationName: "App", ReceiverName: "a"}
+
+	tests := []struct {
+		name            string
+		template        string
+		data            any
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{name: "list", template: listTemplate, data: handlerData, wantContains: []string{listTag}},
+		{name: "list across tenants", template: listAcrossTenantsTemplate, data: handlerData, wantContains: []string{listTag}},
+		{name: "read", template: readTemplate, data: handlerData, wantContains: []string{readTag}, wantNotContains: []string{listTag}},
+		{
+			name:     "metadata",
+			template: typescriptResourcesTemplate,
+			data:     tsResourcesData{Resources: []*resourceInfo{docket}, GenPrefix: "zz_gen"},
+			wantContains: []string{
+				"{ fieldName: 'badgeName', of: 'badgeId', filterable: 'always' }",
+				"{ fieldName: 'gradeName', of: 'grade', filterable: 'always' }",
+				"{ fieldName: 'sealName', of: 'sealId', filterable: 'withIndexed', search: ['contains'] }",
+				"{ fieldName: 'spareSealName', of: 'spareSealId', filterable: 'withIndexed' }",
+				"{ fieldName: 'looseBadgeName', of: 'looseBadgeId' }",
+				"{ fieldName: 'kitName', of: 'kitId' }",
+				"{ fieldName: 'wardName', of: 'wardId', filterable: 'always', pii: true }",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{}
+			data := tt.data
+			if ts, ok := data.(tsResourcesData); ok {
+				ts.File = &typescriptGenerator{client: c}
+				data = ts
+			}
+			out, err := c.generateTemplateOutput(tt.name, tt.template, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			// A handler fragment carries the empty tags' spaces, so space runs collapse
+			// before matching.
+			normalized := strings.Join(strings.Fields(string(out)), " ")
+			for _, want := range tt.wantContains {
+				if !strings.Contains(normalized, want) {
+					t.Errorf("output lacks %q:\n%s", want, out)
+				}
+			}
+			for _, unwanted := range tt.wantNotContains {
+				if strings.Contains(normalized, unwanted) {
+					t.Errorf("output must not contain %q:\n%s", unwanted, out)
+				}
 			}
 		})
 	}

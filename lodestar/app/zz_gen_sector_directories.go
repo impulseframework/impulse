@@ -24,7 +24,7 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 		Method      string       `json:"method"      index:"true"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`
-		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any
