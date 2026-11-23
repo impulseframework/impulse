@@ -430,15 +430,16 @@ type (
 	// {{ .Tables.Impersonations }}, keyed by the session and kept after it as evidence.
 	// The actor is who established it (ActorRealm is empty for a person of this auth,
 	// whose account ActorUserID names), and the principal the role it acts as or the user,
-	// named by the id of their account. Mask is what the session is held to, in words:
-	// the kinds of permission it keeps and what it refuses inside them, a class of
-	// actions, one action, or a record's writes ("everything", "reading only",
-	// "everything except credential actions"). The column holds the mask's text, NULL
-	// for the unrestricted mask, which the session library writes and reads the session
-	// by; the list says it as a person would (accesstypes.NullMaskWords), and nothing
-	// writes it through this record. The record is the authority on whether the session
-	// still stands: one that has ended (EndedAt) is refused whatever its session row
-	// says.
+	// named by the id of their account. PrincipalUsername is the username of the person
+	// the session is held as, as it was when the session began; empty for a session held
+	// as a role. Mask is what the session is held to, in words: the kinds of permission it
+	// keeps and what it refuses inside them, a class of actions, one action, or a record's
+	// writes ("everything", "reading only", "everything except credential actions"). The
+	// column holds the mask's text, NULL for the unrestricted mask, which the session
+	// library writes and reads the session by; the list says it as a person would
+	// (accesstypes.NullMaskWords), and nothing writes it through this record. The record
+	// is the authority on whether the session still stands: one that has ended (EndedAt)
+	// is refused whatever its session row says.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -454,6 +455,7 @@ type (
 		SourceSessionID *impulse.UUID ` + "`spanner:\"SourceSessionId\"`" + `
 		PrincipalKind   string        ` + "`spanner:\"PrincipalKind\"`" + `
 		PrincipalUserID   *string       ` + "`spanner:\"PrincipalUserId\"`" + `
+		PrincipalUsername *string       ` + "`spanner:\"PrincipalUsername\"`" + `
 		// @roleOf({{ .Auth }})
 		PrincipalRole   *string       ` + "`spanner:\"PrincipalRole\"`" + `
 		Mask            accesstypes.NullMaskWords ` + "`spanner:\"Mask\"`" + `
@@ -1806,6 +1808,34 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 	return errors.Newf("the schema holds no table {{ .Tables.TrustedDevices }}: there is no remembered browser %s to revoke", id)
 }
 {{ end }}
+{{- if .ReadsManagingTenants }}
+// ManagingTenants lists the {{ .TenantWord }}s whose own list of their people
+// ({{ .TenantUser }}) says they manage the user's account, the rows of the user whose
+// ManagedHere is true, read in the caller's transaction through the list's query type.
+// A removal that would leave the person holding nothing asks it
+// (identity.Store.ManagingTenants).
+func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().DomainID()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))
+	var tenants []accesstypes.Domain
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+		tenants = append(tenants, accesstypes.Domain(row.Data.DomainID))
+	}
+
+	return tenants, nil
+}
+{{ else }}
+// ManagingTenants answers no tenant: no tenant's directory signs a person of the
+// {{ .Auth }} auth in here, so no tenant manages an account that holds nothing in it
+// (identity.Store.ManagingTenants).
+func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.Domain, error) {
+	return nil, nil
+}
+{{ end }}
 {{- if .ListsDirectoryOutsiders }}
 
 // DirectoryOutsiders lists the people of the {{ .Auth }} auth who hold a role in the
@@ -1835,12 +1865,13 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
-// SeatedCount counts the people of the {{ .Auth }} auth who hold a role in the
-// {{ .TenantWord }}, in it or in every {{ .TenantWord }}: the rows of the {{ .TenantWord }}'s own list of its people
-// ({{ .TenantUser }}) for it, one row a person, the list DirectoryOutsiders reads, in the
-// caller's transaction. The read of the {{ .TenantWord }}'s directory-only switch says it beside
-// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
-// page that shows the switch says how many of the {{ .TenantWord }}'s people it keeps out.
+// SeatedCount counts the people of the {{ .Auth }} auth in the {{ .TenantWord }}'s own
+// list of its people ({{ .TenantUser }}): who holds a role in the {{ .TenantWord }}, in it or in
+// every {{ .TenantWord }}, and, where the {{ .TenantWord }} has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the {{ .TenantWord }}'s directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the {{ .TenantWord }}'s people it keeps out.
 func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
 	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
@@ -2381,7 +2412,9 @@ import (
 // Administrator role is taken away by a super administrator alone, and never from the
 // last one who can sign in. A person left with no role anywhere is deleted with their
 // identity links and sessions, in the same transaction: an account nothing admits is
-// not kept.` + identityRoleRemovalEntersNote + `
+// not kept. An account that signs in through a tenant's directory is that tenant's to
+// delete: it goes this way only with the last thing it holds in that tenant itself, and
+// otherwise stays, holding nothing, in that tenant's list of its people.` + identityRoleRemovalEntersNote + `
 //
 // The method declares a warning with no word to type: asked first, the server says whose
 // role goes and where it is held, and, where it is the last thing the person holds, that

@@ -254,7 +254,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		for _, want := range []string{
 			"func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *testing.T) {",
-			`provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "DisableStaffTenantUser", "heldElsewhere = false AND heldGlobally = false")`,
+			`provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "DisableStaffTenantUser", "managedHere = true")`,
 			`"example.com/acme/depot/pkg/auth/staff"`, `"/api/tenants/"+tenant+"/"+method`, "staffAccount(ctx, t, s, name,", `password := "first-day-pass"`, `"/api/assign-staff-role"`,
 			`const south = "` + devTenantSouth + `"`, "admin.signIn(ctx, adminUser)",
 		} {
@@ -311,7 +311,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 
 		for prefix, texts := range map[string][]string{
 			roles + ": the role TenantAdministrator, a domain role":                                              {"a tenant's administrator holds", "the tenanted skeleton's TenantAdministrator", strconv.Itoa(len(held)) + " of them under the condition the skeleton holds each to"},
-			tenantPeopleTest + ": the test that proves each of the " + strconv.Itoa(len(held)) + " condition(s)": {"conditions-proven", "a person the tenant holds alone"},
+			tenantPeopleTest + ": the test that proves each of the " + strconv.Itoa(len(held)) + " condition(s)": {"conditions-proven", "a person whose account the tenant manages"},
 			integrationHarness + ": written again with its provesGrant marked for the application's lint":        {"//nolint:unparam", "the TenantAdministrator role's"},
 			roles + ": the role Administrator gained the 9 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants", "List on StaffInvitedTenantRoles"},
 			foothold + ": AdministratorRoles() and FirstAdministratorRoles() name TenantAdministrator":           {"TenantAdministratorRoles()", "the application's router is built"},
@@ -389,7 +389,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		// resources, its routes and its auth's package.
 		carried := conditionalGrants(role)
 		if len(carried) != len(held) || !slices.ContainsFunc(carried, func(c conditionalGrant) bool {
-			return c.String() == `Execute on DisableCrewSectorUser under "heldElsewhere = false AND heldGlobally = false"`
+			return c.String() == `Execute on DisableCrewSectorUser under "managedHere = true"`
 		}) {
 			t.Errorf("the role carries %q under a condition, want the reference's %d in this application's names", carried, len(held))
 		}
@@ -402,7 +402,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 			t.Errorf("%s proves %q, want each grant the role holds under a condition and no other: %q", tenantPeopleTest, got, sorted(want))
 		}
 		for _, want := range []string{
-			`provesGrant(t, crew.Roles(), "SectorAdministrator", "List", "CrewSectorSignInWays", "password = false OR heldElsewhere = false")`,
+			`provesGrant(t, crew.Roles(), "SectorAdministrator", "List", "CrewSectorSignInWays", "managedHere = true")`,
 			`"/api/sectors/"+tenant+"/"+method`, "crewAccount(ctx, t, s, name,", `"/api/assign-crew-role"`, `spanner.InsertMap("CrewSessionIdentities"`,
 		} {
 			if !strings.Contains(proof, want) {

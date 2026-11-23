@@ -381,11 +381,11 @@ export interface ResourceMeta {
    */
   rowWords?: RowWords;
   /**
-   * The field a row of the resource is called by, where the resource declares one: the
-   * tenant record's name (`@tenantName`). The record is keyed by an id nobody reads, so a
-   * picker over it that configures no display of its own lists each row by this field,
-   * and a page that names the tenant a row is in reads it from here. Absent on every
-   * other resource, and on the tenant record of an application that marks no name.
+   * The field the resource's rows are known by, by JSON name: the field marked `@name`,
+   * or the tenant record's `@tenantName`. A picker over the resource lists and shows its
+   * rows by it where the page configures no display, and a list that points to the
+   * resource reads its name field from it. Absent where the resource declares none: a
+   * picker then lists the keys.
    */
   nameField?: string;
   listDisabled?: boolean;

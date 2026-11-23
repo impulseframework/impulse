@@ -12,7 +12,7 @@ import (
 )
 
 // nameFixtureTables is the synthetic schema behind the namefixture structs: every table
-// keyed by one Id, each pointing column a foreign key except the two a struct declares
+// keyed by one Id, each pointing column a foreign key except the ones a struct declares
 // with @enumerate, Grades shaped as an enumeration table, and Seals with a search index
 // over its motto.
 func nameFixtureTables() map[string]*tableMetadata {
@@ -53,6 +53,10 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Detours":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CrateId": to("Crates")}},
 		"Astrays":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings")}},
 		"Badges":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": indexed}},
+		"Manifests": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "BaseId": to("Bases"), "HangarId": indexed, "BeaconId": indexed, "PatrolId": indexed,
+		}},
+		"Tours": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "HangarId": plain, "MemberId": plain}},
 		"Seals": {
 			PkCount: 1,
 			Columns: map[string]columnMeta{
@@ -102,10 +106,10 @@ func nameFixtureResources(t *testing.T, names ...string) (*client, error) {
 
 // Test_resolveNameFields pins the name field the generator adds beside an id: one for a
 // foreign key or a declared enumeration into a resource that says what its rows are
-// known by (@name, or the tenant record's @tenantName), into a view that does, and into
-// an enumeration table, which needs no declaration; none, and no refusal, where the
-// pointed-to resource declares no name; and none for the name of a tenant's row on a
-// list that is asked outside one tenant.
+// known by (@name, or the tenant record's @tenantName), into a view that does, read from
+// the view (View), and into an enumeration table, which needs no declaration; none, and
+// no refusal, where the pointed-to resource declares no name; and none for the name of a
+// tenant's row, a table's or a view's, on a list that is asked outside one tenant.
 func Test_resolveNameFields(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +129,26 @@ func Test_resolveNameFields(t *testing.T) {
 				`{Field: "LeadWingName", Key: "LeadWing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
 				`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
 				`{Field: "GradeName", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+				`{Field: "MemberName", Key: "MemberID", Resource: "Members", Tag: "shown", Table: "Members", KeyColumn: "Id", NameColumn: "Shown", View: true, TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a tenant's view and a global one that say what their rows are known by, and one that does not",
+			structs:  []string{"Base", "Hangar", "Beacon", "Patrol", "Manifest"},
+			resource: "Manifest",
+			want: []string{
+				`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "HangarName", Key: "HangarID", Resource: "Hangars", Tag: "door", Table: "Hangars", KeyColumn: "Id", NameColumn: "Door", View: true, TenantColumn: "BaseId"}`,
+				`{Field: "BeaconName", Key: "BeaconID", Resource: "Beacons", Tag: "signal", Table: "Beacons", KeyColumn: "Id", NameColumn: "Signal", View: true, TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a list also asked across tenants reads no name of a tenant's view",
+			structs:  []string{"Base", "Hangar", "Member", "Tour"},
+			resource: "Tour",
+			want: []string{
+				`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "MemberName", Key: "MemberID", Resource: "Members", Tag: "shown", Table: "Members", KeyColumn: "Id", NameColumn: "Shown", View: true, TenantColumn: ""}`,
 			},
 		},
 		{
@@ -184,6 +208,66 @@ func Test_resolveNameFields(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("name fields of %s mismatch (-want +got):\n%s", tt.resource, diff)
+			}
+		})
+	}
+}
+
+// Test_nameFieldFeatures pins the flags a name stands behind: the pointed-to
+// resource's, then its name field's, each only where it is declared, and the
+// literal the generated NameFields method writes, which names them only where there
+// are any.
+func Test_nameFieldFeatures(t *testing.T) {
+	t.Parallel()
+
+	resourceGate := &featureGate{Constant: "Kits", Name: "kits"}
+	fieldGate := &featureGate{Constant: "KitLabels", Name: "kit_labels"}
+	const literal = `{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""`
+	tests := []struct {
+		name        string
+		resource    *featureGate
+		field       *featureGate
+		want        []resource.Feature
+		wantLiteral string
+	}{
+		{name: "neither gated: no flags, today's literal", wantLiteral: literal + "}"},
+		{name: "the name field gated", field: fieldGate, want: []resource.Feature{"kit_labels"}, wantLiteral: literal + `, Features: []resource.Feature{"kit_labels"}}`},
+		{name: "the pointed-to resource gated", resource: resourceGate, want: []resource.Feature{"kits"}, wantLiteral: literal + `, Features: []resource.Feature{"kits"}}`},
+		{name: "both gated: the resource's first", resource: resourceGate, field: fieldGate, want: []resource.Feature{"kits", "kit_labels"}, wantLiteral: literal + `, Features: []resource.Feature{"kits", "kit_labels"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := nameFixtureResources(t, "Base", "Wing", "Kit", "Stock")
+			if err != nil {
+				t.Fatalf("nameFixtureResources() error = %v", err)
+			}
+			var stock *resourceInfo
+			for _, res := range c.resources {
+				switch res.Name() {
+				case "Kit":
+					res.Feature = tt.resource
+					for _, field := range res.Fields {
+						if field.Name() == "Label" {
+							field.Feature = tt.field
+						}
+					}
+				case "Stock":
+					stock = res
+				}
+			}
+			if err := c.resolveNameFields(c.resources); err != nil {
+				t.Fatalf("resolveNameFields() error = %v", err)
+			}
+			if len(stock.NameFields) != 1 {
+				t.Fatalf("Stock's name fields = %d, want the kit's alone", len(stock.NameFields))
+			}
+			if diff := cmp.Diff(tt.want, stock.NameFields[0].Features); diff != "" {
+				t.Errorf("Features mismatch (-want +got):\n%s", diff)
+			}
+			if got := stock.NameFields[0].GoLiteral(); got != tt.wantLiteral {
+				t.Errorf("GoLiteral() =\n%s\nwant\n%s", got, tt.wantLiteral)
 			}
 		})
 	}
@@ -362,6 +446,189 @@ func Test_nameFieldFilterTemplates(t *testing.T) {
 			for _, unwanted := range tt.wantNotContains {
 				if strings.Contains(normalized, unwanted) {
 					t.Errorf("output must not contain %q:\n%s", unwanted, out)
+				}
+			}
+		})
+	}
+}
+
+// Test_nameFieldFromView pins what a filter may do with a name read from a view: the
+// list request types' tag follows the view's name field, index:"true" where it is
+// indexed and allow_filter:"true" where it allows a filter, and never carries a search
+// fact, which names a table's token column the view's projection does not carry; the
+// metadata says the same.
+func Test_nameFieldFromView(t *testing.T) {
+	t.Parallel()
+
+	c, err := nameFixtureResources(t, "Base", "Hangar", "Beacon", "Patrol", "Manifest")
+	if err != nil {
+		t.Fatalf("nameFixtureResources() error = %v", err)
+	}
+	names := make(map[string]*nameField)
+	for _, res := range c.resources {
+		if res.Name() != "Manifest" {
+			continue
+		}
+		for _, name := range res.NameFields {
+			names[name.Name()] = name
+		}
+	}
+	if beacon := names["BeaconName"]; beacon != nil && beacon.source.SearchTag() == "" {
+		t.Fatal("the fixture's Beacon must carry a search fact on its name for the case to say anything")
+	}
+
+	tests := []struct {
+		name           string
+		field          string
+		wantTag        string
+		wantFilterable string
+	}{
+		{
+			name:           "an indexed id to a view's name that allows a filter",
+			field:          "HangarName",
+			wantTag:        `json:"hangarName" nameof:"HangarID" allow_filter:"true"`,
+			wantFilterable: "withIndexed",
+		},
+		{
+			name:           "an indexed id to a view's indexed name that carries a table's search fact",
+			field:          "BeaconName",
+			wantTag:        `json:"beaconName" nameof:"BeaconID" index:"true"`,
+			wantFilterable: "always",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			name := names[tt.field]
+			if name == nil {
+				t.Fatalf("Manifest has no name field %s", tt.field)
+			}
+			if got := name.ListStructTag(); got != tt.wantTag {
+				t.Errorf("ListStructTag() = %s, want %s", got, tt.wantTag)
+			}
+			if got := name.TypescriptFilterable(); got != tt.wantFilterable {
+				t.Errorf("TypescriptFilterable() = %q, want %q", got, tt.wantFilterable)
+			}
+			if got := name.TypescriptSearch(); got != "" {
+				t.Errorf("TypescriptSearch() = %q, want none", got)
+			}
+		})
+	}
+}
+
+// Test_nameFieldOf_viewKeyedByTwoColumns pins that an id pointing into a view keyed by
+// two columns is given no name field: no one id names one of its rows. A field-scope
+// @enumerate into such a view is refused before the name fields resolve, so the id is
+// pointed at it here directly.
+func Test_nameFieldOf_viewKeyedByTwoColumns(t *testing.T) {
+	t.Parallel()
+
+	c, err := nameFixtureResources(t, "Base", "Hangar", "Beacon", "Patrol", "Convoy", "Manifest")
+	if err != nil {
+		t.Fatalf("nameFixtureResources() error = %v", err)
+	}
+	byName := make(map[string]*resourceInfo, len(c.resources))
+	for _, res := range c.resources {
+		byName[c.pluralize(res.Name())] = res
+	}
+	manifest := byName["Manifests"]
+	pointing := *manifest.fieldNamed("PatrolID")
+	pointing.declaredResource = "Convoys"
+	if name := c.nameFieldOf(manifest, &pointing, byName); name != nil {
+		t.Errorf("nameFieldOf() = %s, want none for a view keyed by two columns", name.GoLiteral())
+	}
+}
+
+// Test_packageNameViews pins the name views: the views that declare what their rows are
+// known by, by resource, in the application's virtual package first and then in each
+// auth's handlers package, by the auth's name, an auth's view named through the auth's
+// declarations package; a view with no name is in none. Each home's decoders are handed
+// theirs: the application's the merged value, an auth's its package's, or none where the
+// package declares none. The generated file declares a package's.
+func Test_packageNameViews(t *testing.T) {
+	t.Parallel()
+
+	c, err := nameFixtureResources(t, "Base", "Hangar", "Beacon", "Patrol", "Member")
+	if err != nil {
+		t.Fatalf("nameFixtureResources() error = %v", err)
+	}
+	crew := &identityInstance{auth: "Crew", importPath: crewAuthPath, resources: "pkg/identity/internal/crewresources", handlers: "pkg/identity/crewhandlers"}
+	members := &identityInstance{auth: "Members", importPath: membersAuthPath, resources: "pkg/identity/internal/membersresources", handlers: "pkg/identity/membershandlers"}
+	pilots := &identityInstance{auth: "Pilots", resources: "pkg/identity/internal/pilotsresources", handlers: "pkg/identity/pilotshandlers"}
+	for _, res := range c.resources {
+		switch res.Name() {
+		case "Hangar":
+			res.identity = crew
+		case "Member":
+			res.identity = members
+		}
+	}
+	c.virtual = "pkg/virtualresources"
+	r := &resourceGenerator{client: c, handler: "app"}
+
+	got := r.nameViewsByPackage()
+	want := []nameViewsPackage{
+		{dir: "pkg/virtualresources", Views: []nameViewData{{Resource: "Beacons", Type: "Beacon"}}},
+		{dir: "pkg/identity/crewhandlers", instance: crew, Views: []nameViewData{{Resource: "Hangars", Type: "crewresources.Hangar"}}},
+		{dir: "pkg/identity/membershandlers", instance: members, Views: []nameViewData{{Resource: "Members", Type: "membersresources.Member"}}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(nameViewsPackage{}, identityInstance{})); diff != "" {
+		t.Errorf("nameViewsByPackage() mismatch (-want +got):\n%s", diff)
+	}
+
+	for _, tt := range []struct {
+		inst *identityInstance
+		want string
+	}{{nil, "nameViews"}, {crew, "NameViews"}, {pilots, "nil"}} {
+		if got := r.nameViewsOf(r.homeOf(tt.inst)); got != tt.want {
+			t.Errorf("nameViewsOf(%v) = %s, want %s", tt.inst, got, tt.want)
+		}
+	}
+
+	out := renderFormatted(t, "nameViewsPackageTemplate", nameViewsPackageTemplate, &nameViewsPackageData{Source: `Auth("` + crewAuthPath + `")`, Package: "crewhandlers", Views: want[1].Views})
+	for _, wantText := range []string{
+		"package crewhandlers",
+		"// NameViews are the views that declare what their rows are known by (@name), by\n// resource: this package's own, or, in an auth's handlers package, those of the auth's\n// generated management. A list that points into one reads the name from the view's\n// query, which its decoder is handed.",
+		"var NameViews = resource.NameViews{\n\t\"Hangars\": crewresources.Hangar{},\n}",
+	} {
+		if !strings.Contains(out, wantText) {
+			t.Errorf("output lacks %q:\n%s", wantText, out)
+		}
+	}
+}
+
+// Test_mergedNameViews pins the handler package's name views: every package's NameViews
+// merged into the one value the generated query decoders are handed, the application's
+// first; with none, the merge of nothing, still handed over.
+func Test_mergedNameViews(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		data *nameViewsAssemblyData
+		want string
+	}{
+		{
+			name: "no package declares a name view",
+			data: &nameViewsAssemblyData{Source: "pkg/resources", Package: "app"},
+			want: "var nameViews = resource.MergeNameViews()",
+		},
+		{
+			name: "the application's and an auth's",
+			data: &nameViewsAssemblyData{Source: "pkg/resources", Package: "app", Values: []string{"virtualresources.NameViews", "crewhandlers.NameViews"}},
+			want: "var nameViews = resource.MergeNameViews(\n\tvirtualresources.NameViews,\n\tcrewhandlers.NameViews,\n)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := renderFormatted(t, "nameViewsTemplate", nameViewsTemplate, tt.data)
+			comment := "// nameViews are the application's name views: the NameViews of the virtual resources\n// package and of every auth's generated management, merged into the one value the\n// generated query decoders are handed."
+			for _, want := range []string{"package app", comment, tt.want} {
+				if !strings.Contains(out, want) {
+					t.Errorf("output lacks %q:\n%s", want, out)
 				}
 			}
 		})

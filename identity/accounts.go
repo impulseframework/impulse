@@ -190,7 +190,8 @@ func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userI
 // tenant the request was checked in, or of the application. sent is told how the
 // mailing went, once the transaction has committed: whether the link was mailed and,
 // where it was not, why, in a sentence for the administrator who asked (the account has
-// no password to reset or no confirmed address, or the address was mailed too often).
+// no password to reset or no confirmed address, its password is disabled by its
+// organization's sign-in settings, or the address was mailed too often).
 //
 // The link goes to the person's own mailbox and to nowhere the caller names, so it is
 // the caller's to send for whoever the role file lets them manage; an account of

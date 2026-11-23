@@ -133,7 +133,9 @@ type impersonatedSessions struct {
 // atomically, and returns the session ID. Custom session data follows the session
 // type's creation semantics inside the same transaction. The request's Username is
 // written as the session's effective identity; no user record is consulted here: the
-// session type resolved the identity before calling.
+// session type resolved the identity before calling. For a session held as a person,
+// that identity is the person's username, and the record keeps it beside the id of
+// their account, as it is when the session begins.
 func (i impersonatedSessions) create(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -141,8 +143,13 @@ func (i impersonatedSessions) create(ctx context.Context, req *sessioninfo.NewSe
 	session := &dbtype.InsertSession{
 		Username: req.Username,
 	}
+	record := dbtype.NewInsertImpersonation(imp)
+	if _, ok := imp.Principal.User(); ok {
+		username := req.Username
+		record.PrincipalUsername = &username
+	}
 
-	id, err := i.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
+	id, err := i.db.InsertImpersonatedSession(ctx, session, req, record)
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "db.InsertImpersonatedSession()")
 	}

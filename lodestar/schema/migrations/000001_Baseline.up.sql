@@ -750,6 +750,7 @@ CREATE TABLE CrewSessionImpersonations (
     SourceSessionId  STRING(36),
     PrincipalKind    STRING(16) NOT NULL,
     PrincipalUserId  STRING(MAX),
+    PrincipalUsername STRING(MAX),
     PrincipalRole    STRING(MAX),
     Mask             STRING(MAX),
     Reason           STRING(MAX),
@@ -768,6 +769,12 @@ CREATE INDEX CrewSessionImpersonations_ActorUsername_idx
 CREATE INDEX CrewSessionImpersonations_PrincipalUserId_idx
     ON CrewSessionImpersonations
     (PrincipalUserId, StartedAt DESC);
+
+-- The Watch desk's As column is filtered by this index. Nothing in the session library
+-- reads it.
+CREATE INDEX CrewSessionImpersonations_PrincipalUsername_idx
+    ON CrewSessionImpersonations
+    (PrincipalUsername, StartedAt DESC);
 
 -- Tenant-leading indexes for the bare-tenant resources that list in a declared order:
 -- each list reads its page off the index instead of sorting the sector's partition.

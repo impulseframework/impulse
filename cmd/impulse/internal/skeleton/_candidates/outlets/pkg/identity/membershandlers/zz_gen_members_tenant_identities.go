@@ -20,19 +20,21 @@ import (
 
 func (h *Handlers) MembersTenantIdentities() http.HandlerFunc {
 	type membersTenantIdentity struct {
-		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
-		DomainID      string       `json:"domainId"      index:"true"`
-		UserID        impulse.UUID `json:"userId"        index:"true"`
-		Username      string       `json:"username"      index:"true"`
-		Method        string       `json:"method"        index:"true"`
-		Connection    string       `json:"connection"`
-		Subject       string       `json:"subject"`
-		Tenant        *string      `json:"tenant"`
-		EmailAtLink   *string      `json:"emailAtLink"`
-		CreatedAt     time.Time    `json:"createdAt"     index:"true"`
-		LastUsedAt    time.Time    `json:"lastUsedAt"`
-		HeldElsewhere bool         `json:"heldElsewhere" index:"true"`
-		HeldGlobally  bool         `json:"heldGlobally"  index:"true"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"                  index:"true"`
+		UserID                    impulse.UUID `json:"userId"                    index:"true"`
+		Username                  string       `json:"username"                  index:"true"`
+		Method                    string       `json:"method"                    index:"true"`
+		Connection                string       `json:"connection"`
+		Subject                   string       `json:"subject"`
+		Tenant                    *string      `json:"tenant"`
+		EmailAtLink               *string      `json:"emailAtLink"`
+		CreatedAt                 time.Time    `json:"createdAt"                 index:"true"`
+		LastUsedAt                time.Time    `json:"lastUsedAt"`
+		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
+		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
+		ManagedHere               bool         `json:"managedHere"               index:"true"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory" index:"true"`
 	}
 
 	type response []map[string]any
@@ -128,6 +130,14 @@ func (h *Handlers) MembersTenantIdentities() http.HandlerFunc {
 					if !row.Masked("heldGlobally") {
 						rmap["heldGlobally"] = rec.HeldGlobally
 					}
+				case "ManagedHere":
+					if !row.Masked("managedHere") {
+						rmap["managedHere"] = rec.ManagedHere
+					}
+				case "ManagedByAnotherDirectory":
+					if !row.Masked("managedByAnotherDirectory") {
+						rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -151,19 +161,21 @@ func (h *Handlers) MembersTenantIdentities() http.HandlerFunc {
 
 func (h *Handlers) MembersTenantIdentity() http.HandlerFunc {
 	type response struct {
-		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
-		DomainID      string       `json:"domainId"`
-		UserID        impulse.UUID `json:"userId"`
-		Username      string       `json:"username"`
-		Method        string       `json:"method"`
-		Connection    string       `json:"connection"`
-		Subject       string       `json:"subject"`
-		Tenant        *string      `json:"tenant"`
-		EmailAtLink   *string      `json:"emailAtLink"`
-		CreatedAt     time.Time    `json:"createdAt"`
-		LastUsedAt    time.Time    `json:"lastUsedAt"`
-		HeldElsewhere bool         `json:"heldElsewhere"`
-		HeldGlobally  bool         `json:"heldGlobally"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"`
+		UserID                    impulse.UUID `json:"userId"`
+		Username                  string       `json:"username"`
+		Method                    string       `json:"method"`
+		Connection                string       `json:"connection"`
+		Subject                   string       `json:"subject"`
+		Tenant                    *string      `json:"tenant"`
+		EmailAtLink               *string      `json:"emailAtLink"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastUsedAt                time.Time    `json:"lastUsedAt"`
+		HeldElsewhere             bool         `json:"heldElsewhere"`
+		HeldGlobally              bool         `json:"heldGlobally"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 	}
 
 	decoder := NewQueryDecoder[membersresources.MembersTenantIdentity, response](h, accesstypes.Read)
@@ -246,6 +258,14 @@ func (h *Handlers) MembersTenantIdentity() http.HandlerFunc {
 			case "HeldGlobally":
 				if !row.Masked("heldGlobally") {
 					rmap["heldGlobally"] = rec.HeldGlobally
+				}
+			case "ManagedHere":
+				if !row.Masked("managedHere") {
+					rmap["managedHere"] = rec.ManagedHere
+				}
+			case "ManagedByAnotherDirectory":
+				if !row.Masked("managedByAnotherDirectory") {
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			}
 		}

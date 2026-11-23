@@ -26,8 +26,10 @@ import (
 // application's, served under the tenant's address:
 //
 //   - the tenant's people: one row per person who holds a role in the tenant or in every
-//     tenant, with the account's columns and two facts a grant's condition reads
-//     (heldElsewhere, heldGlobally);
+//     tenant, and per person who signs in through the tenant's directory, with the
+//     account's columns and the facts a grant's condition reads (managedHere,
+//     managedByAnotherDirectory, heldElsewhere, heldGlobally, heldHere,
+//     heldInEveryTenant);
 //   - the roles held there: one row per role a person holds in the tenant, with the fact
 //     everyDomain;
 //   - the one list of the roles held there with where each comes from: those rows, and
@@ -36,7 +38,7 @@ import (
 //   - the tenant's invitations: the mail links of the invitation kind that name the
 //     tenant, with the fact pending;
 //   - the identities of the tenant's people: one row per identity link of a person of
-//     the first list, with the person's two facts.
+//     the first list, with four of the person's facts.
 //
 // A view is a @virtual struct whose query the framework selects from: nothing is
 // created in the database. The role file grants each list like any resource, field by

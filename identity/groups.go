@@ -318,7 +318,10 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 // person left with no role of their own and no place in any group is deleted with their
 // identity links and sessions, in the same transaction. What the person holds is read as
 // committed, and a row whose period has ended keeps the account like any other: an
-// account goes when nothing at all is left of what was given to it (keeps).
+// account goes when nothing at all is left of what was given to it (keeps). An account
+// that signs in through a tenant's directory is that tenant's to delete: it goes this way
+// only with the last thing it holds in that tenant itself, and otherwise stays, holding
+// nothing, in that tenant's list of its people.
 //
 // Taking a person out of a group takes each of the group's roles from them, so the
 // removal is held to what a role's removal is: a request needs what taking each role
@@ -346,17 +349,22 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	if !in {
 		return nil
 	}
-	last, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
+	removal, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
 	if err != nil {
 		return err
 	}
 	// The notice of a removal from a tenant is mailed to the address the person
 	// confirmed, read while the account is still there to read it from.
-	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, last); err != nil {
+	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, removal.deletes); err != nil {
 		return err
 	}
-	if last {
+	switch {
+	case removal.deletes:
 		if err := m.deleteLeftWithNothing(ctx, txn, userID, "the group they were removed from was the last thing they held"); err != nil {
+			return err
+		}
+	case removal.last:
+		if err := m.logManagedElsewhere(ctx, txn, userID, removal.managedBy); err != nil {
 			return err
 		}
 	}

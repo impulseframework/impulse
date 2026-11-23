@@ -14,15 +14,18 @@ import (
 )
 
 // tenantAccounts holds the grants a tenant's role carries on the generated methods that
-// change a person's account. An account is one for the whole application: the person a
-// tenant's administrator disables, renames or deletes is disabled, renamed or deleted
-// for every tenant that holds them and for the application's own staff. The generated
-// management leaves what a tenant may do to such a person to the role file, as a
-// condition on the method's grant over the facts the tenant's list of people carries
-// (heldElsewhere, heldGlobally), so the rule can differ between applications. A grant
-// with no condition that reads the person's row states no rule at all: every tenant's
-// administrator may then change any account their tenant holds a role for. The check
-// names each such grant.
+// act on a person's account: the methods that change it, and the one that mails its
+// person a password reset link. An account is one for the whole application, and one
+// party manages it: the tenant whose directory the person signs in through, otherwise
+// the one tenant the person holds roles in, otherwise the application's own
+// administrators. The person a tenant's administrator disables, renames or deletes is
+// disabled, renamed or deleted for every tenant that holds them and for the
+// application's own staff. The generated management leaves what a tenant may do to such
+// a person to the role file, as a condition on the method's grant over the facts the
+// tenant's list of people carries (managedHere, managedByAnotherDirectory), so the rule
+// can differ between applications. A grant with no condition that reads the person's
+// row states no rule at all: every tenant's administrator may then act on any account in
+// their tenant's list of people. The check names each such grant.
 type tenantAccounts struct{}
 
 // tenantAccountsName is the check's name.
@@ -31,12 +34,12 @@ const tenantAccountsName = "tenant-accounts"
 func (tenantAccounts) Name() string { return tenantAccountsName }
 
 func (tenantAccounts) Describe() string {
-	return "every grant a tenant's role carries on a generated method that changes a person's account (disable, enable, delete, rename, set the address, require a password change, end the sessions, forget the trusted devices, unlink a sign-in identity, remove the password) carries a condition that reads the person's row"
+	return "every grant a tenant's role carries on a generated method that changes a person's account or mails them a password reset link (disable, enable, delete, rename, set the address, require a password change, end the sessions, forget the trusted devices, unlink a sign-in identity, remove the password, send a password reset link) carries a condition that reads the person's row"
 }
 
 // Meaning explains the obligation for the handoff brief.
 func (tenantAccounts) Meaning() string {
-	return "A person's account is one for the whole application, so a method a tenant runs on it reaches every tenant that holds the person and the application's own staff. The generated management leaves the rule to the role file: each tenant method that changes an account names a row of the tenant's list of people (`<Auth><Tenant>Users`), whose facts a grant's condition reads, `heldElsewhere` (the person also holds a role in another tenant, or in every tenant) and `heldGlobally` (the person holds a role of the whole application). Give a domain role each such method under a condition over the row, `heldElsewhere = false AND heldGlobally = false` where an account is a tenant's to change only while that tenant alone holds the person (the tenanted skeleton's rule), or the condition your application's rule is. A grant with no condition, or with one that reads the request or the clock alone, states no rule about the person, and each line under the check names one. Every conditional grant is then proven by a test case (`conditions-proven`)."
+	return "A person's account is one for the whole application, and one party manages it: the tenant whose directory the person signs in through, otherwise the one tenant the person holds roles in, otherwise the application's own administrators. The generated management leaves what a tenant may do to a person to the role file: each tenant method that changes an account, or mails its person a password reset link, names a row of the tenant's list of people (`<Auth><Tenant>Users`), whose facts a grant's condition reads. `managedHere` says this tenant manages the account, and `managedByAnotherDirectory` says the person signs in through another tenant's directory. `heldElsewhere`, `heldGlobally`, `heldHere` and `heldInEveryTenant` say where the person holds roles. Give a domain role each account method under `managedHere = true` and the reset link under `managedHere = true OR managedByAnotherDirectory = false` (the skeletons' rule), or under the condition your application's rule is. A grant with no condition, or with one that reads the request or the clock alone, states no rule about the person, and each line under the check names one. Every conditional grant is then proven by a test case (`conditions-proven`)."
 }
 
 const (
@@ -46,7 +49,8 @@ const (
 	accountSet = "Set"
 )
 
-// tenantAccountActs are the generated tenant methods that change a person's account, as
+// tenantAccountActs are the generated tenant methods that act on a person's account (the
+// methods that change it, and the one that mails its person a password reset link), as
 // the generator names them around the auth and the tenant record: the whole
 // application's method name with the tenant record's name after the auth's. The methods
 // that give or take a role in the tenant, invite to it or withdraw its invitation change
@@ -63,10 +67,11 @@ var tenantAccountActs = []struct{ before, after string }{
 	{"Revoke", "UserTrustedDevices"},
 	{"Unlink", "SessionIdentity"},
 	{"Remove", "Password"},
+	{"Send", "UserPasswordResetLink"},
 }
 
-// tenantAccountMethods names the account-changing methods of one auth's management under
-// one tenant record.
+// tenantAccountMethods names the methods that act on an account in one auth's management
+// under one tenant record.
 func tenantAccountMethods(auth, tenant string) []string {
 	methods := make([]string, 0, len(tenantAccountActs))
 	for _, act := range tenantAccountActs {
@@ -103,7 +108,7 @@ func (c tenantAccounts) Run(_ context.Context, env *Env) Result {
 					continue
 				}
 				if problem := accountGrantProblem(g.Condition); problem != "" {
-					details = append(details, fmt.Sprintf("%s: the tenant role %s is granted Execute on %s %s, so every tenant's holder of the role may change the account of a person another tenant or the whole application also holds; state the application's rule in the grant's condition over the person's row (heldElsewhere = false AND heldGlobally = false keeps an account to the tenant that alone holds the person)", f.Path, role.Name, g.Resource, problem))
+					details = append(details, fmt.Sprintf("%s: the tenant role %s is granted Execute on %s %s, so every tenant's holder of the role may act on the account of a person their tenant does not manage; state the application's rule in the grant's condition over the person's row (managedHere = true keeps an account to the tenant that manages it; for the reset link, managedHere = true OR managedByAnotherDirectory = false leaves out only a person another tenant's directory manages)", f.Path, role.Name, g.Resource, problem))
 
 					continue
 				}
@@ -114,10 +119,10 @@ func (c tenantAccounts) Run(_ context.Context, env *Env) Result {
 		lines = append(lines, fmt.Sprintf("%s: %d grant(s) on the %s auth's account methods, each under a condition that reads the person's row", f.Path, heldHere, f.Auth.Name))
 	}
 	if len(details) > 0 {
-		return fail(c.Name(), fmt.Sprintf("%d grant(s) let a tenant change a person's account with no rule about the person", len(details)), details...)
+		return fail(c.Name(), fmt.Sprintf("%d grant(s) let a tenant act on a person's account with no rule about the person", len(details)), details...)
 	}
 
-	return passWithDetails(c.Name(), fmt.Sprintf("%d grant(s) of a tenant's roles on the methods that change a person's account, each under a condition that reads the person's row", held), lines...)
+	return passWithDetails(c.Name(), fmt.Sprintf("%d grant(s) of a tenant's roles on the methods that act on a person's account, each under a condition that reads the person's row", held), lines...)
 }
 
 // accountGrantProblem says what a grant's condition lacks, or nothing where it reads the
@@ -138,8 +143,8 @@ func accountGrantProblem(text string) string {
 	return ""
 }
 
-// managedTenantMethods lists, by auth package path, the account-changing tenant methods
-// the application's programs generate: for each site whose program generates the
+// managedTenantMethods lists, by auth package path, the tenant methods that act on an
+// account that the application's programs generate: for each site whose program generates the
 // management of its auths' people (GenerateIdentity) and whose resource package declares
 // a tenant record, the methods of each auth its outlets declare.
 func managedTenantMethods(a *app.App) map[string][]string {

@@ -193,7 +193,9 @@ export APP_PUBLIC_URL=http://127.0.0.1:4300
 # Workspace SMTP relay, the address the mail is from when it is not the mailbox (an alias
 # of its account), and the mailbox's app password. Unset in development, where the session
 # library's logging stand-in writes each message to the server's log instead of sending it,
-# link included: follow the link from the log.
+# link included: follow the link from the log. Only development
+# (APP_ENVIRONMENT=development, above) may leave them unset: anywhere else the application
+# does not start without the mailbox and its app password.
 # export APP_MAIL_MAILBOX=no-reply@example.com
 # export APP_MAIL_FROM=
 # export APP_MAIL_APP_PASSWORD=

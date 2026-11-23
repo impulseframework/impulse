@@ -1680,9 +1680,12 @@ import (
 //
 // A place in a group keeps an account as a role of its own does: a person left with no
 // role anywhere and no place in a group is deleted with their identity links and
-// sessions, in the same transaction, since an account nothing admits is not kept. A
-// person who takes themselves out keeps a place that makes them the last administrator
-// of a tenant, as they keep the role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
+// sessions, in the same transaction, since an account nothing admits is not kept. An
+// account that signs in through a tenant's directory is that tenant's to delete: it goes
+// this way only with the last thing it holds in that tenant itself, and otherwise stays,
+// holding nothing, in that tenant's list of its people. A person who takes themselves
+// out keeps a place that makes them the last administrator of a tenant, as they keep the
+// role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
 //
 // The method declares a warning with no word to type: asked first, the server says who
 // leaves which group, and, where the place is the last thing the person holds, that the

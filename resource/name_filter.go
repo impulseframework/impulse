@@ -18,7 +18,7 @@ type nameFilter struct {
 	// so a masked id meets no condition but isnull.
 	id string
 	// keys selects the pointed-to table's keys under the condition's own alias:
-	// SELECT a.K FROM T a.
+	// SELECT a.K FROM T a, or, from a view, SELECT a.K FROM (<its query>) AS a.
 	keys string
 	// held is what the pointed-to rows are held to before the condition: the
 	// tenant test and, in parentheses, the condition the name's grant is held
@@ -64,6 +64,10 @@ func (q *QuerySet[Resource]) nameFilters(dbType DBType, filterAst ExpressionNode
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
 		}
 
+		query, err := q.nameViewQuery(&name.NameField, registry)
+		if err != nil {
+			return nil, err
+		}
 		alias := registry.alias()
 		held := nameTenantTest(&name.NameField, alias, registry)
 		if grant.IsConditional() {
@@ -73,9 +77,9 @@ func (q *QuerySet[Resource]) nameFilters(dbType DBType, filterAst ExpressionNode
 		}
 		filter := &nameFilter{
 			id: gen.quoteIdentifier(key.ColumnName),
-			keys: fmt.Sprintf("SELECT %s FROM %s %s",
+			keys: fmt.Sprintf("SELECT %s FROM %s",
 				gen.renderColumnRef(columnRef{qualifier: alias, column: name.KeyColumn}),
-				gen.quoteIdentifier(name.Table), gen.quoteIdentifier(alias)),
+				gen.fromItem(name.Table, query, alias)),
 		}
 		if held != nil {
 			if filter.held, err = gen.generateLowered(held, registry); err != nil {

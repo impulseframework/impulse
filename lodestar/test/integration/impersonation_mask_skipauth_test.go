@@ -76,10 +76,11 @@ func credentialBody(t *testing.T, action accesstypes.Resource, userID accesstype
 }
 
 // anvilsOwn makes a person Anvil holds alone, whom a sector's own methods reach (their
-// grants stop at a person who holds a role anywhere else): an account nobody has signed
-// in to (seedCrewAccount), which the governor gives the Cadet role in Anvil. Nobody
-// makes an account for someone else through the application, where a person comes in by
-// an invitation. It answers the account's id.
+// grants stop at a person whose account the sector does not manage, and Anvil, which has
+// no directory, manages a person it holds alone): an account nobody has signed in to
+// (seedCrewAccount), which the governor gives the Cadet role in Anvil. Nobody makes an
+// account for someone else through the application, where a person comes in by an
+// invitation. It answers the account's id.
 func anvilsOwn(ctx context.Context, t *testing.T, s *served) accesstypes.User {
 	t.Helper()
 
@@ -186,7 +187,8 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 	governor.signIn(ctx, "governor")
 
 	// The person the methods are asked to act on: one Anvil holds alone, whom a sector's
-	// own methods reach (their grants stop at a person who holds a role anywhere else).
+	// own methods reach (their grants stop at a person whose account the sector does not
+	// manage).
 	target := anvilsOwn(ctx, t, s)
 	// What the governor's roles give him, in the whole application and in Anvil.
 	holds := func(action accesstypes.Resource) bool {

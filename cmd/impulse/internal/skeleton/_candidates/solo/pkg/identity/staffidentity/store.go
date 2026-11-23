@@ -826,6 +826,13 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+// ManagingTenants answers no tenant: no tenant's directory signs a person of the
+// Staff auth in here, so no tenant manages an account that holds nothing in it
+// (identity.Store.ManagingTenants).
+func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.Domain, error) {
+	return nil, nil
+}
+
 // groupID answers a group's id as the declarations hold it, from the text the permission
 // store names a group by.
 func groupID(group accesstypes.Group) (impulse.UUID, error) {

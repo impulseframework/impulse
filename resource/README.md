@@ -99,7 +99,7 @@ type Ship struct { ... }
 | `@tenant` | `@resource` struct | none, or `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); what makes a tenant (the generated `New<Record>Maker`, at the first sign-in of a person staff invited, and the create-your-tenant route) and the record's generated delete path reread the roster after their commit and signal the tenants kind, so a tenant made at run time is served by every instance without a restart or a release. Nobody creates a tenant directly: the record's create op is refused with how one is made (section 16). The record must be global, table-backed, and keyed by one generated id (`ID impulse.UUID`, whose text is the domain in every tenant-scoped URL; what people call the tenant is its `@tenantName` column, changed like any field): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not a generated id (a typed string, a foreign key, an interleaved table), on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directory only: a tenant whose flag is true admits a sign-in through its own directory and nothing else, so a password, a personal account and a sign-in through another organization's directory do not reach it. Two people are not held to it: a super administrator, and an administrator of the tenant itself, who enters with a password and a second factor so that a tenant whose directory is broken can be mended from inside (section 16, "Directory only"). The flag restricts that tenant's own door alone: a tenant whose flag is false admits everyone it seats, however they signed in, and a person the flag keeps out of one tenant still enters every other tenant that seats them. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directory only needs a directory to enter through, and the directory of such a tenant is not removed until the flag is turned off. The switch is the tenant's own: the generator writes two methods in the tenant's scope, `Make<Record>DirectoryOnly` and `End<Record>DirectoryOnly`, which the tenant's administrator runs under an Execute grant on each; turning the flag on is held to three rules (the tenant has its directory, the caller is signed in through it, and the caller has a password where their auth has passwords; section 16, "Directory only"). The record's own write paths, which are global, show the flag and never write it: the field is output only on the wire, at create and at update, and the record's change events are the audit. The generated create-your-tenant route leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name and the people pages name the tenant a role or an invitation is in. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@name` | field of a `@resource` or `@virtual` struct, a `string` or `*string` | none | The field the resource's rows are known by. Beside every id field that points to one of its rows, by a foreign key or a field-scope `@enumerate`, the generator adds a name field for the name of that row, spelled as the id field with a trailing `Id` dropped, then `Name` (`SquadronID` gives `SquadronName`, `squadronName` on the wire): read-only and stored nowhere, with no column and no schema change. It is declared on the list's and the row's request types marked `nameof:"<the id field>"`, in the resource's generated `NameFields()` with the table and columns the name is looked up in, on the TypeScript row type and its field-name constants (among the PII names where the pointed-to name is `pii`), and in the metadata's `nameFields`. A name field is no column of the resource: the statement looks it up by the id, in one scalar subquery held to the request's tenant where the pointed-to row belongs to one (by its tenant column, or by the way it reaches its tenant through other tables), so a row of another tenant gives no name, and neither does a row whose id is masked. Reading a name takes two grants: the request's own grant on the id field, and the List grant on the pointed-to resource's name field, asked in the request's tenant where the pointed-to resource belongs to a tenant and globally where it does not. An enumeration table's names take the first alone. Where the second is held under a condition, a row gives the name only where the condition holds for the row it points to. A request may name a name field in `columns`, and a request that names no columns is given the name beside every id it returns, less the names the person may not read; a row carries the name under its wire name and leaves it out where there is none. A person without the second grant who names the field in `columns` or `sort` is refused in the words of any field they may not read ("You may not sort or filter hangar passes by the squadron name here."), and a declared `@order` by a name they may not read orders their list as if no row had that name. So does a row whose id they may not read: under a declared `@order` by the name it sorts as a row with no name. `sort` and `@order` may name one, which orders the list by the names, the key breaking ties, and pages by them; no index serves such an order. `@order` naming a name the generator adds no field for is refused, saying to declare the pointed-to resource's `@name`. A list's `filter` may name a name field where the id beside it is filterable and the name is filterable where it lives (the pointed-to name field is indexed, `allow_filter` or carries a search fact; an enumeration table's `Description` always): `squadronName:contains:red` is written `SquadronId IN (SELECT Id FROM Squadrons WHERE …)`, held to the request's tenant and to the condition the name's grant is held under, so the pointed-to table's own index or search index answers it. The name counts as the filter's indexed field only where the id and the pointed-to name are both indexed, and it answers the text matches only where the id is indexed and the pointed-to name carries a search fact. A filter by a name tests the name the row shows: a row that shows no name (no id, a masked id, a row of another tenant, a row the name's grant does not cover) matches `isnull` and nothing else. It takes the same two grants as showing the name, and a person without the second is refused as for `sort`. A name is filtered by in the request's body where the pointed-to name is `pii`, and never joins the search box. The row's own request type carries no filter tag for it; a name field with none is refused as not filterable. The entry in the metadata's `nameFields` states the same with a field's `filterable` and `search`. A column or field that begins with `zzName`, the prefix a statement selects the names under, is refused, saying to rename it. A resource that marks no name is not refused: a field pointing to it gets no name field and stays an ordinary field showing its stored value. The tenant record is known by its `@tenantName` and an enumeration table by its `Description` column; neither needs `@name`. No name field is added for the name of a tenant's row on a list asked outside one tenant (a global resource's, and both lists of a resource declared `@listAcrossTenants`), where the pointed-to resource is a view (`@virtual`: its rows are a query of the application's, which a lookup does not read yet) or a `@computed` resource, or beside a field called `Id` alone. A resource written by hand whose `NameFields()` describes the name of a tenant's row is refused when its list across tenants is decoded, saying to take the name out. Refused on a field that is not a string, on a second field, on a field the resource never returns (a `conditions:"secret"` or `conditions:"input_only"` field, or a `@file` store key: a row's name is shown to everyone who may read the resource's names), on the tenant record (write `@tenantName`), on an enumeration table's struct and on a `@computed` resource; and a name field that would take the name of a field the struct declares, or of another name field, is refused, naming the field to remove or rename. Example: [the fixture](../generation/testdata/namefixture/fixture.go). |
+| `@name` | field of a `@resource` or `@virtual` struct, a `string` or `*string` | none | The field the resource's rows are known by. Beside every id field that points to one of its rows, by a foreign key or a field-scope `@enumerate`, the generator adds a name field for the name of that row, spelled as the id field with a trailing `Id` dropped, then `Name` (`SquadronID` gives `SquadronName`, `squadronName` on the wire): read-only and stored nowhere, with no column and no schema change. It is declared on the list's and the row's request types marked `nameof:"<the id field>"`, in the resource's generated `NameFields()` with the table and columns the name is looked up in, on the TypeScript row type and its field-name constants (among the PII names where the pointed-to name is `pii`), and in the metadata's `nameFields`. A name field is no column of the resource: the statement looks it up by the id, in one scalar subquery held to the request's tenant where the pointed-to row belongs to one (by its tenant column, or by the way it reaches its tenant through other tables), so a row of another tenant gives no name, and neither does a row whose id is masked. Reading a name takes two grants: the request's own grant on the id field, and the List grant on the pointed-to resource's name field, asked in the request's tenant where the pointed-to resource belongs to a tenant and globally where it does not. An enumeration table's names take the first alone. Where the second is held under a condition, a row gives the name only where the condition holds for the row it points to. A request may name a name field in `columns`, and a request that names no columns is given the name beside every id it returns, less the names the person may not read; a row carries the name under its wire name and leaves it out where there is none. A person without the second grant who names the field in `columns` or `sort` is refused in the words of any field they may not read ("You may not sort or filter hangar passes by the squadron name here."), and a declared `@order` by a name they may not read orders their list as if no row had that name. So does a row whose id they may not read: under a declared `@order` by the name it sorts as a row with no name. `sort` and `@order` may name one, which orders the list by the names, the key breaking ties, and pages by them; no index serves such an order. `@order` naming a name the generator adds no field for is refused, saying to declare the pointed-to resource's `@name`. A list's `filter` may name a name field where the id beside it is filterable and the name is filterable where it lives (the pointed-to name field is indexed, `allow_filter` or carries a search fact; an enumeration table's `Description` always): `squadronName:contains:red` is written `SquadronId IN (SELECT Id FROM Squadrons WHERE …)`, held to the request's tenant and to the condition the name's grant is held under, so the pointed-to table's own index or search index answers it. The name counts as the filter's indexed field only where the id and the pointed-to name are both indexed, and it answers the text matches only where the id is indexed and the pointed-to name carries a search fact. A filter by a name tests the name the row shows: a row that shows no name (no id, a masked id, a row of another tenant, a row the name's grant does not cover) matches `isnull` and nothing else. It takes the same two grants as showing the name, and a person without the second is refused as for `sort`. A name is filtered by in the request's body where the pointed-to name is `pii`, and never joins the search box. The row's own request type carries no filter tag for it; a name field with none is refused as not filterable. The entry in the metadata's `nameFields` states the same with a field's `filterable` and `search`. A name whose pointed-to resource, or whose name field there, stands behind a feature flag that is off is unknown to a request, as a name beside a hidden id is. A column or field that begins with `zzName`, the prefix a statement selects the names under, is refused, saying to rename it. A resource that marks no name is not refused: a field pointing to it gets no name field and stays an ordinary field showing its stored value. The tenant record is known by its `@tenantName` and an enumeration table by its `Description` column; neither needs `@name`. No name field is added for the name of a tenant's row on a list asked outside one tenant (a global resource's, and both lists of a resource declared `@listAcrossTenants`), where the pointed-to resource is a `@computed` resource, or beside a field called `Id` alone. A resource written by hand whose `NameFields()` describes the name of a tenant's row is refused when its list across tenants is decoded, saying to take the name out. Refused on a field that is not a string, on a second field, on a field the resource never returns (a `conditions:"secret"` or `conditions:"input_only"` field, or a `@file` store key: a row's name is shown to everyone who may read the resource's names), on the tenant record (write `@tenantName`), on an enumeration table's struct and on a `@computed` resource; and a name field that would take the name of a field the struct declares, or of another name field, is refused, naming the field to remove or rename. Where the pointed-to resource is a view, the name is read from the view's query, written into the statement where a table's name would be, with the view's parameters; the generated handlers hand every view that declares a name to their decoders (`WithNameViews`). Such a view's query opens with no WITH clause, and a name read from a view answers the comparisons and no text match. A view a name is read from gives one row for each key, in one tenant where it belongs to a tenant, as a table's key does: the name of a key it gives twice cannot be read. The metadata names the field (`nameField`), and a form's picker over the resource shows and lists its rows by it. Example: [the fixture](../generation/testdata/namefixture/fixture.go). |
 | `@roleOf` | field of a `@resource`, `@virtual` or `@computed` struct, a `string`, a `*string` or a `[]string` | the auth whose roles the field holds, by its name: `@roleOf(Staff)` | The field holds the name of a role of that auth. The generated metadata lists the roles the field may hold (`roles`): the roles the auth's role file defines, a tenant's roles alone on a tenant-scoped resource, and on every other resource the Super Administrator role too. A list writes the field in words, "Night shift lead" for `NightShiftLead`, as the server's sentences name a role; the column's filter offers those roles to pick, in words, and sends the stored name. A picker over a list whose field carries it writes that field in words. A role made at run time (`access.UserManager.AddRole`) is written in words too, and the filter offers it where a row of the list holds it: the table asks the list which roles it holds beyond these. On a list field each item is a role's name; where a line of text follows the name after a space (where the role is held), the name is written in words and the rest as it is. The role file is thereby one of the generator's inputs: after a role is added to the file, renamed or removed, `go generate ./...` writes the lists again, and `impulse check`'s `regen` refuses generated files that are behind the file. |
 | `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the record's generated create sets both from the directory the caller is signed in through and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account), and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator sets and removes its own directory under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy` (a package that declares no directories record and makes the tenant record's rows itself is given the reader too, one that answers nothing for every tenant: "No directories", section 16), the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure`, `workos` or `oidc` (an organization's own OpenID Connect provider, named by its registration's connection). The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
@@ -381,7 +381,7 @@ index comes back to the view's rows through the foreign key, and the key set cos
 matches only when that index serves it. On PostgreSQL every match renders as `ILIKE` over the role's
 expression of the column and a branch as a correlated `EXISTS`; the matching trigram or
 expression index is the application's DDL, as every PostgreSQL index is. `count=true`
-counts under the same box, and a cursor's fingerprint covers the filter as before.
+counts under the same box, and a cursor's fingerprint covers the filter as before. A branch whose child field, whose child resource, or whose foreign key to the parent stands behind a feature flag that is off is left out of the box for that request: the box searches it again when the flag is on.
 
 A sort or filter runs over the projection the caller can see. A field the caller is
 denied cannot be sorted or filtered on: the request is a 403 naming the field, because
@@ -3604,15 +3604,17 @@ The read also says what a page of the tenant's sign-in settings shows
 `DefaultRole`, the role a person gets the first time they sign in through it, in words;
 `Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
 that says how the caller signed in; `SessionDirectory`, the organization's directory the
-caller is signed in through; and `People`, how many people hold a role in the tenant
-(`Seated`) and how many of them the switch keeps out (`Outside`), counted as the warning
-counts them. The generated rules are told who counts (`CountedBy`): each auth's identity
-client answers how many people the tenant seats (`SeatedCount`) and who the switch keeps
-out (`DirectoryOutsiders`).
+caller is signed in through; and `People`, how many people the tenant's list holds
+(`Seated`: who holds a role in the tenant, and who signs in through its directory) and
+how many of them the switch keeps out (`Outside`), counted as the warning counts them.
+The generated rules are told who counts (`CountedBy`): each auth's identity client
+answers how many people its list of the tenant holds (`SeatedCount`) and who the switch
+keeps out (`DirectoryOutsiders`).
 
-The tenant's own list of its people (section 21) is made from who holds a role in the
-tenant, never from who can sign in, so a person the flag keeps out stays in it with
-their roles. Where the record declares the flag the list carries one more field,
+The tenant's own list of its people (section 21) holds everyone who holds a role in the
+tenant, whether or not they can sign in, so a person the flag keeps out stays in it with
+their roles; it holds everyone who signs in through the tenant's directory too, whatever
+they hold. Where the record declares the flag the list carries one more field,
 `cannotEnter`: while the tenant is directory only, the row of a person who has no
 sign-in through the tenant's directory says so ("Has not signed in through this
 tenant's directory, so cannot enter while this tenant is directory only"), and it is
@@ -4384,12 +4386,16 @@ list is named for what it holds, with the Auth's name and the application's tena
 record's before it. A tenant record whose name would give a list one of those names (a
 record named `Session`, `User` or `Listed`) is refused at generation:
 
-- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in
-  the tenant or in every tenant, keyed by the account's id, with the columns of
-  `CrewSessionUsers`. A person who holds a role in two tenants is a row in each. Two
-  facts: `heldElsewhere` (the person also holds a role outside this tenant's own: in
-  another tenant, or in every tenant) and `heldGlobally` (the person holds a role for
-  the whole application).
+- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
+  tenant or in every tenant, and, where the tenant has a directory, per person who signs
+  in through it, keyed by the account's id, with the columns of `CrewSessionUsers`. A
+  person who holds a role in two tenants is a row in each. Six facts: `heldElsewhere`
+  (the person also holds a role outside this tenant's own: in another tenant, or in
+  every tenant), `heldGlobally` (the person holds a role for the whole application),
+  `heldHere` (the person holds something in this tenant itself), `heldInEveryTenant`
+  (the person holds a role in every tenant at once), `managedHere` (this tenant manages
+  the person's account) and `managedByAnotherDirectory` (the person signs in through
+  another tenant's directory, and that tenant manages the account).
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not
@@ -4400,23 +4406,35 @@ record named `Session`, `User` or `Listed`) is refused at generation:
   invitation stands (not accepted, not withdrawn, not expired), and `role`, the roles
   it gives: a list, so a condition that reads it is judged once for each role and holds
   only when it holds for every one (section 2, `@attribute` on a list column).
-- `CrewSectorIdentities`, the identities of the tenant's people: one row per
-  identity link of a person of the first list, keyed by the link's id, with the columns
-  of `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
-  vouched for), the person's `userId` and `username`, and the person's two facts,
-  `heldElsewhere` and `heldGlobally`. The identity of a person who holds a role in two
-  tenants is a row in each. A person's page lists their identities by `userId`.
+- `CrewSectorIdentities`, the identities of the tenant's people: one row per identity
+  link of a person of the first list, keyed by the link's id, with the columns of
+  `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
+  vouched for), the person's `userId` and `username`, and four of the person's facts,
+  `heldElsewhere`, `heldGlobally`, `managedHere` and `managedByAnotherDirectory`. The
+  identity of a person who holds a role in two tenants is a row in each. A person's page
+  lists their identities by `userId`.
+
+One party manages each account, and the lists say which. The tenant whose directory a
+person signs in through manages their account. A person who signs in through no tenant's
+directory, and holds something in one tenant and nothing anywhere else, is managed by
+that tenant. Every other account is the application's own administrators' to manage.
+`managedHere` is true on the row of the tenant that manages the account. No sign-in
+links an account under a second tenant's directory. An account that came under two all
+the same (its links stood before either tenant took its directory, or the application
+wrote one itself with the store's `LinkIdentity`) is managed by both, and `managedHere`
+is true on both rows.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
-it by name, and the role file says what a tenant's administrator sees of a person who is
-not the tenant's alone. Lodestar's Sector Marshal sees every person of the sector and
-their address only where the sector holds them alone, and its Dispatcher the roles the
-sector itself gave:
+it by name, and the role file says what a tenant's administrator sees of a person whose
+account the tenant does not manage. Lodestar's Sector Marshal sees every person of the
+sector with their name, their address and whether the account is disabled, and the rest
+of the account only where the sector manages it, and its Dispatcher the roles the sector
+itself gave:
 
 ```json
 "List": [
-  { "resource": "CrewSectorUsers", "fields": ["username", "disabled", "createdAt", "lastSignInAt", "heldElsewhere", "heldGlobally"] },
-  { "resource": "CrewSectorUsers", "fields": ["email", "emailVerifiedAt", "passwordChangeRequired"], "condition": "heldElsewhere = false" }
+  { "resource": "CrewSectorUsers", "fields": ["username", "name", "email", "disabled", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "managedHere", "managedByAnotherDirectory", "outsideDirectory", "cannotEnter"] },
+  { "resource": "CrewSectorUsers", "fields": ["emailVerifiedAt", "passwordChangeRequired", "createdAt", "lastSignInAt"], "condition": "managedHere = true" }
 ]
 "List": [{ "resource": "CrewSectorUserRoles", "fields": ["username", "role"], "condition": "everyDomain = false" }]
 ```
@@ -4424,7 +4442,7 @@ sector itself gave:
 So an application where a tenant owns its people and one where the people are shared
 between tenants are two role files over the same lists. A grant names its fields, as on
 any view: a grant with none answers the key alone. The people's list filters and sorts by
-`username` and by the two facts; the account's other columns are no filter keys, so a
+`username` and by the six facts; the account's other columns are no filter keys, so a
 grant may carry any of them under a condition at no cost to a page.
 
 A view is a query the framework selects from (`FROM (<query>) AS <Resource>`), not a
@@ -4460,10 +4478,12 @@ those of the tenant, at any size of the application. (Read through an index by u
 when a membership named its person by username, the people took 0.45 s at 50,000 and the
 roles and identities longer.) The invitations read their own page from the index (26 rows
 at any size).
-Three costs are worth knowing. A filter on `heldElsewhere` or `heldGlobally`,
-or a grant on the list whose condition reads one and so holds every row to it, costs two
-index reads for each person of the tenant (seconds at 50,000 people; a condition on a
-field costs them for the page's rows alone). A row of the roles held is keyed by the
+Three costs are worth knowing. A filter on one of the person's facts (`heldElsewhere`,
+`heldGlobally`, `managedHere`, `managedByAnotherDirectory`), or a grant on the list
+whose condition reads one and so holds every row to it, costs index reads for each
+person of the tenant (two for where a person holds roles, and the person's identities
+besides for who manages them; seconds at 50,000 people; a condition on a field costs
+them for the page's rows alone). A row of the roles held is keyed by the
 user's id and the role, two columns the database looks up, so a read of one row, and the
 check a method makes of the role it names, reads the one person's memberships (2 to 4 ms
 and three rows at 50,000 people; a key that joined the two in one value could not be
@@ -4634,17 +4654,17 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   record's label or its name in words ("You are the last administrator of this
   sector."): the generated client hands it to the rules (`identity.WithTenantWord`).
 
-What a tenant may do to a person who also holds a role outside it, and which roles its
+What a tenant may do to a person whose account it does not manage, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
-account of a person the sector holds alone, gives every role but the Marshal's own, takes
+account of a person the sector manages, gives every role but the Marshal's own, takes
 a role away where the sector itself gave it, and withdraws an invitation that stands and
 gives no Marshal's role:
 
 ```json
 "Execute": [
-  { "resource": "DisableCrewSectorUser", "condition": "heldElsewhere = false AND heldGlobally = false" },
+  { "resource": "DisableCrewSectorUser", "condition": "managedHere = true" },
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
@@ -4973,8 +4993,9 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   request after the end. The sign-in rule and the session's list of tenants read what a
   person holds at the moment, and so do a tenant's list of its people
   (`CrewSectorUsers`) and the list of the identities of those people: a person whose
-  only role in a tenant has ended, or has not begun, is not one of its people. The two
-  facts about a person (`heldElsewhere`, `heldGlobally`) read what has not ended.
+  only role in a tenant has ended, or has not begun, is not one of its people. The
+  facts about where a person holds roles (`heldElsewhere`, `heldGlobally`, `heldHere`,
+  `heldInEveryTenant`), and `managedHere`, which reads them, read what has not ended.
 - The lists of roles and of places carry the period (`startsAt`, `endsAt`) under a
   field grant of their own, leave out a row that has ended and show one that has not
   begun, where it is given another period or taken away: `CrewSectorUserRoles`, the
@@ -5137,17 +5158,16 @@ every policy store's schema holds it).
   the identities, and for a tenant's list the role memberships and the groups too), so a
   page that holds it open reads it again when a sign-in links an identity or an
   administrator removes a password. A tenant's answers for a person of the tenant's own
-  list of people, nothing for anyone else, and carries the two facts of the person's row
-  (`heldElsewhere`, `heldGlobally`) for a grant's condition, with `password`, which says
-  whether the row is the password. A role file grants it to whoever reads the
-  identities. Lodestar's and the skeletons' grant a tenant's administrator the list
-  under `password = false OR heldElsewhere = false`: the identities that count of
-  every person of the tenant, and the password only of a person no other tenant holds,
-  the condition `passwordChangeRequired` is read under. Whether a person another tenant
-  holds too has a password is then not the tenant's to learn, the page offers no
-  removal for them (it offers one by the rows), and the removal is the whole
-  application's administrator's, who reads the password in the whole application's
-  list. Every field of that grant is under the condition, so a tenant's administrator
+  list of people, nothing for anyone else, and carries four facts of the person's row
+  (`heldElsewhere`, `heldGlobally`, `managedHere`, `managedByAnotherDirectory`) for a
+  grant's condition, with `password`, which says whether the row is the password. A role
+  file grants it to whoever reads the identities. Lodestar's and the skeletons' grant a
+  tenant's administrator the list under `managedHere = true`: how a person signs in is
+  read by the tenant that manages their account, the condition `passwordChangeRequired`
+  is read under. Whether a person another party manages has a password is then not the
+  tenant's to learn, the page offers no removal for them (it offers one by the rows), and
+  the removal is the whole application's administrator's, who reads the password in the
+  whole application's list. Every field of that grant is under the condition, so a tenant's administrator
   cannot ask for the list sorted or filtered by one of them (a sort or filter field
   needs a grant with no condition left once the request is checked): the list comes in
   its declared order, the password first.
@@ -5746,7 +5766,10 @@ own, outside any request, has no caller and is the application's act):
   group kept in that tenant, for a caller the method would refuse.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
-  nothing admits is not kept.
+  nothing admits is not kept. An account that signs in through a tenant's directory is
+  that tenant's to delete: it goes this way only with the last thing it holds in that
+  tenant itself, and otherwise stays, holding nothing, in that tenant's list of its
+  people.
 
 A caller is named by the id of their account, as the permission store names anyone, and
 the first three rules take the caller for the person acted on only where the request came
@@ -5760,7 +5783,8 @@ id is no account of the one being managed: there nobody is refused as acting on 
 
 **One tenant per person.** In an application whose tenants own their people, a person
 belongs to one tenant: the tenant that created or invited them manages the account, which
-it cannot do for a person another tenant holds too. The application says so where it
+no tenant does for a person two tenants hold, unless the person signs in through one
+tenant's directory. The application says so where it
 builds the client, beside its administrator roles (`identity.WithOneTenantPerPerson()`),
 and every way a person comes to hold a role in a tenant is then held to it:
 
@@ -5791,12 +5815,11 @@ and every way a person comes to hold a role in a tenant is then held to it:
 A refusal says the person belongs to another tenant and never which.
 
 The application's own people are outside the rule. A person who holds a role for the
-whole application or in every tenant is no tenant's to manage, whatever else they hold
-(the role files grant a tenant its account methods on a person it holds alone,
-`heldElsewhere = false AND heldGlobally = false`), so they are given a role in any
-tenant: an operator who is asked into one customer's tenant after another holds a role
-in each. Such a
-role is no tenant's either, so it never counts as one and is never refused. So that
+whole application or in every tenant is no tenant's to manage unless they sign in through
+that tenant's directory (the role files grant a tenant its account methods on a person
+whose account it manages, `managedHere = true`), so they are given a role in any tenant:
+an operator who is asked into one customer's tenant after another holds a role in each.
+Such a role is no tenant's either, so it never counts as one and is never refused. So that
 nobody is left in several tenants with nothing outside them, the last role a person
 holds outside the tenants is not taken away while they hold roles in more than one
 (409): take the roles in all but one tenant away first. A place in a group of the whole
@@ -5860,8 +5883,8 @@ reads, in `generated_identity_invitation_test.go`), `generated_identity_lists_te
 holds a sector's lists (each sector's rows, a person of two sectors in each, the
 facts, and the grants that carry a condition on one),
 `generated_identity_tenant_methods_test.go` a sector's methods (each account method
-allowed on a person the sector holds alone, refused on one it shares and not found for
-another sector's; the roles given and taken; the identities and the unlink) with
+allowed on a person whose account the sector manages, refused on one it does not manage
+and not found for another sector's; the roles given and taken; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the required password change),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
