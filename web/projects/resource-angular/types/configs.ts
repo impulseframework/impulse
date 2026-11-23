@@ -220,6 +220,16 @@ export function iconCellKey(id: string): string {
   return `${id}:icon`;
 }
 
+/**
+ * The display-row key the address of a column that opens its row (`opensRow`) rides
+ * under, beside the column's own key, which holds the words. The list writes both while
+ * it builds the display row and the grid reads both; a generated field name never carries
+ * a colon, so the key collides with none.
+ */
+export function linkCellKey(id: string): string {
+  return `${id}:link`;
+}
+
 export interface ActionButtonConfig {
   label: string;
   icon: string;
@@ -326,6 +336,13 @@ interface ColumnConfigBase {
    */
   sortable?: boolean;
   hideHeader?: boolean;
+  /**
+   * The column's words are the link that opens the row, to the page the View column leads
+   * to, and the list then draws no View column. The link is drawn where the View column
+   * would have been; otherwise the cell is words alone. A cell with no words draws no
+   * link, so it is for a column every row fills.
+   */
+  opensRow?: boolean;
 }
 
 /** A column rendering its field's value as text. */

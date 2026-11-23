@@ -27,6 +27,7 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 import {
   ColumnConfig,
   iconCellKey,
+  linkCellKey,
   RecordData,
   RowAction,
   rowActionsKey,
@@ -1319,6 +1320,20 @@ export class AppGridComponent {
   linkKeyOf(row: RecordData, col: ColumnConfig): string | undefined {
     const key = row[col.buttonConfig?.keyField ?? 'id'];
     return key === undefined || key === null || key === '' ? undefined : String(key);
+  }
+
+  /**
+   * The address a cell's words open, for a column that opens its row: what the list wrote
+   * on the display row under the column's link key (linkCellKey), and nothing where it
+   * wrote none or the cell has no words, so a cell with nothing to press draws no link.
+   */
+  linkOf(row: RecordData, col: ColumnConfig): string | undefined {
+    const link = (row as Record<string, unknown>)[linkCellKey(col.id)];
+    const words = row[col.id];
+    if (typeof link !== 'string' || words === undefined || words === null || words === '') {
+      return undefined;
+    }
+    return link;
   }
 
   /**

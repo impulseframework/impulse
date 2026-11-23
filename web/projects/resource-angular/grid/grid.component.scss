@@ -625,6 +625,28 @@ a[mat-icon-button] {
   text-overflow: ellipsis;
 }
 
+// The words of a column that opens its row, drawn as the row's link: inline and with no
+// room of its own around it, so the cell is measured by the text's own line as any cell of
+// words is, and cut short with it.
+.data-col a.cell-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--mat-sys-primary, #1976d2);
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--mat-sys-primary, #1976d2) 50%, transparent);
+    outline-offset: 1px;
+  }
+}
+
 /* An entry that says what a row shows in a method's place: readable, and plainly not a button. */
 .row-action.row-action-says {
   opacity: 1;

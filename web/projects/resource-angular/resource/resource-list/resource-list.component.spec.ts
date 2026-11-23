@@ -21,6 +21,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
+  ColumnConfig,
   FieldName,
   FieldSort,
   iconCellKey,
@@ -2589,16 +2590,18 @@ describe('ResourceListComponent', () => {
         },
       },
     };
-    /** The digest granting List and Read on the missions, so the page draws its rows and their View column. */
-    const digest: PermissionDigest = {
-      [missions]: { List: 'granted', Read: 'granted' },
+    /** Whether the person may read a mission, so that a row opens. */
+    let readsMissions: boolean;
+    /** The digest granting List on the missions, and Read where the person may read one, so the page draws its rows and their View column. */
+    const digest = (): PermissionDigest => ({
+      [missions]: { List: 'granted', ...(readsMissions ? { Read: 'granted' } : {}) },
       [`${missions}.name`]: { List: 'granted' },
-    };
+    });
 
     const server = (request: TransportRequest): TransportResponse => {
       const url = new URL(request.url, 'http://missions.test');
       if (url.pathname === '/api/permission-digest') {
-        return { status: 200, body: digest };
+        return { status: 200, body: digest() };
       }
       if (url.pathname === '/api/missions') {
         return { status: 200, body: [{ id: 'm-1', name: 'Anvil run' }], headers: { 'total-count': '1' } };
@@ -2606,13 +2609,19 @@ describe('ResourceListComponent', () => {
       return { status: 404, body: { message: `unscripted ${request.url}` } };
     };
 
-    /** The missions page as mounted with the given route parameters, under the selected tenant. */
-    const page = async (params: Record<string, string>, domain: Domain | undefined): Promise<void> => {
+    /** The missions page as mounted with the given route parameters, under the selected tenant, with the given columns. */
+    const page = async (
+      params: Record<string, string>,
+      domain: Domain | undefined,
+      listColumns: ColumnConfig[] = [{ id: 'name' as FieldName }],
+      reads = true,
+    ): Promise<void> => {
       registerResourcePage(missions, pageRoute);
+      readsMissions = reads;
       const config = listViewConfig({
         elements: [],
         primaryResource: missions,
-        listColumns: [{ id: 'name' as FieldName }],
+        listColumns,
       });
       transport = scriptedTransport(server);
       await TestBed.configureTestingModule({
@@ -2669,6 +2678,55 @@ describe('ResourceListComponent', () => {
         expect(link?.getAttribute('href')).toBe(`/${tt.want}/m-1`);
       });
     }
+
+    describe("where the row's name is the link that opens it", () => {
+      const named: ColumnConfig[] = [{ id: 'name' as FieldName, opensRow: true }];
+      /** The name's cell of the one row. */
+      const nameCell = (): HTMLElement => {
+        return (fixture.nativeElement as HTMLElement).querySelector('tbody tr td.data-col') as HTMLElement;
+      };
+      const drawn = async (): Promise<void> => {
+        fixture.detectChanges();
+        await settle();
+      };
+
+      for (const tt of cases) {
+        it(`draws the name as the link under ${tt.name}, and no View column`, async () => {
+          await page(tt.params, tt.domain, named);
+          await drawn();
+
+          const cols = fixture.componentInstance.columns();
+          expect(cols.map((col) => col.id)).toEqual(['name']);
+          expect(cols[0].opensRow).toBe(true);
+          expect(nameCell().querySelector('a.cell-link')?.getAttribute('href')).toBe(`/${tt.want}/m-1`);
+          expect((fixture.nativeElement as HTMLElement).querySelector('td.action-col')).toBeNull();
+        });
+      }
+
+      it('draws the name as words alone, and no View column, for a reader who may not read a mission', async () => {
+        await page({ sectorID: 'anvil' }, 'forge' as Domain, named, false);
+        await drawn();
+
+        const cols = fixture.componentInstance.columns();
+        expect(cols.map((col) => col.id)).toEqual(['name']);
+        expect(cols[0].opensRow).toBeUndefined();
+        expect(nameCell().querySelector('a')).toBeNull();
+        expect(nameCell().textContent?.trim()).toBe('Anvil run');
+      });
+
+      it('draws the View column as before where the column that would open the row is hidden', async () => {
+        await page({ sectorID: 'anvil' }, 'forge' as Domain, [
+          { id: 'id' as FieldName, opensRow: true, hidden: true },
+          { id: 'name' as FieldName },
+        ]);
+        await drawn();
+
+        expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['name', 'view']);
+        expect(nameCell().querySelector('a')).toBeNull();
+        const view = (fixture.nativeElement as HTMLElement).querySelector('td.action-col a');
+        expect(view?.getAttribute('href')).toBe('/sectors/anvil/missions/m-1');
+      });
+    });
 
     it('refuses the column when no tenant is known, naming the route and the parameter', async () => {
       await page({}, undefined);
@@ -2919,6 +2977,28 @@ describe('ResourceListComponent', () => {
       // a mission. Bastion's draws no link: they list missions there and may read none,
       // so the mission's page would turn them away.
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+    });
+
+    it("draws the row's title as its link into its own tenant where that tenant's digest lets the person read it, words alone where it does not, and no View column", async () => {
+      await page(missions, {
+        listColumns: [{ id: 'title' as FieldName, opensRow: true }, { id: 'fee' as FieldName }],
+      });
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      const cols = fixture.componentInstance.columns();
+      expect(cols.map((col) => col.id)).toEqual(['title', 'zzTenant', 'fee']);
+      expect(cols[0].opensRow).toBe(true);
+      const titles = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map(
+        (row) => row.querySelector('td.data-col') as HTMLElement,
+      );
+      expect(titles.map((cell) => cell.querySelector('a.cell-link')?.getAttribute('href') ?? null)).toEqual([
+        `/sectors/${anvil}/missions/m-1`,
+        null,
+      ]);
+      expect(titles.map((cell) => cell.textContent?.trim())).toEqual(['Hauler', 'Beacon']);
+      expect(rowLinks()).toEqual([null, null]);
     });
 
     it('draws no link on a guess: a tenant whose digest does not answer is asked once, and its rows stay without one', async () => {

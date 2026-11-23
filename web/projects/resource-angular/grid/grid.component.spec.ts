@@ -1,7 +1,13 @@
 import { Component, effect } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { ColumnConfig, iconCellKey, RecordData, RowAction } from '@impulseframework/resource-angular/types';
+import {
+  ColumnConfig,
+  iconCellKey,
+  linkCellKey,
+  RecordData,
+  RowAction,
+} from '@impulseframework/resource-angular/types';
 
 import { AppGridComponent, MIN_TEXT_COLUMN_WIDTH } from './grid.component';
 import { ColumnFilter, ColumnFilterChoices, ColumnFilterInputs, RowKey } from './grid-types';
@@ -1262,6 +1268,131 @@ describe("a row's buttons", () => {
     expect(button).toBeDefined();
     button?.click();
     expect(deleted).toEqual([{ id: 'm-1', name: 'Anvil run', opensAt: '/sectors/anvil/missions/m-1' }]);
+  });
+});
+
+// A column that opens its row draws its words as the row's link, to the address the list
+// wrote on the display row under the column's link key; a row with no address, and a cell
+// with no words, draw the words alone.
+describe('a column that opens its row', () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+
+  const notes = 'Hold at the outer marker until the convoy clears, then follow the tender in on the night side.';
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [
+      { id: 'p-1', name: 'Armorer Arlo', notes, [linkCellKey('name')]: '/crew-accounts/p-1' },
+      { id: 'p-2', name: 'Rigger Rook', notes: 'None' },
+      { id: 'p-3', name: '', notes: 'None', [linkCellKey('name')]: '/crew-accounts/p-3' },
+    ]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name', opensRow: true }, { id: 'notes' }]);
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  /** The name's cell of each row, in order. */
+  const nameCells = (): HTMLElement[] => {
+    return Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row')).map(
+      (row) => row.querySelector('td.data-col') as HTMLElement,
+    );
+  };
+
+  it("draws a row's words as the link to the address the row carries, found by its words", () => {
+    const link = byRole(element, 'link', 'Armorer Arlo');
+
+    expect(link?.getAttribute('href')).toBe('/crew-accounts/p-1');
+    expect(link?.classList.contains('cell-link')).toBe(true);
+    // The link is the cell's one element: the cell is read and cut short by its words.
+    expect(nameCells()[0].children).toHaveLength(1);
+  });
+
+  it('draws the words alone in a row that carries no address', () => {
+    expect(byRole(element, 'link', 'Rigger Rook')).toBeUndefined();
+    expect(nameCells()[1].textContent?.trim()).toBe('Rigger Rook');
+    expect(nameCells()[1].children).toHaveLength(0);
+  });
+
+  it('draws no link in a cell with no words', () => {
+    expect(nameCells()[2].querySelector('a')).toBeNull();
+    expect(element.querySelectorAll('a.cell-link')).toHaveLength(1);
+  });
+
+  describe('cut short', () => {
+    const settle = async (): Promise<void> => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    };
+    /** Says how wide the text is and how wide the box that holds it, as a browser's layout would. */
+    const measured = (text: HTMLElement, textWidth: number, boxWidth: number): HTMLElement => {
+      Object.defineProperty(text, 'scrollWidth', { configurable: true, value: textWidth });
+      Object.defineProperty(text, 'clientWidth', { configurable: true, value: boxWidth });
+      return text;
+    };
+    /** The words of the tooltip that is open, null while none is. */
+    const tooltip = (): string | null => {
+      return (
+        document.body
+          .querySelector<HTMLElement>('.cdk-overlay-container .mat-mdc-tooltip-show .mat-mdc-tooltip-surface')
+          ?.textContent?.trim() ?? null
+      );
+    };
+    /** The browser's next frame, in which a text the focus arrived on is offered. */
+    const nextFrame = async (): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          resolve();
+        });
+      });
+      await settle();
+    };
+    /** The Tab key pressed with the focus somewhere on the page, outside the list. */
+    const tab = async (): Promise<void> => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      await settle();
+    };
+    const link = (): HTMLElement => {
+      return nameCells()[0].querySelector('a.cell-link') as HTMLElement;
+    };
+
+    it('shows its whole words while the pointer is on its link', async () => {
+      measured(nameCells()[0], 620, 48);
+
+      link().dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await settle();
+
+      expect(tooltip()).toBe('Armorer Arlo');
+    });
+
+    it('shows its whole words when its link takes the focus', async () => {
+      measured(nameCells()[0], 620, 48);
+
+      link().focus();
+      link().dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextFrame();
+
+      expect(tooltip()).toBe('Armorer Arlo');
+    });
+
+    it('is no stop of the Tab key, since its link is, where a cut cell of words alone is one', async () => {
+      const words = (row: number): HTMLElement => {
+        return element.querySelectorAll('tr.impulse-row')[row].querySelectorAll<HTMLElement>('td.data-col')[1];
+      };
+      measured(nameCells()[0], 620, 48);
+      measured(words(0), 620, 180);
+
+      await tab();
+
+      expect(nameCells()[0].hasAttribute('tabindex')).toBe(false);
+      expect(words(0).getAttribute('tabindex')).toBe('0');
+    });
   });
 });
 
