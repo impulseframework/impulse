@@ -144,6 +144,12 @@ type User struct {
 	// LockUserIn read it: a first link made on a name alone waits for the code mailed
 	// to it, and is refused where the row holds none (signinflow.nameAloneHold).
 	EmailHeld bool
+	// Email is the address the row holds, nil for none, and EmailConfirmedAt when its
+	// person confirmed it, nil for an address not confirmed and for none, as UserIn and
+	// LockUserIn read them: a confirmation by a mailed link is decided on them
+	// (signinflow.ConfirmAddressByLink).
+	Email            *string
+	EmailConfirmedAt *time.Time
 }
 
 // CodeAddress is the address a mailed sign-in code confirms, carried by the sign-in that

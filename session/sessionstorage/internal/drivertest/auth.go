@@ -54,6 +54,7 @@ type AuthDriver interface {
 	SetSignInMethodsTableName(name string) error
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
 	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
+	SetSelfServiceReset(ctx context.Context, method string, on bool) error
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
@@ -338,6 +339,25 @@ type AuthInstance struct {
 	// Addresses reads and claims an address as the sign-in flow does, each in a
 	// transaction of the driver's. The harness builds it with NewAddresses.
 	Addresses Addresses
+	// ConfirmAddressByLink confirms an address by its mail link as the Auth does when a
+	// person's own link or an administrator's link is followed: the flow's one
+	// transaction over the driver. The harness builds it with NewConfirmAddressByLink.
+	ConfirmAddressByLink func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error)
+}
+
+// NewConfirmAddressByLink returns an instance's ConfirmAddressByLink over d: the flow's
+// confirmation of an address by its mail link.
+func NewConfirmAddressByLink[Tx any](
+	d signinflow.Driver[Tx],
+) func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error) {
+	return func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error) {
+		confirmed, err := signinflow.ConfirmAddressByLink(ctx, d, c)
+		if err != nil {
+			return nil, errors.Wrap(err, "signinflow.ConfirmAddressByLink()")
+		}
+
+		return confirmed, nil
+	}
 }
 
 // NewSignUp returns an instance's SignUp over d: the flow's password sign-up through
@@ -567,6 +587,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "an Auth that registers no password method holds no sign-in for a password an account holds: the account is decided as one with no password, by the standard rule and at a link, and keeps its password", run: testNoPasswordMethod},
 		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
 		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
+		{name: "self-service reset is written on its method's row as one field: what else the row says stands, another method's row is untouched, and a method with no row gets one that is invite only", run: testSelfServiceResetOneField},
 		{name: "a person who comes through a directory that does not vouch for their address is held for the code until the row holds a confirmed address, as the sign-in's transaction reads it", run: testAddressConfirmedFirst},
 		{name: "an address a directory asserts and does not vouch for finds no account, not even one that holds it confirmed and that nobody signs in to yet", run: testUnverifiedClaimFindsNoAccount},
 		{name: "an invitation accepted through a directory that asserts no address waits for the code mailed to the invited address, naming no user and writing nothing, and is accepted in the transaction of the sign-in that carries it", run: testInvitationByCode},
@@ -647,6 +668,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
 		{name: "the address a sign-in code confirms is written in the sign-in's transaction only while the user still holds what it held and no other user holds it, and a write not made leaves the transaction to commit", run: testVerifyUserEmailIfHeldIn},
+		{name: "an address a mail link confirms is written with the link's use in one transaction, replacing what the account held, and the confirmation answers what the account held before; a link used again writes nothing", run: testConfirmAddressByLink},
+		{name: "a confirmation by link that is refused (by the caller's rule on what the account holds, an address another account holds in any case, an account that is gone) writes nothing and leaves the link standing", run: testConfirmAddressByLinkRefused},
+		{name: "where the usernames are the addresses, a confirmation by link renames the account and its live session and says so whenever the username changed in any byte, and an address that is another account's username writes nothing", run: testConfirmAddressByLinkUsernameIsEmail},
+		{name: "two links for one account followed at once confirm one address: the other is asked its rule on what the first wrote", run: testConfirmAddressByLinkRace},
 		{name: "an address is matched by the case of its ASCII letters alone", run: testAddressFold},
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},

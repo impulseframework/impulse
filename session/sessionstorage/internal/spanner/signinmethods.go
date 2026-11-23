@@ -6,13 +6,18 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/api/iterator"
 )
 
+// selfServiceResetColumn is the column of the sign-in methods table that says whether a
+// person may ask for their own password reset link.
+const selfServiceResetColumn = "SelfServiceReset"
+
 // signInMethodColumns are the sign-in methods table's columns.
-var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", "SelfServiceReset", updatedAtColumn}
+var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", selfServiceResetColumn, updatedAtColumn}
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
@@ -97,7 +102,7 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 
 	row := map[string]any{
 		nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "OpenedFor": spanner.NullString{}, "DefaultRole": spanner.NullString{},
-		"SelfServiceReset": m.SelfServiceReset, updatedAtColumn: spanner.CommitTimestamp,
+		selfServiceResetColumn: m.SelfServiceReset, updatedAtColumn: spanner.CommitTimestamp,
 	}
 	if m.OpenedFor != nil {
 		row["OpenedFor"] = spanner.NullString{StringVal: *m.OpenedFor, Valid: true}
@@ -107,6 +112,41 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 	}
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.InsertOrUpdateMap(s.signInMethodsTableName, row)}); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
+// SetSelfServiceReset writes whether a person may ask for their own password reset
+// link on the row of the sign-in method registered under method, with UpdatedAt the
+// commit time, and leaves what else the row says as it stands. The row is read inside
+// a serializable transaction that buffers the write: a row there has the one field and
+// its time updated, and a method with no row gets one that is invite only.
+func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		standing, err := s.SignInMethodIn(ctx, txn, method)
+		if err != nil {
+			return err
+		}
+		row := map[string]any{nameColumn: method, selfServiceResetColumn: on, updatedAtColumn: spanner.CommitTimestamp}
+		write := spanner.UpdateMap(s.signInMethodsTableName, row)
+		if standing == nil {
+			row["OpenSignUp"] = false
+			row["OpenedFor"] = spanner.NullString{}
+			row["DefaultRole"] = spanner.NullString{}
+			write = spanner.InsertMap(s.signInMethodsTableName, row)
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{write}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
