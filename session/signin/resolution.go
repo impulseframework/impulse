@@ -32,17 +32,17 @@ import (
 // (no_email). A pre-created user under that name, matched as a username is (one with an
 // @ in it by the case of its ASCII letters alone), or one who holds the identity's
 // address verified when the method verified it (Identity.EmailVerified), is linked:
-// after a password confirmation when the user has
-// a password, outright when the user has none and signs in through no other connection
-// yet. A person no user was created for is decided by what an administrator chose for
-// the method in the running application, its row of the sign-in methods table, read in
-// this transaction: a method opened to sign-up admits them and makes their account,
-// with the role the row names; a method with no row is invite only, where the
-// invitation the sign-in carries is the account, and without one the person is refused
-// (not_invited) and nothing is written. A method whose directory writes the roles has
-// no such choice: the directory says who holds a role, and a person it gives one is
-// admitted. In an application with tenants, the tenant whose directory the identity
-// came through decides before the method does (signin.DirectoryReader).
+// after a password confirmation when the user has a password, outright when the user
+// has none and signs in through no other connection yet. A person no user was created
+// for is decided by what an administrator chose for the method in the running
+// application, its row of the sign-in methods table, read in this transaction: a method
+// opened to sign-up admits them and makes their account, with the role the row names; a
+// method with no row is invite only, where the invitation the sign-in carries is the
+// account, and without one the person is refused (not_invited) and nothing is written.
+// A method whose directory writes the roles has no such choice: the directory says who
+// holds a role, and a person it gives one is admitted. In an application with tenants,
+// the tenant whose directory the identity came through decides before the method does
+// (signin.DirectoryReader).
 //
 // A user created ahead is found by the sign-in name, and nothing else ties the two. In
 // an application whose tenants have directories (the Auth's directory admission), a
