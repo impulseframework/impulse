@@ -479,6 +479,67 @@ func TestNameFilter_grants(t *testing.T) {
 	}
 }
 
+// positionalPassRequest is lookupPassRequest with the squadron's id declared
+// masking:"positional": a filter on the id compares the raw column even where
+// its cells are shown under a condition.
+type positionalPassRequest struct {
+	ID           string  `json:"id"           index:"true" perm:"-"`
+	SectorID     string  `json:"sectorId"     index:"true"`
+	SquadronID   *string `json:"squadronId"   index:"true" masking:"positional"`
+	LevelID      string  `json:"levelId"      index:"true"`
+	SquadronName *string `json:"squadronName" index:"true" nameof:"SquadronID"`
+	LevelName    *string `json:"levelName"    index:"true" nameof:"LevelID"`
+	CrewID       *string `json:"crewId"       index:"true"`
+	CrewName     *string `json:"crewName"     index:"true" nameof:"CrewID"`
+}
+
+// TestNameFilter_positionalID pins that a filter by a name reads the id as the
+// name's lookup reads it, inside the condition the id's cells are shown under,
+// and not as a filter on the id reads it: a positional id's own filter compares
+// the raw column, while its name is shown only where the id is, so a filter by
+// the name tests the id inside its condition.
+func TestNameFilter_positionalID(t *testing.T) {
+	t.Parallel()
+
+	const target = "/?columns=id&filter=squadronName:eq:Red,squadronId:eq:s1&sort=id&limit=2"
+	for dbType, want := range bothDatabases(
+		"WHERE CASE WHEN `HangarPasses`.`LevelId` = @_c1 THEN `SquadronId` END IN (SELECT `ca1`.`Id` FROM `Squadrons` `ca1` WHERE `ca1`.`SectorId` = @domain AND `Name` = @_p1) AND `SquadronId` = @_p2",
+		`WHERE CASE WHEN "HangarPasses"."LevelId" = @_c1 THEN "SquadronId" END IN (SELECT "ca1"."Id" FROM "Squadrons" "ca1" WHERE "ca1"."SectorId" = @domain AND "Name" = @_p1) AND "SquadronId" = @_p2`,
+	) {
+		resSet, err := NewSet[lookupPass, positionalPassRequest](accesstypes.List)
+		if err != nil {
+			t.Fatalf("NewSet() error = %v", err)
+		}
+		decoder, err := NewQueryDecoder[lookupPass, positionalPassRequest](resSet)
+		if err != nil {
+			t.Fatalf("NewQueryDecoder() error = %v", err)
+		}
+		key, err := NewCursorKey("dGVzdC1jdXJzb3Ita2V5LW1hdGVyaWFsLTMyLWJ5dGVzIQ==")
+		if err != nil {
+			t.Fatalf("NewCursorKey() error = %v", err)
+		}
+		decoder = decoder.WithCursorKey(key)
+		decoder.collection = lookupCollection(t)
+		perms := &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+			{scope: inSector1, perm: accesstypes.List, res: "HangarPasses.squadronId"}: conditionalOn("HangarPasses.squadronId", "level = 'visit'"),
+		}}
+		qSet, err := decoder.Decode(httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody), perms, inSector1)
+		if err != nil {
+			t.Fatalf("QueryDecoder.Decode(%s) error = %v", target, err)
+		}
+		if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+			t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+		}
+		stmt, err := qSet.stmt(dbType)
+		if err != nil {
+			t.Fatalf("stmt(%s) error = %v", dbType, err)
+		}
+		if sql := oneLine(stmt.SQL); !strings.Contains(sql, want) {
+			t.Errorf("%s statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
+		}
+	}
+}
+
 // TestNameFilter_spaced pins a condition whose field name is padded with white
 // space (` levelId:eq:visit`, `levelId :eq:visit`): the parser reads it as the
 // field, and what the decoder decides about the filter is read from the parser's
