@@ -608,7 +608,7 @@ func viewParamTokens(query string, params map[string]any) ([]token.Token, error)
 	var toks []token.Token
 	for {
 		if err := lex.NextToken(); err != nil {
-			return nil, err
+			return nil, err //nolint:wrapcheck // the lexer's own words are what the refusal quotes (unreadableViewQuery); a wrap would add its source line to them
 		}
 		if lex.Token.Kind == token.TokenEOF {
 			return toks, nil

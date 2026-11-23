@@ -1787,7 +1787,7 @@ func withTableNames(query string) []string {
 		i++
 	}
 	var names []string
-	for i < len(toks) && namesSomething(toks[i]) {
+	for i < len(toks) && namesSomething(&toks[i]) {
 		name := toks[i].AsString
 		i++
 		if i < len(toks) && toks[i].Kind == "(" {
@@ -1810,7 +1810,7 @@ func withTableNames(query string) []string {
 // namesSomething reports whether a token is a name: an identifier, or a string written
 // in double quotes, PostgreSQL's spelling of a name that keeps its case, which the
 // lexer reads as a string.
-func namesSomething(tok token.Token) bool {
+func namesSomething(tok *token.Token) bool {
 	if tok.Kind == token.TokenIdent {
 		return true
 	}
@@ -1832,7 +1832,7 @@ func firstWithTableUsed(query string, withTables []string) (string, bool) {
 		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
 			return "", false
 		}
-		if !namesSomething(lex.Token) {
+		if !namesSomething(&lex.Token) {
 			continue
 		}
 		for _, withTable := range withTables {
