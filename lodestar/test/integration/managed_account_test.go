@@ -218,7 +218,7 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 				t.Errorf("%s on pat at Anvil: status %d, want 403: %s", method, status, respBody)
 			}
 		}
-		if after := w.facts(ctx, t, "pat", patIdentity); !factsEqual(after, before) {
+		if after := w.facts(ctx, t, "pat", patIdentity); !factsEqual(&after, &before) {
 			t.Errorf("pat's account after the refused calls = %+v, want %+v", after, before)
 		}
 	})
@@ -269,7 +269,7 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 }
 
 // factsEqual compares two accountFacts.
-func factsEqual(a, b accountFacts) bool {
+func factsEqual(a, b *accountFacts) bool {
 	return a.Username == b.Username && a.Name == b.Name && a.Email == b.Email && a.PasswordHash == b.PasswordHash &&
 		a.Disabled == b.Disabled && a.PasswordChangeRequired == b.PasswordChangeRequired && a.Linked == b.Linked && slices.Equal(a.Held, b.Held)
 }
