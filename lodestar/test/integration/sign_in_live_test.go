@@ -126,9 +126,9 @@ func TestSignInLive_personaSignIn(t *testing.T) {
 // Google account. Google vouches for the address, so the callback accepts the invitation:
 // the account is made, the role given, the link spent and the identity linked, and the
 // sign-in then waits for the second factor. Before any is completed, the pages that list
-// the accounts, Anvil's people, the roles held, the mailed links and the sign-in
-// identities are told: the acceptance announced its writes, not the session that has not
-// yet started.
+// the accounts, Anvil's people, the roles held, the mailed links, the sign-in identities
+// and a person's ways to sign in, the whole application's and Anvil's, are told: the
+// acceptance announced its writes, not the session that has not yet started.
 func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 	t.Parallel()
 
@@ -144,12 +144,15 @@ func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 
 	accounts, people, held := signInWatcher(crew.Name, "accounts"), signInWatcher(crew.Name, "people"), signInWatcher(crew.Name, "held")
 	links, identities := signInWatcher(crew.Name, "links"), signInWatcher(crew.Name, "identities")
+	ways, sectorWays := signInWatcher(crew.Name, "ways"), signInWatcher(crew.Name, "sector-ways")
 	watching(ctx, t, s,
 		live.Subscription{Principal: accounts, Resource: "CrewSessionUsers"},
 		live.Subscription{Principal: people, Resource: crewSectorPeople, Domain: anvil},
 		live.Subscription{Principal: held, Resource: "CrewHeldRoles"},
 		live.Subscription{Principal: links, Resource: "CrewSessionMailLinks"},
 		live.Subscription{Principal: identities, Resource: "CrewSessionIdentities"},
+		live.Subscription{Principal: ways, Resource: "CrewSignInWays"},
+		live.Subscription{Principal: sectorWays, Resource: "CrewSectorSignInWays", Domain: anvil},
 	)
 
 	pending := consoleLogin + "?pending=mfa&returnUrl=" + url.QueryEscape(consolePage)
@@ -165,6 +168,8 @@ func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 	wantTold(t, s, held, "CrewHeldRoles", "", "the stranger's held-roles list")
 	wantTold(t, s, links, "CrewSessionMailLinks", "", "the mailed links list")
 	wantTold(t, s, identities, "CrewSessionIdentities", "", "the sign-in identities list")
+	wantTold(t, s, ways, "CrewSignInWays", "", "the stranger's ways to sign in")
+	wantTold(t, s, sectorWays, "CrewSectorSignInWays", "", "the stranger's ways to sign in in Anvil")
 }
 
 // TestSignInLive_invitationMakesASector sends the invitation that makes a sector, and
