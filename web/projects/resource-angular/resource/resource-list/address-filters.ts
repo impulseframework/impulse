@@ -9,6 +9,7 @@ import {
   filterInputFor,
   fitsInput,
   indexedFilterActive,
+  listValues,
   MATCH_OPERATORS,
   operatorsFor,
   withoutOrphanedCompanions,
@@ -46,7 +47,8 @@ export function writeAddressFilter(filter: ColumnFilter): string {
  * no filter the grid holds. The field is the text before the first colon, the operator the
  * text up to the second colon, and the value everything after it, colons and all. The text
  * is read only when the field is a field name, the operator is one the grid offers, an
- * operator that takes a value has one that is not blank, and one that takes none has none.
+ * operator that takes a value has one that is not blank, an operator that takes a list has
+ * at least one value in it, and one that takes none has none.
  */
 export function readAddressFilter(text: string): ColumnFilter | undefined {
   const first = text.indexOf(':');
@@ -66,6 +68,9 @@ export function readAddressFilter(text: string): ColumnFilter | undefined {
     return undefined;
   }
   if (option.takesValue ? value.trim() === '' : value !== '') {
+    return undefined;
+  }
+  if (option.takesList && listValues(value).length === 0) {
     return undefined;
   }
   return { field, operator: option.value, value };

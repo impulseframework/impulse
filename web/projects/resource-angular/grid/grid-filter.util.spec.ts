@@ -72,6 +72,8 @@ describe('isComplete', () => {
   const cases: { name: string; filter: ColumnFilter; want: boolean }[] = [
     { name: 'a value for a comparison', filter: filter('title', 'eq', 'Convoy'), want: true },
     { name: 'no value for a comparison', filter: filter('title', 'eq', '  '), want: false },
+    { name: 'a value in a list', filter: filter('statusId', 'in', 'open, held'), want: true },
+    { name: 'no value in a list of commas alone', filter: filter('statusId', 'in', ' , ,'), want: false },
     { name: 'a null test needs none', filter: filter('notes', 'isnull'), want: true },
   ];
 

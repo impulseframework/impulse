@@ -2373,6 +2373,23 @@ describe('ResourceListComponent', () => {
       expect(shipsFilters()).toEqual([null, 'statusId:in:(docked,in_refit)']);
     });
 
+    it('takes a navigation to its page naming a filter it leaves out: says so, writes the address it shows at once, and takes the navigation after it', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      await router.navigateByUrl('/?filter=registry:eq:Civil');
+      await settle();
+      expect(leftOutNotice()).toBe(leftOutWords);
+      expect(address().queryParamMap.has('filter')).toBe(false);
+
+      await router.navigateByUrl('/?filter=homePort:eq:Anvil');
+      await settle();
+      expect(fixture.componentInstance.store.columnFilters()).toEqual([
+        { field: 'homePort', operator: 'eq', value: 'Anvil' },
+      ]);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
     it('opened at an address filtering a role column by a role its metadata does not list, asks once with it, keeps it, and says nothing', async () => {
       // The metadata lists two roles; a role made while the application runs is in none.
       await create(
@@ -2395,7 +2412,7 @@ describe('ResourceListComponent', () => {
       expect(leftOutNotice()).toBeUndefined();
     });
 
-    it('writes a commit made while another navigation is on its way once that one ends, never cancelling it', async () => {
+    it('writes a commit made while another navigation is on its way once that one ends, never canceling it', async () => {
       await open('/');
       const router = TestBed.inject(Router);
       const elsewhere = router.navigateByUrl('/?tab=9');
@@ -2406,7 +2423,7 @@ describe('ResourceListComponent', () => {
       expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
     });
 
-    it('writes a commit made while a navigation is on its way that another supersedes once that other ends, never cancelling it', async () => {
+    it('writes a commit made while a navigation is on its way that another supersedes once that other ends, never canceling it', async () => {
       await open('/');
       const router = TestBed.inject(Router);
       const superseded = router.navigateByUrl('/?tab=8');

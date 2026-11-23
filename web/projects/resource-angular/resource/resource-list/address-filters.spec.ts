@@ -31,6 +31,8 @@ describe('readAddressFilter', () => {
     'status:eq',
     'status:eq:',
     'status:eq:   ',
+    'statusId:in:,',
+    'statusId:notin: , ',
     'status:like:open',
     ':eq:open',
     '1st:eq:a',
