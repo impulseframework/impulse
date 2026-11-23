@@ -4,6 +4,7 @@ import {
   IdentityDescriptor,
   IdentitySideDescriptor,
   quoteFilterValue,
+  rowCapabilities,
   ScopeKind,
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
@@ -1476,6 +1477,7 @@ class SideBuilder {
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
+    const removal = this.tenant ? methods.removeFromTenant : undefined;
     return this.present([
       [methods.assignRole, this.giveRole()],
       // A person has two names: the one people read, and the username they sign in under.
@@ -1559,22 +1561,21 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // Where the side removes a person from the tenant, the page does not draw Delete.
+      // The page does not draw Delete on a row that offers the removal from the tenant,
+      // on a tenant's side that has it: the removal is what the row offers in its place.
+      // A row that does not offer the removal keeps Delete.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           confirm: (row) => `Delete ${named(row)}? The account, its sign-ins and its sessions are removed.`,
-          ...(this.removesFromTenant() ? { hidden: true } : {}),
+          ...(removal === undefined
+            ? {}
+            : { when: (row: RecordData) => !(rowCapabilities(row)?.Execute ?? []).includes(removal) }),
         },
       ],
     ]);
-  }
-
-  /** Whether this is a tenant's side that removes a person from the tenant. */
-  private removesFromTenant(): boolean {
-    return this.tenant && this.side.methods.removeFromTenant !== undefined;
   }
 
   /** How the method that ends one session is presented. */

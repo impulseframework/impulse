@@ -1181,7 +1181,7 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       : resourceMeta(resource);
   const [people] = identityPages(removing, removingMetas, { auth: 'Crew', scope: 'domain' });
 
-  it('offers Remove from the sector after Enable, warned by the server, and draws no Delete', () => {
+  it('offers Remove from the sector after Enable, warned by the server, and Delete only on a row that does not offer it', () => {
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
       ['SetCrewSectorUserName', 'Change the name'],
@@ -1196,14 +1196,27 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       undefined,
       'The person was removed.',
     ]);
-    expect(presentation(list(people).rowMethods, 'DeleteCrewSectorUser').hidden).toBe(true);
-    // A tenant's side without the removal keeps Delete.
+    // Delete is drawn on a row whose answer does not list the removal, and on no row whose
+    // answer does.
+    const answered = (capabilities: { Execute?: string[] }): RecordData =>
+      ({ zzCapabilities: capabilities }) as unknown as RecordData;
+    const deleteEntry = presentation(list(people).rowMethods, 'DeleteCrewSectorUser');
+    expect(deleteEntry.hidden).toBeUndefined();
+    expect([
+      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'] })),
+      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser'] })),
+      deleteEntry.when?.(answered({})),
+      deleteEntry.when?.({}),
+    ]).toEqual([false, true, true, true]);
+    // A tenant's side without the removal keeps Delete on every row.
     const [without] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'domain' });
-    expect(presentation(list(without).rowMethods, 'DeleteCrewSectorUser').hidden).toBeUndefined();
-    // The whole application's side keeps Delete and has no removal.
+    const kept = presentation(list(without).rowMethods, 'DeleteCrewSectorUser');
+    expect([kept.hidden, kept.when]).toEqual([undefined, undefined]);
+    // The whole application's side keeps Delete on every row and has no removal.
     const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
     expect(methodsOf(list(accounts).rowMethods).map(([method]) => method)).not.toContain('RemoveCrewSectorUser');
-    expect(presentation(list(accounts).rowMethods, 'DeleteCrewUser').hidden).toBeUndefined();
+    const everywhere = presentation(list(accounts).rowMethods, 'DeleteCrewUser');
+    expect([everywhere.hidden, everywhere.when]).toEqual([undefined, undefined]);
   });
 
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
