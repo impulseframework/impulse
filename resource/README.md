@@ -4577,8 +4577,8 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   and administers nothing until it is enabled again, so the person beside it is the
   tenant's last administrator and keeps the role. A
   refusal that speaks of a tenant says the application's word for one, the tenant
-  record's label or its name in words ("you are the last administrator of this
-  sector"): the generated client hands it to the rules (`identity.WithTenantWord`).
+  record's label or its name in words ("You are the last administrator of this
+  sector."): the generated client hands it to the rules (`identity.WithTenantWord`).
 
 What a tenant may do to a person who also holds a role outside it, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over

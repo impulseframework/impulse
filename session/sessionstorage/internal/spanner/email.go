@@ -73,7 +73,7 @@ func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("no user holds the email address %q", email)
+			return nil, dbtype.EmailNotFound(email)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")
@@ -101,7 +101,7 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
 		switch {
 		case spanner.ErrCode(err) == codes.NotFound:
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		case spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()):
 			return errEmailTaken(*email)
 		}
@@ -138,7 +138,7 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 	})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -162,7 +162,7 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	if err != nil {
 		switch {
 		case spanner.ErrCode(err) == codes.NotFound:
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		case s.usernameIsEmail && s.usernameConflict(err):
 			return errEmailTaken(email)
 		case spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()):

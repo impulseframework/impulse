@@ -284,7 +284,7 @@ func (s *SessionStorageDriver) sessionRow(ctx context.Context, sessionID impulse
 			return nil, errors.Wrap(err, "rows.Err()")
 		}
 
-		return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+		return nil, dbtype.SessionNotFound(sessionID)
 	}
 
 	session := &dbtype.Session{}
@@ -402,7 +402,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	}
 
 	if cnt := res.RowsAffected(); cnt != 1 {
-		return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+		return dbtype.SessionNotFound(sessionID)
 	}
 
 	return nil
@@ -556,7 +556,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id impulse.UUID) (*dbty
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return nil, dbtype.AccountNotFound(id)
 		}
 
 		return nil, errors.Wrap(err, "pgxscan.Get()")
@@ -579,7 +579,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, username); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("username %q does not exist", username)
+			return nil, dbtype.UsernameNotFound(username)
 		}
 
 		return nil, errors.Wrapf(err, "pgxscan.Get()")
@@ -759,7 +759,7 @@ func (s *SessionStorageDriver) renameUserIn(ctx context.Context, tx pgx.Tx, user
 	var oldUsername string
 	if err := tx.QueryRow(ctx, selectQuery, userID).Scan(&oldUsername); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
@@ -905,7 +905,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 			return errors.Wrap(err, "QueryRow().Scan()")
 		}
 		if !exists {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
@@ -931,7 +931,7 @@ func (s *SessionStorageDriver) passwordNotProven(ctx context.Context, q rowQueri
 		return errors.Wrap(err, "QueryRow().Scan()")
 	}
 	if !exists {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return dbtype.AccountNotFound(userID)
 	}
 
 	return errPasswordChanged()
@@ -958,7 +958,7 @@ func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID impul
 	if cmdTag, err := s.conn.Exec(ctx, query, userID); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return dbtype.AccountNotFound(userID)
 	}
 
 	return nil
@@ -976,7 +976,7 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UU
 	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		return dbtype.AccountNotFound(id)
 	}
 
 	return nil
@@ -996,7 +996,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 		if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		} else if cmdTag.RowsAffected() == 0 {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
 		return nil
@@ -1016,7 +1016,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 	if cmdTag, err := txn.Exec(ctx, query, id); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		return dbtype.AccountNotFound(id)
 	}
 
 	if err := txn.Commit(ctx); err != nil {
@@ -1038,7 +1038,7 @@ func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID
 	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		return dbtype.AccountNotFound(id)
 	}
 
 	return nil
@@ -1128,7 +1128,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 	var expired bool
 	if err := txn.QueryRow(ctx, sessionQuery, sessionID).Scan(&expired); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+			return dbtype.SessionNotFound(sessionID)
 		}
 
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")

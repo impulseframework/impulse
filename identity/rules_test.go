@@ -479,17 +479,17 @@ func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
 		{
 			name: "an application that names no word says tenant",
 			opts: []Option{administrators},
-			want: "you are the last administrator of this tenant: give another person the role before you remove your own",
+			want: "You are the last administrator of this tenant. Give another person the role before you remove your own.",
 		},
 		{
 			name: "an application whose tenants are customers says customer",
 			opts: []Option{administrators, WithTenantWord("customer")},
-			want: "you are the last administrator of this customer: give another person the role before you remove your own",
+			want: "You are the last administrator of this customer. Give another person the role before you remove your own.",
 		},
 		{
 			name: "an empty word leaves tenant",
 			opts: []Option{administrators, WithTenantWord("")},
-			want: "you are the last administrator of this tenant: give another person the role before you remove your own",
+			want: "You are the last administrator of this tenant. Give another person the role before you remove your own.",
 		},
 	}
 	for _, tt := range tests {
