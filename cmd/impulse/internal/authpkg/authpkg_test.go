@@ -545,10 +545,10 @@ func TestFiles_passwordDisabledCheck(t *testing.T) {
 	const policy = "\tauthSession.SetSignInPolicy(signin.TenantPolicy("
 	const check = "\n\n" +
 		"\t// The same rule, asked outside a sign-in, says whose password is disabled: a person\n" +
-		"\t// every one of whose tenants is directory only, who administers none of them and\n" +
-		"\t// holds no role outside them. Their account page draws no Password line and they\n" +
-		"\t// are refused a first password (SetPasswordDisabledCheck). The declarations are read\n" +
-		"\t// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).\n" +
+		"\t// the rule would refuse a sign-in with a password as directory only. Their account\n" +
+		"\t// page draws no Password line and they are refused a first password\n" +
+		"\t// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,\n" +
+		"\t// each in a transaction of its own (resource.OutsideSignIn).\n" +
 		"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n"
 	tenants := func(directories, admitWithoutTenant bool) *Spec {
 		return &Spec{

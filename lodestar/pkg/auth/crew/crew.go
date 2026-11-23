@@ -816,26 +816,28 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The sign-in rule: the library's tenant policy. A person's sectors are where they
 	// hold a role (the engine's memberships), and what each sector admits is its
 	// declaration, read in the sign-in's transaction. A sector's declaration restricts
-	// its own door alone: a sector that is not directory only admits everyone it
-	// seats, however they signed in, and a directory-only sector admits a sign-in
-	// through its own directory and nothing else. So a person is refused only when
-	// every sector that seats them is directory only and none has the way they signed
-	// in as its directory (the bosun, whose only sector is Bastion, is refused
-	// directory_only by password). A super administrator is admitted whatever a
-	// sector declares; a directory-only sector's own marshal who signs in with a
-	// password is held for the mailed code and then enters that sector (the engine
-	// names who administers a sector); a person holding a role outside any one sector (a global role,
-	// or one held in every sector) is admitted and then enters a sector only where
-	// its declaration admits their session, as anyone does; a sign-in whose directory
-	// names the roles (the client's) is admitted on the library's checks;
-	// a person who holds no sector is admitted too (signin.AdmitWithoutTenant), since
-	// the pioneer signs up first and charts her sector after. Which sectors the session
-	// then reaches is decided again, sector by sector, where its chart is computed
-	// (app.UserPermissions): every sector that seats the person, but a directory-only
-	// sector whose directory they did not sign in through, which stays on the chart
-	// marked closed, with the reason. The memberships are read outside the sign-in's transaction
-	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
-	// transaction's context as a nested transaction.
+	// its own door alone: a sector that is not directory only admits everyone it seats,
+	// however they signed in, and a directory-only sector admits a sign-in through its
+	// own directory and nothing else. So a person is refused only when every sector that
+	// seats them is directory only and none has the way they signed in as its directory
+	// (the bosun, whose only sector is Bastion, is refused directory_only by password).
+	// A super administrator is admitted whatever a sector declares; a directory-only
+	// sector's own marshal who signs in with a password is held for the mailed code and
+	// then enters that sector (the engine names who administers a sector); a person
+	// holding a role outside any one sector (a global role, or one held in every sector)
+	// is admitted and then enters a sector only where its declaration admits their
+	// session, as anyone does; a sign-in whose directory names the roles (the client's)
+	// is admitted on the library's checks; a person who holds no sector is admitted too
+	// (signin.AdmitWithoutTenant), since the pioneer signs up first and charts her
+	// sector after. An account that signs in through a directory-only sector's directory
+	// signs in through that directory alone, whichever sectors seat the person: a
+	// password or any other sign-in is refused, but for that sector's own marshals.
+	// Which sectors the session then reaches is decided again, sector by sector, where
+	// its chart is computed (app.UserPermissions): every sector that seats the person,
+	// but a directory-only sector whose directory they did not sign in through, which
+	// stays on the chart marked closed, with the reason. The memberships are read
+	// outside the sign-in's transaction (resource.SignInRoles): the Spanner client
+	// refuses the engine's read under the transaction's context as a nested transaction.
 	// The rule's last word is the second factor every crew session carries
 	// (requireSecondFactor): a sign-in the tenant policy admits waits for the
 	// code the auth mails, unless the fleet's directory attested for the person or the
@@ -845,10 +847,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
-	// every one of whose sectors is directory only, who administers none of them and
-	// holds no role outside them. Their account page draws no Password line and they
-	// are refused a first password (SetPasswordDisabledCheck). The declarations are read
-	// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).
+	// the rule would refuse a sign-in with a password as directory only. Their account
+	// page draws no Password line and they are refused a first password
+	// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,
+	// each in a transaction of its own (resource.OutsideSignIn).
 	crewSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 
 	// The crew's identity client (pkg/identity, generated): the rules that manage the

@@ -431,6 +431,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// administrator who signs in with a password is not refused either: the sign-in is
 	// held for the mailed code, and the session then enters that tenant
 	// (access.WithTenantAdministratorRoles names the roles).
+	// An account that signs in through a directory-only tenant's directory signs in
+	// through that directory alone, whichever tenants seat the person: a password or
+	// any other sign-in is refused, but for that tenant's own administrators.
 	// A person who holds no tenant is refused (no_tenant): nobody signs up to this auth
 	// and creates a Tenant of their own, since another auth's outlets serve the
 	// record or a directory gives this one's roles.
@@ -445,10 +448,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
-	// every one of whose tenants is directory only, who administers none of them and
-	// holds no role outside them. Their account page draws no Password line and they
-	// are refused a first password (SetPasswordDisabledCheck). The declarations are read
-	// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).
+	// the rule would refuse a sign-in with a password as directory only. Their account
+	// page draws no Password line and they are refused a first password
+	// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,
+	// each in a transaction of its own (resource.OutsideSignIn).
 	authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 
 	// The auth's identity client (pkg/identity, generated): the rules that manage the

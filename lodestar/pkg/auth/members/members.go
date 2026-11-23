@@ -391,10 +391,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
-	// every one of whose sectors is directory only, who administers none of them and
-	// holds no role outside them. Their account page draws no Password line and they
-	// are refused a first password (SetPasswordDisabledCheck). The declarations are read
-	// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).
+	// the rule would refuse a sign-in with a password as directory only. Their account
+	// page draws no Password line and they are refused a first password
+	// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,
+	// each in a transaction of its own (resource.OutsideSignIn).
 	membersSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 
 	// The members' identity client (pkg/identity, generated): the lists of the auth's
