@@ -1162,6 +1162,20 @@ func (mr *MockdbMockRecorder) SetPendingSignInsTableName(name any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPendingSignInsTableName", reflect.TypeOf((*Mockdb)(nil).SetPendingSignInsTableName), name)
 }
 
+// SetSelfServiceReset mocks base method.
+func (m *Mockdb) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSelfServiceReset", ctx, method, on)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSelfServiceReset indicates an expected call of SetSelfServiceReset.
+func (mr *MockdbMockRecorder) SetSelfServiceReset(ctx, method, on any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSelfServiceReset", reflect.TypeOf((*Mockdb)(nil).SetSelfServiceReset), ctx, method, on)
+}
+
 // SetSessionTableName mocks base method.
 func (m *Mockdb) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()

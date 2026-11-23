@@ -681,72 +681,10 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impul
 	return s.renameUser(ctx, userID, newUsername, nil)
 }
 
-// renameUser renames the user and, in the same transaction, its live sessions and the
-// live impersonations it holds as an actor, writing the extra user columns with the
-// new name. A taken name is a Conflict.
+// renameUser is renameUserIn in a transaction of its own. A taken name is a Conflict.
 func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername string, extra map[string]any) error {
-	row := map[string]any{idColumn: userID, usernameColumn: newUsername}
-	for column, value := range extra {
-		row[column] = value
-	}
-	mutation := spanner.UpdateMap(s.userTableName, row)
-
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
-		if err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
-		}
-
-		var oldUsername string
-		if err := row.Column(0, &oldUsername); err != nil {
-			return errors.Wrap(err, "spanner.Row.Column()")
-		}
-
-		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
-		}
-
-		// A live role-principal impersonation by a foreign actor carrying this name belongs
-		// to that actor, not to the renamed user, and keeps the name its record names.
-		// A rename is no use of a session: UpdatedAt, which is when a session was last used,
-		// is left as it is, so a session that timed out stays timed out. A session that
-		// belongs to another account is never renamed, whatever name its row carries.
-		ownRows := ""
-		if s.users {
-			ownRows = " AND (s.UserId IS NULL OR s.UserId = @userId)"
-		}
-		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
-				UPDATE %s s
-				SET Username = @newUsername
-				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s%s
-		`, s.sessionTableName, s.foreignRolePrincipalRecord(), ownRows))
-		sessionsStmt.Params["oldUsername"] = oldUsername
-		sessionsStmt.Params["newUsername"] = newUsername
-		if s.users {
-			sessionsStmt.Params["userId"] = userID.String()
-		}
-
-		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
-		}
-
-		// The live impersonations this user holds as a local actor follow the rename, so
-		// they stay reachable by the new name; ended records keep the name of their time.
-		if s.impersonation != nil {
-			recordsStmt := spanner.NewStatement(fmt.Sprintf(`
-					UPDATE %s
-					SET ActorUsername = @newUsername
-					WHERE ActorUsername = @oldUsername AND ActorRealm IS NULL AND EndedAt IS NULL
-			`, s.impersonation.TableName))
-			recordsStmt.Params["oldUsername"] = oldUsername
-			recordsStmt.Params["newUsername"] = newUsername
-
-			if _, err := txn.Update(ctx, recordsStmt); err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
-			}
-		}
-
-		return nil
+		return s.renameUserIn(ctx, txn, userID, newUsername, extra)
 	})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
@@ -761,6 +699,74 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		}
 
 		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
+}
+
+// renameUserIn renames the user and, inside tx, its live sessions and the live
+// impersonations it holds as an actor, writing the extra user columns with the new
+// name. The user's row is a buffered mutation, so a taken name ends the transaction
+// with the database's AlreadyExists at the commit; a missing user is NotFound from the
+// read of its current name.
+func (s *SessionStorageDriver) renameUserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, newUsername string, extra map[string]any) error {
+	update := map[string]any{idColumn: userID, usernameColumn: newUsername}
+	for column, value := range extra {
+		update[column] = value
+	}
+
+	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
+	if err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+	}
+
+	var oldUsername string
+	if err := row.Column(0, &oldUsername); err != nil {
+		return errors.Wrap(err, "spanner.Row.Column()")
+	}
+
+	if err := tx.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, update)}); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+	}
+
+	// A live role-principal impersonation by a foreign actor carrying this name belongs
+	// to that actor, not to the renamed user, and keeps the name its record names.
+	// A rename is no use of a session: UpdatedAt, which is when a session was last used,
+	// is left as it is, so a session that timed out stays timed out. A session that
+	// belongs to another account is never renamed, whatever name its row carries.
+	ownRows := ""
+	if s.users {
+		ownRows = " AND (s.UserId IS NULL OR s.UserId = @userId)"
+	}
+	sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s s
+			SET Username = @newUsername
+			WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s%s
+	`, s.sessionTableName, s.foreignRolePrincipalRecord(), ownRows))
+	sessionsStmt.Params["oldUsername"] = oldUsername
+	sessionsStmt.Params["newUsername"] = newUsername
+	if s.users {
+		sessionsStmt.Params["userId"] = userID.String()
+	}
+
+	if _, err := tx.Update(ctx, sessionsStmt); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+	}
+
+	// The live impersonations this user holds as a local actor follow the rename, so
+	// they stay reachable by the new name; ended records keep the name of their time.
+	if s.impersonation != nil {
+		recordsStmt := spanner.NewStatement(fmt.Sprintf(`
+				UPDATE %s
+				SET ActorUsername = @newUsername
+				WHERE ActorUsername = @oldUsername AND ActorRealm IS NULL AND EndedAt IS NULL
+		`, s.impersonation.TableName))
+		recordsStmt.Params["oldUsername"] = oldUsername
+		recordsStmt.Params["newUsername"] = newUsername
+
+		if _, err := tx.Update(ctx, recordsStmt); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
 	}
 
 	return nil

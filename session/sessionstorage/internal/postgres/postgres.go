@@ -180,6 +180,13 @@ func (s *SessionStorageDriver) isEmailConflict(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.emailIndex()
 }
 
+// isUsernameConflict reports whether err is a unique violation on the username index.
+func (s *SessionStorageDriver) isUsernameConflict(err error) bool {
+	var pgErr *pgconn.PgError
+
+	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.usernameIndex()
+}
+
 // SetIdentitiesTableName sets the name of the identities table; a name that is not an
 // identifier is refused (dbtype.ValidateTableName).
 func (s *SessionStorageDriver) SetIdentitiesTableName(name string) error {
@@ -704,16 +711,28 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impul
 	return s.renameUser(ctx, userID, newUsername, "")
 }
 
-// renameUser renames the user and, in the same transaction, its live sessions and the
-// live impersonations it holds as an actor. set is an extra SET clause for the user
-// row, "" for none. A taken name is a Conflict.
+// renameUser is renameUserIn in a transaction of its own. A taken name is a Conflict.
 func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername, set string) error {
-	tx, err := s.conn.Begin(ctx)
-	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		return s.renameUserIn(ctx, tx, userID, newUsername, set)
+	})
+	switch {
+	case s.isUsernameConflict(err):
+		return httpio.NewConflictMessagef("username %q already exists", newUsername)
+	case s.isEmailConflict(err):
+		return errEmailTaken(newUsername)
+	case err != nil:
+		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
+	return nil
+}
+
+// renameUserIn renames the user and, inside tx, its live sessions and the live
+// impersonations it holds as an actor. set is an extra SET clause for the user row, ""
+// for none. The user's current Username is read with a row lock. A missing user is
+// NotFound; a taken name is the database's unique violation, which ends tx.
+func (s *SessionStorageDriver) renameUserIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID, newUsername, set string) error {
 	selectQuery := fmt.Sprintf(`
 		SELECT "Username" FROM %s
 		WHERE "Id" = $1
@@ -733,14 +752,6 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		WHERE "Id" = $1`, s.userTable(), set)
 
 	if _, err := tx.Exec(ctx, userQuery, userID, newUsername); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.usernameIndex() {
-			return httpio.NewConflictMessagef("username %q already exists", newUsername)
-		}
-		if s.isEmailConflict(err) {
-			return errEmailTaken(newUsername)
-		}
-
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
@@ -773,10 +784,6 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 		if _, err := tx.Exec(ctx, recordQuery, oldUsername, newUsername); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil

@@ -503,7 +503,7 @@ func authAddressCase1(t *testing.T) {
 		t.Errorf("an address change link opened as a password reset = %d, want 404", rr.Code)
 	}
 
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "pat.lee@lakeside.edu").Return(nil)
+	links.expectConfirmation(f, userID, "pat.lee@lakeside.edu", user)
 	rr := f.serve(f.auth.Email().Confirm(), http.MethodPost, "/email/confirm", map[string]string{"token": token}, nil)
 	if rr.Code != http.StatusOK || decoded(t, rr)["email"] != "pat.lee@lakeside.edu" {
 		t.Fatalf("Confirm() = %d %s, want the new address", rr.Code, rr.Body.String())
@@ -571,6 +571,7 @@ func authAddressCase2(t *testing.T) {
 	}
 	links.insert(&sessionstorage.MailLink{TokenHash: adminHash, Kind: sessionstorage.MailLinkAddressChange, Email: "pat.lee@lakeside.edu", UserID: impulse.NullUUIDFromUUID(userID), ExpiresAt: time.Now().Add(time.Hour)})
 	links.insert(&sessionstorage.MailLink{TokenHash: ownHash, Kind: sessionstorage.MailLinkVerification, Email: "pat.lee@lakeside.edu", UserID: impulse.NullUUIDFromUUID(userID), ExpiresAt: time.Now().Add(time.Hour)})
+	links.expectConfirmation(f, userID, "pat.lee@lakeside.edu", user).Times(2)
 	if rr := f.serve(f.auth.Email().Confirm(), http.MethodPost, "/email/confirm", map[string]string{"token": adminToken}, nil); rr.Code != http.StatusNotFound {
 		t.Errorf("Confirm() of a link for a directory person = %d %s, want 404", rr.Code, rr.Body.String())
 	}
@@ -612,7 +613,7 @@ func authAddressCase2(t *testing.T) {
 
 	// The link confirms it, and the value it takes the place of is told nothing: no
 	// message can be sent to it.
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "own@lakeside.edu").Return(nil)
+	links.expectConfirmation(f, userID, "own@lakeside.edu", user)
 	before = len(msgs)
 	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": tokenIn(t, msgs[before-1].Text, "verify")}, nil); rr.Code != http.StatusOK {
 		t.Errorf("Verify() by a directory person whose confirmed address is no address = %d %s, want 200", rr.Code, rr.Body.String())
@@ -629,7 +630,7 @@ func authAddressCase2(t *testing.T) {
 	if msgs = recorder.Messages(); len(msgs) != before+1 || msgs[before].To != "set@lakeside.edu" {
 		t.Fatalf("that request mailed %+v, want its confirmation link at the address given", msgs[before:])
 	}
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "set@lakeside.edu").Return(nil)
+	links.expectConfirmation(f, userID, "set@lakeside.edu", user)
 	before = len(msgs)
 	if rr := f.serve(f.auth.Email().Confirm(), http.MethodPost, "/email/confirm", map[string]string{"token": tokenIn(t, msgs[before-1].Text, "address")}, nil); rr.Code != http.StatusOK {
 		t.Errorf("Confirm() of that link = %d %s, want 200", rr.Code, rr.Body.String())
@@ -663,7 +664,8 @@ func authAddressCase4(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	f.expectSession(sessionID, passwordPerson(t, userID))
+	user := passwordPerson(t, userID)
+	f.expectSession(sessionID, user)
 	links.expectAccounts(f)
 
 	if rr := f.asUser(f.auth.Email().Add(), sessionID, map[string]string{"email": "pat.lee@lakeside.edu"}, nil); rr.Code != http.StatusOK {
@@ -673,7 +675,7 @@ func authAddressCase4(t *testing.T) {
 	if len(msgs) != 1 || msgs[0].To != "pat.lee@lakeside.edu" {
 		t.Fatalf("messages after Add() = %+v, want the one link at the new address and nothing at the old", msgs)
 	}
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "pat.lee@lakeside.edu").Return(nil)
+	links.expectConfirmation(f, userID, "pat.lee@lakeside.edu", user)
 	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": tokenIn(t, msgs[0].Text, "verify")}, nil); rr.Code != http.StatusOK {
 		t.Fatalf("Verify() = %d %s, want 200", rr.Code, rr.Body.String())
 	}
@@ -800,27 +802,13 @@ func authResetCase10(t *testing.T) {
 	t.Parallel()
 	f, _, _ := newMailFixture(t, gomock.NewController(t))
 
-	// The row says the method is open to sign-up with a role: turning reset on and off
-	// writes that back as it stood.
-	standing := &sessionstorage.SignInMethod{Name: "password", OpenSignUp: true, OpenedFor: strPtr("anyone"), DefaultRole: strPtr("Member")}
-	f.store.EXPECT().SignInMethods(gomock.Any()).DoAndReturn(func(context.Context) ([]*sessionstorage.SignInMethod, error) {
-		row := *standing
-
-		return []*sessionstorage.SignInMethod{{Name: "google", OpenSignUp: true}, &row}, nil
-	}).AnyTimes()
-	f.store.EXPECT().SetSignInMethod(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, row *sessionstorage.SignInMethod) error {
-		written := *row
-		standing = &written
-
-		return nil
-	}).Times(2)
+	// The store is asked to write the one field of the password method's row. The rows
+	// are never read and written back, so the mocked store expects neither
+	// SignInMethods nor SetSignInMethod, and a call of either fails the test.
 	for _, on := range []bool{true, false} {
+		f.store.EXPECT().SetSelfServiceReset(gomock.Any(), "password", on).Return(nil).Times(1)
 		if err := f.auth.API().SetSelfServiceReset(context.Background(), on); err != nil {
 			t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
-		}
-		if standing.Name != "password" || standing.SelfServiceReset != on || !standing.OpenSignUp || standing.OpenedFor == nil || *standing.OpenedFor != "anyone" ||
-			standing.DefaultRole == nil || *standing.DefaultRole != "Member" {
-			t.Errorf("the password method's row after SetSelfServiceReset(%v) = %+v, want that one field changed and the rest as it stood", on, standing)
 		}
 	}
 
@@ -851,8 +839,8 @@ func authAddressCase5(t *testing.T) {
 	}
 
 	// An address mistyped and asked for again: the first link is withdrawn, so whoever
-	// reads the mistyped mailbox confirms nothing. The mocked store expects no write of
-	// an address, so one made here fails the test.
+	// reads the mistyped mailbox confirms nothing. The mocked store expects no
+	// confirmation of the mistyped address, so one asked for here fails the test.
 	mistyped := ask("pat.le@lakeside.edu")
 	right := ask("pat.lee@lakeside.edu")
 	if code := confirm(mistyped); code != http.StatusNotFound {
@@ -863,6 +851,7 @@ func authAddressCase5(t *testing.T) {
 	// link is of a change that was overtaken, and confirms nothing.
 	overtaken := time.Now().Add(time.Minute)
 	user.Email, user.EmailVerifiedAt = strPtr("pat@hilltop.example"), &overtaken
+	links.expectConfirmation(f, userID, "pat.lee@lakeside.edu", user)
 	if code := confirm(right); code != http.StatusNotFound {
 		t.Errorf("Confirm() of a link mailed before the account confirmed another address = %d, want 404", code)
 	}

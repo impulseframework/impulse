@@ -260,31 +260,37 @@ func (a *Auth[S, U, Tx]) emailVerify() http.HandlerFunc {
 		if !link.UserID.Valid || link.UserID.UUID != user.ID {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errLinkDead())
 		}
-		// A person who came to sign in through a directory since they asked keeps the
-		// address they hold: the link stands unused and dies with its time.
-		if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, user.EmailVerified())); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-		if err := a.storage.ConsumeMailLink(ctx, link.TokenHash); err != nil {
+		// The link is used and its address written in one transaction of the store, on
+		// what the account holds then. A person who came to sign in through a directory
+		// since they asked keeps the address they hold: the link stands unused and dies
+		// with its time.
+		answer, err := a.storage.ConfirmAddressByLink(ctx, &sessionstorage.AddressConfirmation{
+			LinkID: link.ID, UserID: user.ID, Email: link.Email,
+			Refuse: func(held *sessionstorage.AddressHeld) error {
+				if holdsAddress(held.Email, held.ConfirmedAt != nil) && held.Directory {
+					return errDirectoryAddress()
+				}
+
+				return nil
+			},
+		})
+		if err != nil {
 			if httpio.HasNotFound(err) {
 				err = errLinkDead()
 			}
 
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if err := a.storage.VerifyUserEmail(ctx, user.ID, link.Email); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
 		// The link reached the person: the address's mail count is reset.
 		a.clearMailLimit(ctx, link.Email)
 		logger.FromCtx(ctx).Infof("user %s verified the email address %s", user.ID, link.Email)
 		// The address it replaced is told, and asked nothing.
-		a.noticeAddressChanged(ctx, user.Email, user.EmailVerified(), link.Email)
+		a.noticeAddressChanged(ctx, answer.Held.Email, answer.Held.ConfirmedAt != nil, link.Email)
 		// Where the username is the address, the verification renamed the user: the
 		// application moves what it keys by the old name.
-		if a.registered().usernameIsEmail() && user.Username != link.Email && a.userRenamed != nil {
-			if err := a.userRenamed(ctx, user.ID, user.Username, link.Email); err != nil {
-				logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by verifying the address, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, link.Email, err)
+		if answer.Renamed && a.userRenamed != nil {
+			if err := a.userRenamed(ctx, user.ID, answer.Username, link.Email); err != nil {
+				logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by verifying the address, and the rename hook failed; run the hook's work by hand: %v", user.ID, answer.Username, link.Email, err)
 
 				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "session.UserRenamedHook()"))
 			}
@@ -414,9 +420,11 @@ func (a *Auth[S, U, Tx]) emailConfirm() http.HandlerFunc {
 
 // confirmAddressChange writes the address a live address-change link names on the
 // account it names, confirmed, and tells the address it replaced. The link is consumed
-// by a conditional update before the write, so it confirms once. An account that has
-// come to sign in through an organization's directory since the change was asked for
-// keeps its address, and the link is answered as a dead one is.
+// and the address written in one transaction of the store, which reads there what the
+// account holds, so the link confirms once and a change that commits at the same moment
+// is seen. An account that has come to sign in through an organization's directory
+// since the change was asked for keeps its address, and the link is answered as a dead
+// one is.
 func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string) (string, error) {
 	link, err := a.liveLink(ctx, token, sessionstorage.MailLinkAddressChange)
 	if err != nil {
@@ -425,44 +433,41 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 	if !link.UserID.Valid {
 		return "", errLinkDead()
 	}
-	user, err := a.storage.User(ctx, link.UserID.UUID)
+	userID := link.UserID.UUID
+	answer, err := a.storage.ConfirmAddressByLink(ctx, &sessionstorage.AddressConfirmation{
+		LinkID: link.ID, UserID: userID, Email: link.Email,
+		Refuse: func(held *sessionstorage.AddressHeld) error {
+			if holdsAddress(held.Email, held.ConfirmedAt != nil) && held.Directory {
+				return errLinkDead()
+			}
+			// The link changes the address the account held when it was mailed: once
+			// the account confirmed an address after that, by another link, by the
+			// person's own change or by a sign-in code, the link is of a change that was
+			// overtaken.
+			if held.ConfirmedAt != nil && held.ConfirmedAt.After(link.CreatedAt) {
+				return errLinkDead()
+			}
+
+			return nil
+		},
+	})
 	if err != nil {
 		if httpio.HasNotFound(err) {
 			return "", errLinkDead()
 		}
 
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.User()")
-	}
-	confirmed := user.EmailVerified()
-	if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, confirmed)); err != nil {
-		return "", errLinkDead()
-	}
-	// The link changes the address the account held when it was mailed: once the
-	// account confirmed an address after that, by another link, by the person's own
-	// change or by a sign-in code, the link is of a change that was overtaken.
-	if confirmed && user.EmailVerifiedAt.After(link.CreatedAt) {
-		return "", errLinkDead()
-	}
-	if err := a.storage.ConsumeMailLink(ctx, link.TokenHash); err != nil {
-		if httpio.HasNotFound(err) {
-			return "", errLinkDead()
-		}
-
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.ConsumeMailLink()")
-	}
-	if err := a.storage.VerifyUserEmail(ctx, user.ID, link.Email); err != nil {
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.VerifyUserEmail()")
+		return "", errors.Wrap(err, "sessionstorage.AuthStore.ConfirmAddressByLink()")
 	}
 	// The link reached its reader: the address's mail count is reset.
 	a.clearMailLimit(ctx, link.Email)
-	a.endLinks(ctx, sessionstorage.MailLinkAddressChange, user.ID)
-	logger.FromCtx(ctx).Infof("the email address of user %s was changed to %s, confirmed from the link an administrator's request mailed", user.ID, link.Email)
-	a.noticeAddressChanged(ctx, user.Email, confirmed, link.Email)
+	a.endLinks(ctx, sessionstorage.MailLinkAddressChange, userID)
+	logger.FromCtx(ctx).Infof("the email address of user %s was changed to %s, confirmed from the link an administrator's request mailed", userID, link.Email)
+	a.noticeAddressChanged(ctx, answer.Held.Email, answer.Held.ConfirmedAt != nil, link.Email)
 	// Where the username is the address, the confirmation renamed the user: the
 	// application moves what it keys by the old name.
-	if a.registered().usernameIsEmail() && !sameAddress(user.Username, link.Email) && a.userRenamed != nil {
-		if err := a.userRenamed(ctx, user.ID, user.Username, link.Email); err != nil {
-			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by confirming the address, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, link.Email, err)
+	if answer.Renamed && a.userRenamed != nil {
+		if err := a.userRenamed(ctx, userID, answer.Username, link.Email); err != nil {
+			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by confirming the address, and the rename hook failed; run the hook's work by hand: %v", userID, answer.Username, link.Email, err)
 
 			return "", errors.Wrap(err, "session.UserRenamedHook()")
 		}
