@@ -1104,6 +1104,7 @@ export namespace StaffUserRoles {
 
 export namespace TenantDirectories {
   export const fieldName = {
+    asksSecondFactor: 'asksSecondFactor' as FieldName,
     connection: 'connection' as FieldName,
     defaultSeat: 'defaultSeat' as FieldName,
     id: 'id' as FieldName,
@@ -1112,6 +1113,7 @@ export namespace TenantDirectories {
     tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
+    asksSecondFactor: 'TenantDirectories.asksSecondFactor' as Resource,
     connection: 'TenantDirectories.connection' as Resource,
     defaultSeat: 'TenantDirectories.defaultSeat' as Resource,
     id: 'TenantDirectories.id' as Resource,

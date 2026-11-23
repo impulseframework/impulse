@@ -704,6 +704,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]
@@ -875,6 +876,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]

@@ -771,6 +771,7 @@ export interface SectorDirectories {
   method?: string;
   connection?: string;
   defaultSeat?: string;
+  asksSecondFactor?: boolean;
   sectorName?: string;
 }
 
@@ -2205,6 +2206,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'asksSecondFactor', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
     nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },

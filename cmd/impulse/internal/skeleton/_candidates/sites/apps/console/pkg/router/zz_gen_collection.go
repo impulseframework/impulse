@@ -505,6 +505,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
+					{Name: "asksSecondFactor", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},

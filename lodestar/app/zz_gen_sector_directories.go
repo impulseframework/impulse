@@ -19,12 +19,13 @@ import (
 
 func (a *App) SectorDirectories() http.HandlerFunc {
 	type sectorDirectory struct {
-		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
-		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
-		Method      string       `json:"method"      index:"true"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat"`
-		SectorName  *string      `json:"sectorName"  nameof:"SectorID" index:"true"`
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		SectorID         impulse.UUID `json:"sectorId"         index:"true"`
+		Method           string       `json:"method"           index:"true"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		SectorName       *string      `json:"sectorName"       nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -88,6 +89,10 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 					if !row.Masked("defaultSeat") {
 						rmap["defaultSeat"] = rec.DefaultSeat
 					}
+				case "AsksSecondFactor":
+					if !row.Masked("asksSecondFactor") {
+						rmap["asksSecondFactor"] = rec.AsksSecondFactor
+					}
 				}
 			}
 			for _, name := range querySet.Names() {
@@ -116,12 +121,13 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 
 func (a *App) SectorDirectory() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
-		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
-		Method      string       `json:"method"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat"`
-		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		SectorID         impulse.UUID `json:"sectorId"         index:"true"`
+		Method           string       `json:"method"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		SectorName       *string      `json:"sectorName"       nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.SectorDirectory, response](a, accesstypes.Read)
@@ -172,6 +178,10 @@ func (a *App) SectorDirectory() http.HandlerFunc {
 			case "DefaultSeat":
 				if !row.Masked("defaultSeat") {
 					rmap["defaultSeat"] = rec.DefaultSeat
+				}
+			case "AsksSecondFactor":
+				if !row.Masked("asksSecondFactor") {
+					rmap["asksSecondFactor"] = rec.AsksSecondFactor
 				}
 			}
 		}

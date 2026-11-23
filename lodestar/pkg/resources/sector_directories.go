@@ -45,6 +45,15 @@ type (
 	// The role is held to one the marshal could give directly, so a marshal, who gives
 	// every role of the sector but their own, opens the sector with no marshal's role.
 	//
+	// AsksSecondFactor says the sector's marshal has said the directory asks its people
+	// for a second factor of its own. A fleet member who signs in through the directory
+	// is then not asked for the mailed code, in this sector and in every sector that
+	// gave them a role; the governor, and anyone who signs in with a password, are asked
+	// as before. It is the sector's word and nothing checks it. The record shows it and
+	// its own update never writes it: the marshal says it with the sector's own method
+	// VouchForSectorDirectorySecondFactor, behind the warning the Sign-in page's dialog
+	// shows, and takes it back with StopVouchingForSectorDirectorySecondFactor.
+	//
 	// The tenancy column is on the row itself (the bare @domain binding), as the
 	// directories record requires: a directory is the sector's own declaration, stamped
 	// from the request's sector on create, never written by the wire.
@@ -68,6 +77,8 @@ type (
 		//
 		// @directoryDefaultSeat
 		DefaultSeat *string `spanner:"DefaultSeat"`
+		// @directorySecondFactor
+		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
 	}
 )
 

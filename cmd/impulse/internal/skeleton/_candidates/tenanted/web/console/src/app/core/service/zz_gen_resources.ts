@@ -365,6 +365,7 @@ export interface TenantDirectories {
   method?: string;
   connection?: string;
   defaultSeat?: string;
+  asksSecondFactor?: boolean;
   tenantName?: string;
 }
 
@@ -1040,6 +1041,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'asksSecondFactor', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
     nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },

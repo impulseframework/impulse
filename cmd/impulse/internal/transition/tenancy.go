@@ -380,7 +380,7 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 	if !tn.NoDirectories {
 		up += "\n" + tn.directoryTable()
 		down = fmt.Sprintf("DROP INDEX %[2]sByMethodConnection;\nDROP INDEX %[2]sBy%[3]sId;\nDROP TABLE %[2]s;\n", tn.Table, tn.DirectoryTable(), tn.Record()) + down
-		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
+		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
 	}
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
 		return err
@@ -437,12 +437,16 @@ func (tn Tenancy) directoryTable() string {
 -- unique indexes below hold.
 -- DefaultSeat names the role a person is given in the tenant at their first sign-in
 -- through the directory; NULL says the tenant admits them by invitation only.
+-- AsksSecondFactor says the tenant's administrator has said the directory asks its
+-- people for a second factor of its own, so a sign-in through it is not asked for the
+-- mailed code.
 CREATE TABLE %[2]s (
   Id STRING(36) NOT NULL,
   %[3]sId STRING(36) NOT NULL,
   Method STRING(16) NOT NULL,
   Connection STRING(MAX) NOT NULL,
   DefaultSeat STRING(64),
+  AsksSecondFactor BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_%[2]s_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_%[2]s_Method CHECK (Method IN ('google', 'azure', 'workos', 'oidc')),
