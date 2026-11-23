@@ -267,8 +267,9 @@ type (
 	// the password it has signs the person in, and their sessions stand, until the
 	// link is used. The link works once and the message says who asked. The answer
 	// says whether the link went (Sent) and, where it did not, why (Reason): the
-	// account has no password to reset or no confirmed address, or the address was
-	// mailed too often.` + identityTenantResetNote + `
+	// account has no password to reset or no confirmed address, its password is
+	// disabled by its organization's sign-in settings, or the address was mailed too
+	// often.` + identityTenantResetNote + `
 	//
 	// @rpc` + identityTenantScope + `
 	// @outlet({{ .Outlets }})` + identityCredentialClass + `

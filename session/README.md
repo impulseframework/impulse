@@ -1639,7 +1639,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
 | `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
-| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address. See "A password reset". |
+| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address, and for one whose password the tenants' sign-in settings disable. See "A password reset". |
 | `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
 | `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
@@ -1918,6 +1918,10 @@ you a link". There is no second mail.
   link still opens. Once one is set, the old one is refused from then on, every session
   of the person ends, the other reset links of the account are withdrawn, and the person
   signs in with the new password: completing a reset starts no session.
+- **No link for a disabled password.** A person whose password the tenants' sign-in
+  settings disable (`SetPasswordDisabledCheck`, "The tenant policy") is mailed none: an
+  administrator's send is a Conflict that says so, the person's own request mails
+  nothing, and a link mailed before the setting changed is dead.
 - **The link writes over the password it was followed for, and no other.** Completing
   it spends the link and then writes the new password only while the account still
   holds the password it held when the link was read (`AuthStore.ChangeUserPassword`,
