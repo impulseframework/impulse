@@ -95,14 +95,14 @@ func (s *SessionStorageDriver) DestroyOtherOwnSessions(ctx context.Context, user
 }
 
 // TrustedDeviceCount returns how many of the user's trusted devices are live at now:
-// not revoked and not expired.
-func (s *SessionStorageDriver) TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now time.Time) (int, error) {
+// not revoked, not expired, and remembered after rememberedAfter.
+func (s *SessionStorageDriver) TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`SELECT count(*) FROM %s WHERE "UserId" = $1 AND "RevokedAt" IS NULL AND "ExpiresAt" > $2`, s.trustedDevicesTable())
+	query := fmt.Sprintf(`SELECT count(*) FROM %s WHERE "UserId" = $1 AND "RevokedAt" IS NULL AND "ExpiresAt" > $2 AND "CreatedAt" > $3`, s.trustedDevicesTable())
 	var count int
-	if err := s.conn.QueryRow(ctx, query, userID, now).Scan(&count); err != nil {
+	if err := s.conn.QueryRow(ctx, query, userID, now, rememberedAfter).Scan(&count); err != nil {
 		return 0, errors.Wrap(err, "pgx.Row.Scan()")
 	}
 

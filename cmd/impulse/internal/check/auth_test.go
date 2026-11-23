@@ -41,20 +41,20 @@ func newSessions(client any, key string, mail session.MailSettings, opts ...sess
 const (
 	defaultAuth = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail)
 	_ = session.PasswordSignIn(authA)`
-	customAuth = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable("Impersonations"))), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithMailLinksTableName("PartnerMailLinks"), session.WithFactorCodesTableName("PartnerFactorCodes"), session.WithTrustedDevicesTableName("PartnerTrustedDevices"), session.WithCookieName("partner"))
+	customAuth = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable("Impersonations"))), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithSignInSettingsTableName("PartnerSettings"), session.WithMailLinksTableName("PartnerMailLinks"), session.WithFactorCodesTableName("PartnerFactorCodes"), session.WithTrustedDevicesTableName("PartnerTrustedDevices"), session.WithCookieName("partner"))
 	_ = session.PasswordSignIn(partners)`
-	googleDirectory = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(sessionstorage.NewAuthEventsTable("StaffEvents"))).WithCustomSessionData(sessionstorage.NewCustomSessionData[staffData, *spanner.ReadWriteTransaction]("StaffSessionData", nil)), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"), session.WithMailLinksTableName("StaffMailLinks"), session.WithFactorCodesTableName("StaffFactorCodes"), session.WithTrustedDevicesTableName("StaffTrustedDevices"))
+	googleDirectory = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(sessionstorage.NewAuthEventsTable("StaffEvents"))).WithCustomSessionData(sessionstorage.NewCustomSessionData[staffData, *spanner.ReadWriteTransaction]("StaffSessionData", nil)), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"), session.WithSignInSettingsTableName("StaffSettings"), session.WithMailLinksTableName("StaffMailLinks"), session.WithFactorCodesTableName("StaffFactorCodes"), session.WithTrustedDevicesTableName("StaffTrustedDevices"))
 	_, _ = google.SignIn(staff, "workspace", nil, &google.Config{Workspaces: google.Workspace("workspace", "example.com"), RoleSync: google.RoleSync(nil, "", nil)})`
-	partnersShared = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithMailLinksTableName("PartnerMailLinks"), session.WithFactorCodesTableName("PartnerFactorCodes"), session.WithTrustedDevicesTableName("PartnerTrustedDevices"))
+	partnersShared = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithSignInSettingsTableName("PartnerSettings"), session.WithMailLinksTableName("PartnerMailLinks"), session.WithFactorCodesTableName("PartnerFactorCodes"), session.WithTrustedDevicesTableName("PartnerTrustedDevices"))
 	_ = session.PasswordSignIn(partners)`
 	// defaultAttempts names every table but the sign-in attempts table, which the library
 	// then reads under its default name, the way an auth written before the limiter does.
-	defaultAttempts = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithMailLinksTableName("PartnerMailLinks"), session.WithFactorCodesTableName("PartnerFactorCodes"), session.WithTrustedDevicesTableName("PartnerTrustedDevices"))
+	defaultAttempts = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithSignInSettingsTableName("PartnerSettings"), session.WithMailLinksTableName("PartnerMailLinks"), session.WithFactorCodesTableName("PartnerFactorCodes"), session.WithTrustedDevicesTableName("PartnerTrustedDevices"))
 	_ = session.PasswordSignIn(partners)`
 	forwarded = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, opts...)
 	_ = session.PasswordSignIn(authA)`
 	// byAddress registers the password method with the address as the sign-in name.
-	byAddress = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"), session.WithMailLinksTableName("StaffMailLinks"), session.WithFactorCodesTableName("StaffFactorCodes"), session.WithTrustedDevicesTableName("StaffTrustedDevices"))
+	byAddress = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail, session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"), session.WithSignInSettingsTableName("StaffSettings"), session.WithMailLinksTableName("StaffMailLinks"), session.WithFactorCodesTableName("StaffFactorCodes"), session.WithTrustedDevicesTableName("StaffTrustedDevices"))
 	_ = session.PasswordSignIn(staff, session.UsernameIsEmail())`
 	noMethods      = `_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail)`
 	unreadableName = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), mail)
@@ -98,6 +98,7 @@ const (
 	pendingTable    = TablePrefix + "SessionPendingSignIns"
 	attemptsTable   = TablePrefix + "SessionSignInAttempts"
 	methodsTable    = TablePrefix + "SessionSignInMethods"
+	settingsTable   = TablePrefix + "SessionSignInSettings"
 
 	mailLinksTable      = TablePrefix + "SessionMailLinks"
 	factorCodesTable    = TablePrefix + "SessionFactorCodes"
@@ -115,6 +116,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, mail session.
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
+		session.WithSignInSettingsTableName(settingsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),
@@ -161,6 +163,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, mail session.
 		session.WithPendingSignInsTableName("CrewSessionPendingSignIns"),
 		session.WithSignInAttemptsTableName("CrewSessionSignInAttempts"),
 		session.WithSignInMethodsTableName("CrewSessionSignInMethods"),
+		session.WithSignInSettingsTableName("CrewSessionSignInSettings"),
 		session.WithMailLinksTableName("CrewSessionMailLinks"),
 		session.WithFactorCodesTableName("CrewSessionFactorCodes"),
 		session.WithTrustedDevicesTableName("CrewSessionTrustedDevices"),
@@ -201,6 +204,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, mail session.
 		session.WithPendingSignInsTableName("CrewSessionPendingSignIns"),
 		session.WithSignInAttemptsTableName("CrewSessionSignInAttempts"),
 		session.WithSignInMethodsTableName("CrewSessionSignInMethods"),
+		session.WithSignInSettingsTableName("CrewSessionSignInSettings"),
 		session.WithMailLinksTableName("CrewSessionMailLinks"),
 		session.WithFactorCodesTableName("CrewSessionFactorCodes"),
 		session.WithTrustedDevicesTableName("CrewSessionTrustedDevices"),
@@ -232,7 +236,7 @@ func TestSessionTables(t *testing.T) {
 	// checks its error, and attaches it to a storage it then hands to the Auth by name.
 	const sessionDataNamed = "sessionData, err := sessionstorage.NewCustomSessionData[crewData, *cloudspanner.ReadWriteTransaction](\"CrewSessionData\", nil)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\tstore := sessionstorage.NewSpannerAuth(db).WithCustomSessionData(sessionData)"
 	const userDataInTwoSteps = "userData, err := sessionstorage.NewCustomUserData[crewData](\"CrewUserData\")\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\tstore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable(\"CrewSessionImpersonations\")))\n\tstore = store.WithCustomUserData(userData)"
-	const crewTables = "CrewSessions, CrewSessionUsers, CrewSessionIdentities, CrewSessionPendingSignIns, CrewSessionSignInAttempts, CrewSessionSignInMethods, CrewSessionMailLinks, CrewSessionFactorCodes, CrewSessionTrustedDevices, CrewSessionImpersonations"
+	const crewTables = "CrewSessions, CrewSessionUsers, CrewSessionIdentities, CrewSessionPendingSignIns, CrewSessionSignInAttempts, CrewSessionSignInMethods, CrewSessionSignInSettings, CrewSessionMailLinks, CrewSessionFactorCodes, CrewSessionTrustedDevices, CrewSessionImpersonations"
 
 	tests := []struct {
 		name        string
@@ -246,30 +250,30 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(customAuth, googleDirectory),
-				"schema/migrations/000003_Sessions.up.sql": tables("PartnerSessions", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerAttempts", "PartnerMethods", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices", "Impersonations", "StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices", "StaffEvents", "StaffSessionData"),
+				"schema/migrations/000003_Sessions.up.sql": tables("PartnerSessions", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerAttempts", "PartnerMethods", "PartnerSettings", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices", "Impersonations", "StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffSettings", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices", "StaffEvents", "StaffSessionData"),
 			},
 			wantStatus:  Pass,
-			wantSummary: "2 auth(s): methods password; tables PartnerSessions, PartnerUsers, PartnerIdentities, PartnerPending, PartnerAttempts, PartnerMethods, PartnerMailLinks, PartnerFactorCodes, PartnerTrustedDevices, Impersonations, cookie partner; methods workspace (google, directory authority); tables StaffSessions, StaffUsers, StaffIdentities, StaffPending, StaffAttempts, StaffMethods, StaffMailLinks, StaffFactorCodes, StaffTrustedDevices, StaffEvents, StaffSessionData",
+			wantSummary: "2 auth(s): methods password; tables PartnerSessions, PartnerUsers, PartnerIdentities, PartnerPending, PartnerAttempts, PartnerMethods, PartnerSettings, PartnerMailLinks, PartnerFactorCodes, PartnerTrustedDevices, Impersonations, cookie partner; methods workspace (google, directory authority); tables StaffSessions, StaffUsers, StaffIdentities, StaffPending, StaffAttempts, StaffMethods, StaffSettings, StaffMailLinks, StaffFactorCodes, StaffTrustedDevices, StaffEvents, StaffSessionData",
 		},
 		{
 			name: "an auth package naming its tables through constants",
 			files: map[string]string{
 				"cmd/generate/main.go":                  site,
 				"pkg/auth/staff/staff.go":               constNamed,
-				"schema/migrations/000002_Staff.up.sql": tables("StaffSessions", "StaffSessionUsers", "StaffSessionIdentities", "StaffSessionPendingSignIns", "StaffSessionSignInAttempts", "StaffSessionSignInMethods", "StaffSessionMailLinks", "StaffSessionFactorCodes", "StaffSessionTrustedDevices"),
+				"schema/migrations/000002_Staff.up.sql": tables("StaffSessions", "StaffSessionUsers", "StaffSessionIdentities", "StaffSessionPendingSignIns", "StaffSessionSignInAttempts", "StaffSessionSignInMethods", "StaffSessionSignInSettings", "StaffSessionMailLinks", "StaffSessionFactorCodes", "StaffSessionTrustedDevices"),
 			},
 			wantStatus:  Pass,
-			wantSummary: "1 auth(s): staff: methods password; tables StaffSessions, StaffSessionUsers, StaffSessionIdentities, StaffSessionPendingSignIns, StaffSessionSignInAttempts, StaffSessionSignInMethods, StaffSessionMailLinks, StaffSessionFactorCodes, StaffSessionTrustedDevices, cookie staff, xsrf cookie staff-xsrf",
+			wantSummary: "1 auth(s): staff: methods password; tables StaffSessions, StaffSessionUsers, StaffSessionIdentities, StaffSessionPendingSignIns, StaffSessionSignInAttempts, StaffSessionSignInMethods, StaffSessionSignInSettings, StaffSessionMailLinks, StaffSessionFactorCodes, StaffSessionTrustedDevices, cookie staff, xsrf cookie staff-xsrf",
 		},
 		{
 			name: "one Auth with forwarded options",
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(forwarded),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionSignInSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
 			},
 			wantStatus:  Pass,
-			wantSummary: "1 auth(s): methods password; tables Sessions, SessionUsers, SessionIdentities, SessionPendingSignIns, SessionSignInAttempts, SessionSignInMethods, SessionMailLinks, SessionFactorCodes, SessionTrustedDevices",
+			wantSummary: "1 auth(s): methods password; tables Sessions, SessionUsers, SessionIdentities, SessionPendingSignIns, SessionSignInAttempts, SessionSignInMethods, SessionSignInSettings, SessionMailLinks, SessionFactorCodes, SessionTrustedDevices",
 			wantDetails: []string{
 				"pkg/config/session.go:12: options are forwarded from the caller (opts...); tables and cookies beyond the defaults are not visible here",
 			},
@@ -279,7 +283,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(defaultAuth, partnersShared),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionSignInAttempts", "SessionSignInMethods", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerAttempts", "PartnerMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionSignInAttempts", "SessionSignInMethods", "SessionSignInSettings", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerAttempts", "PartnerMethods", "PartnerSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "2 auth wiring problem(s)",
@@ -293,17 +297,17 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(byAddress),
-				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffSettings", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices"),
 			},
 			wantStatus:  Pass,
-			wantSummary: "1 auth(s): methods password (the username is the address); tables StaffSessions, StaffUsers, StaffIdentities, StaffPending, StaffAttempts, StaffMethods, StaffMailLinks, StaffFactorCodes, StaffTrustedDevices",
+			wantSummary: "1 auth(s): methods password (the username is the address); tables StaffSessions, StaffUsers, StaffIdentities, StaffPending, StaffAttempts, StaffMethods, StaffSettings, StaffMailLinks, StaffFactorCodes, StaffTrustedDevices",
 		},
 		{
 			name: "the mail links, sign-in codes and trusted devices tables missing",
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(byAddress),
-				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods"),
+				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffSettings"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "3 auth wiring problem(s)",
@@ -318,17 +322,17 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     issuing,
 				"pkg/config/session.go":                    authFile(byAddress),
-				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices", "SessionTokens", "SessionDeviceCodes"),
+				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffSettings", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices", "SessionTokens", "SessionDeviceCodes"),
 			},
 			wantStatus:  Pass,
-			wantSummary: "1 auth(s): methods password (the username is the address); tables StaffSessions, StaffUsers, StaffIdentities, StaffPending, StaffAttempts, StaffMethods, StaffMailLinks, StaffFactorCodes, StaffTrustedDevices, SessionTokens, SessionDeviceCodes",
+			wantSummary: "1 auth(s): methods password (the username is the address); tables StaffSessions, StaffUsers, StaffIdentities, StaffPending, StaffAttempts, StaffMethods, StaffSettings, StaffMailLinks, StaffFactorCodes, StaffTrustedDevices, SessionTokens, SessionDeviceCodes",
 		},
 		{
 			name: "missing tokens and device codes tables",
 			files: map[string]string{
 				"cmd/generate/main.go":                     issuing,
 				"pkg/config/session.go":                    authFile(byAddress),
-				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffSettings", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "2 auth wiring problem(s)",
@@ -342,7 +346,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(defaultAuth),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInMethods", "SessionSignInSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -357,7 +361,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(defaultAuth),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -366,11 +370,24 @@ func TestSessionTables(t *testing.T) {
 			},
 		},
 		{
+			name: "a missing sign-in settings table",
+			files: map[string]string{
+				"cmd/generate/main.go":                     site,
+				"pkg/config/session.go":                    authFile(defaultAuth),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/config/session.go:12: the Auth at pkg/config/session.go:12 reads table SessionSignInSettings, which no migration creates (the session library's schema is under " + schemaSets + ")",
+			},
+		},
+		{
 			name: "two Auths counting sign-in attempts in the library's default table",
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(defaultAuth, defaultAttempts),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "PartnerSessions", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionSignInSettings", "PartnerSessions", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerMethods", "PartnerSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -383,7 +400,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(noMethods),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionSignInSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -396,7 +413,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(unreadableName),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionSignInSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -409,7 +426,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(registeredTwice),
-				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
+				"schema/migrations/000003_Sessions.up.sql": tables("Sessions", "SessionUsers", "SessionIdentities", "SessionPendingSignIns", "SessionSignInAttempts", "SessionSignInMethods", "SessionSignInSettings", "SessionMailLinks", "SessionFactorCodes", "SessionTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -422,7 +439,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                     site,
 				"pkg/config/session.go":                    authFile(customAuth, googleDirectory, unattached),
-				"schema/migrations/000003_Sessions.up.sql": tables("PartnerSessions", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerAttempts", "PartnerMethods", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices", "Impersonations", "StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices", "StaffEvents", "StaffSessionData"),
+				"schema/migrations/000003_Sessions.up.sql": tables("PartnerSessions", "PartnerUsers", "PartnerIdentities", "PartnerPending", "PartnerAttempts", "PartnerMethods", "PartnerSettings", "PartnerMailLinks", "PartnerFactorCodes", "PartnerTrustedDevices", "Impersonations", "StaffSessions", "StaffUsers", "StaffIdentities", "StaffPending", "StaffAttempts", "StaffMethods", "StaffSettings", "StaffMailLinks", "StaffFactorCodes", "StaffTrustedDevices", "StaffEvents", "StaffSessionData"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -435,7 +452,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                 site,
 				"pkg/auth/crew/crew.go":                impersonationNamed("impersonation, err := sessionstorage.NewImpersonationTable(\"CrewSessionImpersonations\")\n\tif err != nil {\n\t\treturn nil, err\n\t}"),
-				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations"),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionSignInSettings", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations"),
 			},
 			wantStatus:  Pass,
 			wantSummary: "1 auth(s): crew: methods password; tables " + crewTables,
@@ -445,7 +462,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                 site,
 				"pkg/auth/crew/crew.go":                impersonationNamed("impersonation := sessionstorage.NewImpersonationTable(impersonationTable)"),
-				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations"),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionSignInSettings", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations"),
 			},
 			wantStatus:  Pass,
 			wantSummary: "1 auth(s): crew: methods password; tables " + crewTables,
@@ -455,17 +472,17 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                 site,
 				"pkg/auth/crew/crew.go":                storageNamed(sessionDataNamed),
-				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionData"),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionSignInSettings", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionData"),
 			},
 			wantStatus:  Pass,
-			wantSummary: "1 auth(s): crew: methods password; tables CrewSessions, CrewSessionUsers, CrewSessionIdentities, CrewSessionPendingSignIns, CrewSessionSignInAttempts, CrewSessionSignInMethods, CrewSessionMailLinks, CrewSessionFactorCodes, CrewSessionTrustedDevices, CrewSessionData",
+			wantSummary: "1 auth(s): crew: methods password; tables CrewSessions, CrewSessionUsers, CrewSessionIdentities, CrewSessionPendingSignIns, CrewSessionSignInAttempts, CrewSessionSignInMethods, CrewSessionSignInSettings, CrewSessionMailLinks, CrewSessionFactorCodes, CrewSessionTrustedDevices, CrewSessionData",
 		},
 		{
 			name: "custom session data built on its own line whose table no migration creates",
 			files: map[string]string{
 				"cmd/generate/main.go":                 site,
 				"pkg/auth/crew/crew.go":                storageNamed(sessionDataNamed),
-				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices"),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionSignInSettings", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",
@@ -478,7 +495,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                 site,
 				"pkg/auth/crew/crew.go":                storageNamed(userDataInTwoSteps),
-				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations", "CrewUserData"),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionSignInSettings", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations", "CrewUserData"),
 			},
 			wantStatus:  Pass,
 			wantSummary: "1 auth(s): crew: methods password; tables " + crewTables + ", CrewUserData",
@@ -488,7 +505,7 @@ func TestSessionTables(t *testing.T) {
 			files: map[string]string{
 				"cmd/generate/main.go":                 site,
 				"pkg/auth/crew/crew.go":                impersonationNamed("impersonation := newImpersonation()"),
-				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations"),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionSignInSettings", "CrewSessionMailLinks", "CrewSessionFactorCodes", "CrewSessionTrustedDevices", "CrewSessionImpersonations"),
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth wiring problem(s)",

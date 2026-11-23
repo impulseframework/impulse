@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"go.uber.org/mock/gomock"
 )
 
@@ -29,7 +32,9 @@ type trustedCookieHarness struct {
 func newTrustedCookieHarness(t *testing.T) *trustedCookieHarness {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), quietMail())
+	store := newAuthStoreMock(gomock.NewController(t))
+	store.EXPECT().SignInSettings(gomock.Any()).Return(&sessionstorage.SignInSettings{RequireSecondFactor: true, RememberBrowserDays: DefaultRememberedBrowserDays}, nil).AnyTimes()
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -245,4 +250,90 @@ func TestTrustedDeviceCookie_HeldSignIn(t *testing.T) {
 			t.Error("the last entry's held sign-in left the cookie standing")
 		}
 	})
+}
+
+// newRememberingAuth is an Auth over a mock store whose sign-in settings row remembers a
+// browser for days, and the store, for a test to expect its writes on.
+func newRememberingAuth(t *testing.T, days int64) (*Auth[NoCustomData, NoCustomData, mockTx], *mockstore.AuthStore[mockTx]) {
+	t.Helper()
+
+	store := newAuthStoreMock(gomock.NewController(t))
+	store.EXPECT().SignInSettings(gomock.Any()).Return(&sessionstorage.SignInSettings{RequireSecondFactor: true, RememberBrowserDays: days}, nil).AnyTimes()
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
+	if err != nil {
+		t.Fatalf("NewAuth() error = %v", err)
+	}
+
+	return a, store
+}
+
+// TestRememberDevice_thePeriodAsItIsNow pins that a browser is remembered for the days
+// the sign-in settings say when it is remembered: the row's end date and the cookie's
+// life are both that period from now. With 0 days a browser is not remembered: no row
+// is written and no cookie.
+func TestRememberDevice_thePeriodAsItIsNow(t *testing.T) {
+	t.Parallel()
+
+	for _, days := range []int64{7, DefaultRememberedBrowserDays} {
+		t.Run(fmt.Sprintf("%d days: the row and the cookie end %d days from now", days, days), func(t *testing.T) {
+			t.Parallel()
+
+			a, store := newRememberingAuth(t, days)
+			var inserted *sessionstorage.TrustedDevice
+			store.EXPECT().InsertTrustedDevice(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d *sessionstorage.TrustedDevice) error {
+				inserted = d
+
+				return nil
+			})
+			before := time.Now()
+			rr := httptest.NewRecorder()
+			a.rememberDevice(t.Context(), rr, impulse.Must(impulse.NewUUID()))
+			after := time.Now()
+
+			period := time.Duration(days) * 24 * time.Hour
+			if inserted == nil || inserted.ExpiresAt.Before(before.Add(period)) || inserted.ExpiresAt.After(after.Add(period)) {
+				t.Errorf("InsertTrustedDevice() row = %+v, want one ending %v from now", inserted, period)
+			}
+			cookies := rr.Result().Cookies()
+			if len(cookies) != 1 || cookies[0].Name != a.settings.factors.trustedCookie {
+				t.Fatalf("cookies written = %v, want the trusted device cookie alone", cookies)
+			}
+			// The header carries whole seconds.
+			if got := cookies[0].Expires; got.Before(before.Add(period).Truncate(time.Second)) || got.After(after.Add(period)) {
+				t.Errorf("the cookie expires %v, want %v from now", got, period)
+			}
+		})
+	}
+
+	t.Run("0 days: no row and no cookie", func(t *testing.T) {
+		t.Parallel()
+
+		// The mock fails the test on an InsertTrustedDevice call: none is expected.
+		a, _ := newRememberingAuth(t, 0)
+		rr := httptest.NewRecorder()
+		a.rememberDevice(t.Context(), rr, impulse.Must(impulse.NewUUID()))
+		if cookies := rr.Result().Cookies(); len(cookies) != 0 {
+			t.Errorf("cookies written = %v, want none: browsers are not remembered", cookies)
+		}
+	})
+}
+
+// TestTrustedDeviceCookie_HeldSignInRemembersNone pins that a held sign-in that drops
+// the person's entry deletes the cookie, other people's entries with it, while browsers
+// are not remembered (0 days): the cookie is never rewritten for no period.
+func TestTrustedDeviceCookie_HeldSignInRemembersNone(t *testing.T) {
+	t.Parallel()
+
+	a, _ := newRememberingAuth(t, 0)
+	h := &trustedCookieHarness{t: t, a: a}
+	pat, sam := h.newUser(), h.newUser()
+	_, patToken := h.newToken()
+	_, samToken := h.newToken()
+	carried := h.entriesWritten(map[string]trustedEntry{pat.String(): {Token: patToken, At: 1}, sam.String(): {Token: samToken, At: 2}})
+
+	rr := httptest.NewRecorder()
+	a.dropTrustedEntry(h.ctxWith(carried), rr, impulse.NullUUID{UUID: pat, Valid: true})
+	if _, deleted, _ := h.entriesOf(rr.Result().Cookies()); !deleted {
+		t.Error("a held sign-in with browsers not remembered left the cookie, want it deleted")
+	}
 }

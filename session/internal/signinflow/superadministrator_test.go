@@ -28,15 +28,17 @@ func (d *eventsDriver) InsertSessionIn(ctx context.Context, tx *memTx, id impuls
 
 // TestSignIn_aSuperAdministratorsSecondFactor pins the second factor of a super
 // administrator on the flow every sign-in runs: in an application whose sign-in rule
-// asks nobody for one (no rule at all, or a rule that allows), a person holding the
-// Super Administrator role waits for the code the library mails, and no session
-// starts; a browser the person asked to be remembered passes the step and the session
-// records it, as it does for any account; so does the directory's attestation, and the
-// completion of the code itself. A person who does not hold the role signs in as the
-// application's rule says. A sign-in through a method that synchronizes roles is not
-// held by the library's rule, since the directory is the authority there: a holder
-// signs in as the application's rule says, which still holds them when it asks a
-// factor of everyone.
+// asks nobody for one (no rule at all, or a rule that allows), and whose sign-in
+// settings ask nobody for one either, a person holding the Super Administrator role
+// waits for the code the library mails, and no session starts; a browser the person
+// asked to be remembered passes the step and the session records it, as it does for
+// any account; so does the directory's attestation, and the completion of the code
+// itself. A person who does not hold the role signs in as the application's rule says.
+// A sign-in through a method that synchronizes roles is not held by the library's rule,
+// since the directory is the authority there: a holder signs in as the application's
+// rule says, which still holds them when it asks a factor of everyone. While the
+// settings ask everyone for one, a person who does not hold the role waits for the code
+// as well.
 func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +52,9 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 		policy  signin.Policy[*memTx]
 		super   bool
 		trusted bool
+		// required is what the sign-in settings say: whether everyone is asked for a
+		// second factor.
+		required bool
 		// reason and events are the sign-in's: a login by password unless set.
 		reason sessioninfo.NewSessionReason
 		events []sessioninfo.AuthEvent
@@ -94,6 +99,12 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 			wantSession: true,
 		},
 		{
+			name:        "while the settings ask everyone, a person who does not hold the role waits for the code too",
+			policy:      allows,
+			required:    true,
+			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+		},
+		{
 			name:        "a person who does not hold the role is asked nothing on a remembered browser either",
 			policy:      allows,
 			trusted:     true,
@@ -122,6 +133,7 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 			t.Parallel()
 
 			store := newMemStore()
+			store.settings.RequireSecondFactor = tt.required
 			userID := impulse.Must(impulse.NewUUID())
 			store.users[userID] = &memUser{username: "pat"}
 			d := &eventsDriver{memDriver: &memDriver{store: store}}

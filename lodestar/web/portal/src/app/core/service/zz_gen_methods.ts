@@ -109,6 +109,11 @@ export interface RenameMembersUser {
 /** The statuses RenameMembersUser declares; the method chooses one per response. */
 export type RenameMembersUserStatus = 204;
 
+export interface RequireMembersSecondFactorConfig {}
+export interface RequireMembersSecondFactor {}
+/** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
+export type RequireMembersSecondFactorStatus = 204;
+
 export interface RevokeMembersSectorUserTrustedDevicesConfig {
   userId: string | FieldPointer;
 }
@@ -126,6 +131,15 @@ export interface RevokeMembersUserTrustedDevices {
 }
 /** The statuses RevokeMembersUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeMembersUserTrustedDevicesStatus = 204;
+
+export interface SetMembersRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetMembersRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetMembersRememberedBrowsers declares; the method chooses one per response. */
+export type SetMembersRememberedBrowsersStatus = 204;
 
 export interface SetMembersSectorUserEmailConfig {
   userId: string | FieldPointer;
@@ -183,6 +197,11 @@ export interface StandDownMissionConfig {
 export interface StandDownMission {
   missionId: string;
 }
+
+export interface StopRequiringMembersSecondFactorConfig {}
+export interface StopRequiringMembersSecondFactor {}
+/** The statuses StopRequiringMembersSecondFactor declares; the method chooses one per response. */
+export type StopRequiringMembersSecondFactorStatus = 204;
 
 export interface UnlinkMembersSectorSessionIdentityConfig {
   identityId: string | FieldPointer;
@@ -430,6 +449,12 @@ const methodMap: MethodMap = {
       { fieldName: 'username', displayType: 'string', required: true },
     ],
   },
+  [Methods.RequireMembersSecondFactor]: {
+    route: 'require-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
+  },
   [Methods.RevokeMembersSectorUserTrustedDevices]: {
     route: 'revoke-members-sector-user-trusted-devices',
     target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
@@ -446,6 +471,14 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetMembersRememberedBrowsers]: {
+    route: 'set-members-remembered-browsers',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersRememberLengths, required: true },
     ],
   },
   [Methods.SetMembersSectorUserEmail]: {
@@ -496,6 +529,13 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
     ],
+  },
+  [Methods.StopRequiringMembersSecondFactor]: {
+    route: 'stop-requiring-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
   },
   [Methods.UnlinkMembersSectorSessionIdentity]: {
     route: 'unlink-members-sector-session-identity',

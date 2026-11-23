@@ -639,6 +639,7 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 		return err
 	}
 	r.attachSubjectReadThroughs()
+	r.attachSubjectKinds()
 
 	return nil
 }

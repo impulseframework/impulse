@@ -168,6 +168,11 @@ type Auth struct {
 	// sign-in method, open to sign-up or invite only, which every sign-in reads:
 	// WithSignInMethodsTableName or the library default.
 	SignInMethodsTable string
+	// SignInSettingsTable is the table that keeps what an administrator chose for the
+	// whole Auth, whether everyone is asked for a second factor and how long a browser is
+	// remembered, which every sign-in reads: WithSignInSettingsTableName or the library
+	// default.
+	SignInSettingsTable string
 	// MailLinksTable is the mail links table the Auth's invitations, address
 	// verifications and sign-ups are kept in: WithMailLinksTableName or the library
 	// default.

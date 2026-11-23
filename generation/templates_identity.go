@@ -1767,7 +1767,7 @@ func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, a
 func (store) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
 	return nil, nil
 }
-{{ end }}` + identitySignInMethodStoreTemplate + `{{ if .Has "trustedDevices" }}
+{{ end }}` + identitySignInMethodStoreTemplate + identitySignInSettingsStoreTemplate + `{{ if .Has "trustedDevices" }}
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := {{ .ResourcesPackage }}.New{{ .TrustedDevice }}Query().

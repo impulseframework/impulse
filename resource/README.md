@@ -1886,10 +1886,14 @@ with nothing gone where it cannot be made whole:
   is looked for under the rows found, each row counted once, and the delete answers in
   the same counted sentence before any row is checked, asked about or deleted.
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
-  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind
-  and the grant's condition against the row, the kind's delete rule, its change record
-  where the kind is tracked, and the release of its stored files. One row that may not
-  go stops the whole delete.
+  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
+  what a session that acts as someone else is asked about a row that decides what a
+  person may do (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the
+  grant's condition against the row, the kind's delete rule, its change record where
+  the kind is tracked, and the release of its stored
+  files. One row that may not go stops the whole delete. One thing a kind's own route
+  asks is not asked here yet: a kind behind a feature flag (`@feature`) goes with the
+  record while its flag is off.
 - The tenant record declares nothing, and `@deleteCascade` on it is refused: the library
   declares what a tenant's delete takes, which is every kind of the application's whose
   rows carry the tenant's key or lead to a row that does. Its rows are found, asked about
@@ -2704,6 +2708,44 @@ and fetches once when it is shown again. The two times are the client library's
 defaults, and an application sets its own where it creates its client. The server holds
 none of this: it publishes each write as it always did, once.
 
+**A page that shows names.** A live list or row that shows a name read from another
+resource (a name field, `@name` in section 1) is told when that name may have changed. With its
+own subscription, in the same write to the record, the request registers the list of each
+resource its names are read from: the names in play as its statement reads them (the
+columns it asks for, the names it sorts by or its declared order sorts by, the names its
+filter names, and every name it may be given where it named no columns), each whose own
+grant the person holds, outright or under a condition, and never an enumeration table's,
+whose words every page carries already. The list is the one in the request's tenant where
+the pointed-to resource belongs to a tenant, and the one of no tenant where it belongs to
+none. A write adds nothing for it: a write to the pointed-to resource tells that list's
+subscribers as it always did, and the page that shows its names is one of them, so the
+page refetches exactly when a page listing that resource in that tenant does, for any
+write to it, a rename or another field. A name read from the request's own list (a list of
+crew that shows each one's lead) adds nothing. The answer names what was registered in the
+response header `X-Names` (`live.Names`), as JSON, percent-encoded as `X-Changes` is: the
+request's own subscription as the record keeps it (`of`: a list by resource and domain, a
+row by resource and key, a list across tenants by resource, `acrossTenants` and the
+`domains` it was narrowed to), and the lists registered beside it, each with the
+pointed-to resource's name field as the grants name it (`nameField`, absent where the name
+is the resource's key); decoded, for a list of ships in the tenant `anvil` that shows each
+ship's squadron by name:
+
+```
+X-Names: {"of":{"resource":"Ships","domain":"anvil"},"names":[{"resource":"Squadrons","domain":"anvil","nameField":"name"}]}
+```
+
+The tab keeps those lists under the subscription and renews them with it, each carrying
+its `nameField`. The renewal re-checks such a list by `List` on that field in the
+subscription's tenant, the question the page's read asked, since a person may hold a
+name's grant and not the list's, and keeps or drops it by that alone; the record keeps it
+as the resource's list, as any other, and the answer echoes `nameField` as sent. A
+renewal's subscription that carries `nameField` with a key, or as a list across tenants,
+or whose `nameField` holds a dot, is refused with 400. An answer carries no `X-Names`
+when the request registered nothing
+beside its own subscription, and none when the record did not take them. Reading the lists
+is best effort: where it fails, the request's own subscription is registered alone and the
+failure is logged.
+
 **Derived resources.** A virtual or computed resource has no rows of its own, so a commit
 reaches it through the tables it reads, which the generator records next to the resource:
 each package holding published virtual or computed resources gets a generated
@@ -2787,7 +2829,9 @@ written or renewed. The renewal re-checks each subscription against the user's g
 `Read` on the resource for a row, `List` for a list, in the subscription's domain (the
 global scope when none is sent) — writes the kept ones with a fresh expiry in one batch,
 and echoes, in the order sent, which were kept and which dropped; a resource the grants
-do not know is dropped, never refused. A row subscription of a domain-scoped resource
+do not know is dropped, never refused, while a subscription whose `resource` holds a dot
+is refused with 400: a resource's own name holds none. A row subscription of a
+domain-scoped resource
 sends the domain the row was read in, or its re-check runs in the global scope, where a
 domain-scoped resource holds no grant, and the subscription is dropped. Revocation
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;
@@ -2904,10 +2948,11 @@ Lodestar's wiring is [pkg/config/data.go](../lodestar/pkg/config/data.go) and
 the routes `live/renew`, `live/unsubscribe` and `live/token` under the outlet's prefix,
 the renewal interval 120 s, the expiry 300 s, the cache header `Cache-Control: private,
 max-age=300`, the bulk threshold 100, the response header `X-Changes` and its JSON
-(`write`, `changes`, `all`), and the change document's shape (`kind` of `row`,
-`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`,
-`expires` and `write`). The generated descriptor names the routes per outlet:
-`live: { renewRoute, unsubscribeRoute, tokenRoute }`.
+(`write`, `changes`, `all`), the response header `X-Names` and its JSON (`of`, `names`,
+each entry a subscription), a subscription's `nameField`, and the change document's
+shape (`kind` of `row`, `list` or `resource`; `resource`; `key` and `deleted` on a row;
+`domain` on a list; `at`, `expires` and `write`). The generated descriptor names the
+routes per outlet: `live: { renewRoute, unsubscribeRoute, tokenRoute }`.
 
 ## 15. Feature flags
 
@@ -5509,27 +5554,43 @@ own, outside any request, has no caller and is the application's act):
   refuse the real person their own row, their own set and the row their own value is
   read through.
 
-  A row removed with its parent, which may name the person, is a limit of its own. A row
-  taken with the record it is under (the record's `@deleteCascade`, or its tenant's
-  delete) is deleted by the library and not through the row's own route, so the rule is
-  not asked about the person it names, and a mask that refuses the row's own writes does
-  not refuse the parent's delete. Where every such row gives something, the delete only
-  takes away; where a row restricts (a ban, a cap), the delete gives. An application
-  closes it under the mask by refusing each request that removes a row above it:
+  A row taken with the record it is under (the record's `@deleteCascade`) is held to the
+  same three questions. They are written once for each record, as
+  `RefuseImpersonatorAs<Record>Subject` in the resources package, which the record's
+  generated write calls and the delete of a taken row calls as a removal. So a delete
+  that would take the real person's own row, or a row of a set they are in, is refused
+  whole, in the sentence the row's own removal is refused with ("You are acting as
+  someone else, so you cannot remove your own client contact record."), before any
+  question is asked, and nothing is deleted. A mask that refuses the row's own delete
+  refuses the record's delete too. A delete an application runs trusted, with no caller,
+  asks neither: an action that deletes such a record in its own body takes the rows
+  under it unasked, and an application closes that by refusing the action by name in
+  the kind's mask (`accesstypes.RefuseAction(action)`).
 
-  - the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`);
-  - the delete of each record further up while the cascade goes on, since the
-    grandparent's delete removes the parent and the row with it;
-  - an action that removes one of those rows in its own body, by name
+  A row that goes with its tenant is a limit of its own. A tenant's delete takes every
+  row under the tenant on the grant to delete the tenant: no grant is asked on a row,
+  and the questions are not asked about the person a row names. The generator gives the
+  tenant record's delete the class `access`, so a kind whose mask refuses that class
+  does not delete a tenant. An application closes it for any other kind by refusing, in
+  the kind's mask:
+
+  - the tenant's delete (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`);
+  - an action that deletes a tenant in its own body, by name
     (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
     not for Delete on the record.
 
-  PostgreSQL has referential actions that change the row where it stands, again with
-  no write of it. `ON DELETE SET NULL` and `ON DELETE SET DEFAULT` rewrite the column
-  that named the parent when the parent is deleted, and the refusals above close them.
-  `ON UPDATE CASCADE`, `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is
-  changed: a rank renamed is renamed on every row that holds it, the real person's
-  among them. Refusing the parent's update closes that
+  A row a foreign key's own rule removes or rewrites is another: no write of the row is
+  made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` among an
+  application's own tables (`no-delete-cascade`). A row of an application's that names a
+  row of the library's under that rule (a pass given to a group) still goes with it, and
+  what a mask refuses there is the action that removes the library's row. PostgreSQL has
+  referential actions that change the row where it stands. `ON DELETE SET NULL` and
+  `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
+  deleted, and refusing the parent's delete under the mask closes them
+  (`accesstypes.RefusePermission(accesstypes.Delete, parent)`). `ON UPDATE CASCADE`,
+  `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is changed: a rank
+  renamed is renamed on every row that holds it, the real person's among them. Refusing
+  the parent's update closes that
   (`accesstypes.RefusePermission(accesstypes.Update, parent)`, or the same on the one
   column the foreign key names, `parent.field`), with any action that changes the key.
 

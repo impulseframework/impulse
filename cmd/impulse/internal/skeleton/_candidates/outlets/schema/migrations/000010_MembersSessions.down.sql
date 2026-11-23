@@ -14,6 +14,7 @@ DROP INDEX MembersSessionMailLinksByTenantId;
 DROP INDEX MembersSessionMailLinksByKind;
 DROP INDEX MembersSessionMailLinksByTokenHash;
 DROP TABLE MembersSessionMailLinks;
+DROP TABLE MembersSessionSignInSettings;
 DROP TABLE MembersSessionSignInMethods;
 DROP TABLE MembersSessionSignInAttempts;
 DROP INDEX MembersSessionPendingSignInsByExpiresAt;

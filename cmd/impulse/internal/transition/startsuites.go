@@ -278,10 +278,11 @@ type absentPage struct{ label, why string }
 
 // directoryRolesAbsentPages are the pages of the base that an application whose
 // directory gives every role has no route for. The library builds each page of an auth
-// over a list the generated API description names, and the generator names neither of
-// these lists for such an auth, so its routes carry neither page.
+// over a list the generated API description names, and the generator names none of
+// these lists for such an auth, so its routes carry none of the pages. The Sign-in page
+// is not among them: every auth has it, since whether everyone is asked for a second
+// factor is set there.
 var directoryRolesAbsentPages = []absentPage{
-	{"Sign-in", "where an administrator opens a sign-in method to sign-up or makes it invite only, and the directory decides who signs in"},
 	{"Break glass", "where a person takes a role for a set time, and the directory gives every role"},
 }
 

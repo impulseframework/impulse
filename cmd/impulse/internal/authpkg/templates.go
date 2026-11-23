@@ -1,20 +1,5 @@
 package authpkg
 
-// secondFactorRule is the sign-in rule every auth package ends with, as the template
-// writes it into the package and impulse upgrade's second-factor recipe writes it into an
-// auth package that set none (SecondFactorRule).
-const secondFactorRule = `// requireSecondFactor is the sign-in rule every session ends with: the second factor, the
-// sign-in code mailed to the person's address (sessioninfo.MethodEmailCode), unless the
-// sign-in carries one already, a remembered browser's token or the attestation of a
-// directory the deployment administers or whose token says a second factor was passed,
-// which the library takes before it asks. A sign-in the rule holds waits for the code
-// (?pending=mfa on the login page), where the person asks for it, enters it and may ask
-// for the browser to be remembered.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
-}
-`
-
 // authTemplate renders the Auth file: the package, its tables, its permission store, its
 // role file, the Auth session with the methods registered on it, and the served surface.
 const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who hold their roles in the
@@ -46,12 +31,14 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
-// Every session carries a second factor. A sign-in the password admitted, or a directory
-// the deployment does not administer, waits for the sign-in code the auth mails to the
-// person's verified address (a person who holds none gives one first), unless the
-// browser is one the person asked to be remembered after a code (the {{.Name}}-trusted
-// cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing.{{if .Directory}} Every
+// Every session carries a second factor while the auth's sign-in setting requires one,
+// as it does until an administrator turns it off (the Sign-in page). While it is
+// required, a sign-in the password admitted, or a directory the deployment does not
+// administer, waits for the sign-in code the auth mails to the person's verified
+// address (a person who holds none gives one first), unless the browser is one the
+// person asked to be remembered after a code (the {{.Name}}-trusted cookie); a sign-in
+// through a directory the deployment administers, or whose token says a second factor
+// was passed, carries the directory's and is asked for nothing.{{if .Directory}} Every
 // account a person signs in to has a confirmed address, so a person who comes through a
 // directory that does not vouch for theirs (Microsoft Entra ID vouches for none)
 // confirms one at their first sign-in with a code mailed to it, whatever the directory
@@ -108,15 +95,16 @@ const (
 	// each session records, the pending sign-ins that wait for a confirmation, the
 	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
 	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
-	// only, which a method with no row is), and the mail links: the invitations, address
-	// verifications and sign-ups the auth mails, each a single-use token its follower
-	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
-	// auth issues (the application tokens its people issue and the access and refresh
-	// tokens of the device grants they approve); the device codes: the device
-	// authorizations command-line clients wait on; and the second factor's tables: the
-	// sign-in codes mailed to people and the browsers they asked to be remembered. The
-	// names are spelled out in full so the tool's session-tables check, which reads the
-	// literals, finds their migrations.
+	// only, which a method with no row is), the sign-in settings (whether everyone is asked
+	// for a second factor, and how long a browser is remembered: with no row, required and
+	// 30 days), and the mail links: the invitations, address verifications and sign-ups
+	// the auth mails, each a single-use token its follower proves; the tokens: the bearer
+	// credentials of the machine outlets whose tokens this auth issues (the application
+	// tokens its people issue and the access and refresh tokens of the device grants they
+	// approve); the device codes: the device authorizations command-line clients wait on;
+	// and the second factor's tables: the sign-in codes mailed to people and the browsers
+	// they asked to be remembered. The names are spelled out in full so the tool's
+	// session-tables check, which reads the literals, finds their migrations.
 	sessionsTable    = "{{.Pascal}}Sessions"
 	usersTable       = "{{.Pascal}}SessionUsers"
 	identitiesTable  = "{{.Pascal}}SessionIdentities"
@@ -124,6 +112,7 @@ const (
 	pendingTable     = "{{.Pascal}}SessionPendingSignIns"
 	attemptsTable    = "{{.Pascal}}SessionSignInAttempts"
 	methodsTable     = "{{.Pascal}}SessionSignInMethods"
+	signInSettingsTable = "{{.Pascal}}SessionSignInSettings"
 	mailLinksTable   = "{{.Pascal}}SessionMailLinks"
 	tokensTable      = "{{.Pascal}}SessionTokens"
 	deviceCodesTable = "{{.Pascal}}SessionDeviceCodes"
@@ -429,7 +418,8 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // the deployment invites nobody to it, and the library asks a holder for no second factor
 // of its own.
 {{- else}}: its holder gives and takes any role of the auth, enters
-// every tenant, and signs in with a second factor whatever the sign-in rule asks.
+// every tenant, and signs in with a second factor whatever the auth's sign-in
+// setting says.
 {{- end}}
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if access.IsNilCollection(settings.Collection) {
@@ -498,15 +488,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The Auth is built knowing who holds the Super Administrator role, as every auth
 	// with roles is, which is why the permission engine opens first. The library's own
 	// second factor for a holder holds nobody who signs in through a directory that
-	// writes the roles: there the directory is the authority, and the sign-in rule set
-	// below asks of a holder what it asks of anyone. The memberships are read outside
+	// writes the roles: there the directory is the authority, and the auth's sign-in
+	// setting asks of a holder what it asks of anyone. The memberships are read outside
 	// the sign-in's transaction (resource.SignInRoles).
 {{- else}}
 	// The Auth is built knowing who holds the Super Administrator role, which is why the
-	// permission engine opens first: a holder signs in with a second factor whatever the
-	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
-	// the library's own after the application's. The memberships are read outside the
-	// sign-in's transaction (resource.SignInRoles).
+	// permission engine opens first: a holder signs in with a second factor whatever
+	// the auth's sign-in setting says, held for the mailed code by a rule of the
+	// library's own. The memberships are read outside the sign-in's transaction
+	// (resource.SignInRoles).
 {{- end}}
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
@@ -519,6 +509,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
+		session.WithSignInSettingsTableName(signInSettingsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -609,17 +600,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// password and a second factor, and nobody else's reaches one whose declaration
 	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
-	// transaction's context as a nested transaction. A sign-in the rule admits then
-	// carries a second factor (requireSecondFactor).
+	// transaction's context as a nested transaction. Whether a sign-in the rule admits
+	// is then asked for a second factor is the auth's sign-in setting, which the session
+	// library reads at every sign-in.
 {{- else}}
 	// Which tenants the session then reaches is where its tenant list is computed
 	// (UserPermissions): a super administrator's session reaches every tenant, and
 	// anybody else's the tenants that seat them. The memberships are read outside the
 	// sign-in's transaction (resource.SignInRoles): the Spanner client refuses the
-	// engine's read under the transaction's context as a nested transaction. A sign-in
-	// the rule admits then carries a second factor (requireSecondFactor).
+	// engine's read under the transaction's context as a nested transaction. Whether a
+	// sign-in the rule admits is then asked for a second factor is the auth's sign-in
+	// setting, which the session library reads at every sign-in.
 {{- end}}
-	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations{{if .TenantPolicy.AdmitWithoutTenant}}, signin.AdmitWithoutTenant(){{end}}).Then(requireSecondFactor))
+	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations{{if .TenantPolicy.AdmitWithoutTenant}}, signin.AdmitWithoutTenant(){{end}}))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
 	// the rule would refuse a sign-in with a password as directory only. Their account
@@ -629,8 +622,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 {{- else}}
 
-	// The sign-in rule: every session carries a second factor (requireSecondFactor).
-	authSession.SetSignInPolicy(requireSecondFactor)
+` + NoSignInRule + `
 {{- end}}
 {{- if .IdentityPackage}}
 
@@ -798,7 +790,6 @@ func (a *Auth) Close() error {
 	return nil
 }
 
-` + secondFactorRule + `
 // announcePolicy is the sending half of the engine's change signal: after a policy write
 // (a role, a grant, a membership) the engine signals the policy kind on the live service,
 // and every instance subscribed to the kind rereads its snapshot. A failure is the
@@ -829,6 +820,13 @@ func watchPolicy(signals Signals) func(ctx context.Context, onChange func()) err
 	}
 }
 `
+
+// NoSignInRule is the comment an auth package of an application without tenants carries
+// in New where one with tenants sets its sign-in rule. Add tenancy takes it out where it
+// writes the tenant policy as the Auth's rule.
+const NoSignInRule = "\t// No sign-in rule of the application's own: the session library's checks decide, and\n" +
+	"\t// it asks everyone for a second factor while the auth's sign-in setting requires one\n" +
+	"\t// (the Sign-in page changes it)."
 
 // loginFormTemplate renders the password method's file: the method that signs in from the
 // login page's form.
@@ -1549,15 +1547,6 @@ func parse{{.Pascal}}Workspaces(value string, administered []string) (google.Wor
 }
 {{- end}}
 `
-
-// SecondFactorRule is the text of requireSecondFactor, the sign-in rule every auth
-// package ends with, as the auth template writes it: a package-level function over the
-// Spanner transaction (imported as cloudspanner), sessioninfo and signin, returning
-// signin.RequireMFA(sessioninfo.MethodEmailCode). impulse upgrade's second-factor recipe
-// and impulse check --fix write it into an auth package that has none.
-func SecondFactorRule() string {
-	return secondFactorRule
-}
 
 // oidcTemplate renders the file of a method that signs in through an organization's own
 // identity provider: the session library's generic OpenID Connect method, registered in

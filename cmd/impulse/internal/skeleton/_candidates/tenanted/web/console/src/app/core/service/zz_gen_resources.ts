@@ -407,6 +407,11 @@ export interface StaffListedRoleGrants {
   skipped?: string;
 }
 
+export interface StaffRememberLengths {
+  name: string;
+  days?: number;
+}
+
 export interface StaffSignInMethods {
   name: string;
   label?: string;
@@ -417,6 +422,14 @@ export interface StaffSignInMethods {
   ownRule?: boolean;
   says?: string;
   selfServiceReset?: boolean;
+}
+
+export interface StaffSignInSettings {
+  name: string;
+  position?: number;
+  says?: string;
+  requireSecondFactor?: boolean;
+  rememberBrowserDays?: number;
 }
 
 export interface StaffSignInWays {
@@ -1106,6 +1119,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffRememberLengths]: {
+    route: 'staff-remember-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'days', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffSignInMethods]: {
     route: 'staff-sign-in-methods',
     readDisabled: true,
@@ -1125,6 +1152,23 @@ const resourceMap = defineResourceMap({
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffSignInSettings]: {
+    route: 'staff-sign-in-settings',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'sign-in setting', many: 'sign-in settings' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'position', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'requireSecondFactor', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'rememberBrowserDays', displayType: 'number', required: false, isIndex: false },
     ],
   },
   [Resources.StaffSignInWays]: {
@@ -1294,7 +1338,9 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffInvitedTenants]: PermissionScopes.global,
   [Resources.StaffInvitedTenantRoles]: PermissionScopes.global,
   [Resources.StaffListedRoleGrants]: PermissionScopes.global,
+  [Resources.StaffRememberLengths]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
+  [Resources.StaffSignInSettings]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.StaffTakeLengths]: PermissionScopes.global,
   [Resources.StaffTakeableRoles]: PermissionScopes.global,

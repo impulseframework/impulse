@@ -1313,22 +1313,28 @@ describe('LoginMethodsComponent renders the pending step', () => {
 });
 
 describe('LoginMethodsComponent runs the sign-in code step', () => {
-  /** The sign-in waits for the code; none stands yet, and the account holds an address. */
+  /**
+   * The sign-in waits for the code; none stands yet, and the account holds an address. The
+   * application remembers browsers, so the step offers it.
+   */
   const codeStep = {
     ...waiting,
     reason: 'mfa',
     factors: ['email-code'],
-    emailCode: { codeEmail: 'n•••@fleet.example', codeSent: false },
+    emailCode: { codeEmail: 'n•••@fleet.example', codeSent: false, rememberOffered: true },
   };
   /** A code stands, as after a reload of the step. */
-  const standing = { ...codeStep, emailCode: codeMailed };
+  const standing = { ...codeStep, emailCode: { ...codeMailed, rememberOffered: true } };
+  /** A code stands where an administrator turned remembering off: the server leaves the field out. */
+  const standingNotRemembered = { ...codeStep, emailCode: codeMailed };
   /** The account holds no address: one is asked for before a code can be sent. */
-  const noAddress = { ...codeStep, emailCode: { enrollEmail: true, codeSent: false } };
+  const noAddress = { ...codeStep, emailCode: { enrollEmail: true, codeSent: false, rememberOffered: true } };
   const mailed = {
     codeEmail: 'n•••@fleet.example',
     enrollEmail: false,
     codeSent: true,
     codeExpiresAt: '2026-10-17T12:10:00Z',
+    rememberOffered: true,
   };
   const noteOf = (page: Page): string | null =>
     page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim() ?? null;
@@ -1509,6 +1515,27 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     const page = await pageOver(server({ status: { status: 200, body: standing } }), { pending: 'mfa' });
     await enterCode(page, '123456');
     expect(page.transport.requests[3].body).toEqual({ code: '123456', rememberDevice: false });
+  });
+
+  it('draws "Remember this browser" while the step offers it', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: standing } }), { pending: 'mfa' });
+    expect(page.element.querySelector('.impulse-login-remember')?.textContent?.trim()).toBe('Remember this browser');
+  });
+
+  it('draws no "Remember this browser" where the step does not offer it, and posts false whatever the box held', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: standingNotRemembered } }), { pending: 'mfa' });
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    expect(page.element.querySelector('.impulse-login-remember')).toBeNull();
+    await enterCode(page, '123456', true);
+    expect(page.transport.requests[3].body).toEqual({ code: '123456', rememberDevice: false });
+  });
+
+  it('keeps the offer of the step it had when a new code is sent', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: standingNotRemembered } }), { pending: 'mfa' });
+    await page.component.sendCode();
+    await page.settle();
+    expect(page.component.pending()?.emailCode?.rememberOffered).toBe(false);
+    expect(page.element.querySelector('.impulse-login-remember')).toBeNull();
   });
 
   const wrongCodes: { name: string; answer: TransportResponse; want: string }[] = [

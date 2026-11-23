@@ -13,7 +13,6 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
-	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/logger"
@@ -300,15 +299,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// A row that names a person: the rule is asked about the person the
 					// row names before the write and the person it names after it.
 					//
-					// A row removed with its parent, and a column that records who made a
-					// row, are the rule's stated limits:
-					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsClientContactSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
 					}
-					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "client contact", "UserID"); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					if err := resources.RefuseImpersonatorAsClientContactSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsClientContactSubject()")
 					}
 
 					switch op.Type {
@@ -388,15 +390,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// A row that names a person: the rule is asked about the person the
 					// row names before the write and the person it names after it.
 					//
-					// A row removed with its parent, and a column that records who made a
-					// row, are the rule's stated limits:
-					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsPilotSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
 					}
-					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "pilot", "UserID"); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					if err := resources.RefuseImpersonatorAsPilotSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsPilotSubject()")
 					}
 
 					switch op.Type {
@@ -462,14 +467,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// A row that names a person: the rule is asked about the person the
 					// row names before the write and the person it names after it.
 					//
-					// A row removed with its parent, and a column that records who made a
-					// row, are the rule's stated limits:
-					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsPilotCertificationSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
 					subjectKey := resource.KeySet{}
 					subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id1"))
 					subjectKey = subjectKey.Add("CertificationID", httpio.Param[string](req, "id2"))
-					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "pilot certification", "UserID"); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					if err := resources.RefuseImpersonatorAsPilotCertificationSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsPilotCertificationSubject()")
 					}
 
 					switch op.Type {
@@ -722,21 +730,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// names, before the write and after it. The set is asked by its own
 						// declaration, so the rule and the policy agree on who is in it.
 						//
-						// A row removed with its parent, and a column that records who made a
-						// row, are the rule's stated limits:
-						// identity.RefuseImpersonatorAsRowSubject says what closes each.
+						// The questions are written once for the record, in the resources
+						// package (RefuseImpersonatorAsHangarPassSubject), and the delete of a
+						// row taken with the record it is under asks them too. A row that goes
+						// with its tenant, and a column that records who made a row, are the
+						// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+						// what closes each.
 						subjectKey := resource.KeySet{}
 						if op.Type != resource.OperationCreate {
 							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
 						}
-						if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "UserID"); err != nil {
-							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
-						}
-						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "SquadronID", "squadrons"); err != nil {
-							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
-						}
-						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "GroupID", "crewGroups"); err != nil {
-							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+						if err := resources.RefuseImpersonatorAsHangarPassSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+							return errors.Wrap(err, "resources.RefuseImpersonatorAsHangarPassSubject()")
 						}
 
 						switch op.Type {
@@ -1091,15 +1096,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// own is read through, and a change that leaves the column alone
 						// asks nothing.
 						//
-						// A row removed with its parent, and a column that records who made a
-						// row, are the rule's stated limits:
-						// identity.RefuseImpersonatorAsRowSubject says what closes each.
+						// The questions are written once for the record, in the resources
+						// package (RefuseImpersonatorAsSquadronSubject), and the delete of a
+						// row taken with the record it is under asks them too. A row that goes
+						// with its tenant, and a column that records who made a row, are the
+						// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+						// what closes each.
 						subjectKey := resource.KeySet{}
 						if op.Type != resource.OperationCreate {
 							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
 						}
-						if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op.Type, subjectKey, patchSet, "squadron", "WingID", "wings"); err != nil {
-							return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
+						if err := resources.RefuseImpersonatorAsSquadronSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+							return errors.Wrap(err, "resources.RefuseImpersonatorAsSquadronSubject()")
 						}
 
 						switch op.Type {
@@ -1165,14 +1173,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// A row that names a person: the rule is asked about the person the
 						// row names before the write and the person it names after it.
 						//
-						// A row removed with its parent, and a column that records who made a
-						// row, are the rule's stated limits:
-						// identity.RefuseImpersonatorAsRowSubject says what closes each.
+						// The questions are written once for the record, in the resources
+						// package (RefuseImpersonatorAsSquadronMembershipSubject), and the delete of a
+						// row taken with the record it is under asks them too. A row that goes
+						// with its tenant, and a column that records who made a row, are the
+						// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+						// what closes each.
 						subjectKey := resource.KeySet{}
 						subjectKey = subjectKey.Add("SquadronID", httpio.Param[impulse.UUID](req, "id1"))
 						subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id2"))
-						if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "squadron membership", "UserID"); err != nil {
-							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+						if err := resources.RefuseImpersonatorAsSquadronMembershipSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+							return errors.Wrap(err, "resources.RefuseImpersonatorAsSquadronMembershipSubject()")
 						}
 
 						switch op.Type {

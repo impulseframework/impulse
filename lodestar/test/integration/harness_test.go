@@ -1323,11 +1323,11 @@ func (b *browser) login(ctx context.Context, user, password string) (status int,
 }
 
 // signIn primes the XSRF handshake and signs a persona in on the console the way a
-// person does, failing the test on refusal: the password, then the second factor every
-// session carries. The persona's first sign-in on the stack enters the sign-in code
-// read from the mail the auth sent and asks for the browser to be remembered; every
-// later sign-in of theirs carries that browser's token (served.trusted), so it is the
-// remembered browser and is not asked.
+// person does, failing the test on refusal: the password, then the second factor the
+// auth's sign-in setting requires. The persona's first sign-in on the stack enters the
+// sign-in code read from the mail the auth sent and asks for the browser to be
+// remembered; every later sign-in of theirs carries that browser's token
+// (served.trusted), so it is the remembered browser and is not asked.
 func (b *browser) signIn(ctx context.Context, user string) {
 	b.t.Helper()
 

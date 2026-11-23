@@ -45,8 +45,9 @@ func TestLogin(t *testing.T) {
 			}
 
 			if tt.wantRefused == "" {
-				// The directory admits the person, and the session opens once the second
-				// factor every session carries is entered: the sign-in code the auth mailed.
+				// The directory admits the person, and the session opens once the
+				// second factor the auth's sign-in setting requires is entered: the
+				// sign-in code the auth mailed.
 				b.signIn(ctx, tt.user, tt.roles...)
 			} else if status, location := b.directoryRoundTrip(ctx, tt.user, tt.roles); status != http.StatusFound || location != "/login?code="+string(tt.wantRefused) {
 				t.Fatalf("the sign-in through the directory: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, tt.wantRefused)

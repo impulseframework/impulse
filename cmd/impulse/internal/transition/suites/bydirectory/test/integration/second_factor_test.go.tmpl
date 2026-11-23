@@ -14,9 +14,10 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 )
 
-// The second factor every session carries, as the login page completes it: the sign-in
-// code the auth mails to the person's address, which a browser the person asked to be
-// remembered stands in for. The helpers here sign a person in through it.
+// The second factor the auth's sign-in setting requires, as the login page completes
+// it: the sign-in code the auth mails to the person's address, which a browser the
+// person asked to be remembered stands in for. The helpers here sign a person in
+// through it.
 
 // heldForFactor is where the callback sends a browser whose sign-in the directory
 // admitted and the second factor holds: the login page's code step, which goes on to the
@@ -179,14 +180,14 @@ func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string
 	return ""
 }
 
-// TestSecondFactor drives the second factor every session carries the way the login page
-// does. The person is the first administrator of a deployed environment, who follows the
-// invitation's link and signs in through Google: the directory admits them and the
-// sign-in waits for the code; a wrong code is refused and the right one, read from the
-// mail the auth sent, opens the session and remembers the browser, which is not asked at
-// its next sign-in; an administrator makes the server forget the person's remembered
-// browsers through the auth's generated management, and the sign-in after that waits for
-// the code again.
+// TestSecondFactor drives the second factor the auth's sign-in setting requires the way
+// the login page does. The person is the first administrator of a deployed environment,
+// who follows the invitation's link and signs in through Google: the directory admits
+// them and the sign-in waits for the code; a wrong code is refused and the right one,
+// read from the mail the auth sent, opens the session and remembers the browser, which
+// is not asked at its next sign-in; an administrator makes the server forget the
+// person's remembered browsers through the auth's generated management, and the sign-in
+// after that waits for the code again.
 func TestSecondFactor(t *testing.T) {
 	t.Parallel()
 

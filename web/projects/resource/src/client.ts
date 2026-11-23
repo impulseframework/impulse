@@ -15,6 +15,7 @@ import { ApiDescriptor, MethodDescriptor, ResourceDescriptor, ResourceOperation 
 import { Capability, PermissionDigestState, WithCapabilities, rowCapabilities } from './digest';
 import { FeatureFlag, FeatureState, featureFlagsResource, setFeatureMethod } from './features';
 import {
+  LiveNames,
   LiveOptions,
   LiveSession,
   LiveSubscription,
@@ -22,7 +23,9 @@ import {
   acrossTenantsSubscription,
   changesHeader,
   liveSubscription,
+  namesHeader,
   parseChangesHeader,
+  parseNamesHeader,
   subscribeHeader,
   versionParam,
   versionedUrl,
@@ -653,6 +656,7 @@ export function createClient<G, D, A = Record<never, never>>(
     serverRelease,
     serverEnvironment,
     wrote: (changes) => session.live?.wrote(changes),
+    named: (names) => session.live?.named(names),
   });
   // The permission cache reads over the requester as it is: its two routes are under no
   // domain, and the check below is made of its reads.
@@ -818,6 +822,11 @@ interface RequesterOptions {
   serverEnvironment?: Store<string | undefined>;
   /** Who takes what a write's answer says it changed (the changes header): the live session. */
   wrote?: (changes: WriteChanges) => void;
+  /**
+   * Who takes what a live request's answer says the server registered beside its
+   * subscription (the names header): the live session.
+   */
+  named?: (names: LiveNames) => void;
 }
 
 /**
@@ -831,7 +840,9 @@ interface RequesterOptions {
  * the server's release in the version header, refusals included, is kept in `serverRelease`
  * before it is judged, as the environment an answer names is in `serverEnvironment`, and every answer that carries the changes header, a write's, is
  * handed to `wrote` before the caller is answered, so the live pages the write changed
- * fetch at once. A 503 that carries the
+ * fetch at once. Every answer that carries the names header, a live request's, is handed
+ * to `named` the same way, so the session follows the lists the names the answer shows
+ * are read from. A 503 that carries the
  * maintenance marker is the server down for maintenance and is judged the same way, before
  * the caller's declared answers, and thrown as MaintenanceError with the server's
  * Retry-After; a 503 without the marker is an ordinary error. Every other 4xx or 5xx the
@@ -861,6 +872,10 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       const changes = parseChangesHeader(response.headers?.[changesHeader.toLowerCase()]);
       if (changes) {
         requester.wrote?.(changes);
+      }
+      const names = parseNamesHeader(response.headers?.[namesHeader.toLowerCase()]);
+      if (names) {
+        requester.named?.(names);
       }
       const serverVersion = versionRefusal(response);
       if (serverVersion !== undefined) {

@@ -186,11 +186,11 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
 -- interleaved child's key must begin with the parent's, so the events reference their
 -- session through a cascading foreign key instead.
-`, p, who, guidCheck) + eventsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
+`, p, who, guidCheck) + eventsUp(p, who) + signInSettingsUp(p) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
 // eventsUp creates the auth events, pending sign-ins, sign-in attempts and sign-in
-// methods tables, the second part of the sessions migration; mailLinksUp follows it.
+// methods tables, the second part of the sessions migration; signInSettingsUp follows it.
 func eventsUp(p, who string) string {
 	return fmt.Sprintf(`CREATE TABLE %[1]sSessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
@@ -288,6 +288,27 @@ CREATE TABLE %[1]sSessionSignInMethods (
 ) PRIMARY KEY (Name);
 
 `, p, who, guidCheck)
+}
+
+// signInSettingsUp creates the sign-in settings table, the next part of the sessions
+// migration; mailLinksUp follows it.
+func signInSettingsUp(p string) string {
+	return fmt.Sprintf(`-- The sign-in settings: what an administrator chose, in the running application, for the
+-- whole auth. The table holds at most one row, the Auth's, under the one name it takes
+-- ('auth'). RequireSecondFactor says everyone is asked for a second factor when they sign
+-- in, and RememberBrowserDays for how many days a browser a person asked to be remembered
+-- skips the code, 0 for browsers that are not remembered. An Auth with no row requires
+-- the second factor and remembers a browser for 30 days, so the table starts empty.
+-- UpdatedAt takes the commit time.
+CREATE TABLE %[1]sSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_%[1]sSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
+`, p)
 }
 
 // mailLinksUp creates the mail links table, the next part of the sessions migration;
@@ -424,7 +445,7 @@ CREATE INDEX %[1]sSessionDeviceCodesByUserCode ON %[1]sSessionDeviceCodes(UserCo
 }
 
 // factorsUp creates the sign-in codes and trusted devices tables, the last part of the
-// sessions migration: the second factor every session carries.
+// sessions migration: the second factor the auth's sign-in setting requires.
 func factorsUp(p, who string) string {
 	return fmt.Sprintf(`
 -- The second factor of the %[2]s auth's sessions: the sign-in codes and the trusted
@@ -492,6 +513,7 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",
+		"DROP TABLE %[1]sSessionSignInSettings;",
 		"DROP TABLE %[1]sSessionSignInMethods;",
 		"DROP TABLE %[1]sSessionSignInAttempts;",
 		"DROP INDEX %[1]sSessionPendingSignInsByExpiresAt;",

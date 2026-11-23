@@ -66,6 +66,7 @@ import {
   FieldSort,
   iconCellKey,
   keyFields,
+  linkCellKey,
   ListConcatFn,
   ListViewConfig,
   ReadPermission,
@@ -642,6 +643,31 @@ export class ResourceListComponent implements OnInit {
     return this.auth.hasPermission({ resource: target.resource, permission: ReadPermission });
   });
 
+  /**
+   * Whether a row opens: the page lets rows open (`showViewButton`), a row has somewhere
+   * to open, the rows carry the field their route lifts, and the caller may read what a row
+   * opens. Then the row's link is drawn: the View column, or the column that says it opens
+   * its row (`opensRow`).
+   */
+  private rowOpens = computed(
+    () => !!this.config().showViewButton && !!this.rowTarget() && this.rowRouteRequested() && this.canView(),
+  );
+
+  /**
+   * The page a row opens on, outside a list across tenants: the page's own row route for
+   * the root list, else the target's page. Either is the page's route as its config wrote
+   * it, with the tenant put in where the route names the parameter. Read only while a row
+   * opens and the list is bound to a tenant.
+   */
+  private viewColumnRoute = computed(() => {
+    const target = this.rowTarget();
+    if (!target) {
+      return '';
+    }
+    const ownPage = this.viewRouteFallback() && this.isRootList() === undefined && !this.config().rowRoute;
+    return this.resolvePageRoute(ownPage ? this.viewRouteFallback() || '' : target.route);
+  });
+
   /** Whether the digest left this page no column to ask for. */
   noListableColumns = computed(
     () =>
@@ -1095,6 +1121,7 @@ export class ResourceListComponent implements OnInit {
     // A column over a field the server does not order is drawn with no sort button, as one
     // that opts out is: the metadata says which, so no sort is offered that the server refuses.
     const unordered = unorderedFields(this.queryMeta());
+    const rowOpens = this.rowOpens();
 
     if (this.across()) {
       // The tenant column of a list across tenants takes its id before any column of the page's.
@@ -1207,6 +1234,9 @@ export class ResourceListComponent implements OnInit {
           // A column whose list is drawn a line each says so to the table.
           ...(col.lines ? { lines: true } : {}),
           ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
+          // A column of words that opens its row says so while a row opens, and its link
+          // rides the display row (processedRowData); otherwise its cell is words alone.
+          ...(col.opensRow && !col.iconConfig && rowOpens ? { opensRow: true } : {}),
         };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
         // resolved with the display row (processedRowData), never at render time.
@@ -1234,11 +1264,11 @@ export class ResourceListComponent implements OnInit {
     }
 
     const target = this.rowTarget();
-    if (this.config().showViewButton && target && this.rowRouteRequested() && this.canView()) {
+    // A row has one link: where a column drawn here opens its row, the list draws no View
+    // column.
+    if (target && rowOpens && !columns.some((col) => col.opensRow)) {
       // The root list's rows open on the page's own row route; any other list's, and a
-      // rowRoute's, on the target's page. Either route is the page's as its config wrote
-      // it, so the tenant goes in where the route names the parameter.
-      const ownPage = this.viewRouteFallback() && this.isRootList() === undefined && !this.config().rowRoute;
+      // rowRoute's, on the target's page (viewColumnRoute).
       columns.push({
         id: 'view' as FieldName,
         header: 'View',
@@ -1250,7 +1280,7 @@ export class ResourceListComponent implements OnInit {
           : {
               label: 'View',
               icon: 'arrow_forward',
-              viewRoute: this.resolvePageRoute(ownPage ? this.viewRouteFallback() || '' : target.route),
+              viewRoute: this.viewColumnRoute(),
               keyField: target.keyField,
               actionType: 'link',
             },
@@ -1364,6 +1394,13 @@ export class ResourceListComponent implements OnInit {
     const target = this.across() ? this.rowTarget() : undefined;
     const rowRoute = this.acrossRowRoute();
     const tenantParam = this.store.client.descriptor.domainRoute?.param;
+    // The columns that open their row, each with the page a row opens on and the field a
+    // row's key is read from, outside a list across tenants, whose rows carry their own link.
+    const opening = columns.filter((col) => col.opensRow);
+    const opens =
+      opening.length > 0 && !this.across()
+        ? { route: this.viewColumnRoute(), keyField: this.rowTarget()?.keyField ?? 'id' }
+        : undefined;
     const roleFields = new Set(
       (this.meta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
     );
@@ -1413,6 +1450,20 @@ export class ResourceListComponent implements OnInit {
           updatedRow[col.id] = cell.words;
           updatedRow[iconCellKey(col.id)] = cell.icon;
         }
+      }
+      // A column that opens its row draws its words as the row's link: across tenants the
+      // link into the row's own tenant, where the person may read the record there;
+      // otherwise the page a row opens on and the row's key, and no link for a row with no
+      // key.
+      for (const col of opening) {
+        const cell = updatedRow as Record<string, unknown>;
+        if (opens === undefined) {
+          cell[linkCellKey(col.id)] = cell[acrossTenantsLinkKey];
+          continue;
+        }
+        const key = row[opens.keyField];
+        cell[linkCellKey(col.id)] =
+          key === undefined || key === null || key === '' ? undefined : `/${opens.route}/${String(key)}`;
       }
       if (methods.length > 0 || filled.length > 0) {
         // The methods this row offers, read off its capability answer, then the ones

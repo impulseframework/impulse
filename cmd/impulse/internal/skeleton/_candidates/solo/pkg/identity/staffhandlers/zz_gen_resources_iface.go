@@ -18,11 +18,13 @@ type Resourcer interface {
 		staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
-		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
-		staffresources.StaffTakenRole | staffresources.StaffUserGroupRole |
-		staffresources.StaffUserRole | staffidentity.StaffGivableRole |
-		staffidentity.StaffListedRoleGrant | staffidentity.StaffSignInMethod |
-		staffidentity.StaffSignInWay | staffidentity.StaffSignUpRole |
-		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole
+		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionSignInSetting |
+		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
+		staffresources.StaffSessionUser | staffresources.StaffTakenRole |
+		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
+		staffidentity.StaffGivableRole | staffidentity.StaffListedRoleGrant |
+		staffidentity.StaffRememberLength | staffidentity.StaffSignInMethod |
+		staffidentity.StaffSignInSetting | staffidentity.StaffSignInWay |
+		staffidentity.StaffSignUpRole | staffidentity.StaffTakeLength |
+		staffidentity.StaffTakeableRole
 }

@@ -3,8 +3,8 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, Resou
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedRoleGrants, FeatureFlags } from './zz_gen_resources';
-import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedRoleGrants, MembersRememberLengths, MembersSignInMethods, MembersSignInSettings, FeatureFlags } from './zz_gen_resources';
+import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RequireMembersSecondFactor, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersRememberedBrowsers, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, StopRequiringMembersSecondFactor, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -156,6 +156,15 @@ export type BriefingTemplatesKey = [id: string];
 
 /** The primary key of MembersListedRoleGrants, in route order. */
 export type MembersListedRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of MembersRememberLengths, in route order. */
+export type MembersRememberLengthsKey = [name: string];
+
+/** The primary key of MembersSignInMethods, in route order. */
+export type MembersSignInMethodsKey = [name: string];
+
+/** The primary key of MembersSignInSettings, in route order. */
+export type MembersSignInSettingsKey = [name: string];
 
 /** The primary key of FeatureFlags, in route order. */
 export type FeatureFlagsKey = [name: string];
@@ -426,6 +435,39 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
     },
+    [Resources.MembersRememberLengths]: {
+      resource: Resources.MembersRememberLengths,
+      property: 'membersRememberLengths',
+      route: 'members-remember-lengths',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'days', direction: 'asc' }],
+    },
+    [Resources.MembersSignInMethods]: {
+      resource: Resources.MembersSignInMethods,
+      property: 'membersSignInMethods',
+      route: 'members-sign-in-methods',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'label', direction: 'asc' }],
+    },
+    [Resources.MembersSignInSettings]: {
+      resource: Resources.MembersSignInSettings,
+      property: 'membersSignInSettings',
+      route: 'members-sign-in-settings',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'position', direction: 'asc' }],
+    },
     [Resources.FeatureFlags]: {
       resource: Resources.FeatureFlags,
       property: 'featureFlags',
@@ -450,13 +492,16 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.EndMembersUserSessions]: { method: Methods.EndMembersUserSessions, property: 'endMembersUserSessions', route: 'end-members-user-sessions', scope: 'global', statuses: [204] },
     [Methods.RenameMembersSectorUser]: { method: Methods.RenameMembersSectorUser, property: 'renameMembersSectorUser', route: 'rename-members-sector-user', scope: 'domain', statuses: [204] },
     [Methods.RenameMembersUser]: { method: Methods.RenameMembersUser, property: 'renameMembersUser', route: 'rename-members-user', scope: 'global', statuses: [204] },
+    [Methods.RequireMembersSecondFactor]: { method: Methods.RequireMembersSecondFactor, property: 'requireMembersSecondFactor', route: 'require-members-second-factor', scope: 'global', statuses: [204] },
     [Methods.RevokeMembersSectorUserTrustedDevices]: { method: Methods.RevokeMembersSectorUserTrustedDevices, property: 'revokeMembersSectorUserTrustedDevices', route: 'revoke-members-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
     [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
+    [Methods.SetMembersRememberedBrowsers]: { method: Methods.SetMembersRememberedBrowsers, property: 'setMembersRememberedBrowsers', route: 'set-members-remembered-browsers', scope: 'global', statuses: [204] },
     [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', answers: true },
     [Methods.SetMembersSectorUserName]: { method: Methods.SetMembersSectorUserName, property: 'setMembersSectorUserName', route: 'set-members-sector-user-name', scope: 'domain', statuses: [204] },
     [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', answers: true },
     [Methods.SetMembersUserName]: { method: Methods.SetMembersUserName, property: 'setMembersUserName', route: 'set-members-user-name', scope: 'global', statuses: [204] },
     [Methods.StandDownMission]: { method: Methods.StandDownMission, property: 'standDownMission', route: 'stand-down-mission', scope: 'domain' },
+    [Methods.StopRequiringMembersSecondFactor]: { method: Methods.StopRequiringMembersSecondFactor, property: 'stopRequiringMembersSecondFactor', route: 'stop-requiring-members-second-factor', scope: 'global', statuses: [204] },
     [Methods.UnlinkMembersSectorSessionIdentity]: { method: Methods.UnlinkMembersSectorSessionIdentity, property: 'unlinkMembersSectorSessionIdentity', route: 'unlink-members-sector-session-identity', scope: 'domain', statuses: [204] },
     [Methods.UnlinkMembersSessionIdentity]: { method: Methods.UnlinkMembersSessionIdentity, property: 'unlinkMembersSessionIdentity', route: 'unlink-members-session-identity', scope: 'global', statuses: [204] },
     [Methods.UnlockMembersSignIn]: { method: Methods.UnlockMembersSignIn, property: 'unlockMembersSignIn', route: 'unlock-members-sign-in', scope: 'global', statuses: [204] },
@@ -471,8 +516,8 @@ export const apiDescriptor = defineApiDescriptor({
       sides: [
         {
           scope: 'global',
-          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
-          methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
+          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts, signInMethods: Resources.MembersSignInMethods, signInSettings: Resources.MembersSignInSettings, rememberLengths: Resources.MembersRememberLengths },
+          methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn, requireSecondFactor: Methods.RequireMembersSecondFactor, stopRequiringSecondFactor: Methods.StopRequiringMembersSecondFactor, setRememberedBrowsers: Methods.SetMembersRememberedBrowsers },
         },
         {
           scope: 'domain',
@@ -499,6 +544,9 @@ export interface GlobalApi {
   membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
   membersListedRoleGrants: ResourceHandle<MembersListedRoleGrants, MembersListedRoleGrantsKey, 'list'>;
+  membersRememberLengths: ResourceHandle<MembersRememberLengths, MembersRememberLengthsKey, 'list'>;
+  membersSignInMethods: ResourceHandle<MembersSignInMethods, MembersSignInMethodsKey, 'list'>;
+  membersSignInSettings: ResourceHandle<MembersSignInSettings, MembersSignInSettingsKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
   deleteMembersUser: MethodHandle<DeleteMembersUser>;
   disableMembersUser: MethodHandle<DisableMembersUser>;
@@ -506,9 +554,12 @@ export interface GlobalApi {
   endMembersSession: MethodHandle<EndMembersSession>;
   endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
   renameMembersUser: MethodHandle<RenameMembersUser>;
+  requireMembersSecondFactor: MethodHandle<RequireMembersSecondFactor>;
   revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
+  setMembersRememberedBrowsers: MethodHandle<SetMembersRememberedBrowsers>;
   setMembersUserEmail: MethodHandle<SetMembersUserEmail, SetMembersUserEmailResult>;
   setMembersUserName: MethodHandle<SetMembersUserName>;
+  stopRequiringMembersSecondFactor: MethodHandle<StopRequiringMembersSecondFactor>;
   unlinkMembersSessionIdentity: MethodHandle<UnlinkMembersSessionIdentity>;
   unlockMembersSignIn: MethodHandle<UnlockMembersSignIn>;
   setFeature: MethodHandle<SetFeature, SetFeatureResult>;

@@ -72,10 +72,15 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // starts for a user it authenticated itself. It is optional: an Auth without one
 // decides a sign-in on the library's own checks (the user exists and is enabled, the
 // identity is linked or resolved, roles reconcile); session.Auth.SetSignInPolicy sets
-// one. It runs in the transaction that inserts the session; the user resolution has
-// committed by then, so the policy can read the user and the rows the account rule wrote,
-// and req.User says how the user was found. The transaction commits unless an error is
-// returned, so a DenySignIn or RequireMFA answer keeps the policy's own writes.
+// one. Its answer is not the last word on a second factor: while the Auth's sign-in
+// settings ask everyone for one (session.AuthAPI.SetSecondFactorRequired), an Allow,
+// and a sign-in where the Auth has no policy, is held for the library's mailed code
+// unless the sign-in already carries a second factor; a Deny and a RequireMFA stand as
+// they are. It runs in the transaction that inserts the session; the user resolution
+// has committed by then, so the policy can read the user and the rows the account rule
+// wrote, and req.User says how the user was found. The transaction commits unless an
+// error is returned, so a DenySignIn or RequireMFA answer keeps the policy's own
+// writes.
 type Policy[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error)
 
 // Then returns the policy that asks p and, unless p refuses the sign-in, asks next:
