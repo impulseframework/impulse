@@ -134,6 +134,17 @@ func impersonatorOf(ctx context.Context) (actor impulse.UUID, ok bool) {
 	return sess.Impersonation.ActorID.UUID, true
 }
 
+// actsAsSomeoneElse answers whether the request runs in a session established as someone
+// or something else: the session's record, read off the request itself, carries an
+// impersonation. Whoever started the session counts, a person of another application
+// among them (whom impersonatorOf answers false for), and whatever auth the request is
+// bound to.
+func actsAsSomeoneElse(ctx context.Context) bool {
+	sess, found := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+
+	return found && sess.Impersonation != nil
+}
+
 // impersonator is impersonatorOf for this auth's accounts. As for callerIs and actorIs,
 // a request bound to another auth is another auth's person, whose id is no account of
 // this one: on an outlet that signs its people in through one auth and serves the

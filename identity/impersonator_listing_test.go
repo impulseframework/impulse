@@ -61,6 +61,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.AddGroupMember":        {subject: true},
 	"Manager.AddGroupMemberFor":     {subject: true},
 	"Manager.RemoveGroupMember":     {subject: true},
+	"Manager.LeaveTenant":           {subject: true},
 	"Tenant.AssignRole":             {subject: true},
 	"Tenant.AssignRoleFor":          {subject: true},
 	"Tenant.RemoveRole":             {subject: true},
@@ -82,6 +83,10 @@ var guardedMethods = map[string]subjectRule{
 	// A person named, and nothing asked.
 	"Manager.RequireUser": {person: true, none: "it reads whether the account exists, and changes nothing"},
 	"Manager.SignInWays":  {person: true, none: reads},
+	"Manager.PersonTenants": {
+		person: true,
+		none:   "it reads the tenants the person holds something in, and what leaving each would do, and changes nothing: leaving one is LeaveTenant, which asks",
+	},
 	"Manager.HoldsTenant": {
 		person: true,
 		none:   "it reads whether the person holds a role in some tenant, in the caller's transaction, and changes nothing: the route that asks it has refused the real person behind a session that acts as a role already",
@@ -122,6 +127,9 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.SignedUp":                 {none: atSignIn},
 	"Manager.InvitationAccepted":       {none: atSignIn},
 	"Manager.DirectorySeated":          {none: atSignIn},
+	"Manager.OwnTenants": {
+		none: "it builds the session library's hook of a person's own tenants and changes nothing itself: the hook's Leave hands the person to LeaveTenant, which asks, and its List reads (PersonTenants)",
+	},
 
 	"Manager.Tenant":                          {none: reads},
 	"Manager.TenantRoles":                     {none: reads},

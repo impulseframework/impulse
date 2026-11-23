@@ -95,9 +95,9 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 		}
 	}
 
-	// The person's own username, where they are signed in and their remembered browsers
-	// are refused as the person's own name is, by the handler itself, in either session:
-	// no read-only mask stands in front of them.
+	// The person's own username, where they are signed in, their remembered browsers and
+	// their sectors are refused as the person's own name is, by the handler itself, in
+	// either session: no read-only mask stands in front of them.
 	for _, route := range []struct{ operation, method, path, body string }{
 		{"ChangeUsername()", http.MethodPost, "/user/username", `{"username":"marshal-took-it"}`},
 		{"UsernameFree()", http.MethodPost, "/user/username/free", `{"username":"marshal-took-it"}`},
@@ -105,6 +105,8 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 		{"EndOwnSession()", http.MethodPost, "/user/sessions/end", `{"sessionId":"00000000-0000-4000-8000-000000000000"}`},
 		{"EndOtherSessions()", http.MethodPost, "/user/sessions/end-others", `{}`},
 		{"ForgetBrowsers()", http.MethodPost, "/user/browser/forget-all", ``},
+		{"OwnTenants()", http.MethodGet, "/user/tenants", ``},
+		{"LeaveTenant()", http.MethodPost, "/user/tenants/leave", `{"domain":"a1111111-1111-4111-8111-111111111111","deletesAccount":false}`},
 	} {
 		for _, asker := range []struct {
 			who string

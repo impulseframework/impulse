@@ -482,13 +482,15 @@ func TestFiles_castSeed(t *testing.T) {
 
 // TestFiles_signedInHook holds what an auth package sets for the roles given for a
 // period: the generated identity client's hook for a sign-in that stands, which removes
-// a person's ended roles, over the application's database. An auth whose roles the
-// application gives sets it where it has a generated management; one whose directory
-// writes the roles gives none for a period and sets none, and neither does one with no
-// generated management, which has no client to answer it.
+// a person's ended roles, over the application's database, and beside it the identity
+// client's own-tenants hook, which lists a person's tenants and takes them out of one. An
+// auth whose roles the application gives sets both where it has a generated management;
+// one whose directory writes the roles sets neither, and neither does one with no
+// generated management, which has no client to answer them.
 func TestFiles_signedInHook(t *testing.T) {
 	t.Parallel()
 	const hook = "authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))"
+	const ownTenants = "authSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))"
 	tests := []struct {
 		name string
 		spec *Spec
@@ -524,6 +526,9 @@ func TestFiles_signedInHook(t *testing.T) {
 			}
 			if got := strings.Contains(string(files[tt.spec.Name+".go"]), hook); got != tt.want {
 				t.Errorf("%s.go sets the hook that clears a person's ended roles at their sign-in = %v, want %v", tt.spec.Name, got, tt.want)
+			}
+			if got := strings.Contains(string(files[tt.spec.Name+".go"]), ownTenants); got != tt.want {
+				t.Errorf("%s.go sets the hook that answers a person's own tenants = %v, want %v", tt.spec.Name, got, tt.want)
 			}
 		})
 	}

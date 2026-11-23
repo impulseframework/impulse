@@ -424,6 +424,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// account, and no job runs on a schedule.
 	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
+	// A person's own tenants, on their account page: the session library asks the
+	// identity client which tenants the person holds something in, with the roles held
+	// in each, and has it take the person out of one at their own word (OwnTenants).
+	// The rules are the identity package's: a tenant's last administrator does not
+	// leave it, and an account left holding nothing is deleted with its sessions.
+	authSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))
+
 	// An accepted invitation gives its roles, in the tenant it names or for the whole
 	// application, in the transaction that consumes the invitation (the identity
 	// client's InvitationAccepted, which the session library runs inside it): the

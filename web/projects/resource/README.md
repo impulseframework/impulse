@@ -733,6 +733,13 @@ person types, whose answer that is an error is thrown to the caller and never ha
 application's error hook (`onError`), so a notice raised there is not raised once for every
 character.
 
+The list names `ownTenants` (`{ list, leave }`) where the server serves a person's own tenants.
+`ownTenants()` resolves them, each `{ domain, name, roles, refusal?, deletesAccount }`: the roles
+in words, why the person cannot leave where they cannot, and whether leaving deletes their account.
+`leaveTenant(domain, deletesAccount)` resolves `{ outcome: 'left', accountDeleted }`, or the
+server's refusal with its words: a tenant's last administrator (403), a tenant the person is not
+in (404), or a leave that would no longer do what the list said (409).
+
 The look a person chose, light, dark or their device's setting (`device`) and one of the
 application's palettes, is kept with their account so that it follows them to every browser:
 the session read carries `look` (`{ scheme, palette }`, each half present where the person

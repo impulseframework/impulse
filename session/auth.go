@@ -254,6 +254,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// signedIn is the application's after-sign-in hook, nil when it set none. Set by
 	// SetSignedInHook before the Auth is in use.
 	signedIn SignedInHook
+	// ownTenants answers the own-tenants handlers (OwnTenants, LeaveTenant), nil when the
+	// application set none. Set by SetOwnTenants before the Auth is in use.
+	ownTenants *OwnTenantsHook
 
 	// cookies is the session cookie client. It also writes the external methods' state
 	// cookies.
@@ -531,6 +534,32 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignedInHook(hook SignedInHook) {
 		panic("session: the after-sign-in hook was set twice: one Auth has one hook")
 	}
 	a.signedIn = hook
+}
+
+// SetOwnTenants sets the hook that answers OwnTenants and LeaveTenant: the application's
+// rules of who belongs where, which the generated identity client's OwnTenants holds.
+// Without it both handlers answer 404 and the methods answer names neither route. Set it
+// after NewAuth and before the routes are wired: the methods answer is built when Methods
+// is called, so a hook set after it would be served and never told to the page. A hook
+// with no List or no Leave, a hook set once the Auth is in use, one set after Methods was
+// called, or a second hook is a wiring mistake and panics, as SetSignedInHook does.
+func (a *Auth[SessionData, UserData, Tx]) SetOwnTenants(hook OwnTenantsHook) {
+	if hook.List == nil || hook.Leave == nil {
+		panic("session: SetOwnTenants was given a hook with no List or no Leave: pass the identity client's OwnTenants, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the own-tenants hook was set after the Auth served a request: set it before serving")
+	}
+	if len(a.methods.lists) > 0 {
+		panic("session: the own-tenants hook was set after Methods was called, so the methods answer names no tenants paths: set it before the routes are wired")
+	}
+	if a.ownTenants != nil {
+		panic("session: the own-tenants hook was set twice: one Auth has one")
+	}
+	a.ownTenants = &hook
 }
 
 // UserRenamedHook is told that a user's username changed by the library's own doing:
@@ -906,9 +935,10 @@ type TenantNamer interface {
 // invitation (Invitation().Open()) and the invitation a sign-in methods answer reports
 // carry the tenant's name beside its key (tenantName), and the screen says where the
 // person is invited. Without them, or for a tenant the namer does not know, the name is
-// empty and the screen names no tenant. Set it after NewAuth and before serving the
-// first request; a nil namer, a second call, or a call once the Auth is in use is a
-// wiring mistake and panics, as SetDirectoryAdmission does.
+// empty and the screen names no tenant. A signed-in person's own tenants (OwnTenants)
+// are named the same way, each by its key where the namer does not know it. Set it after
+// NewAuth and before serving the first request; a nil namer, a second call, or a call
+// once the Auth is in use is a wiring mistake and panics, as SetDirectoryAdmission does.
 func (a *Auth[SessionData, UserData, Tx]) SetTenantNames(names TenantNamer) {
 	if names == nil {
 		panic("session: SetTenantNames was given nil: pass the application's tenant roster, or set none")
@@ -926,8 +956,9 @@ func (a *Auth[SessionData, UserData, Tx]) SetTenantNames(names TenantNamer) {
 }
 
 // tenantName is what the invitation screen calls the tenant an invitation seats a
-// person in: its name from the namer (SetTenantNames), "" for the application's global
-// surface, for no namer and for a tenant the namer does not know.
+// person in, and the own-tenants list a tenant the person holds something in: its name
+// from the namer (SetTenantNames), "" for the application's global surface, for no namer
+// and for a tenant the namer does not know.
 func (a *Auth[SessionData, UserData, Tx]) tenantName(tenantID string) string {
 	if tenantID == "" || a.tenantNames == nil {
 		return ""

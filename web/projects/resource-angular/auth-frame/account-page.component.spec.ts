@@ -1,6 +1,6 @@
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router } from '@angular/router';
+import { Router, UrlTree } from '@angular/router';
 import { TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { DEFAULT_LOGIN_MESSAGES } from '@impulseframework/resource-angular/types';
@@ -9,24 +9,28 @@ import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
 import { AccountPageComponent, passwordRemovalConsequence } from './account-page.component';
 import { notNamedFor, passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
+import { PlaceService } from './place.service';
 
 // The person's account page shows their lines: the username where it is not the address,
 // the name, the email address, a password where they hold one or may choose one, and the
 // directories they sign in through. Each line the person may change carries an icon that
 // opens it as a form in place, one line at a time; what the server serves and what the
-// person signs in with decide which lines carry one. Under the lines, where the person is
-// signed in, each browser signed out of or forgotten at once. An impersonated session
-// changes nothing.
+// person signs in with decide which lines carry one. Under the lines, the person's tenants,
+// each left behind typed words in a window of its own; then where the person is signed in,
+// each browser signed out of or forgotten at once. An impersonated session changes nothing.
 
 /** Where the spec's server serves the email address routes. */
 const emailRoutes = { add: '/api/user/email', verify: '/api/user/email/verify' };
 /** Where the spec's server serves the choice of a first password. */
 const firstPasswordRoutes = { sendCode: '/api/user/first-password/code', set: '/api/user/first-password' };
+/** Where the spec's server serves the person's own tenants. */
+const tenantRoutes = { list: '/api/user/tenants', leave: '/api/user/tenants/leave' };
 /** Everything the spec's server serves for a person's own account. */
 const everything: Record<string, unknown> = {
   ...passwordMethods,
   email: emailRoutes,
   firstPassword: firstPasswordRoutes,
+  ownTenants: tenantRoutes,
 };
 /** What the server serves a person who signs in through a directory alone: no password method. */
 const directoryMethods: Record<string, unknown> = {
@@ -83,6 +87,28 @@ const phone: SessionBody = {
 };
 /** Another, of a browser the server did not recognize. */
 const unnamed: SessionBody = { id: 's-unnamed', signedInAt: at(2, 12, 0), lastUsedAt: at(2, 12, 30) };
+/** One of the person's tenants as the server lists it. */
+interface TenantBody {
+  readonly domain: string;
+  readonly name: string;
+  readonly roles: readonly string[];
+  readonly refusal?: string;
+  readonly deletesAccount: boolean;
+}
+/** A tenant the person holds two roles in, and others besides. */
+const acme: TenantBody = { domain: 't-acme', name: 'Acme', roles: ['Reader', 'Warden'], deletesAccount: false };
+/** A tenant the person holds no role of their own in: a place in one of its groups. */
+const beta: TenantBody = { domain: 't-beta', name: 'Beta', roles: [], deletesAccount: false };
+/** A tenant the person is the only administrator of. */
+const gamma: TenantBody = {
+  domain: 't-gamma',
+  name: 'Gamma',
+  roles: ['Administrator'],
+  refusal: 'You are the only administrator of Gamma. Make someone else an administrator there first.',
+  deletesAccount: false,
+};
+/** The one tenant of a person who holds nothing else: leaving it deletes the account. */
+const only: TenantBody = { domain: 't-acme', name: 'Acme', roles: ['Reader'], deletesAccount: true };
 /** The record of a session that acts for the person. */
 const impersonation = { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' };
 
@@ -135,6 +161,8 @@ interface Setup {
   sessions?: SessionBody[];
   /** How many browsers the server remembers for the person; unset, none. */
   rememberedBrowsers?: number;
+  /** The person's tenants, as the server lists them and as the person's list of tenants names them; unset, none. */
+  tenants?: TenantBody[];
 }
 
 /** A request the spec's server holds until the spec answers it. */
@@ -187,15 +215,18 @@ describe('AccountPageComponent', () => {
     strength = strong,
     sessions = [here],
     rememberedBrowsers = 0,
+    tenants = [],
   }: Setup = {}): Promise<void> => {
     let meansNow = meansAnswer;
     let sessionsNow = [...sessions];
     let rememberedNow = rememberedBrowsers;
+    let tenantsNow = [...tenants];
     strengthAnswer = strength;
     held = [];
     const server: SpecServer = {
       methods: { methods: [], ...methods },
       session: { ...session },
+      domains: tenants.map((tenant) => ({ domain: tenant.domain, name: tenant.name })),
       other: (url) => {
         const path = url.pathname;
         const given = answers[path];
@@ -266,6 +297,23 @@ describe('AccountPageComponent', () => {
           const ended = sessionsNow.filter((session) => !session.current).length;
           sessionsNow = sessionsNow.filter((session) => session.current);
           return Promise.resolve({ status: 200, body: { ended } });
+        }
+        // The person's tenants, and a leave, which takes the tenant off the list and out of
+        // the person's list of tenants.
+        if (path === tenantRoutes.list) {
+          void inner(request);
+          return Promise.resolve({ status: 200, body: { tenants: [...tenantsNow] } });
+        }
+        if (path === tenantRoutes.leave) {
+          void inner(request);
+          const left = tenantsNow.find((tenant) => tenant.domain === body?.['domain']);
+          tenantsNow = tenantsNow.filter((tenant) => tenant !== left);
+          server.domains = server.domains?.filter((tenant) => tenant.domain !== left?.domain);
+          return Promise.resolve(
+            left
+              ? { status: 200, body: { accountDeleted: left.deletesAccount } }
+              : { status: 404, body: { message: 'You are not in that customer.' } },
+          );
         }
         if (path === passwordMethods.changePassword) {
           // A change of the password signs the person out of every other browser.
@@ -352,6 +400,46 @@ describe('AccountPageComponent', () => {
     element().querySelector<HTMLButtonElement>(`button.impulse-account-page-sign-out[aria-label="${label}"]`);
   const sessionsSaid = (): string | undefined => text('.impulse-account-page-sessions-said');
   const listReads = (): number => transport.requests.filter((r) => r.url === passwordMethods.ownSessions.list).length;
+  /** The rows of the list of the person's tenants, in order. */
+  const tenantItems = (): HTMLElement[] =>
+    Array.from(element().querySelectorAll<HTMLElement>('li.impulse-account-page-tenant'));
+  const ofTenant = (item: HTMLElement | undefined, part: string): string | undefined =>
+    item?.querySelector(`.impulse-account-page-${part}`)?.textContent?.replace(/\s+/g, ' ').trim();
+  const leaveOf = (name: string): HTMLButtonElement | null =>
+    element().querySelector<HTMLButtonElement>(`button.impulse-account-page-leave[aria-label="Leave ${name}"]`);
+  const tenantsSaid = (): string | undefined => text('.impulse-account-page-tenants-said');
+  const tenantReads = (): number => transport.requests.filter((r) => r.url === tenantRoutes.list).length;
+  /** How many times the person's list of tenants was read: at the session check, and after a leave. */
+  const domainReads = (): number =>
+    transport.requests.filter((r) => new URL(r.url, 'http://spec.test').pathname === '/api/user-domains').length;
+  /** The element of the leave window that carries a class, or null while no window is open. */
+  const inWindow = <T extends HTMLElement = HTMLElement>(part: string): T | null =>
+    document.querySelector<T>(`.impulse-leave-tenant-dialog-${part}`);
+  /** Types into the leave window's box. */
+  const typeInWindow = async (value: string): Promise<void> => {
+    const input = inWindow<HTMLInputElement>('words');
+    if (!input) throw new Error('no leave window is open');
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+    await settle();
+  };
+  /** Presses Leave on a tenant's row, types the words in the window and presses its button, then lets the leave answer. */
+  const leaveWith = async (name: string, words: string): Promise<void> => {
+    await press(leaveOf(name));
+    await typeInWindow(words);
+    inWindow<HTMLButtonElement>('leave')?.click();
+    await drain();
+    await settle();
+  };
+  /** Stands in for the router's navigation, as the spec has no routes to go to, and answers where the page went. */
+  const watchNavigations = (): (() => string[]) => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    return () =>
+      navigate.mock.calls.map(([url]: [string | UrlTree, ...unknown[]]) =>
+        typeof url === 'string' ? url : router.serializeUrl(url),
+      );
+  };
 
   describe('the lines', () => {
     it('shows a person who chose their username their four lines, each with its value, its hint and its icon', async () => {
@@ -489,8 +577,11 @@ describe('AccountPageComponent', () => {
         session: { ...gale, browserRemembered: true },
         sessions: [here, laptop, unnamed],
         rememberedBrowsers: 2,
+        tenants: [acme, gamma],
       });
       expect(sectionButton('forget')).not.toBeNull();
+      expect(leaveOf('Acme')).not.toBeNull();
+      expect(element().querySelector('.impulse-account-page-tenant-refusal')).not.toBeNull();
       expect(sectionButton('forget-all')).not.toBeNull();
       expect(element().querySelector('section.impulse-account-page-content')).not.toBeNull();
       expect(notNamedFor('impulse-account-page-', element())).toEqual([]);
@@ -1421,6 +1512,225 @@ describe('AccountPageComponent', () => {
       expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
       expect(element().textContent).not.toContain('This browser is remembered for you');
       expect(element().querySelectorAll('button.impulse-account-page-forget')).toHaveLength(1);
+    });
+  });
+
+  describe('Your tenants', () => {
+    /** The text of an element of the leave window, or undefined while no window is open. */
+    const windowText = (part: string): string | undefined => inWindow(part)?.textContent?.replace(/\s+/g, ' ').trim();
+    /** Presses Escape where the window listens for it. */
+    const escape = (): void => {
+      const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      Object.defineProperty(event, 'keyCode', { get: () => 27 });
+      document.body.dispatchEvent(event);
+    };
+    /** The parts of the page in order: the heading, then each part by its class. */
+    const parts = (): string[] =>
+      Array.from(element().querySelector('section.impulse-account-page-content')?.children ?? []).map(
+        (child) => child.className || child.tagName.toLowerCase(),
+      );
+    const tenantNames = (): (string | undefined)[] => tenantItems().map((item) => ofTenant(item, 'tenant-name'));
+
+    it('lists the tenants under "Your customers" between the lines and where the person is signed in, each with its roles or "No role" and Leave named for it', async () => {
+      await open({ tenants: [acme, beta] });
+      expect(parts()).toEqual([
+        'h1',
+        'impulse-account-page-lines',
+        'impulse-account-page-tenants',
+        'impulse-account-page-signed-in',
+      ]);
+      expect(text('.impulse-account-page-tenants h2')).toBe('Your customers');
+      expect(tenantItems().map((item) => [ofTenant(item, 'tenant-name'), ofTenant(item, 'tenant-roles')])).toEqual([
+        ['Acme', 'Reader, Warden'],
+        ['Beta', 'No role'],
+      ]);
+      expect(
+        tenantItems().map((item) => {
+          const button = item.querySelector('button.impulse-account-page-leave');
+          return [button?.textContent?.trim(), button?.getAttribute('aria-label')];
+        }),
+      ).toEqual([
+        ['Leave', 'Leave Acme'],
+        ['Leave', 'Leave Beta'],
+      ]);
+      expect(element().querySelector('.impulse-account-page-tenant-refusal')).toBeNull();
+      expect(tenantsSaid()).toBeUndefined();
+      expect(tenantReads()).toBe(1);
+    });
+
+    it('heads one tenant in the singular', async () => {
+      await open({ tenants: [acme] });
+      expect(text('.impulse-account-page-tenants h2')).toBe('Your customer');
+    });
+
+    it('says why under the roles of a tenant the person cannot leave, in place of Leave', async () => {
+      await open({ tenants: [acme, gamma] });
+      const row = tenantItems()[1];
+      expect(ofTenant(row, 'tenant-name')).toBe('Gamma');
+      expect(ofTenant(row, 'tenant-roles')).toBe('Administrator');
+      expect(ofTenant(row, 'tenant-refusal')).toBe(gamma.refusal);
+      expect(row?.querySelector('button')).toBeNull();
+      expect(leaveOf('Acme')).not.toBeNull();
+    });
+
+    it('draws no section for an empty list, in an impersonated session, nor where the server names no list', async () => {
+      await open();
+      expect(element().querySelector('.impulse-account-page-tenants')).toBeNull();
+      expect(tenantReads()).toBe(1);
+      TestBed.resetTestingModule();
+      await open({ session: { ...gale, impersonation }, tenants: [acme] });
+      expect(element().querySelector('.impulse-account-page-tenants')).toBeNull();
+      expect(tenantReads()).toBe(0);
+      TestBed.resetTestingModule();
+      await open({ methods: { ...everything, ownTenants: undefined }, tenants: [acme] });
+      expect(element().querySelector('.impulse-account-page-tenants')).toBeNull();
+      expect(tenantReads()).toBe(0);
+    });
+
+    it('says it could not read the list where the read fails', async () => {
+      await open({
+        tenants: [acme],
+        answers: { [tenantRoutes.list]: { status: 500, body: { message: 'the read failed' } } },
+      });
+      expect(text('.impulse-account-page-tenants h2')).toBe('Your customers');
+      expect(text('.impulse-account-page-tenants-failed')).toBe(
+        'We could not read your customers. Reload the page to try again.',
+      );
+      expect(tenantItems()).toEqual([]);
+    });
+
+    it('asks in a window of its own named for the tenant, and asks the server nothing on Cancel, on Escape or on a press outside', async () => {
+      await open({ tenants: [acme, beta] });
+      const closings: [string, () => void][] = [
+        ['Cancel', () => inWindow<HTMLButtonElement>('cancel')?.click()],
+        ['Escape', escape],
+        ['a press outside', () => document.querySelector<HTMLElement>('.cdk-overlay-backdrop')?.click()],
+      ];
+      for (const [name, close] of closings) {
+        await press(leaveOf('Acme'));
+        expect(windowText('title'), name).toBe('Leave Acme?');
+        expect(windowText('what'), name).toBe(
+          'You lose every role you hold in Acme (Reader, Warden), right away. Only an administrator there can bring you back.',
+        );
+        await typeInWindow('Delete me');
+        close();
+        await drain();
+        await settle();
+        expect(inWindow('title'), name).toBeNull();
+      }
+      expect(postedTo(tenantRoutes.leave)).toEqual([]);
+      expect(tenantNames()).toEqual(['Acme', 'Beta']);
+      expect(tenantsSaid()).toBeUndefined();
+    });
+
+    it('opens the window in the form that deletes the account where the list says leaving deletes it', async () => {
+      await open({ tenants: [only] });
+      await press(leaveOf('Acme'));
+      expect(windowText('title')).toBe('Leave Acme and delete your account?');
+      expect(windowText('what')).toBe(
+        'Acme is your only customer. Leaving it deletes your account: your sign-in and every role you hold. You are signed out everywhere. This cannot be undone.',
+      );
+      await typeInWindow('Delete me');
+      expect(inWindow<HTMLButtonElement>('leave')?.disabled).toBe(true);
+      await typeInWindow('Delete my account');
+      expect(inWindow<HTMLButtonElement>('leave')?.disabled).toBe(false);
+    });
+
+    it('leaves once the words are typed, posting the key and what the list said, reads the permissions and the list again, and says so', async () => {
+      await open({ tenants: [acme, beta] });
+      const went = watchNavigations();
+      const domains = domainReads();
+      const reads = tenantReads();
+      await leaveWith('Acme', ' delete ME ');
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: false }]);
+      expect(domainReads()).toBe(domains + 1);
+      expect(tenantReads()).toBe(reads + 1);
+      expect(tenantNames()).toEqual(['Beta']);
+      expect(text('.impulse-account-page-tenants h2')).toBe('Your customer');
+      expect(tenantsSaid()).toBe('You left Acme.');
+      expect(went()).toEqual([]);
+      expect(inWindow('title')).toBeNull();
+    });
+
+    it('goes on saying the person left a tenant where the list is then empty', async () => {
+      await open({ tenants: [beta] });
+      watchNavigations();
+      await leaveWith('Beta', 'Delete me');
+      expect(text('.impulse-account-page-tenants h2')).toBe('Your customers');
+      expect(element().querySelector('.impulse-account-page-tenant-list')).toBeNull();
+      expect(tenantsSaid()).toBe('You left Beta.');
+    });
+
+    it('takes a person who left the tenant the page is in to the first page of the place they land in', async () => {
+      await open({ tenants: [acme, beta] });
+      const went = watchNavigations();
+      vi.spyOn(TestBed.inject(PlaceService), 'current').mockReturnValue({ id: acme.domain, label: acme.name });
+      const reads = tenantReads();
+      await leaveWith('Acme', 'Delete me');
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: false }]);
+      expect(went()).toEqual(['/tenants/t-beta/dashboard']);
+      expect(tenantReads()).toBe(reads);
+      expect(tenantsSaid()).toBeUndefined();
+    });
+
+    it('goes where Sign out goes where the account went with the tenant', async () => {
+      await open({ tenants: [only] });
+      const went = watchNavigations();
+      const domains = domainReads();
+      await leaveWith('Acme', 'delete my account');
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: true }]);
+      expect(went()).toEqual(['/logout']);
+      expect(domainReads()).toBe(domains);
+    });
+
+    it("says the server's words where it refuses the leave, and reads the list again", async () => {
+      const refusal = 'Leaving Acme would no longer do what this page said. Read the page again.';
+      await open({
+        tenants: [acme, beta],
+        answers: { [tenantRoutes.leave]: { status: 409, body: { message: refusal } } },
+      });
+      const went = watchNavigations();
+      const reads = tenantReads();
+      await leaveWith('Acme', 'Delete me');
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: false }]);
+      expect(tenantsSaid()).toBe(refusal);
+      expect(tenantReads()).toBe(reads + 1);
+      expect(tenantNames()).toEqual(['Acme', 'Beta']);
+      expect(went()).toEqual([]);
+    });
+
+    it('says a leave the server fails did not work, reads the list again and enables the buttons', async () => {
+      await open({
+        tenants: [acme, beta],
+        answers: { [tenantRoutes.leave]: { status: 500, body: { message: 'the leave failed' } } },
+      });
+      const went = watchNavigations();
+      const reads = tenantReads();
+      await leaveWith('Acme', 'Delete me');
+      expect(tenantsSaid()).toBe('That did not work. Try again in a moment.');
+      expect(tenantReads()).toBe(reads + 1);
+      expect(leaveOf('Acme')?.disabled).toBe(false);
+      expect(went()).toEqual([]);
+    });
+
+    it('disables the buttons of the page while the leave is out', async () => {
+      await open({ tenants: [acme, beta], sessions: [here, laptop], hold: [tenantRoutes.leave] });
+      watchNavigations();
+      await press(leaveOf('Acme'));
+      await typeInWindow('Delete me');
+      inWindow<HTMLButtonElement>('leave')?.click();
+      await drain();
+      const buttons = Array.from(
+        element().querySelectorAll<HTMLButtonElement>(
+          '.impulse-account-page-tenants button, .impulse-account-page-signed-in button, button.impulse-account-page-edit',
+        ),
+      );
+      expect(buttons.length).toBeGreaterThan(3);
+      expect(buttons.every((button) => button.disabled)).toBe(true);
+      held[0]?.answer({ status: 200, body: { accountDeleted: false } });
+      await settle();
+      expect(leaveOf('Beta')?.disabled).toBe(false);
+      expect(tenantsSaid()).toBe('You left Acme.');
     });
   });
 

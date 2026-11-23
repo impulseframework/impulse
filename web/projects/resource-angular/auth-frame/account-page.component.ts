@@ -17,16 +17,22 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { OwnSession, OwnSessions, SignInRefusal } from '@impulseframework/resource';
+import { Router } from '@angular/router';
+import { OwnSession, OwnSessions, OwnTenant, SignInRefusal } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { NewPasswordComponent } from '@impulseframework/resource-angular/auth-new-password';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
+import { FRONTEND_SIGN_OUT_PATH } from '@impulseframework/resource-angular/types';
 import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
+import { Frame, inSentence } from './frame';
+import { askToLeaveTenant } from './leave-tenant-dialog.component';
+import { PlaceService } from './place.service';
 
 /** Words joined as a sentence names them: "A", "A or B", "A, B or C". */
 function joinedByOr(words: readonly string[]): string {
@@ -98,6 +104,14 @@ interface Said {
  * in through); a person who holds none chooses a first one with a code the server mails
  * to the address their account holds confirmed.
  *
+ * Between the lines and where the person is signed in, their tenants, where the server
+ * serves the list and the person has any: each by name with the roles they hold there and
+ * Leave beside it. Leave asks in a window of its own, whose button stays locked until the
+ * person types what they are doing; a tenant they cannot leave says why in place of the
+ * button. After a leave the person's permissions and tenants are read again: a person who
+ * left the tenant the page is in is taken to the first page of the place the frame lands
+ * them in, and a person whose account went with it to the sign-out path.
+ *
  * Under the lines, where the person is signed in: each browser by its name, with when it
  * was signed in and last used, this browser first. Each act on the list happens at once,
  * with no question first: signing out of one other browser or of every other, forgetting
@@ -123,6 +137,12 @@ export class AccountPageComponent {
   private injector = inject(Injector);
   /** The application's locale, in which the moments of a session are written. */
   private locale = inject(LOCALE_ID);
+  private dialog = inject(MatDialog);
+  private router = inject(Router);
+  private frame = inject(Frame);
+  private places = inject(PlaceService);
+  /** Where Sign out goes, and the browser after a leave that deleted the account. */
+  private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
 
   readonly nameMaxLength = nameMaxLength;
   readonly usernameMaxLength = usernameMaxLength;
@@ -229,6 +249,36 @@ export class AccountPageComponent {
   readonly otherSessions = computed(() => this.sessions().filter((session) => !session.current).length);
   /** What the last act on the list came to; undefined before one, and after one that came to nothing to say. */
   readonly sessionsSaid = signal<string | undefined>(undefined);
+
+  /**
+   * The person's tenants, read when the page opens, where the server serves the list and
+   * the session is the person's own, and again after a leave. While it is read again, it is
+   * what the last read said.
+   */
+  private readonly held = resource({
+    params: () => (this.account.tenants() ? true : undefined),
+    loader: (): Promise<readonly OwnTenant[]> => this.client.auth.ownTenants(),
+  });
+  /** The person's tenants, as the server sorts them. */
+  readonly tenants = computed<readonly OwnTenant[]>(() => (this.held.hasValue() ? this.held.value() : []));
+  /** The read of the list failed, and nothing was read before it. */
+  readonly tenantsFailed = computed(() => !this.held.hasValue() && this.held.status() === 'error');
+  /** What the last leave came to, under the list; undefined before one. */
+  readonly tenantsSaid = signal<string | undefined>(undefined);
+  /**
+   * The section is drawn: the read failed, or answered at least one tenant, or a leave has
+   * something to say (the list it emptied draws no rows). An empty answer draws nothing.
+   */
+  readonly tenantsShown = computed(
+    () =>
+      this.account.tenants() && (this.tenantsFailed() || this.tenants().length > 0 || this.tenantsSaid() !== undefined),
+  );
+  /** What the application calls the person's tenants in a sentence: "customers". */
+  readonly tenantsWord = inSentence(this.frame.tenantWord.many);
+  /** The section's heading: "Your customers", "Your customer" for one. */
+  readonly tenantsHeading = computed(
+    () => `Your ${this.tenants().length === 1 ? inSentence(this.frame.tenantWord.one) : this.tenantsWord}`,
+  );
 
   /** The Username box. */
   readonly usernameText = signal('');
@@ -560,6 +610,55 @@ export class AccountPageComponent {
       await firstValueFrom(this.auth.checkUserSession());
       this.sessionsSaid.set('Every browser will ask for the emailed code the next time you sign in there.');
     });
+  }
+
+  /**
+   * Asks in a window of its own whether the person leaves a tenant, and leaves it once they
+   * confirm, telling the server what the list told them (`deletesAccount`). Where the
+   * account went with it, the browser goes where Sign out goes. Otherwise the person's
+   * permissions and tenants are read again, and a person who left the tenant the page is in
+   * is taken to the first page of the place the frame lands them in; anyone else is told
+   * they left it under the list, read again. A refusal says the server's words, and a
+   * failure that it did not work; the list is read again after either.
+   */
+  async leave(tenant: OwnTenant): Promise<void> {
+    if (this.busy()) {
+      return;
+    }
+    const confirmed = await askToLeaveTenant(this.dialog, {
+      name: tenant.name,
+      roles: tenant.roles,
+      deletesAccount: tenant.deletesAccount,
+      word: inSentence(this.frame.tenantWord.one),
+    });
+    if (!confirmed || this.busy()) {
+      return;
+    }
+    this.tenantsSaid.set(undefined);
+    try {
+      await this.request(async () => {
+        const result = await this.client.auth.leaveTenant(tenant.domain, tenant.deletesAccount);
+        if (result.outcome === 'refused') {
+          this.tenantsSaid.set(result.message);
+          this.held.reload();
+          return;
+        }
+        if (result.accountDeleted) {
+          await this.router.navigateByUrl(this.signOutPath);
+          return;
+        }
+        await firstValueFrom(this.auth.refreshPermissions());
+        if (this.places.current().id === tenant.domain) {
+          await this.router.navigateByUrl(this.places.landing(this.places.defaultPlace()));
+          return;
+        }
+        this.tenantsSaid.set(`You left ${tenant.name}.`);
+        this.held.reload();
+      }, false);
+    } catch {
+      this.tenantsSaid.set('That did not work. Try again in a moment.');
+      this.held.reload();
+    }
   }
 
   /**

@@ -66,8 +66,10 @@ func TestAuth_Methods(t *testing.T) {
 		// addresses registers the password method with its usernames the addresses
 		// (UsernameIsEmail), alone on the Auth.
 		addresses bool
-		list      *MethodList
-		want      map[string]any
+		// ownTenants sets an own-tenants hook on the Auth (SetOwnTenants).
+		ownTenants bool
+		list       *MethodList
+		want       map[string]any
 	}{
 		{
 			name: "every listed method in the list's order, the password one a form, the external ones redirects, with the pending routes",
@@ -117,6 +119,36 @@ func TestAuth_Methods(t *testing.T) {
 				"usernameFree":     "/api/user/username/free",
 				"ownSessions":      map[string]any{"list": "/api/user/sessions", "end": "/api/user/sessions/end", "endOthers": "/api/user/sessions/end-others"},
 				"forgetBrowsers":   "/api/user/browser/forget-all",
+			},
+		},
+		{
+			name:       "the routes of the person's own tenants are told where the list names both and the Auth holds the hook that answers them",
+			ownTenants: true,
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				OwnTenants:       OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/leave"},
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"ownTenants":       map[string]any{"list": "/api/user/tenants", "leave": "/api/user/tenants/leave"},
+			},
+		},
+		{
+			name: "an Auth that holds no own-tenants hook is told neither of the person's tenants' routes, whatever the list names",
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				OwnTenants:       OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/leave"},
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
 			},
 		},
 		{
@@ -207,6 +239,9 @@ func TestAuth_Methods(t *testing.T) {
 				a = newBareAuth(t, gomock.NewController(t))
 				PasswordSignIn(a, UsernameIsEmail())
 			}
+			if tt.ownTenants {
+				a.SetOwnTenants(unaskedOwnTenants())
+			}
 
 			rr := httptest.NewRecorder()
 			a.Methods(tt.list).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/user/methods", http.NoBody))
@@ -269,6 +304,10 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		{name: "a sign-out-everywhere-else route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/"}}, want: "session: Methods is given the sign-out-everywhere-else route \"/\", which is not a canonical path in the application: give it the path its EndOtherSessions handler is mounted at, such as /api/user/sessions/end-others"},
 		{name: "two of the where-you-are-signed-in routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end"}}, want: "session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none"},
 		{name: "one of the where-you-are-signed-in routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none"},
+		{name: "the your-tenants route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{List: "/api/user/tenants"}}, want: "session: Methods is given one of the your-tenants routes and not the other: name List and Leave, or neither"},
+		{name: "the leave-a-tenant route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{Leave: "/api/user/tenants/leave"}}, want: "session: Methods is given one of the your-tenants routes and not the other: name List and Leave, or neither"},
+		{name: "a your-tenants route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{List: "https://evil.example/tenants", Leave: "/api/user/tenants/leave"}}, want: "session: Methods is given the your-tenants route \"https://evil.example/tenants\", which is not a canonical path in the application: give it the path its OwnTenants handler is mounted at, such as /api/user/tenants"},
+		{name: "a leave-a-tenant route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/../leave"}}, want: "session: Methods is given the leave-a-tenant route \"/api/user/tenants/../leave\", which is not a canonical path in the application: give it the path its LeaveTenant handler is mounted at, such as /api/user/tenants/leave"},
 		{name: "a forget-all-remembered-browsers route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ForgetBrowsers: "api/user/browser/forget-all"}, want: "session: Methods is given the forget-all-remembered-browsers route \"api/user/browser/forget-all\", which is not a canonical path in the application: give it the path its ForgetBrowsers handler is mounted at, such as /api/user/browser/forget-all"},
 		{name: "a keep-your-look route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ChangeLook: "https://evil.example/look"}, want: "keep-your-look route"},
 		{name: "a password change route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangePassword: "/password"}, want: "lists no password method"},

@@ -920,6 +920,8 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/sessions/end", auth.EndOwnSession())      // {"sessionId"}: signs the person out of one other browser; validates the session itself
     r.Post("/api/user/sessions/end-others", auth.EndOtherSessions()) // signs the person out of every browser but this one; validates the session itself
     r.Post("/api/user/browser/forget-all", auth.ForgetBrowsers())    // forgets every browser remembered for the person; validates the session itself
+    r.Get("/api/user/tenants", auth.OwnTenants())                    // the person's tenants, with the roles held in each; validates the session itself
+    r.Post("/api/user/tenants/leave", auth.LeaveTenant())            // the person leaves one of their tenants; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
     r.Post("/api/user/invitation/sign-up", auth.Invitation().SignUp()) // {"password", "username"}: the invited person's account
     r.Post("/api/user/sign-up", auth.SignUp().Start())                 // {"email"}: mails the sign-up link; 404 while the password method is invite only
@@ -1054,6 +1056,11 @@ the password method is listed.
   names them (`MethodList.OwnSessions`, all three or none): where a signed-in person's
   account page lists where they are signed in, signs them out of one browser and signs
   them out of every other.
+- `ownTenants` are the paths of the `OwnTenants` and `LeaveTenant` handlers (`{ list, leave }`),
+  where the list names them (`MethodList.OwnTenants`, both or neither) and the Auth holds the
+  hook that answers them (`SetOwnTenants`): where a signed-in person's account page lists their
+  tenants and leaves one. An Auth with no hook serves neither, and its answer names neither.
+  Set the hook before the routes are wired: one set after `Methods` is called panics.
 - `forgetBrowsers` is the path of the `ForgetBrowsers` handler, present when the list
   names it (`MethodList.ForgetBrowsers`): where a signed-in person's account page
   forgets every browser the second factor remembered for them.
@@ -2048,6 +2055,23 @@ this one included, and ends no session. A session someone else established actin
 theirs: it is not listed and not ended here. All four validate the session themselves
 and refuse an impersonated session. These four, and the two of the username, also refuse
 a request a token authenticated.
+
+**The person sees their tenants and leaves one**, signed in: `Auth.OwnTenants()` answers
+`{"tenants": [{"domain", "name", "roles", "refusal", "deletesAccount"}]}`, the tenants the
+person holds something in, each by its name (`SetTenantNames`; the tenant's key where no name
+is known) with the roles they hold there in words, why they cannot leave it where they cannot
+(`refusal`, absent where they can), and whether leaving it deletes their account.
+`Auth.LeaveTenant()` accepts `{"domain", "deletesAccount"}` and answers `{"accountDeleted"}`:
+everything the person holds in the tenant goes, and the account goes with it, and every
+session of theirs, when the person then holds nothing still in force anywhere: a role or a
+place whose time has ended keeps no account against its person's own leaving, and goes with
+it. `deletesAccount` is what the page told the person; where it is no longer true the request
+is refused (409) and nothing changes, so nobody deletes their account having agreed to less.
+Who belongs where is the application's to say: both handlers answer through the hook the
+auth's package sets (`SetOwnTenants`, the generated identity client's `OwnTenants`), which
+holds the rules: a tenant's last administrator does not leave it. Both validate the session
+themselves and refuse an impersonated session and a request a token authenticated. No mail is
+sent.
 
 ### The look a person chose
 
@@ -4471,13 +4495,13 @@ Everything an impersonated session touches names the actor and the principal:
   the handler's name is the event's and the server's log's, never the sentence's. They are
   `ChangeUserPassword` and `RemoveUserPassword` (the password
   method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `ChangeUsername`,
-  `EndOwnSession`, `EndOtherSessions`, `ForgetBrowsers`, `Email().Add()` and
+  `EndOwnSession`, `EndOtherSessions`, `ForgetBrowsers`, `LeaveTenant`, `Email().Add()` and
   `Email().Verify()` (the address the code of their second factor is mailed to),
   `ApplicationTokens().Create()` and `ApplicationTokens().Revoke()`, `Device().Approve()`
   and `Device().Deny()` (a token and an approved device act as the person for as long as
-  they live) and `Invitation().Accept()` (which gives the person roles). `OwnSessions` and
-  `UsernameFree`, which only read, refuse a view too: where a person is signed in, and
-  which usernames they may take, are theirs alone. The other routes that
+  they live) and `Invitation().Accept()` (which gives the person roles). `OwnSessions`,
+  `OwnTenants` and `UsernameFree`, which only read, refuse a view too: where a person is
+  signed in, what they hold, and which usernames they may take, are theirs alone. The other routes that
   only read (`ApplicationTokens().List()`, `Device().Lookup()`) answer a view, and
   `Logout` and `EndImpersonation` end it. The generated router registers the routes it
   mounts behind `ValidateSession` (the invitation's, the address's, the tokens' and the
@@ -4485,8 +4509,8 @@ Everything an impersonated session touches names the actor and the principal:
   tenant or a role say, gates the application's generated routes and never a person's
   own account; and it mounts the read-only mask (`EnforceReadOnlyMask`) in front of
   them itself, as it does in front of the generated routes behind the hook. The
-  password's, the name's, the look's, the username's, the sessions' and the remembered
-  browsers' (this one or all) validate the session
+  password's, the name's, the look's, the username's, the sessions', the remembered
+  browsers' (this one or all) and the tenants' validate the session
   themselves, in front of the session check, and the handler's own refusal is what
   answers a view there. On `Auth` the user operations are `AuthAPI` methods behind the
   application's own handlers, which guard them.

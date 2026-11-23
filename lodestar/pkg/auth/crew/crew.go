@@ -920,6 +920,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: auth.periods.
 	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
+	// A person's own tenants, on their account page: the session library asks the
+	// identity client which tenants the person holds something in, with the roles held
+	// in each, and has it take the person out of one at their own word (OwnTenants).
+	// The rules are the identity package's: a tenant's last administrator does not
+	// leave it, and an account left holding nothing is deleted with its sessions.
+	crewSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))
+
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated
 	// router composes in front of its routes. Registration closes with the first use of

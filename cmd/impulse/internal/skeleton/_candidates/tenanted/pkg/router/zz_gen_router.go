@@ -6,8 +6,8 @@
 //
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment
 //	default (/api), sessions (password, google):
-//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/google/login, GET /api/user/google/callback
-//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/password/strength, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/username, POST /api/user/username/free, POST /api/user/sessions/end, POST /api/user/sessions/end-others, POST /api/user/browser/forget-all, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/email/confirm, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete, POST /api/user/password-reset, POST /api/user/password-reset/open, POST /api/user/password-reset/complete
+//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/tenants, GET /api/user/google/login, GET /api/user/google/callback
+//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/password/strength, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/username, POST /api/user/username/free, POST /api/user/sessions/end, POST /api/user/sessions/end-others, POST /api/user/browser/forget-all, POST /api/user/tenants/leave, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/email/confirm, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete, POST /api/user/password-reset, POST /api/user/password-reset/open, POST /api/user/password-reset/complete
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, POST /api/user/first-password/code, POST /api/user/first-password
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Default, EnforceReadOnlyMask: generatedRoutes
@@ -124,6 +124,12 @@ type DefaultSession interface {
 	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
 	// validates the session itself.
 	ForgetBrowsers() http.HandlerFunc
+	// OwnTenants answers the signed-in person's tenants, with the roles held in each, to
+	// their account page (session.Auth.OwnTenants); it validates the session itself.
+	OwnTenants() http.HandlerFunc
+	// LeaveTenant takes the signed-in person out of one of their tenants, from their
+	// account page (session.Auth.LeaveTenant); it validates the session itself.
+	LeaveTenant() http.HandlerFunc
 	// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.
 	InvitationOpen() http.HandlerFunc
 	// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).
@@ -247,6 +253,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			UsernameFree:     "/api/user/username/free",
 			OwnSessions:      session.OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"},
 			ForgetBrowsers:   "/api/user/browser/forget-all",
+			OwnTenants:       session.OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/leave"},
 			Invitation:       session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 			Email:            session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"},
 			SignUp:           session.SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
@@ -257,6 +264,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/api/user/pending", h.PendingStatus())
 		bounded.Get("/api/user/sign-in-means", h.SignInMeans())
 		bounded.Get("/api/user/sessions", h.OwnSessions())
+		bounded.Get("/api/user/tenants", h.OwnTenants())
 		bounded.Get("/api/user/google/login", h.GoogleLogin())
 		bounded.Get("/api/user/google/callback", h.GoogleCallback())
 		guarded.Post("/api/user/password/login", h.PasswordLogin())
@@ -276,6 +284,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/api/user/sessions/end", h.EndOwnSession())
 		guarded.Post("/api/user/sessions/end-others", h.EndOtherSessions())
 		guarded.Post("/api/user/browser/forget-all", h.ForgetBrowsers())
+		guarded.Post("/api/user/tenants/leave", h.LeaveTenant())
 		guarded.Post("/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/api/user/invitation/sign-up", h.InvitationSignUp())
 		guarded.Post("/api/user/email/confirm", h.EmailConfirm())

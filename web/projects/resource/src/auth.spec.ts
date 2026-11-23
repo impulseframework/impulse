@@ -136,6 +136,8 @@ interface Server {
   endOwnSession: TransportResponse;
   endOtherSessions: TransportResponse;
   forgetBrowsers: TransportResponse;
+  ownTenants: TransportResponse;
+  leaveTenant: TransportResponse;
   invitationOpen: TransportResponse;
   invitationAccept: TransportResponse;
   invitationSignUp: TransportResponse;
@@ -177,6 +179,8 @@ function server(overrides: Partial<Server> = {}): Server {
     endOwnSession: { status: 200, body: undefined },
     endOtherSessions: { status: 200, body: { ended: 2 } },
     forgetBrowsers: { status: 200, body: undefined },
+    ownTenants: { status: 200, body: { tenants: [] } },
+    leaveTenant: { status: 200, body: { accountDeleted: false } },
     invitationOpen: { status: 200, body: opened },
     invitationAccept: { status: 200, body: { accepted: true } },
     // The link proves nothing of who holds it: the sign-up makes nobody and waits for the code.
@@ -245,6 +249,10 @@ function transportOf(state: Server): ScriptedTransport {
         return state.endOtherSessions;
       case 'POST /console/api/user/browser/forget-all':
         return state.forgetBrowsers;
+      case 'GET /console/api/user/tenants':
+        return state.ownTenants;
+      case 'POST /console/api/user/tenants/leave':
+        return state.leaveTenant;
       case 'POST /console/api/user/invitation':
         return state.invitationOpen;
       case 'POST /console/api/user/invitation/accept':
@@ -1249,6 +1257,133 @@ describe('forgetting every remembered browser', () => {
       'this server names no forget-all-remembered-browsers path in its methods list: it does not serve one',
     );
     expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+const ownTenantsRoutes = { list: '/console/api/user/tenants', leave: '/console/api/user/tenants/leave' };
+/** The list of a server that serves a person's own tenants. */
+const ownTenantsList: LoginMethods = { ...consoleList, ownTenants: ownTenantsRoutes };
+const ownTenantsServer = (overrides: Partial<Server> = {}): Server => server({ methods: ownTenantsList, ...overrides });
+
+describe("the paths of the person's own tenants", () => {
+  it('are kept as the list names them', async () => {
+    expect(await authOver(ownTenantsServer()).auth.methods()).toEqual(ownTenantsList);
+  });
+
+  it('are absent from a list that names none, names them empty, or names one and not the other', async () => {
+    for (const ownTenants of [
+      { list: '', leave: '' },
+      { list: ownTenantsRoutes.list },
+      { leave: ownTenantsRoutes.leave },
+    ]) {
+      const list = await authOver(server({ methods: { ...consoleList, ownTenants } })).auth.methods();
+      expect(list).toEqual(consoleList);
+      expect(Object.keys(list)).not.toContain('ownTenants');
+    }
+  });
+});
+
+describe("the person's own tenants", () => {
+  const anvil = {
+    domain: 'a1111111-1111-4111-8111-111111111111',
+    name: 'Anvil',
+    roles: ['Pilot', 'Sector crew'],
+    deletesAccount: false,
+  };
+  const cinder = {
+    domain: 'c3333333-3333-4333-8333-333333333333',
+    name: 'Cinder',
+    roles: ['Sector marshal'],
+    refusal: 'You are the last administrator of this sector. Give another person the role before you leave.',
+    deletesAccount: false,
+  };
+
+  it('reads the list again, then the tenants from the path it names', async () => {
+    const { auth, transport, errors } = authOver(
+      ownTenantsServer({ ownTenants: { status: 200, body: { tenants: [anvil, cinder] } } }),
+    );
+    expect(await auth.ownTenants()).toEqual([anvil, cinder]);
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `GET ${ownTenantsRoutes.list}`]);
+    expect(errors).toEqual([]);
+  });
+
+  it('drops an entry without a domain, names a tenant by its domain where the server sends no name, and keeps only what is so', async () => {
+    const body = {
+      tenants: [
+        { ...anvil, name: '', roles: ['Pilot', 4, null], refusal: '', deletesAccount: 'yes' },
+        { ...cinder, name: 9, roles: 'Sector marshal', refusal: 3, deletesAccount: true },
+        { ...anvil, domain: 12 },
+        null,
+      ],
+    };
+    const { auth } = authOver(ownTenantsServer({ ownTenants: { status: 200, body } }));
+    const read = await auth.ownTenants();
+    expect(read).toEqual([
+      { domain: anvil.domain, name: anvil.domain, roles: ['Pilot'], deletesAccount: false },
+      { domain: cinder.domain, name: cinder.domain, roles: [], deletesAccount: true },
+    ]);
+    expect(Object.keys(read[0])).not.toContain('refusal');
+    expect(Object.keys(read[1])).not.toContain('refusal');
+    const empty = authOver(ownTenantsServer({ ownTenants: { status: 200, body: null } })).auth;
+    expect(await empty.ownTenants()).toEqual([]);
+  });
+
+  it('reads the list again, then posts the tenant and what the person was told to the path it names', async () => {
+    const { auth, transport, errors } = authOver(ownTenantsServer());
+    expect(await auth.leaveTenant(anvil.domain, false)).toEqual({ outcome: 'left', accountDeleted: false });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${ownTenantsRoutes.leave}`]);
+    expect(transport.requests[1].body).toEqual({ domain: anvil.domain, deletesAccount: false });
+    expect(errors).toEqual([]);
+  });
+
+  it('resolves the account deleted only where the server says true', async () => {
+    const deleted = authOver(ownTenantsServer({ leaveTenant: { status: 200, body: { accountDeleted: true } } }));
+    expect(await deleted.auth.leaveTenant(anvil.domain, true)).toEqual({ outcome: 'left', accountDeleted: true });
+    expect(deleted.transport.requests[1].body).toEqual({ domain: anvil.domain, deletesAccount: true });
+    for (const body of [{ accountDeleted: 'true' }, {}, null]) {
+      const unsaid = authOver(ownTenantsServer({ leaveTenant: { status: 200, body } })).auth;
+      expect(await unsaid.leaveTenant(anvil.domain, true)).toEqual({ outcome: 'left', accountDeleted: false });
+    }
+  });
+
+  const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
+    {
+      name: "a tenant's last administrator resolves with the server's words",
+      answer: { status: 403, body: { message: cinder.refusal } },
+      want: { outcome: 'refused', status: 403, message: cinder.refusal },
+    },
+    {
+      name: "a tenant the person is not in resolves with the server's words",
+      answer: { status: 404, body: { message: 'You hold no role in that sector.' } },
+      want: { outcome: 'refused', status: 404, message: 'You hold no role in that sector.' },
+    },
+    {
+      name: "a leave the list no longer describes resolves with the server's words",
+      answer: {
+        status: 409,
+        body: { message: 'What you hold changed while this page was open. Look at the list again before you leave.' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 409,
+        message: 'What you hold changed while this page was open. Look at the list again before you leave.',
+      },
+    },
+  ];
+  for (const tt of refusals) {
+    it(tt.name, async () => {
+      const { auth, errors } = authOver(ownTenantsServer({ leaveTenant: tt.answer }));
+      expect(await auth.leaveTenant(cinder.domain, false)).toEqual(tt.want);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('throws on a server whose list names no paths, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    const thrown = 'this server names no your-tenants paths in its methods list: it does not serve one';
+    await expect(auth.ownTenants()).rejects.toThrow(thrown);
+    await expect(auth.leaveTenant(anvil.domain, false)).rejects.toThrow(thrown);
+    expect(sent(transport).filter((request) => !request.endsWith(loginMethodsRoute))).toEqual([]);
   });
 });
 
