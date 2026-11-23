@@ -41,11 +41,12 @@ func (SectorDirectory) NameFields() []resource.NameField {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sectorDirectoryReadSets holds one Set per read operation.
 type sectorDirectoryRead struct {
-	ID          impulse.UUID `json:"id"          perm:"-"`
-	SectorID    impulse.UUID `json:"sectorId"`
-	Method      string       `json:"method"`
-	Connection  string       `json:"connection"`
-	DefaultSeat *string      `json:"defaultSeat"`
+	ID               impulse.UUID `json:"id"               perm:"-"`
+	SectorID         impulse.UUID `json:"sectorId"`
+	Method           string       `json:"method"`
+	Connection       string       `json:"connection"`
+	DefaultSeat      *string      `json:"defaultSeat"`
+	AsksSecondFactor bool         `json:"asksSecondFactor"`
 }
 
 var sectorDirectoryReadSets resource.SetCache[SectorDirectory, sectorDirectoryRead]
@@ -54,11 +55,12 @@ var sectorDirectoryReadSets resource.SetCache[SectorDirectory, sectorDirectoryRe
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; sectorDirectoryWriteSets holds one Set per mutation.
 type sectorDirectoryWrite struct {
-	ID          impulse.UUID `json:"-"`
-	SectorID    impulse.UUID `json:"-"`
-	Method      string       `json:"-"`
-	Connection  string       `json:"-"`
-	DefaultSeat *string      `json:"-"`
+	ID               impulse.UUID `json:"-"`
+	SectorID         impulse.UUID `json:"-"`
+	Method           string       `json:"-"`
+	Connection       string       `json:"-"`
+	DefaultSeat      *string      `json:"-"`
+	AsksSecondFactor bool         `json:"-"`
 }
 
 var sectorDirectoryWriteSets resource.SetCache[SectorDirectory, sectorDirectoryWrite]
@@ -184,6 +186,7 @@ func (c *SectorDirectoryColumns) All() *SectorDirectoryColumns {
 		"Method",
 		"Connection",
 		"DefaultSeat",
+		"AsksSecondFactor",
 	}
 
 	return c
@@ -215,6 +218,12 @@ func (c *SectorDirectoryColumns) Connection() *SectorDirectoryColumns {
 
 func (c *SectorDirectoryColumns) DefaultSeat() *SectorDirectoryColumns {
 	c.fields = append(c.fields, "DefaultSeat")
+
+	return c
+}
+
+func (c *SectorDirectoryColumns) AsksSecondFactor() *SectorDirectoryColumns {
+	c.fields = append(c.fields, "AsksSecondFactor")
 
 	return c
 }
@@ -327,6 +336,10 @@ func (c *sectorDirectorySort) Connection() *SectorDirectorySort {
 
 func (c *sectorDirectorySort) DefaultSeat() *SectorDirectorySort {
 	return c.addField("DefaultSeat")
+}
+
+func (c *sectorDirectorySort) AsksSecondFactor() *SectorDirectorySort {
+	return c.addField("AsksSecondFactor")
 }
 
 type SectorDirectorySort struct {
@@ -482,6 +495,22 @@ func (p *SectorDirectoryCreatePatch) DefaultSeat() *string {
 
 func (p *SectorDirectoryCreatePatch) DefaultSeatIsSet() bool {
 	return p.patchSet.IsSet("DefaultSeat")
+}
+
+func (p *SectorDirectoryCreatePatch) SetAsksSecondFactor(v bool) *SectorDirectoryCreatePatch {
+	p.patchSet.Set("AsksSecondFactor", v)
+
+	return p
+}
+
+func (p *SectorDirectoryCreatePatch) AsksSecondFactor() bool {
+	v, _ := p.patchSet.Get("AsksSecondFactor").(bool)
+
+	return v
+}
+
+func (p *SectorDirectoryCreatePatch) AsksSecondFactorIsSet() bool {
+	return p.patchSet.IsSet("AsksSecondFactor")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -642,6 +671,22 @@ func (p *SectorDirectoryUpdatePatch) DefaultSeat() *string {
 
 func (p *SectorDirectoryUpdatePatch) DefaultSeatIsSet() bool {
 	return p.patchSet.IsSet("DefaultSeat")
+}
+
+func (p *SectorDirectoryUpdatePatch) SetAsksSecondFactor(v bool) *SectorDirectoryUpdatePatch {
+	p.patchSet.Set("AsksSecondFactor", v)
+
+	return p
+}
+
+func (p *SectorDirectoryUpdatePatch) AsksSecondFactor() bool {
+	v, _ := p.patchSet.Get("AsksSecondFactor").(bool)
+
+	return v
+}
+
+func (p *SectorDirectoryUpdatePatch) AsksSecondFactorIsSet() bool {
+	return p.patchSet.IsSet("AsksSecondFactor")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

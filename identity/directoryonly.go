@@ -79,3 +79,25 @@ func (m *Manager) CallerPassword(ctx context.Context, txn resource.ReadWriteTran
 
 	return found && has, true, nil
 }
+
+// AuthSecondFactor answers whether this auth's sign-in settings ask everyone for a
+// second factor now, for the rule that a tenant vouches for its directory's own second
+// factor only where the application asks for one
+// (resource.TenantDirectoryRules.SecondFactorsBy; it is a resource.AuthSecondFactor).
+// applies is false where the rule asks nothing of this auth: a call outside any request,
+// and a request that came through another auth. An auth with no settings row asks
+// everyone.
+func (m *Manager) AuthSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) (required, applies bool, err error) {
+	if resource.CallerFrom(ctx).IsZero() {
+		return false, false, nil
+	}
+	if auth, bound := resource.AuthFrom(ctx); bound && auth != m.auth {
+		return false, false, nil
+	}
+	row, err := m.store.SignInSettingsRow(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Store.SignInSettingsRow()")
+	}
+
+	return row == nil || row.RequireSecondFactor, true, nil
+}

@@ -34,6 +34,7 @@ var sectorDeclaration = resource.TenantDeclarationColumns{
 	ConnectionColumn:     "Connection",
 	DirectoriesKeyColumn: "Id",
 	DefaultSeatColumn:    "DefaultSeat",
+	SecondFactorColumn:   "AsksSecondFactor",
 }
 
 // NewSectorRoster builds the application's tenant roster over the Sector record
@@ -71,6 +72,8 @@ func NewSectorDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // with the default seat the row carries (SectorDirectory.DefaultSeat: the role a stranger the
 // directory vouches for is seated with at their first sign-in, none for a NULL, and the
 // sector admits them by invitation only),
+// and with whether the sector says the directory asks its people for a second
+// factor of its own (SectorDirectory.AsksSecondFactor),
 // read in the sign-in's own transaction. The application hands it to the auth whose
 // people enter sectors, beside the hook that gives the default role (the
 // auth's generated identity client's DirectorySeated).

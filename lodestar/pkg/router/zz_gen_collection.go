@@ -1107,6 +1107,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
+					{Name: "asksSecondFactor", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
@@ -1341,6 +1342,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "Refits",
 			},
 			{
+				Name:        "StopVouchingForSectorDirectorySecondFactor",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "TakeCrewSectorGroupRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1362,6 +1369,12 @@ func Collection() *resource.GeneratedCollection {
 				Classes:      []accesstypes.ActionClass{ClassCredential},
 				Target:       "MembersSectorIdentities",
 				CallerEnters: true,
+			},
+			{
+				Name:        "VouchForSectorDirectorySecondFactor",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "Wings",

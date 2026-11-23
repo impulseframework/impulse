@@ -24,10 +24,17 @@ type Directory struct {
 // DeclaredDirectory is one tenant's declaration of a directory, as a DirectoryReader
 // answers it for a stranger's first sign-in: the tenant, and the default seat the
 // tenant gives a person its directory vouched for, the role the sign-in seats them
-// with in the tenant, or "" when the tenant admits its people by invitation only.
+// with in the tenant, or "" when the tenant admits its people by invitation only, and
+// whether the tenant says the directory asks for a second factor of its own.
 type DeclaredDirectory struct {
 	Tenant      accesstypes.Domain
 	DefaultSeat accesstypes.Role
+	// SecondFactor says the tenant has said its directory asks its people for a second
+	// factor of its own. A sign-in through the directory is then not held for the
+	// mailed code the Auth's sign-in settings ask of everyone, wherever the person
+	// works; a hold a sign-in policy answers stands, and the word is not read at a
+	// sign-in through a method whose directory writes the roles.
+	SecondFactor bool
 }
 
 // DirectoryReader reads every tenant's declaration of a directory for a stranger's
@@ -36,9 +43,18 @@ type DeclaredDirectory struct {
 // identity came through, each with its default seat. A directory some tenant declares
 // belongs to that tenant, and its declaration decides the stranger before the
 // registration's account rule does; a directory no tenant declares, an empty answer,
-// falls to the registration's rule as it would without the reader. Spanner may retry
-// the transaction, so the reader must not have side effects outside it. Set it on
-// the Auth with SetDirectoryAdmission, beside the hook that seats the person.
+// falls to the registration's rule as it would without the reader. The library asks
+// the reader again at each sign-in, in the transaction that decides it: for the
+// directories of the account's identity links, which the sign-in policy is told
+// (sessioninfo.SignInUser.Directories), and, where the Auth's sign-in settings would
+// hold the sign-in for the mailed code, for the word of the tenant whose directory the
+// sign-in came through (DeclaredDirectory.SecondFactor). The library orders nothing
+// between that read and the application's write of the word: a reader that must not
+// let a sign-in in flight commit on a word taken back meanwhile reads the row under a
+// lock that write waits for, as the library's PostgreSQL driver reads its own sign-in
+// settings row (FOR SHARE). Spanner may retry the transaction, so the reader must not
+// have side effects outside it. Set it on the Auth with SetDirectoryAdmission, beside
+// the hook that seats the person.
 type DirectoryReader[Tx any] func(ctx context.Context, tx Tx, directory Directory) ([]DeclaredDirectory, error)
 
 // DirectorySeat is a seat a first sign-in grants: a role in a tenant, the default seat

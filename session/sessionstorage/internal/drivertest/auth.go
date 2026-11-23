@@ -663,6 +663,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the setting is read at each sign-in: turned off between two sign-ins the second gets its session, and turned on again the next is held", run: testSecondFactorSettingTurnedOffAndOn},
 		{name: "while a second factor is required, the directory's attestation, a remembered browser, the completion that carries the mailed code and the completion that carries the application's own factor each pass it, and a remembered browser is recorded on the session", run: testSecondFactorRequiredPassed},
 		{name: "while a second factor is required, a completion that carries no step is held for the mailed code", run: testSecondFactorRequiredNotCarried},
+		{name: "while a second factor is required, a sign-in through a directory whose tenant vouches for it gets its session and records the tenant's word; a hold the rule answers, a password and a directory nobody vouches for are held as before, and the word is read at each sign-in", run: testSecondFactorVouchedByTenant},
 		{name: "a session that continues one already decided is not held for a second factor however the setting stands", run: testSecondFactorSettingUndecidedReason},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person whose account was created ahead is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},

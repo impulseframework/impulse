@@ -55,7 +55,7 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return fmt.Appendf(nil, `{"invitationId":%q}`, invitation)
 	case "OpenSectorToDirectory":
 		return []byte(`{"role":"Cadet"}`)
-	case "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly":
+	case "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor":
 		return []byte(`{}`)
 	case "CreateSector":
 		return []byte(chartEmber)
@@ -128,8 +128,8 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"AddCrewGroupMember", "RemoveCrewGroupMember", "GiveCrewGroupRole", "TakeCrewGroupRole", "GiveCrewSectorGroupRole",
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
 		"OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
-		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "SetCrewSelfServiceReset", "CreateSector",
-		"SetSectorPilotClearance",
+		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
+		"SetCrewSelfServiceReset", "CreateSector", "SetSectorPilotClearance",
 	} {
 		if !slices.Contains(access, want) {
 			t.Errorf("the generated collection does not class %s access: it gives or takes away what someone may do", want)

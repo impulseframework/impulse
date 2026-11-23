@@ -59,6 +59,14 @@ const (
 	// and vouches for it. Its connection is the sign-in's. Only the library records
 	// it: an event under it that an application reports is refused.
 	MethodAttestedByDeclaration AuthMethod = "attested-by-declaration"
+	// MethodVouchedByTenant records that the tenant whose directory the sign-in came
+	// through says the directory asks its people for a second factor of its own
+	// (signin.DeclaredDirectory.SecondFactor), so the sign-in was not held for the mailed
+	// code the Auth's sign-in settings ask of everyone. Its connection is the sign-in's.
+	// It is the tenant's word and no evidence: it stands in for the settings' hold alone,
+	// never for a hold a sign-in policy answers, so it is no attestation (Attests). Only
+	// the library records it: an event under it that an application reports is refused.
+	MethodVouchedByTenant AuthMethod = "vouched-by-tenant"
 )
 
 // Attests reports whether m is an attestation event's method: the sign-in's connection
@@ -69,9 +77,10 @@ func (m AuthMethod) Attests() bool {
 
 // SecondFactor reports whether m records a second factor on a session: a step beyond
 // the sign-in that established it. The library's own are the mailed code
-// (MethodEmailCode), a remembered browser standing in for it (MethodTrustedDevice) and a
-// connection's attestation (Attests); a step the application records under a name of
-// its own is one too, since that is what such a name is for. The methods that establish
+// (MethodEmailCode), a remembered browser standing in for it (MethodTrustedDevice), a
+// connection's attestation (Attests) and a tenant's word for its own directory
+// (MethodVouchedByTenant); a step the application records under a name of its own is
+// one too, since that is what such a name is for. The methods that establish
 // a session or link an identity are none: a password, a directory, an impersonation, a
 // link confirmation, a session the application starts itself, a token.
 func (m AuthMethod) SecondFactor() bool {

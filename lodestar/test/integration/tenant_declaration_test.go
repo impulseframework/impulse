@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -102,6 +103,11 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	cinderRows := directories(ctx, t, governor, cinder)
 	if len(cinderRows) != 1 || cinderRows[0].Method != string(sessioninfo.MethodGoogle) || cinderRows[0].Connection != "example" || cinderRows[0].DefaultSeat == nil || *cinderRows[0].DefaultSeat != "SectorCrew" {
 		t.Fatalf("Cinder's directory = %+v, want the seeded fleet directory naming SectorCrew as its default role", cinderRows)
+	}
+	// The sector's word for its directory's second factor is shown on the row, and the
+	// seed says nothing.
+	if word := cinderRows[0].AsksSecondFactor; word == nil || *word {
+		t.Errorf("Cinder's directory carries asksSecondFactor %s, want false", describeWord(word))
 	}
 	bastionRows := directories(ctx, t, governor, bastion)
 	if len(bastionRows) != 1 || bastionRows[0].Method != string(sessioninfo.MethodOIDC) || bastionRows[0].Connection != crew.PersonaRegistration || bastionRows[0].DefaultSeat != nil {
@@ -368,6 +374,17 @@ type sectorDirectory struct {
 	Method      string  `json:"method"`
 	Connection  string  `json:"connection"`
 	DefaultSeat *string `json:"defaultSeat"`
+	// AsksSecondFactor is nil where the row does not carry the field.
+	AsksSecondFactor *bool `json:"asksSecondFactor"`
+}
+
+// describeWord writes a row's asksSecondFactor as the test reads it: absent, true or false.
+func describeWord(word *bool) string {
+	if word == nil {
+		return "absent"
+	}
+
+	return strconv.FormatBool(*word)
 }
 
 // directories lists the sector's rows of the directories record on the console: one at most.

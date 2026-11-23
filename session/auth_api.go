@@ -59,11 +59,12 @@ func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, p
 // events names the application's own steps, each under a name of the application's
 // ("magic-link"). An event without a method, under a method that records a step the
 // library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
-// an attestation's), or under the name of a sign-in method the library runs (a
-// password, sessioninfo.MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC and the
-// method of every registration on the Auth), is a BadRequest, and nothing is started:
-// the session's first event says how the person signed in, and only a sign-in the
-// library ran says it was a password's or a directory's.
+// an attestation's, a tenant's word (sessioninfo.MethodVouchedByTenant)), or under the
+// name of a sign-in method the library runs (a password, sessioninfo.MethodAzure,
+// MethodGoogle, MethodWorkOS, MethodOIDC and the method of every registration on the
+// Auth), is a BadRequest, and nothing is started: the session's first event says how
+// the person signed in, and only a sign-in the library ran says it was a password's or
+// a directory's.
 //
 // An event with a zero At records the session's creation time. Optional customData
 // (at most one *S) is written atomically with the session insert, and the custom

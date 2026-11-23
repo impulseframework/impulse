@@ -189,6 +189,22 @@ func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTrans
 	return has, applies, nil
 }
 
+// AuthSecondFactor answers whether the Staff auth's sign-in settings ask everyone for
+// a second factor now, and whether the question is this auth's to answer for the
+// request: it is not where the request came through another auth
+// (identity.Manager.AuthSecondFactor). It is a resource.AuthSecondFactor: the generated
+// frame of the method by which a tenant vouches for its directory's second factor hands
+// it to the rule that there is something to turn off
+// (resource.TenantDirectoryRules.SecondFactorsBy).
+func (c *Client) AuthSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) (required, applies bool, err error) {
+	required, applies, err = c.manager.AuthSecondFactor(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.AuthSecondFactor()")
+	}
+
+	return required, applies, nil
+}
+
 // AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
 // Staff auth keep a way into a tenant that is directory only: the auth registers
 // the password method and its permission engine names the roles that administer a

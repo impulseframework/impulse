@@ -105,6 +105,7 @@ type Ship struct { ... }
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure`, `workos` or `oidc` (an organization's own OpenID Connect provider, named by its registration's connection). The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. The column is output-only, as the method is. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a person is given in the tenant at their first sign-in through the tenant's directory, whether their account is created then or stood before, chosen by the tenant's administrator from the tenant's roles on its Sign-in page, with the generated method `Open<Record>ToDirectory` (section 16); NULL (or empty), which `Make<Record>InviteOnly` writes, says the tenant admits the directory's people by invitation only: a stranger is refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. The role is given once for the link between the account and the directory: a person whose role an administrator removes is not given it back by signing in, and a link that is deleted and made again gives it again where the person holds no role in the tenant. With it the generated `New<Record>DirectoryReader` answers the tenant whose directory an identity came through with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the role is given by the Auth's generated identity client in the transaction that links the account to the directory (section 16). The column is output only on the wire: the two methods write it, and the record's create and update do not. Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directorySecondFactor` | field of the `@tenantDirectory` record, a `bool` column | none | The column says the tenant says its directory asks its people for a second factor of its own. A person who signs in through the directory is then not asked for the application's mailed code, wherever they work. Output only: the tenant's administrator says it and takes it back with the two methods the generator writes (section 16). |
 | `@page` | `@resource`, `@virtual`, or `@computed` struct | `default: N` and/or `max: M` | Declares the list's page sizes: the page a request without `limit` receives, and the largest page a request may ask for. Both are positive integers; the default never exceeds the maximum, and a maximum alone must be at least the generator-wide default of 50. Undeclared, the list serves pages of 50 with no maximum. A request over the maximum is refused with a 400 naming it, never clamped, and a resource with a maximum refuses `limit=all`. The maximum is also the switch a picker reads: a resource with none is small enough to load whole, read in one request with `limit=all` and sort optional; a resource with a maximum is paged, one server page at a time, so its list needs an order (`@order`, or `sort` on the request) and a picker over it reads the chosen row by key, which is why a bounded picker source may not suppress its read (`@enumerate`). Declaring the maximum is the deliberate choice; nothing decides at runtime from an observed size. Refused on a `@computed` or `@virtual` struct with no `@primarykey`, naming the struct and the two ways out (declare the key, or drop `@page`): without a key the resource is a whole read-only list, with no read route and no paging, so a page size on it is a contradiction. The generated TypeScript descriptor carries both numbers. Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@order` | `@resource`, `@virtual`, or `@computed` struct | comma list of `Field [asc\|desc]` | Declares the order a list takes when the request carries no `sort`, naming Go fields of the struct; the direction defaults to `asc`. The primary key is appended at runtime so the order is total, and a request's `sort` replaces the declared order for that request. A declared order never shows a person what they may not read. Where they may not read a field it names, their list comes in the order of the order's other terms and then the key, as if no row had a value in that field. Where they hold the field under a condition, a row whose cell is masked sorts as a row with no value, as it does under a `sort` by that field. A field declared `masking:"positional"` is the exception, as it is under a `sort`: its masked cells keep their real place. Nothing is refused, since the person asked for no sort. A computed resource follows the same rule: its handler sorts and pages the rows by what the person may see of each, and it sorts again a list whose body took the sort where the person holds a field of the order under a condition. The declaration is optional, and every paged request needs an order from somewhere: a resource that declares none serves a request without `sort` only as the whole list (`limit=all`), which is not sorted — its table or view statement carries no `ORDER BY` and the rows arrive in the database's own order, a computed list keeps the order its body yielded — and refuses a bare GET or a `limit` with a 400 naming the resource and the way out (section 4). A nullable column renders as the plain direction and sorts in its database's own `NULL` placement, so an index on the column serves the order: Spanner places `NULL` first ascending and last descending, PostgreSQL last ascending and first descending. A computed resource follows the same placement: its handler sorts and pages the body's rows where the application's database would. On a computed resource only a leaf field may be named (a nested field is opaque). The generated TypeScript descriptor carries the declared order (`order: [{ field, direction }]`, JSON names), so a browser client knows a request without a `sort` is already ordered and pages by cursor; to a resource that declares none it sends a `sort` of its own or asks `limit=all`. On a table-backed resource with a bare `@domain`, generation warns when no index leads with the tenant column and then these columns in this order and direction, naming the index it wants (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@manualAddPermission` | `accesstypes.Permission` constant of the resources package | none | Declares the constant's value as a permission of the application that no resource registers: one a hand-written route checks for the whole of a scope (`access.Client.CheckUser`, `CheckRole`) and a custom role is given with `AddRolePermission`. The generated Collection lists it with no resource (`CollectionData.Permissions`), which is what makes it a permission the release has: a grant of a permission for the whole of a scope that the Collection does not list is refused when it is written and, when the policy is loaded, left out and reported as a `SkippedGrant`. The annotation stands alone and names no scope: the role a grant is written to decides where it holds. Generation refuses an `@outlet`, `@class` or `@manualAddResource` beside it, any of those three on an `accesstypes.Permission` constant that does not carry it (they are written on a resource's constant; on a permission's constant they would be read by nothing), the annotation on a constant of any other type (an untyped string or an `accesstypes.Resource` among them), a constant whose value is empty, and a permission two constants declare. A permission some resource registers needs no declaration. A declared permission adds nothing to the TypeScript constants, whose `Permissions` are the framework's own. The annotation is read from the comment of the constant it stands above: one in the comment above a `const ( ... )` group is refused, with where to write it. A constant whose type is an alias of `accesstypes.Permission` is read as a permission's. As with `@manualAddResource`, generation refuses it in a comment that is no constant's, and `impulse check` reports it on a constant of another package or in a comment there that is no declaration's. |
@@ -3550,16 +3551,21 @@ nothing to turn on."); who the flag keeps out now is the people list's to say, b
 `End<Record>DirectoryOnly` declares no warning, and a request for one is refused (400)
 and does not run.
 
-The switch as it stands is read in the tenant too:
-`GET /<prefix>/<tenants>/{tenant}/directory-only` answers `{"directoryOnly": false}`
-under the Execute grant of either method in the tenant, held without a condition (a read
-has no request for a condition to judge, so it is Forbidden under a grant that holds on
-one), and writes nothing (`resource.DirectoryOnlyStateHandler`). The tenant's
-administrator does not read the global record, and this is what a Sign-in page shows
-them.
+A tenant's sign-in settings as they stand are read in the tenant too:
+`GET /<prefix>/<tenants>/{tenant}/sign-in-settings` answers them under the Execute grant
+of any of the tenant's own sign-in methods the application serves (the two that turn
+directory only, the two that set the default role, the two that say the directory's
+second factor), held without a condition (a read has no request for a condition to
+judge, so it is Forbidden under a grant that holds on one), and writes nothing
+(`resource.TenantSignInSettingsHandler`). The route is on every session outlet that
+serves at least one of those methods, and one handler answers on all of them, so a
+person who holds a method that only another outlet serves is answered too. The tenant's
+administrator does not read the global record, and this is what a Sign-in settings page
+shows them. It is served for every tenant record that declares a directories record; a
+record with no switch answers `directoryOnly` false and counts nobody.
 
 While the switch is off and the tenant has a directory, the read also says what turning
-it on takes of the caller (`conditions`, `resource.DirectoryOnlyCondition`), in the
+it on takes of the caller (`conditions`, `resource.TenantSignInCondition`), in the
 order the call checks: the sign-in through the tenant's directory, then the password
 where the caller's auth has the password method. Each is the `sentence` the refusal
 above opens with, whether the caller meets it (`met`), and, where they do not, what they
@@ -3590,7 +3596,7 @@ refuses for the second.
 
 A tenant with no directory is refused before anything is asked of the person, and a
 tenant that is directory only already has nothing to turn on, so the read names no
-condition for either. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
+condition for either. The browser client's `tenantSignInSettings(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
 library's Sign-in settings page runs each through its method dialog
@@ -3600,16 +3606,25 @@ turns it on only where the tenant has a directory and the person meets every con
 of the read, and shows in its place each condition they do not meet.
 
 The read also says what a page of the tenant's sign-in settings shows
-(`DirectoryOnlyState`): `Directory`, the tenant's directory as people know it;
+(`TenantSignInSettings`): `Directory`, the tenant's directory as people know it;
 `DefaultRole`, the role a person gets the first time they sign in through it, in words;
 `Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
 that says how the caller signed in; `SessionDirectory`, the organization's directory the
-caller is signed in through; and `People`, how many people the tenant's list holds
+caller is signed in through; `People`, how many people the tenant's list holds
 (`Seated`: who holds a role in the tenant, and who signs in through its directory) and
-how many of them the switch keeps out (`Outside`), counted as the warning counts them.
-The generated rules are told who counts (`CountedBy`): each auth's identity client
-answers how many people its list of the tenant holds (`SeatedCount`) and who the switch
-keeps out (`DirectoryOutsiders`).
+how many of them the switch keeps out (`Outside`), counted as the warning counts them,
+with each auth's share of both (`Shares`: what a page calls the auth's people, the
+tenant's list of them, and its two numbers), so a page that links the count to one
+auth's people never says more people than the link opens; and `SecondFactor`, where the
+directories record carries `@directorySecondFactor` and the tenant has a directory:
+whether the tenant vouches for its directory's second factor (`Vouched`), whether the
+caller's auth asks everyone for one now (`Asked`), the one sentence a page shows for the
+two (`Says`), and what vouching takes of the caller (`Conditions`). The generated rules
+are told who counts (`CountedBy`), one entry for each auth whose people a tenant seats
+(`resource.DirectoryPeople`): the readers of how many people its list of the tenant
+holds (`SeatedCount`), whom the switch keeps out (`DirectoryOutsiders`) and who keeps
+the administrators' way in, and the lists that decide whether a caller is told names.
+The read and the warning that turns the switch on read the same entries.
 
 The tenant's own list of its people (section 21) holds everyone who holds a role in the
 tenant, whether or not they can sign in, so a person the flag keeps out stays in it with
@@ -3631,6 +3646,38 @@ connection and not what the sign-in registrations call it, and a connection is n
 said to a person. The library's People page shows it as a column
 ("Cannot enter") to a role that is granted the field, so the tenant's administrator sees
 who the flag keeps out for as long as it is on.
+
+**A tenant's word for its directory's second factor.** The directories record may carry
+a second column of the tenant's own, `@directorySecondFactor` (section 1), a BOOL. Where
+the application asks everyone for a second factor at sign-in, a tenant whose directory
+already asks its people for one can say so, and the application then stops asking the
+people who sign in through that directory for its mailed code. The sign-in reads the
+column in its own transaction, for the directory the person signed in through, so it
+holds in every tenant that gave the person a role and a word taken back holds from the
+next sign-in. It is the tenant's word and nothing checks it: a super administrator, and
+a sign-in an application's own rule holds, are asked as before. An auth whose directory
+writes its roles is not reached by it: such an auth sets no directory admission, no
+tenant's word is read at a sign-in through a method that synchronizes roles, and its
+people are asked as its own setting says. The generator writes two
+methods in the tenant's scope for a record that carries the column, served on every
+session outlet that serves the directories record:
+`VouchFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/vouch-for-<record>-directory-second-factor` with
+`{}`, and `StopVouchingFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/stop-vouching-for-<record>-directory-second-factor`
+with `{}`. A role file grants Execute on each to the role that manages the tenant's
+sign-in settings. Vouching declares a warning (section 7), which a person confirms by
+typing `vouch` (`resource.VouchForDirectoryWord`): "You are saying that acme.example
+asks its people for a second factor when they sign in. This application will stop
+asking them for a code.", under the button "Stop asking people who sign in through
+acme.example for a code". It is refused (409) for a tenant with no directory, for a
+caller who is not signed in through that directory, and while the application asks
+nobody for a second factor; the warning is refused in the same words, and for a tenant
+that says so already. Taking the word back is plain, asks nothing of how the caller
+signed in, and holds from the next sign-in. Each writes the column through the
+directories record's update patch, so the record's change events say who said it and
+when, and each carries the class `access`. A record with no such column has no such
+word and no such methods.
 
 **The default seat.** What a person gets at their first sign-in through a tenant's
 directory is the directory row's to say, before the method's account rule is reached.

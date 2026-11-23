@@ -1635,7 +1635,8 @@
                 "sectorId",
                 "method",
                 "connection",
-                "defaultSeat"
+                "defaultSeat",
+                "asksSecondFactor"
               ]
             },
             {
@@ -1949,7 +1950,8 @@
                 "sectorId",
                 "method",
                 "connection",
-                "defaultSeat"
+                "defaultSeat",
+                "asksSecondFactor"
               ]
             },
             {
@@ -2415,6 +2417,12 @@
             },
             {
               "resource": "MakeSectorInviteOnly"
+            },
+            {
+              "resource": "VouchForSectorDirectorySecondFactor"
+            },
+            {
+              "resource": "StopVouchingForSectorDirectorySecondFactor"
             }
           ]
         }

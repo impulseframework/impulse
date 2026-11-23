@@ -118,11 +118,13 @@ type GeneratedHandlers interface {
 
 	DescribeStaffTenantGroup() http.HandlerFunc
 
-	DirectoryOnly() http.HandlerFunc
+	TenantSignInSettings() http.HandlerFunc
 	MakeTenantDirectoryOnly() http.HandlerFunc
 	EndTenantDirectoryOnly() http.HandlerFunc
 	OpenTenantToDirectory() http.HandlerFunc
 	MakeTenantInviteOnly() http.HandlerFunc
+	VouchForTenantDirectorySecondFactor() http.HandlerFunc
+	StopVouchingForTenantDirectorySecondFactor() http.HandlerFunc
 
 	DisableStaffTenantUser() http.HandlerFunc
 
@@ -398,7 +400,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/tenants/{tenantID}/describe-staff-tenant-group", domainGuard(h.DescribeStaffTenantGroup()))
 
-	bounded.Get("/api/tenants/{tenantID}/directory-only", domainGuard(h.DirectoryOnly()))
+	bounded.Get("/api/tenants/{tenantID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
 
 	asked.Post("/api/tenants/{tenantID}/make-tenant-directory-only", domainGuard(h.MakeTenantDirectoryOnly()))
 
@@ -407,6 +409,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/api/tenants/{tenantID}/open-tenant-to-directory", domainGuard(h.OpenTenantToDirectory()))
 
 	asked.Post("/api/tenants/{tenantID}/make-tenant-invite-only", domainGuard(h.MakeTenantInviteOnly()))
+
+	asked.Post("/api/tenants/{tenantID}/vouch-for-tenant-directory-second-factor", domainGuard(h.VouchForTenantDirectorySecondFactor()))
+
+	asked.Post("/api/tenants/{tenantID}/stop-vouching-for-tenant-directory-second-factor", domainGuard(h.StopVouchingForTenantDirectorySecondFactor()))
 
 	asked.Post("/api/tenants/{tenantID}/disable-staff-tenant-user", domainGuard(h.DisableStaffTenantUser()))
 
