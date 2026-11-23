@@ -1244,8 +1244,17 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			assertContains(t, "the people's list", string(out), tt.wantContains, tt.wantNotContains)
 			// Spanner refuses a query of more than twenty joins. The list that declares
 			// the switch, has the password method and keeps groups holds the most.
-			query := string(out)[strings.Index(string(out), "const crewSectorUserQuery = `"):]
-			query = query[:strings.Index(query, "\n`")]
+			rendered := string(out)
+			start := strings.Index(rendered, "const crewSectorUserQuery = `")
+			if start < 0 {
+				t.Fatalf("the rendered list holds no query:\n%s", rendered)
+			}
+			query := rendered[start:]
+			end := strings.Index(query, "\n`")
+			if end < 0 {
+				t.Fatalf("the rendered query does not end:\n%s", query)
+			}
+			query = query[:end]
 			if joins := len(joinWord.FindAllString(query, -1)); joins > 20 {
 				t.Errorf("the people's list holds %d joins, more than the twenty Spanner allows:\n%s", joins, query)
 			}
