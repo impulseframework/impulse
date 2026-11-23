@@ -1509,7 +1509,9 @@ func organizationLinked(links []*dbtype.SessionIdentity) bool {
 // (dbtype.ErrPasswordChanged). The nil proof holds the link to nothing. A link that
 // would put the account under a second tenant's directory, which the account may have
 // come to sign in through since the confirmation was asked for, is a refusal with
-// nothing written (secondDirectory).
+// nothing written (secondDirectory). The user is held against another link decision
+// until the transaction ends (Driver.LockUserIn), so the question and the link are not
+// raced.
 func LinkConfirmed[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
 	directories signin.DirectoryReader[Tx], seat DirectorySeater[Tx], proven dbtype.PasswordProof,
@@ -1518,11 +1520,13 @@ func LinkConfirmed[Tx any](
 	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		// Each run starts with nothing owed.
 		committed = nil
+		// The link decision's lock: the read of the account's links that follows and the
+		// link itself are not raced by another link for the same user.
+		user, err := d.LockUserIn(ctx, tx, userID)
+		if err != nil {
+			return errors.Wrap(err, "Driver.LockUserIn()")
+		}
 		if proven != nil {
-			user, err := d.UserIn(ctx, tx, userID)
-			if err != nil {
-				return errors.Wrap(err, "Driver.UserIn()")
-			}
 			if err := proven.Check(user.PasswordProof); err != nil {
 				return errors.Wrap(err, "dbtype.PasswordProof.Check()")
 			}
