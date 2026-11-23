@@ -109,12 +109,13 @@ func ownTerm(dbType DBType, column, placeholder string) string {
 }
 
 // TestQuerySet_stmt_notOnOwnAccount pins the Execute affordance of a method a row keeps
-// off the caller's own account (@notOnOwnAccount), on both databases: the method's
-// boolean is the own-account term alone, or its own expression ANDed with the term, the
-// accounts the session's own and the real person's behind a session that views as
-// someone else, bound once; methods share a boolean only where their condition, their
-// entering mark and their column are the same; a method without the mark is listed as
-// before.
+// off the caller's own account (@notOnOwnAccount), on both databases: the own-account
+// term is a boolean of its own, one a column, the accounts the session's own and the
+// real person's behind a session that views as someone else, bound once; a marked
+// method under a condition is listed where the condition's boolean and the own-account
+// boolean both hold, and shares the condition's boolean with an unmarked method under
+// the same condition; the entering term is a boolean of its own beside it; a method
+// without the mark is listed as before.
 func TestQuerySet_stmt_notOnOwnAccount(t *testing.T) {
 	t.Parallel()
 
@@ -182,28 +183,30 @@ func TestQuerySet_stmt_notOnOwnAccount(t *testing.T) {
 			wantParams: map[string]any{"_c1": []string{ownActorAccount}},
 		},
 		{
-			name:      "a conditional grant ANDs its condition with the term",
+			name:      "a conditional grant takes its condition's boolean and the term's, and lists the method where both hold",
 			user:      ownSessionAccount,
 			decisions: accesstypes.Decisions{"DisableKeeper": conditionalOn("DisableKeeper", "owner = subject")},
 			checks: func(db DBType) string {
-				return "((" + owner[db] + ") AND " + ownTerm(db, "Id", "@_c1") + ")"
+				return "(" + owner[db] + "), (" + ownTerm(db, "Id", "@_c1") + ")"
 			},
 			rows: []heldRow{
-				{checks: []bool{true}, methods: []string{"DisableKeeper"}},
-				{checks: []bool{false}, methods: []string{}},
+				{checks: []bool{true, true}, methods: []string{"DisableKeeper"}},
+				{checks: []bool{false, true}, methods: []string{}},
+				{checks: []bool{true, false}, methods: []string{}},
 			},
 			wantParams: map[string]any{"_c1": []string{ownSessionAccount}, "subject": "u1"},
 		},
 		{
-			name:      "a marked method and an unmarked one under the same condition take two booleans",
+			name:      "a marked method and an unmarked one under the same condition share the condition's boolean",
 			user:      ownSessionAccount,
 			decisions: accesstypes.Decisions{"DisableKeeper": conditionalOn("DisableKeeper", "owner = subject"), "GreetKeeper": conditionalOn("GreetKeeper", "owner = subject")},
 			checks: func(db DBType) string {
-				return "((" + owner[db] + ") AND " + ownTerm(db, "Id", "@_c1") + "), (" + owner[db] + ")"
+				return "(" + owner[db] + "), (" + ownTerm(db, "Id", "@_c1") + ")"
 			},
 			rows: []heldRow{
 				{checks: []bool{true, true}, methods: []string{"DisableKeeper", "GreetKeeper"}},
-				{checks: []bool{false, true}, methods: []string{"GreetKeeper"}},
+				{checks: []bool{true, false}, methods: []string{"GreetKeeper"}},
+				{checks: []bool{false, true}, methods: []string{}},
 			},
 			wantParams: map[string]any{"_c1": []string{ownSessionAccount}, "subject": "u1"},
 		},
@@ -224,30 +227,32 @@ func TestQuerySet_stmt_notOnOwnAccount(t *testing.T) {
 			wantParams: map[string]any{"_c1": []string{ownSessionAccount}},
 		},
 		{
-			name:      "a method with @callerEnters and the mark, in a session that does not enter a tenant, ANDs the entering term and the own-account term",
+			name:      "a method with @callerEnters and the mark, in a session that does not enter a tenant, takes the entering term's boolean and the own-account term's",
 			user:      ownSessionAccount,
 			decisions: accesstypes.Decisions{"RetireKeeper": accesstypes.Granted()},
 			unentered: bastion,
 			checks: func(db DBType) string {
-				return "(" + heldTerm(db, heldResourceName, "@_c1") + " AND " + ownTerm(db, "Id", "@_c2") + ")"
+				return "(" + heldTerm(db, heldResourceName, "@_c1") + "), (" + ownTerm(db, "Id", "@_c2") + ")"
 			},
 			rows: []heldRow{
-				{checks: []bool{true}, methods: []string{"RetireKeeper"}},
-				{checks: []bool{false}, methods: []string{}},
+				{checks: []bool{true, true}, methods: []string{"RetireKeeper"}},
+				{checks: []bool{false, true}, methods: []string{}},
+				{checks: []bool{true, false}, methods: []string{}},
 			},
 			wantParams: map[string]any{"_c1": []string{"bastion"}, "_c2": []string{ownSessionAccount}, "postKind": "keeper"},
 		},
 		{
-			name:      "the marked methods with @callerEnters and without it take two booleans",
+			name:      "the marked methods with @callerEnters and without it share the own-account boolean, and the one with @callerEnters needs the entering boolean too",
 			user:      ownSessionAccount,
 			decisions: accesstypes.Decisions{"DisableKeeper": accesstypes.Granted(), "RetireKeeper": accesstypes.Granted()},
 			unentered: bastion,
 			checks: func(db DBType) string {
-				return "(" + ownTerm(db, "Id", "@_c1") + "), (" + heldTerm(db, heldResourceName, "@_c2") + " AND " + ownTerm(db, "Id", "@_c1") + ")"
+				return "(" + ownTerm(db, "Id", "@_c1") + "), (" + heldTerm(db, heldResourceName, "@_c2") + ")"
 			},
 			rows: []heldRow{
 				{checks: []bool{true, true}, methods: []string{"DisableKeeper", "RetireKeeper"}},
 				{checks: []bool{true, false}, methods: []string{"DisableKeeper"}},
+				{checks: []bool{false, true}, methods: []string{}},
 				{checks: []bool{false, false}, methods: []string{}},
 			},
 			wantParams: map[string]any{"_c1": []string{ownSessionAccount}, "_c2": []string{"bastion"}, "postKind": "keeper"},
@@ -291,6 +296,78 @@ func TestQuerySet_stmt_notOnOwnAccount(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestQuerySet_stmt_callerEntersReadOnce pins, on both databases, that a statement whose
+// methods are held to the tenants the caller's session enters (@callerEnters) under
+// two different conditions, beside a third held and kept off the caller's own account
+// (@notOnOwnAccount), reads those tenants once: the TenantsToEnter query is in the
+// statement once, as the one entering boolean, beside a boolean for each condition and
+// the own-account boolean; and each method is listed where its condition's boolean and
+// each of its marks' hold.
+func TestQuerySet_stmt_callerEntersReadOnce(t *testing.T) {
+	t.Parallel()
+
+	execute := []accesstypes.Permission{accesstypes.Execute}
+	owner := map[DBType]string{SpannerDBType: "`heldResources`.`Owner` = @subject", PostgresDBType: `"heldResources"."Owner" = @subject`}
+	state := map[DBType]string{SpannerDBType: "`heldResources`.`State` IN (@_c3)", PostgresDBType: `"heldResources"."State" IN (@_c3)`}
+	decisions := accesstypes.Decisions{
+		"RenameKeeper": conditionalOn("RenameKeeper", "owner = subject"),
+		"RetireKeeper": accesstypes.Granted(),
+		"SealKeeper":   accesstypes.Granted(),
+	}
+	rows := []heldRow{
+		{checks: []bool{true, true, true, true}, methods: []string{"RenameKeeper", "RetireKeeper", "SealKeeper"}},
+		{checks: []bool{true, false, true, true}, methods: []string{}},
+		{checks: []bool{true, true, false, true}, methods: []string{"RenameKeeper", "SealKeeper"}},
+		{checks: []bool{false, true, true, false}, methods: []string{"RetireKeeper"}},
+		{checks: []bool{false, true, false, true}, methods: []string{"SealKeeper"}},
+	}
+
+	for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+		t.Run(string(dbType), func(t *testing.T) {
+			t.Parallel()
+
+			collection, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+				heldRowResource(heldResourceName),
+				{Name: "RenameKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: execute, Target: heldResourceName, CallerEnters: true},
+				{Name: "RetireKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: execute, Target: heldResourceName, CallerEnters: true, NotOnOwnAccount: "Id"},
+				{
+					Name: "SealKeeper", Scope: accesstypes.DomainPermissionScope, Permissions: execute,
+					Transition: &TransitionData{Target: heldResourceName, From: []string{"open"}, To: "sealed"}, CallerEnters: true,
+				},
+			}})
+			if err != nil {
+				t.Fatalf("NewGeneratedCollection() error = %v", err)
+			}
+			perms := heldPermissions{capStubPermissions: capStubPermissions{byPerm: map[accesstypes.Permission]accesstypes.Decisions{accesstypes.Execute: decisions}}, unentered: []accesstypes.Domain{"bastion"}, asked: &atomic.Int32{}}
+			stmt, err := ownStmt[heldResource[heldKeepers]](t, ownSession(t, ownSessionAccount, ""), dbType, collection, perms)
+			if err != nil {
+				t.Fatalf("QuerySet.stmt() error = %v", err)
+			}
+			got := normalizeSQL(stmt.SQL)
+			if n := strings.Count(got, heldQuery); n != 1 {
+				t.Errorf("QuerySet.stmt() SQL holds the TenantsToEnter query %d times, want once:\n%s", n, got)
+			}
+			checks := "(" + owner[dbType] + "), (" + heldTerm(dbType, heldResourceName, "@_c1") + "), (" + ownTerm(dbType, "Id", "@_c2") + "), (" + state[dbType] + ")"
+			if want := heldSelect(dbType, checks); got != want {
+				t.Errorf("QuerySet.stmt() SQL =\n%s\nwant\n%s", got, want)
+			}
+			wantParams := map[string]any{"domain": "testDomain", "_c1": []string{"bastion"}, "_c2": []string{ownSessionAccount}, "_c3": "open", "postKind": "keeper", "subject": "u1"}
+			if diff := cmp.Diff(wantParams, stmt.Params); diff != "" {
+				t.Errorf("QuerySet.stmt() params mismatch (-want +got):\n%s", diff)
+			}
+			for _, row := range rows {
+				got := stmt.capabilityPlan.assemble(row.checks)
+				if diff := cmp.Diff(map[accesstypes.Permission]any{accesstypes.Execute: row.methods}, got); diff != "" {
+					t.Errorf("capabilityPlan.assemble(%v) mismatch (-want +got):\n%s", row.checks, diff)
+				}
+			}
+			if n := perms.asked.Load(); n != 1 {
+				t.Errorf("the tenants not entered were asked %d times, want once", n)
+			}
+		})
 	}
 }
 

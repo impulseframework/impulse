@@ -289,10 +289,10 @@ func heldSelect(dbType DBType, checks string) string {
 // TestQuerySet_stmt_callerEnters pins the Execute affordance of a method a row offers
 // only to a caller whose session enters the row's tenants (@callerEnters), on both
 // databases: while the session enters every tenant the statement is the one without the
-// mark, byte for byte; while it does not enter one, a held method's boolean is the
-// entering term alone or its own expression ANDed with the term, shared by every held
-// method with the same expression; an unheld method and a denied one are as without
-// the mark; and the query's parameters join the statement's.
+// mark, byte for byte; while it does not enter one, the entering term is one boolean,
+// shared by every held method, and a held method under a condition is listed where the
+// condition's boolean and the entering boolean both hold; an unheld method and a denied
+// one are as without the mark; and the query's parameters join the statement's.
 func TestQuerySet_stmt_callerEnters(t *testing.T) {
 	t.Parallel()
 
@@ -325,28 +325,30 @@ func TestQuerySet_stmt_callerEnters(t *testing.T) {
 			wantParams: map[string]any{"_c1": []string{"bastion"}, "postKind": "keeper"},
 		},
 		{
-			name:      "a held method under a conditional grant ANDs the condition with the term",
+			name:      "a held method under a conditional grant takes the condition's boolean and the entering term's, and is listed where both hold",
 			decisions: accesstypes.Decisions{"RetireKeeper": conditionalOn("RetireKeeper", "owner = subject")},
 			unentered: bastion,
 			checks: func(db DBType) string {
-				return "((" + owner[db] + ") AND " + heldTerm(db, heldResourceName, "@_c1") + ")"
+				return "(" + owner[db] + "), (" + heldTerm(db, heldResourceName, "@_c1") + ")"
 			},
 			rows: []heldRow{
-				{checks: []bool{true}, methods: []string{"RetireKeeper"}},
-				{checks: []bool{false}, methods: []string{}},
+				{checks: []bool{true, true}, methods: []string{"RetireKeeper"}},
+				{checks: []bool{true, false}, methods: []string{}},
+				{checks: []bool{false, true}, methods: []string{}},
 			},
 			wantParams: map[string]any{"_c1": []string{"bastion"}, "postKind": "keeper", "subject": "u1"},
 		},
 		{
-			name:      "a held transition ANDs its state test with the term",
+			name:      "a held transition takes its state test's boolean and the entering term's, and is listed where both hold",
 			decisions: accesstypes.Decisions{"SealKeeper": accesstypes.Granted()},
 			unentered: bastion,
 			checks: func(db DBType) string {
-				return "((" + state[db] + ") AND " + heldTerm(db, heldResourceName, "@_c2") + ")"
+				return "(" + state[db] + "), (" + heldTerm(db, heldResourceName, "@_c2") + ")"
 			},
 			rows: []heldRow{
-				{checks: []bool{true}, methods: []string{"SealKeeper"}},
-				{checks: []bool{false}, methods: []string{}},
+				{checks: []bool{true, true}, methods: []string{"SealKeeper"}},
+				{checks: []bool{true, false}, methods: []string{}},
+				{checks: []bool{false, true}, methods: []string{}},
 			},
 			wantParams: map[string]any{"_c1": "open", "_c2": []string{"bastion"}, "postKind": "keeper"},
 		},
