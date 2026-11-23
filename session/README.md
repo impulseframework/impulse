@@ -3497,9 +3497,9 @@ How it works:
   configuration was built for it. Misconfiguration is a boot failure, not a request-time
   surprise; a resolver typed to the other driver's transaction does not compile.
 
-- **Cleanup is the database's job.** Sessions are marked expired in place; your
-  `ON DELETE CASCADE` foreign key removes the custom row whenever a session row is
-  deleted. Regeneration (e.g. a password change) re-resolves fresh — updates don't
+- **Cleanup is the database's job.** Sessions are marked expired in place and removed
+  once idle 30 days ("Rows that are over are removed"); your `ON DELETE CASCADE` foreign
+  key removes the custom row with its session row. Regeneration (e.g. a password change) re-resolves fresh — updates don't
   carry over.
 
 That is the whole model: **declare with tags, resolve once, read typed, update
