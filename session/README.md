@@ -2260,9 +2260,10 @@ one it sends.
   permission engine that its rows changed), once, for the run of the transaction that
   committed. A hook that fails fails the transaction and ends the sign-in with its
   error: the invitation stands, and a user the sign-in would have provisioned is not
-  created. An account a sign-up through the invitation made stays: it is created
-  once the code is entered, before the sign-in that accepts the invitation, and holds
-  the invited address confirmed and nothing else. Through a method that is invite only
+  created. Neither is the account of a sign-up through the invitation: its row is
+  written in the transaction that consumes the invitation, once the code is entered,
+  so there is no account where the invitation was withdrawn, used or ran out by then,
+  or where the hook fails. Through a method that is invite only
   the invitation is the account: a
   stranger who carries one is provisioned under their sign-in name, and so is a
   stranger from a directory a tenant declares with no default seat
@@ -2333,10 +2334,9 @@ one it sends.
   (`organization_has_tenant`) is the code for an organization whose directory another
   tenant already has; `Invitation().Accept()` answers it 403 with a sentence that says
   what to do and nothing of that tenant, the browser still carrying the invitation.
-  An account a sign-up through the invitation made stays where the hook then refuses,
-  as for any invitation: it is created once the code is entered, before the sign-in that
-  carries the invitation, holds the invited address confirmed and nothing else, and
-  accepts the invitation by signing in once it can be accepted. An Auth
+  Where the hook refuses a sign-up through the invitation, no account is made: the
+  account's row is written in the transaction that consumes the invitation, so the
+  person signs up again from the invitation's link once it can be accepted. An Auth
   with no acceptance hook (`SetInvitationAccepted`) never consumes an
   invitation that makes a tenant, since nothing would make it: the sign-in that carries
   one and the acceptance by hand fail, and the invitation stands.
