@@ -199,6 +199,11 @@ export interface MethodPresentation {
    * filter changed is cleared.
    */
   narrows?: Record<string, (values: RecordData) => string>;
+  /**
+   * One line that says what the method does, drawn at the top of the method's dialog,
+   * above whatever the dialog asks.
+   */
+  says?: string;
 }
 
 export type ListConcatFn =

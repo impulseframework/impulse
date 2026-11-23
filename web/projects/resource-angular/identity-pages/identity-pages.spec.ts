@@ -1679,6 +1679,20 @@ describe("identityPages, the people lists lead with the person's name", () => {
   });
 });
 
+describe("identityPages, what Invite's dialog says", () => {
+  const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+  const [people, invitations] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
+
+  it("says that the person is mailed a link and given the roles once they use it, above the Accounts list and a tenant's People and Invitations", () => {
+    const said = 'The person is mailed a link. They sign in or sign up with it, and are then given the roles.';
+    expect([
+      presentation(list(accounts).listMethods, 'InviteCrewUser').says,
+      presentation(list(people).listMethods, 'InviteCrewSectorUser').says,
+      presentation(list(invitations).listMethods, 'InviteCrewSectorUser').says,
+    ]).toEqual([said, said, said]);
+  });
+});
+
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.

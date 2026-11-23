@@ -1,5 +1,8 @@
 <div mat-dialog-title>{{ data.label }}</div>
 <mat-dialog-content>
+  @if (data.says) {
+    <p class="says">{{ data.says }}</p>
+  }
   @if (question) {
     <p class="question">{{ question }}</p>
   }

@@ -345,7 +345,13 @@ class SideBuilder {
         listMethods: this.present([
           [
             methods.invite,
-            { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles', methods.invite) },
+            {
+              label: 'Invite',
+              icon: 'send',
+              says: inviteSays,
+              labels: this.where(),
+              ...this.rolesWhere('roles', methods.invite),
+            },
           ],
         ]),
         elements: [
@@ -577,7 +583,10 @@ class SideBuilder {
         ]),
         listMethods: this.tenant
           ? this.present([
-              [methods.invite, { label: 'Invite', icon: 'send', ...this.rolesWhere('roles', methods.invite) }],
+              [
+                methods.invite,
+                { label: 'Invite', icon: 'send', says: inviteSays, ...this.rolesWhere('roles', methods.invite) },
+              ],
             ])
           : [],
         elements: [],
@@ -2061,6 +2070,12 @@ function invited(answer: unknown): { message: string; failed?: boolean } {
 
 /** The methods that send an invitation, whose notice reads the answer (invited). */
 const invitations: readonly MethodKind[] = ['invite', 'inviteTenant'];
+
+/**
+ * What Invite's dialog says it does, above what it asks: nothing is chosen for the person,
+ * and nothing is given until they follow the link.
+ */
+const inviteSays = 'The person is mailed a link. They sign in or sign up with it, and are then given the roles.';
 
 /**
  * What the notice says once a method has run, by what the method is: what happened, as a
