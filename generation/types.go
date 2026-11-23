@@ -644,6 +644,11 @@ type rpcMethodInfo struct {
 	// tenant the row names (TenantsToEnter), in the order declared. Only a method with no Target
 	// carries it.
 	OfferedOn []rpcOfferingRow
+	// NotOnOwnAccount is the method's validated @notOnOwnAccount: the column of the row the
+	// method names that holds the id of the account the row is of, as the row's statement
+	// names it; the row does not offer the method to the person whose account it is. Empty
+	// for a method without the declaration; only a method with a Target carries it.
+	NotOnOwnAccount string
 	// Statuses is the method's validated @answers declaration: the statuses
 	// its result may choose per response, in declaration order. Nil for a
 	// method that answers 200.
@@ -2594,6 +2599,7 @@ const (
 	transitionKeyword           string = "transition"           // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
 	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
 	callerEntersKeyword         string = "callerEnters"         // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter), or, for a method that names no row, each struct the annotation names
+	notOnOwnAccountKeyword      string = "notOnOwnAccount"      // Declares that the row an RPC method names does not offer it to the person whose account the row is: @notOnOwnAccount(ID) names the row's field that holds the account's id
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
 	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
@@ -2650,6 +2656,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		transitionKeyword:           {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
 		callerEntersKeyword:         {genlang.ScanStruct: genlang.Exclusive},
+		notOnOwnAccountKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
