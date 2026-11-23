@@ -687,11 +687,12 @@ func (a *Auth[S, U, Tx]) judgeEmailCode(ctx context.Context, p *pendingState, st
 // confirmed, where the user had confirmed none, by the store in the transaction that
 // inserts the session (signInAttempt.codeAddress): a sign-in refused or held again after
 // the code writes no address. A code mailed to an address the account no longer holds
-// completes nothing (codeHolder). A sign-up through an invitation makes its account
-// here, the code entered (invitedSignUpAttempt). With remember, a session that starts
-// makes the browser a trusted device of the user. The account of a wait that names its
-// user is read before the code is consumed, so a change of its address that lands after
-// the code is consumed is told from one made before the code was mailed (codeHolder).
+// completes nothing (codeHolder). A sign-up through an invitation is completed here: the
+// sign-in carries the account, which the store makes with the invitation's acceptance
+// (invitedSignUpAttempt). With remember, a session that starts makes the browser a
+// trusted device of the user. The account of a wait that names its user is read before
+// the code is consumed, so a change of its address that lands after the code is consumed
+// is told from one made before the code was mailed (codeHolder).
 //
 // A code that accepts an invitation is held to the invitation it was mailed for
 // (verifyEmailCode), and its address is written by that invitation's acceptance alone
@@ -778,9 +779,10 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 // sign-in that carries it is that invitation's acceptance, which makes or finds the
 // account and writes the invited address in its own transaction, and the code counts
 // for that acceptance alone. An invitation that turns out used or withdrawn so leaves
-// nothing written. The account of a sign-up through an invitation is made here
-// (invitedSignUpAttempt). before is the account of a wait that names its user as it was
-// read before the code was consumed (codeHolder).
+// nothing written. The account of a sign-up through an invitation is carried by its
+// sign-in and made with the invitation's acceptance (invitedSignUpAttempt). before is
+// the account of a wait that names its user as it was read before the code was
+// consumed (codeHolder).
 func (a *Auth[S, U, Tx]) attemptWithCode(
 	ctx context.Context, p *pendingState, before *sessionstorage.SessionUser, entered *sessionstorage.FactorCode,
 ) (at *signInAttempt, err error) {

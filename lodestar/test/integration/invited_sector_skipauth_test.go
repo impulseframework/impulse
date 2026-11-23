@@ -156,10 +156,9 @@ func mailLinksTo(ctx context.Context, t *testing.T, s *served, email string) int
 // invitations may wait with the same new name: the first acceptance takes it, and the
 // second is refused at its first sign-in, told the name is taken, with no sector made,
 // no role given and the invitation standing for Headquarters to withdraw. A person who
-// was signing up with a password then is left the account the sign-up made, which
-// holds nothing (the session library makes the account before the sign-in that accepts
-// the invitation), and accepts the invitation Headquarters sends next by signing in
-// with it.
+// was signing up with a password then is left no account (the session library makes
+// the account in the transaction that accepts the invitation), and signs up again from
+// the invitation Headquarters sends next.
 //
 // Demonstrates: tenancy.invited-tenant, auth.invitation.
 func TestInvitedSector(t *testing.T) {
@@ -510,8 +509,8 @@ func TestInvitedSector(t *testing.T) {
 	if got := crewHolds(t, s.db, "gale-second"); len(got) != 0 {
 		t.Errorf("the person refused Gale holds %v, want nothing", got)
 	}
-	if row := crewAccount(ctx, t, governor, "gale-second"); row == nil {
-		t.Error("the refused sign-up left no account, want the one the code made before the sign-in: it holds nothing, and accepts the next invitation by signing in")
+	if row := crewAccount(ctx, t, governor, "gale-second"); row != nil {
+		t.Errorf("the refused sign-up left the account %v, want none: the account is made with the acceptance or not at all", row)
 	}
 	if got := sectorNames(); !slices.Equal(got, []string{"Anvil", "Bastion", "Cinder", "Dawn", "Ember", "Gale"}) {
 		t.Errorf("the sectors after the refused acceptance = %v, want one Gale", got)
@@ -524,15 +523,15 @@ func TestInvitedSector(t *testing.T) {
 	}
 
 	// Headquarters sends the person another, with a name that is free. The sign-up
-	// that was refused left them an account that holds nothing, so they accept this one
-	// by signing in with it: the sector is made and they are its marshal.
+	// that was refused left them no account, so they sign up again from this one: the
+	// sector is made and they are its marshal.
 	status, body, _ = inviteSector(ctx, t, governor, map[string]any{"email": "second@gale.example", "sectorName": "Squall", "sectorRegion": "Windward reach", "sectorEstablished": "2226-11-09"})
 	assertStatus(t, status, http.StatusOK, body)
 	_, squallToken := lastMailTo(t, s, "second@gale.example", "invitation")
 	galeSecond = newBrowser(t, s, consoleAPI)
 	openInvitation(ctx, t, galeSecond, squallToken)
-	if status, body := galeSecond.login(ctx, "gale-second", signUpPassword); status != http.StatusOK {
-		t.Fatalf("signing in at the next invitation with the account the refused sign-up left: status %d: %s", status, body)
+	if status, body := galeSecond.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": "gale-second", "password": signUpPassword})); status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("signing up again at the next invitation: status %d, want 200 held for the code: %s", status, body)
 	}
 	galeSecond.secondFactor(ctx, "gale-second")
 	squall := sectorNamed(ctx, t, governor, "Squall")

@@ -158,6 +158,9 @@ type storeSignIn struct {
 	// codeAddress is the address the sign-in handed the store to confirm on the account
 	// with its session, nil for none.
 	codeAddress *sessionstorage.CodeAddress
+	// newAccount is the account the sign-in handed the store to make with the
+	// invitation's acceptance, nil for none.
+	newAccount *sessionstorage.InsertSessionUser
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -509,6 +512,7 @@ func (f *authFixture) expectSignIn(id impulse.UUID, prepare func(req *sessioninf
 			rule, method, policy, accept := rules.Account, rules.Method, rules.Policy, rules.Accept
 			f.signedIn = &storeSignIn{
 				req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp, proven: rules.Proven, codeAddress: rules.CodeAddress,
+				newAccount: rules.NewAccount,
 			}
 			if external := !namesItsUser(req.Identity); (method != "") != external || (rule != nil && !external) {
 				f.t.Errorf("SignIn() given the account rule %v and the method %q; want a method's name only for an external identity, not a %s one", rule != nil, method, req.Identity.Method)

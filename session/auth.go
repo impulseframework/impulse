@@ -600,9 +600,10 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // or neither. It runs for every acceptance: the one a sign-in or a sign-up performs
 // with the invitation the browser carries, and Invitation().Accept() for a person
 // already signed in. The user is named by id, the key role memberships are held under,
-// and by username, what a log line reads; a user the same transaction provisioned is
-// buffered in it and is not readable until the commit, so the hook writes under the id
-// it is given and looks nobody up.
+// and by username, what a log line reads; a user the same transaction makes (one a
+// directory sign-in provisions, and the account of a sign-up with a password through
+// the invitation) is buffered in it and is not readable until the commit, so the hook
+// writes under the id it is given and looks nobody up.
 //
 // For an invitation that makes a tenant (inv.NewTenant), the hook makes the tenant and
 // seats the user in it, and sets inv.MadeTenantID to the key of the tenant it made,
@@ -621,7 +622,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // transaction's closure again when it aborts, so the hook may be called more than
 // once for one acceptance; only the committed function of the call whose transaction
 // committed is run, once. A hook that fails fails the transaction and ends the sign-in
-// with its error: nothing is consumed, a user the sign-in would have provisioned is not
+// with its error: nothing is consumed, a user the sign-in would have made is not
 // created, and the invitation stands for the next attempt.
 type InvitationAcceptedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
 

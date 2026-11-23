@@ -192,6 +192,7 @@ func TestAuth_InvitedSignUp(t *testing.T) {
 	t.Run("the sign-up makes nobody and accepts nothing: it is held as a wait that names nobody, for the code that goes to the invited address", invitedSignUpWaits)
 	t.Run("the code is mailed to the invited address under the invitation's own count, and entering it makes the account, the address verified, and signs it in with the invitation proven", invitedSignUpByCode)
 	t.Run("where the username is the address, the account the code makes takes the invitation's address as its username", invitedSignUpUsernameIsEmail)
+	t.Run("an invitation that ends as the code is entered is refused invitation_expired, with no session and no account", invitedSignUpEndedAtTheCode)
 	t.Run("where the username is the address, the password is judged against the address as its username, as the page asks about it", invitedSignUpJudgedAsAsked)
 	t.Run("a wrong code makes nobody and leaves the wait", invitedSignUpWrongCode)
 	t.Run("an address or a username another account holds is 409 in the store's words before anything is held or mailed", invitedSignUpTaken)
@@ -243,7 +244,7 @@ func invitedSignUpWaits(t *testing.T) {
 
 func invitedSignUpByCode(t *testing.T) {
 	t.Parallel()
-	userID, sessionID := newIDs()
+	_, sessionID := newIDs()
 	f, recorder, links, cookies := invitedPat(t)
 	codes := expectFactorCodes(f)
 	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
@@ -266,23 +267,21 @@ func invitedSignUpByCode(t *testing.T) {
 		t.Errorf("the address's own sign-in codes = %+v and its other mail = %+v, want neither counted: the holder of a link uses up nothing of the invited person's", own, other)
 	}
 
-	f.expectConsume(pendingID)
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "patl" || u.PasswordHash == nil || u.Email == nil || *u.Email != "pat@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the chosen username, a hash and the invitation's address verified", u)
-		}
-		if _, err := securehash.New(securehash.Argon2()).Compare(u.PasswordHash, "correct horse battery staple"); err != nil {
-			t.Errorf("CreateUser() given a hash that is not the chosen password's: %v", err)
-		}
+	// The inviter's name for the person, which the account carries.
+	links.mu.Lock()
+	links.rows[0].Name = "Pat Lee"
+	links.mu.Unlock()
 
-		return &sessionstorage.SessionUser{ID: userID, Username: u.Username, Email: u.Email, PasswordHash: u.PasswordHash}, nil
-	})
+	// The mocked store expects no CreateUser: the account goes to the store with the
+	// sign-in, which makes it with the invitation's acceptance.
+	f.expectConsume(pendingID)
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 		if req.Invitation == nil || req.Invitation.ID != inv.ID || !req.Invitation.AddressProven {
 			t.Fatalf("SignIn() given the invitation %+v, want the opened one with its address proven by the code", req.Invitation)
 		}
-		if req.UserID != userID || req.Identity.Method != sessioninfo.MethodPassword || req.Identity.Email != "pat@lakeside.edu" || !req.Identity.EmailVerified {
-			t.Errorf("SignIn() given the user %s and the identity %+v, want the new user's password identity with the invited address verified", req.UserID, req.Identity)
+		if req.UserID.IsNil() || req.Identity.Method != sessioninfo.MethodPassword || req.Identity.Subject != req.UserID.String() ||
+			req.Identity.Email != "pat@lakeside.edu" || !req.Identity.EmailVerified {
+			t.Errorf("SignIn() given the user %s and the identity %+v, want the new account's password identity, its id the subject, with the invited address verified", req.UserID, req.Identity)
 		}
 		want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: sessioninfo.MethodEmailCode}}
 		if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" {
@@ -295,6 +294,24 @@ func invitedSignUpByCode(t *testing.T) {
 
 	if rr.Code != http.StatusOK || decoded(t, rr)["mfaIsRequired"] != false || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
+	}
+	signedIn := f.signedIn
+	if signedIn == nil {
+		t.Fatal("no SignIn() reached the store, want the sign-in that carries the account")
+	}
+	account := signedIn.newAccount
+	if account == nil {
+		t.Fatal("SignIn() given no account to make, want the sign-up's")
+	}
+	if !account.ID.Valid || account.ID.UUID != signedIn.req.UserID || account.Username != "patl" || account.PasswordHash == nil ||
+		account.Email == nil || *account.Email != "pat@lakeside.edu" || !account.EmailVerified || account.Name == nil || *account.Name != "Pat Lee" {
+		t.Errorf("SignIn() given the account %+v, want the chosen username and a hash under the sign-in's user id, with the invited address verified and the invitation's name", account)
+	}
+	if _, err := securehash.New(securehash.Argon2()).Compare(account.PasswordHash, "correct horse battery staple"); err != nil {
+		t.Errorf("SignIn() given an account whose hash is not the chosen password's: %v", err)
+	}
+	if signedIn.proven == nil {
+		t.Error("SignIn() given no password proof, want the sign-in to rest on the chosen password")
 	}
 	if c := cookieNamed(rr, defaultInvitationCookieName); c == nil || c.Value != "" {
 		t.Error("VerifyCode() left the invitation cookie, want it deleted")
@@ -309,22 +326,47 @@ func invitedSignUpByCode(t *testing.T) {
 
 func invitedSignUpUsernameIsEmail(t *testing.T) {
 	t.Parallel()
-	userID, sessionID := newIDs()
+	_, sessionID := newIDs()
 	f, _, _, cookies := invitedPat(t, UsernameIsEmail())
 	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple"}, "pat@lakeside.edu")
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "pat@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the address as the username, verified", u)
-		}
-
-		return &sessionstorage.SessionUser{ID: userID, Username: u.Username}, nil
-	})
 	f.expectSignIn(sessionID, nil, nil)
 
 	if rr := f.enterCode(cookies, standingCode); rr.Code != http.StatusOK {
 		t.Errorf("VerifyCode() = %d %s, want 200", rr.Code, rr.Body.String())
+	}
+	if f.signedIn == nil || f.signedIn.newAccount == nil {
+		t.Fatal("SignIn() given no account to make, want the sign-up's")
+	}
+	if account := f.signedIn.newAccount; account.Username != "pat@lakeside.edu" || !account.EmailVerified {
+		t.Errorf("SignIn() given the account %+v, want the address as the username, verified", account)
+	}
+}
+
+func invitedSignUpEndedAtTheCode(t *testing.T) {
+	t.Parallel()
+	f, _, _, cookies := invitedPat(t)
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
+	expectFactorCode(f, &pendingState{ID: pendingID})
+	f.expectConsume(pendingID)
+
+	// The invitation was withdrawn, used or ran out as the code was entered: the store
+	// makes no account and refuses the sign-in. The mocked store expects no CreateUser.
+	f.expectSignIn(impulse.NilUUID, nil, func(*sessioninfo.NewSessionRequest) error {
+		return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, signinflow.InvitationEnded)
+	})
+
+	rr := f.enterCode(cookies, standingCode)
+
+	if refusalCode(t, rr) != sessioninfo.RefusedInvitationExpired {
+		t.Errorf("VerifyCode() as the invitation ended = %d %s, want the invitation_expired refusal", rr.Code, rr.Body.String())
+	}
+	if cookieNamed(rr, internalcookie.AuthCookieName) != nil {
+		t.Error("VerifyCode() set a session cookie, want nobody signed in")
+	}
+	if f.signedIn == nil || f.signedIn.newAccount == nil {
+		t.Error("SignIn() given no account to make, want the sign-up's, which the refusal leaves unmade")
 	}
 }
 

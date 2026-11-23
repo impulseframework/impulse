@@ -9,7 +9,6 @@ import (
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
-	gomock "go.uber.org/mock/gomock"
 )
 
 // The code mailed to an invited address is the only thing between the holder of an
@@ -181,7 +180,7 @@ func invitationGuessesAcrossSignIns(t *testing.T) {
 
 func invitationRightCodeWithinBudget(t *testing.T) {
 	t.Parallel()
-	userID, sessionID := newIDs()
+	_, sessionID := newIDs()
 	f, recorder, links, opened := invitedPat(t)
 	expectFactorCodes(f)
 	pendingID, cookies := signUpInvited(t, f, opened, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
@@ -205,9 +204,6 @@ func invitationRightCodeWithinBudget(t *testing.T) {
 	}
 
 	f.expectConsume(pendingID)
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		return &sessionstorage.SessionUser{ID: userID, Username: u.Username, Email: u.Email, PasswordHash: u.PasswordHash}, nil
-	})
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 		if req.Invitation == nil || req.Invitation.ID != inv.ID || !req.Invitation.AddressProven {
 			t.Fatalf("SignIn() given the invitation %+v, want the opened one with its address proven by the code", req.Invitation)
@@ -217,5 +213,8 @@ func invitationRightCodeWithinBudget(t *testing.T) {
 
 	if rr := f.enterCode(cookies, code); rr.Code != http.StatusOK || decoded(t, rr)["mfaIsRequired"] != false {
 		t.Errorf("VerifyCode() of the right code, the twenty-fifth entered = %d %s, want the account made and signed in", rr.Code, rr.Body.String())
+	}
+	if f.signedIn == nil || f.signedIn.newAccount == nil {
+		t.Error("SignIn() given no account to make, want the sign-up's")
 	}
 }
