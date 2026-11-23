@@ -383,8 +383,9 @@ func (d *QueryDecoder[Resource, Request]) DecodeWithoutPermissions(request *http
 
 // decode builds the QuerySet from the request. boxPII says a search box in the URL
 // is refused because it would search a PII field; a filter naming a PII field in
-// the URL is refused regardless. Both are asked of the parsed filter, after the
-// parse's own refusals.
+// the URL is refused regardless. Both are asked of the parsed filter, so they are
+// the last of a decode's refusals: the body's, and every refusal of the request's
+// parameters (the sort, the page, the columns, the filter's own shape), come first.
 func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII bool) (*QuerySet[Resource], error) {
 	queryParams := request.URL.Query()
 	// Where the filter came from is noted before a body's filter joins the
