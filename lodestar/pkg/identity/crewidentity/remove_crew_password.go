@@ -28,7 +28,7 @@ import (
 // @answers(204)
 // @class(credential)
 type RemoveCrewPassword struct {
-	// @target(CrewSessionUser)
+	// @target(CrewListedUser)
 	UserID impulse.UUID
 }
 

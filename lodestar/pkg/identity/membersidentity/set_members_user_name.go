@@ -23,7 +23,7 @@ import (
 // @outlet(portal, default)
 // @answers(204)
 type SetMembersUserName struct {
-	// @target(MembersSessionUser)
+	// @target(MembersListedUser)
 	UserID impulse.UUID
 	Name   *string
 }

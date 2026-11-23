@@ -26,7 +26,7 @@ import (
 // @answers(204)
 // @class(credential)
 type RenameCrewUser struct {
-	// @target(CrewSessionUser)
+	// @target(CrewListedUser)
 	UserID   impulse.UUID
 	Username string `validate:"required"`
 }

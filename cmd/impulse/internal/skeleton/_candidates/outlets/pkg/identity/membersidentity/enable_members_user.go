@@ -22,7 +22,7 @@ import (
 // @outlet(portal)
 // @answers(204)
 type EnableMembersUser struct {
-	// @target(MembersSessionUser)
+	// @target(MembersListedUser)
 	UserID impulse.UUID
 }
 

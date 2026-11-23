@@ -142,6 +142,21 @@
               ]
             },
             {
+              "resource": "CrewListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "CrewSessions",
               "fields": [
                 "userId",
@@ -172,6 +187,21 @@
                 "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "MembersListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -573,6 +603,21 @@
               ]
             },
             {
+              "resource": "CrewListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "CrewSessions",
               "fields": [
                 "userId",
@@ -594,6 +639,21 @@
                 "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "MembersListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -1060,6 +1120,12 @@
           "List": [
             {
               "resource": "CrewSessionUsers",
+              "fields": [
+                "username"
+              ]
+            },
+            {
+              "resource": "CrewListedUsers",
               "fields": [
                 "username"
               ]

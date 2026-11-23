@@ -30,7 +30,7 @@ type (
 	// @outlet(portal)
 	// @class(credential)
 	SetMembersUserEmail struct {
-		// @target(MembersSessionUser)
+		// @target(MembersListedUser)
 		UserID impulse.UUID
 		Email  string `validate:"required"`
 	}
