@@ -93,13 +93,13 @@ const (
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
 // mailLimitKey is the address's key in the sign-in attempts table: the address folded
-// more widely than the users table folds one (attempts.Normalize: Unicode's
+// more widely than the users table folds one (attempts.FoldWide: Unicode's
 // normalization and case folding, where the table folds the case of ASCII letters
 // alone), so every spelling that finds the same account's address is counted under the
 // one key, with some that find another's, which counts more together and lets nobody
 // in; and under a kind no name a person signs in under can spell (attempts.OwnKey).
 func mailLimitKey(email string) string {
-	return attempts.OwnKey(attempts.KindMail, attempts.Normalize(email))
+	return attempts.OwnKey(attempts.KindMail, attempts.FoldWide(email))
 }
 
 // codeLimitKey is the key of the address's sign-in codes in the sign-in attempts table:

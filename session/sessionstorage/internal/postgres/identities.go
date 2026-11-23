@@ -201,7 +201,7 @@ func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID imp
 // UserByUsernameIn reads the user named username inside tx, matched on the normalized
 // username as UserByUserName matches it, or nil when there is none.
 func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx pgx.Tx, username string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedUsername" = casefold(normalize($1))`, s.userTable())
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedUsername" = %s`, s.userTable(), usernameFold("$1"))
 
 	var u dbtype.User
 	if err := tx.QueryRow(ctx, query, username).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {

@@ -114,6 +114,17 @@ func (s *SessionStorageDriver) usernameIndex() string {
 	return s.userTableName + "ByNormalizedUsername"
 }
 
+// usernameFold is the form the normalized username column holds, over operand (the
+// column's source or a parameter), which every lookup by username compares the column
+// with. A username with an @ in it reads as an email address and is folded as an
+// address is (addressFold): its ASCII capital letters lowercased and every other
+// character as written. Any other username is normalized, put in Unicode's case folding
+// and normalized again (attempts.FoldWide says why). The key a name's failed sign-ins are
+// counted under is the same form (attempts.Normalize).
+func usernameFold(operand string) string {
+	return fmt.Sprintf(`IF(STRPOS(%[1]s, '@') > 0, %[2]s, NORMALIZE(NORMALIZE_AND_CASEFOLD(%[1]s)))`, operand, addressFold(operand))
+}
+
 // exactUsernameIndex is the unique index on the user table's username as written, named
 // after the table as the shipped DDL names it (<UserTable>ByUsername): the index a list
 // of people in the order of their usernames can be read from.
@@ -588,8 +599,8 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 		SELECT %s
 		FROM %s
-		WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)
-	`, s.userSelectColumns(), s.userTableName))
+		WHERE NormalizedUsername = %s
+	`, s.userSelectColumns(), s.userTableName, usernameFold("@username")))
 	stmt.Params["username"] = username
 
 	user := &dbtype.SessionUser{}
@@ -655,7 +666,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
-			return nil, errEmailTaken(*insertUser.Email)
+			return nil, errEmailTaken(insertedAddress(insertUser))
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")

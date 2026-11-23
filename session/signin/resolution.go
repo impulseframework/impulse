@@ -29,19 +29,20 @@ import (
 // token asserting no application role (no_roles), both before any row is written; the
 // identity's sign-in name (Identity.SignInName: the user principal name on Entra, the
 // verified email on Google) is the username, and an identity without one is refused
-// (no_email). A pre-created user under that name, matched without regard to case, or
-// one who holds the identity's address verified when the method verified it
-// (Identity.EmailVerified), is linked: after a password confirmation when the user has
-// a password, outright when the user has none and signs in through no other connection
-// yet. A person no user was created for is decided by what an administrator chose for
-// the method in the running application, its row of the sign-in methods table, read in
-// this transaction: a method opened to sign-up admits them and makes their account,
-// with the role the row names; a method with no row is invite only, where the
-// invitation the sign-in carries is the account, and without one the person is refused
-// (not_invited) and nothing is written. A method whose directory writes the roles has
-// no such choice: the directory says who holds a role, and a person it gives one is
-// admitted. In an application with tenants, the tenant whose directory the identity
-// came through decides before the method does (signin.DirectoryReader).
+// (no_email). A pre-created user under that name, matched as a username is (one with an
+// @ in it by the case of its ASCII letters alone), or one who holds the identity's
+// address verified when the method verified it (Identity.EmailVerified), is linked:
+// after a password confirmation when the user has a password, outright when the user
+// has none and signs in through no other connection yet. A person no user was created
+// for is decided by what an administrator chose for the method in the running
+// application, its row of the sign-in methods table, read in this transaction: a method
+// opened to sign-up admits them and makes their account, with the role the row names; a
+// method with no row is invite only, where the invitation the sign-in carries is the
+// account, and without one the person is refused (not_invited) and nothing is written.
+// A method whose directory writes the roles has no such choice: the directory says who
+// holds a role, and a person it gives one is admitted. In an application with tenants,
+// the tenant whose directory the identity came through decides before the method does
+// (signin.DirectoryReader).
 //
 // A user created ahead is found by the sign-in name, and nothing else ties the two. In
 // an application whose tenants have directories (the Auth's directory admission), a
@@ -53,18 +54,17 @@ import (
 // any other application no tenant vouches for a link, so such a user is linked at once
 // only where the method vouches for the sign-in name (Google, for a Gmail address or a
 // Workspace account's) and that name is the user's own (its username as the library
-// compares two addresses, or the address it holds confirmed; a username the stores'
-// wider match found under another spelling is not), and otherwise once the person
-// enters the code mailed to the address the user holds, with nothing linked while the
-// sign-in waits; a user who holds no address is refused the link
-// (ErrLinkNeedsAddress). A
-// registration that declares its provider's names the application's own
-// (Registration.SeededUsers) links such a user on the name alone. A user with no
-// password who already signs in through an identity is never linked a second one on
-// the name (ErrLinkSecondIdentity): a person may hold an account under another
-// person's sign-in name, and such a user has no password to confirm with. A user who
-// holds, verified, the address the method verified for the identity is the person, and
-// is linked on a connection they already sign in through.
+// compares two addresses, which is how the stores find a username with an @ in it, or
+// the address it holds confirmed), and otherwise once the person enters the code mailed
+// to the address the user holds, with nothing linked while the sign-in waits; a user
+// who holds no address is refused the link (ErrLinkNeedsAddress). A registration that
+// declares its provider's names the application's own (Registration.SeededUsers) links
+// such a user on the name alone. A user with no password who already signs in through
+// an identity is never linked a second one on the name (ErrLinkSecondIdentity): a
+// person may hold an account under another person's sign-in name, and such a user has
+// no password to confirm with. A user who holds, verified, the address the method
+// verified for the identity is the person, and is linked on a connection they already
+// sign in through.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
 // Policy is the application's sign-in rule, asked once a sign-in's user is known and

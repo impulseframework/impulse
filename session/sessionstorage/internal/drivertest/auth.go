@@ -697,6 +697,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "where the usernames are the addresses, a confirmation by link renames the account and its live session and says so whenever the username changed in any byte, and an address that is another account's username writes nothing", run: testConfirmAddressByLinkUsernameIsEmail},
 		{name: "two links for one account followed at once confirm one address: the other is asked its rule on what the first wrote", run: testConfirmAddressByLinkRace},
 		{name: "an address is matched by the case of its ASCII letters alone", run: testAddressFold},
+		{name: "a username with an @ in it is matched as an address is, by the case of its ASCII letters alone, and any other without regard to case or to how its letters are composed", run: testUsernameFold},
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},
 		{name: "a person's name is stored without the space around it, replaced or taken off by hand, and claimed only for a user who holds none", run: testUserName},

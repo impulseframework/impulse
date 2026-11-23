@@ -415,8 +415,8 @@ func ownCodeCountIsTheAccounts(t *testing.T) {
 	// Two addresses that the mail counts' fold takes for one and the users table for
 	// two: two mailboxes, two accounts.
 	const patAddress, samAddress = "pat@glass.example", "pat@glaß.example"
-	if attempts.Normalize(patAddress) != attempts.Normalize(samAddress) {
-		t.Fatalf("attempts.Normalize() folds %q and %q apart, want them folded to one", patAddress, samAddress)
+	if attempts.FoldWide(patAddress) != attempts.FoldWide(samAddress) {
+		t.Fatalf("attempts.FoldWide() folds %q and %q apart, want them folded to one", patAddress, samAddress)
 	}
 	if sameAddress(patAddress, samAddress) {
 		t.Fatalf("sameAddress(%q, %q) = true, want two addresses", patAddress, samAddress)

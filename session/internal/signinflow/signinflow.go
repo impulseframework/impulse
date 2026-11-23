@@ -47,9 +47,9 @@ type Driver[Tx any] interface {
 	// not raced; a session insert for the user, and an account rule's own reads of the
 	// user, are not held. A missing user is NotFound.
 	LockUserIn(ctx context.Context, tx Tx, userID impulse.UUID) (*dbtype.User, error)
-	// UserByUsernameIn reads the user whose username is username, matched without
-	// regard to case as the users table's normalized username is, or nil when there is
-	// none.
+	// UserByUsernameIn reads the user whose username is username, matched as the users
+	// table's normalized username is (a name with an @ in it by the case of its ASCII
+	// letters alone, any other without regard to case), or nil when there is none.
 	UserByUsernameIn(ctx context.Context, tx Tx, username string) (*dbtype.User, error)
 	// UserByVerifiedEmailIn reads the user who holds email as a verified address,
 	// matched without regard to the case of its ASCII letters as the users table's
@@ -1860,7 +1860,7 @@ func decideAccount[Tx any](
 // standardRule applies the library's standard rule to an unlinked identity, inside tx.
 // It refuses a guest of the directory, a token asserting no application role when the
 // method synchronizes roles, and an identity without a sign-in name, before any row is
-// written. A pre-created user under the sign-in name, matched without regard to case,
+// written. A pre-created user under the sign-in name, matched as a username is,
 // or one who holds the identity's verified address (preCreatedUser), is confirmed with
 // its password when it has one and linked when it has none; where the sign-in rests on
 // the code mailed to an invited address, a user that address does not make the invited
@@ -2110,7 +2110,7 @@ func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
 }
 
 // preCreatedUser finds the user an unlinked identity belongs to, before any row is
-// written: the user under the identity's sign-in name, matched without regard to case,
+// written: the user under the identity's sign-in name, matched as a username is,
 // or else the user who holds the address the sign-in has shown to be the person's
 // (knownHolder): verified, the one the method vouches for (Identity.EmailVerified:
 // Google alone does, and only for a Gmail address or a Workspace account's; no other
@@ -2401,26 +2401,26 @@ func firstLink[Tx any](
 // (Identity.EmailVerified). That link is made at once (nil) where the name is also the
 // account's own: its username as the library compares two addresses (sameAddress), or
 // the address the account holds confirmed (holdsAddress). The stores find a username
-// more widely than that (they fold Unicode's case and normalization), so a vouched name
-// that only reads like the account's (the Kelvin sign for a k) vouches for another
-// mailbox than the one the account is under, and goes on as a name the method does not
-// vouch for. Any other name is the provider's word alone. A Google account can be made
-// under any address from outside Google, an identity provider's administrators give the
-// names they like, and a Microsoft directory answers for no address; the link would
-// hand whoever signs in everything the account holds. So the sign-in waits for the code
-// mailed to the address the account holds, whether or not its person has confirmed it:
-// the answer is a pending MFA step that takes the mailed code alone, and nothing is
-// linked while it waits, so a sign-in that never finishes leaves the account as it was.
-// Whoever reads the account's mail is the account's person, and the sign-in that carries
-// the code's event is linked, while the account still holds the address the code was
-// mailed to (claim, the rules' CodeAddress: Driver.UserByEmailIn answers this same
-// user). An account whose address was changed or taken off since is refused with
-// code_expired, the words of a code that no longer stands, and nothing is linked. A code
-// mailed for an invitation carries no claim: the sign-in that entered it is linked only
-// where the invitation is the account's own, mailed to its username or to the address it
-// holds (ownInvitation), and is otherwise refused as an acceptance with another address
-// is, with nothing linked. The code's event with neither links nothing (codeEventLink).
-// An account that holds no address has nowhere to mail the code, and an address given at
+// with an @ in it in that same way, so a vouched name that only reads like the
+// account's (the Kelvin sign for a k) finds another account or none; the check stays,
+// so that a store that found one more widely would still link nothing on it. Any other
+// name is the provider's word alone. A Google account can be made under any address
+// from outside Google, an identity provider's administrators give the names they like,
+// and a Microsoft directory answers for no address; the link would hand whoever signs
+// in everything the account holds. So the sign-in waits for the code mailed to the
+// address the account holds, whether or not its person has confirmed it: the answer is
+// a pending MFA step that takes the mailed code alone, and nothing is linked while it
+// waits, so a sign-in that never finishes leaves the account as it was. Whoever reads
+// the account's mail is the account's person, and the sign-in that carries the code's
+// event is linked, while the account still holds the address the code was mailed to
+// (claim, the rules' CodeAddress: Driver.UserByEmailIn answers this same user). An
+// account whose address was changed or taken off since is refused with code_expired,
+// the words of a code that no longer stands, and nothing is linked. A code mailed for
+// an invitation carries no claim: the sign-in that entered it is linked only where the
+// invitation is the account's own, mailed to its username or to the address it holds
+// (ownInvitation), and is otherwise refused as an acceptance with another address is,
+// with nothing linked. The code's event with neither links nothing (codeEventLink). An
+// account that holds no address has nowhere to mail the code, and an address given at
 // the sign-in would show only that the person reads their own mail, so the link is
 // refused (signin.ErrLinkNeedsAddress).
 func nameAloneHold[Tx any](
