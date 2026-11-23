@@ -20,10 +20,10 @@ import (
 
 // The proof half of the roles add tenancy writes. The tenanted reference application
 // holds each grant that changes a person, or shows more of one, to a condition, which
-// keeps a tenant's administrator from an account another tenant or the whole application
-// also holds; impulse check holds every conditional grant to a test that proves it over
-// seeded rows (conditions-proven). So the role is written with those grants only where
-// the test that proves them is written with it: the reference's own test of a tenant's
+// keeps a tenant's administrator from an account the tenant does not manage; impulse
+// check holds every conditional grant to a test that proves it over seeded rows
+// (conditions-proven). So the role is written with those grants only where the test
+// that proves them is written with it: the reference's own test of a tenant's
 // people, in the application's names, signing people in the way the application's other
 // tests do. The test stands on the harness the command writes, so it is written where
 // that harness is the command's still and the conditions are the ones the test proves;

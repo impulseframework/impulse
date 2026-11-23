@@ -9,9 +9,10 @@ package integration
 // held, so a sector's people, the roles held there and the sector's invitations are
 // three views served under the sector's address like any tenant record:
 // CrewSectorUsers, CrewSectorUserRoles and CrewSectorInvitations. Each
-// carries facts a grant's condition reads. The Sector Marshal holds all three; the
-// address and password state of a person are the Marshal's to see only where the person
-// holds no role outside the sector (heldElsewhere = false). The Dispatcher sees the
+// carries facts a grant's condition reads. The Sector Marshal holds all three; a
+// person's name, address and whether the account is disabled are the Marshal's to see
+// for everyone, and the rest of the account only where the sector manages it
+// (managedHere = true). The Dispatcher sees the
 // sector's own crew: the rows of CrewSectorUserRoles whose role the sector itself gave
 // (everyDomain = false).
 //
@@ -244,8 +245,8 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 	w.managedPeople(t.Context(), t)
 
 	// The field grants this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorUsers", "heldElsewhere = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorUsers", "heldElsewhere = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorUsers", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorUsers", "managedHere = true")
 
 	// One party manages each account: the sector whose directory the person signs in
 	// through, else the one sector the person holds something in alone, else nobody's
@@ -364,13 +365,16 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 		})
 	}
 
-	// The address and the password state are one grant of the Marshal's with a condition
-	// on the fact: answered on the rows of people who hold no role outside the sector, and
-	// left out of the others, in the list and in the keyed read. A role held for the whole
-	// application is another fact, and the grant does not name it.
-	conditional := []string{"email", "emailVerifiedAt", "passwordChangeRequired"}
-	for name, want := range map[string]bool{"ada": true, "fay": true, "bo": false, "cy": false, "eve": false} {
-		t.Run("the Marshal sees the address of "+name+" only where the sector holds them alone", func(t *testing.T) {
+	// The rest of the account (when it was created and last signed in, whether the
+	// address is confirmed, the password state) is one grant of the Marshal's with a
+	// condition on the fact: answered on the rows of people whose account the sector
+	// manages, and left out of the others, in the list and in the keyed read. The address
+	// is answered for everyone: fay holds a role for the whole application and ivy signs
+	// in through Cinder's directory, so Anvil manages neither account and reads both
+	// addresses.
+	conditional := []string{"emailVerifiedAt", "passwordChangeRequired", "createdAt", "lastSignInAt"}
+	for name, want := range map[string]bool{"ada": true, "kit": true, "fay": false, "bo": false, "cy": false, "eve": false, "ivy": false} {
+		t.Run("the Marshal sees the rest of the account of "+name+" only where the sector manages it", func(t *testing.T) {
 			t.Parallel()
 
 			check := func(where string, row map[string]any) {
@@ -379,8 +383,10 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 						t.Errorf("%s: %s in the %s = %v, want %v: %v", name, field, where, got, want, row)
 					}
 				}
-				if _, ok := row["username"]; !ok {
-					t.Errorf("%s: the %s leaves out the username, which the grant carries with no condition: %v", name, where, row)
+				for _, field := range []string{"username", "email"} {
+					if _, ok := row[field]; !ok {
+						t.Errorf("%s: the %s leaves out the %s, which the grant carries with no condition: %v", name, where, field, row)
+					}
 				}
 			}
 			check("list", sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids[name]])
@@ -446,17 +452,18 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 		}
 	})
 
-	// The identities of a person say who manages the account as the person's row does:
-	// hal's identity at Cinder, whose directory it is, and at Anvil, where hal holds a
-	// role too.
+	// The identities of a person say who manages the account as the person's row does,
+	// and a sector lists them only where it manages the account: hal's identity at
+	// Cinder, whose directory it is, and none at Anvil, where hal holds a role too.
 	for _, tt := range []struct {
-		where                                  string
-		user                                   accesstypes.User
-		sector                                 string
-		managedHere, managedByAnotherDirectory bool
+		where       string
+		user        accesstypes.User
+		sector      string
+		listed      int
+		managedHere bool
 	}{
-		{where: "Cinder", user: "governor", sector: cinder, managedHere: true},
-		{where: "Anvil", user: "marshal", sector: anvil, managedByAnotherDirectory: true},
+		{where: "Cinder", user: "governor", sector: cinder, listed: 1, managedHere: true},
+		{where: "Anvil", user: "marshal", sector: anvil},
 	} {
 		t.Run("hal's identity says who manages the account at "+tt.where, func(t *testing.T) {
 			t.Parallel()
@@ -470,12 +477,12 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 				if got := cell[bool](t, row, "managedHere"); got != tt.managedHere {
 					t.Errorf("managedHere = %v, want %v: %v", got, tt.managedHere, row)
 				}
-				if got := cell[bool](t, row, "managedByAnotherDirectory"); got != tt.managedByAnotherDirectory {
-					t.Errorf("managedByAnotherDirectory = %v, want %v: %v", got, tt.managedByAnotherDirectory, row)
+				if got := cell[bool](t, row, "managedByAnotherDirectory"); got {
+					t.Errorf("managedByAnotherDirectory = true where the sector manages the account: %v", row)
 				}
 			}
-			if found != 1 {
-				t.Errorf("the identities list holds %d identities of hal, want 1", found)
+			if found != tt.listed {
+				t.Errorf("the identities list holds %d identities of hal, want %d", found, tt.listed)
 			}
 		})
 	}

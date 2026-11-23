@@ -3565,9 +3565,10 @@ counts them. The generated rules are told who counts (`CountedBy`): each auth's 
 client answers how many people the tenant seats (`SeatedCount`) and who the switch keeps
 out (`DirectoryOutsiders`).
 
-The tenant's own list of its people (section 21) is made from who holds a role in the
-tenant, never from who can sign in, so a person the flag keeps out stays in it with
-their roles. Where the record declares the flag the list carries one more field,
+The tenant's own list of its people (section 21) holds everyone who holds a role in the
+tenant, whether or not they can sign in, so a person the flag keeps out stays in it with
+their roles; it holds everyone who signs in through the tenant's directory too, whatever
+they hold. Where the record declares the flag the list carries one more field,
 `cannotEnter`: while the tenant is directory only, the row of a person who has no
 sign-in through the tenant's directory says so ("Has not signed in through this
 tenant's directory, so cannot enter while this tenant is directory only"), and it is
@@ -4372,15 +4373,16 @@ that tenant. Every other account is the application's own administrators' to man
 `managedHere` is true on the row of the tenant that manages the account.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
-it by name, and the role file says what a tenant's administrator sees of a person who is
-not the tenant's alone. Lodestar's Sector Marshal sees every person of the sector and
-their address only where the sector holds them alone, and its Dispatcher the roles the
-sector itself gave:
+it by name, and the role file says what a tenant's administrator sees of a person whose
+account the tenant does not manage. Lodestar's Sector Marshal sees every person of the
+sector with their name, their address and whether the account is disabled, and the rest
+of the account only where the sector manages it, and its Dispatcher the roles the sector
+itself gave:
 
 ```json
 "List": [
-  { "resource": "CrewSectorUsers", "fields": ["username", "disabled", "createdAt", "lastSignInAt", "heldElsewhere", "heldGlobally"] },
-  { "resource": "CrewSectorUsers", "fields": ["email", "emailVerifiedAt", "passwordChangeRequired"], "condition": "heldElsewhere = false" }
+  { "resource": "CrewSectorUsers", "fields": ["username", "name", "email", "disabled", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "managedHere", "managedByAnotherDirectory", "outsideDirectory", "cannotEnter"] },
+  { "resource": "CrewSectorUsers", "fields": ["emailVerifiedAt", "passwordChangeRequired", "createdAt", "lastSignInAt"], "condition": "managedHere = true" }
 ]
 "List": [{ "resource": "CrewSectorUserRoles", "fields": ["username", "role"], "condition": "everyDomain = false" }]
 ```
@@ -4388,7 +4390,7 @@ sector itself gave:
 So an application where a tenant owns its people and one where the people are shared
 between tenants are two role files over the same lists. A grant names its fields, as on
 any view: a grant with none answers the key alone. The people's list filters and sorts by
-`username` and by the two facts; the account's other columns are no filter keys, so a
+`username` and by the six facts; the account's other columns are no filter keys, so a
 grant may carry any of them under a condition at no cost to a page.
 
 A view is a query the framework selects from (`FROM (<query>) AS <Resource>`), not a
@@ -4600,17 +4602,17 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   record's label or its name in words ("You are the last administrator of this
   sector."): the generated client hands it to the rules (`identity.WithTenantWord`).
 
-What a tenant may do to a person who also holds a role outside it, and which roles its
+What a tenant may do to a person whose account it does not manage, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
-account of a person the sector holds alone, gives every role but the Marshal's own, takes
+account of a person the sector manages, gives every role but the Marshal's own, takes
 a role away where the sector itself gave it, and withdraws an invitation that stands and
 gives no Marshal's role:
 
 ```json
 "Execute": [
-  { "resource": "DisableCrewSectorUser", "condition": "heldElsewhere = false AND heldGlobally = false" },
+  { "resource": "DisableCrewSectorUser", "condition": "managedHere = true" },
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
@@ -5093,17 +5095,16 @@ every policy store's schema holds it).
   the identities, and for a tenant's list the role memberships and the groups too), so a
   page that holds it open reads it again when a sign-in links an identity or an
   administrator removes a password. A tenant's answers for a person of the tenant's own
-  list of people, nothing for anyone else, and carries the two facts of the person's row
-  (`heldElsewhere`, `heldGlobally`) for a grant's condition, with `password`, which says
-  whether the row is the password. A role file grants it to whoever reads the
-  identities. Lodestar's and the skeletons' grant a tenant's administrator the list
-  under `password = false OR heldElsewhere = false`: the identities that count of
-  every person of the tenant, and the password only of a person no other tenant holds,
-  the condition `passwordChangeRequired` is read under. Whether a person another tenant
-  holds too has a password is then not the tenant's to learn, the page offers no
-  removal for them (it offers one by the rows), and the removal is the whole
-  application's administrator's, who reads the password in the whole application's
-  list. Every field of that grant is under the condition, so a tenant's administrator
+  list of people, nothing for anyone else, and carries four facts of the person's row
+  (`heldElsewhere`, `heldGlobally`, `managedHere`, `managedByAnotherDirectory`) for a
+  grant's condition, with `password`, which says whether the row is the password. A role
+  file grants it to whoever reads the identities. Lodestar's and the skeletons' grant a
+  tenant's administrator the list under `managedHere = true`: how a person signs in is
+  read by the tenant that manages their account, the condition `passwordChangeRequired`
+  is read under. Whether a person another party manages has a password is then not the
+  tenant's to learn, the page offers no removal for them (it offers one by the rows), and
+  the removal is the whole application's administrator's, who reads the password in the
+  whole application's list. Every field of that grant is under the condition, so a tenant's administrator
   cannot ask for the list sorted or filtered by one of them (a sort or filter field
   needs a grant with no condition left once the request is checked): the list comes in
   its declared order, the password first.
@@ -5700,7 +5701,8 @@ id is no account of the one being managed: there nobody is refused as acting on 
 
 **One tenant per person.** In an application whose tenants own their people, a person
 belongs to one tenant: the tenant that created or invited them manages the account, which
-it cannot do for a person another tenant holds too. The application says so where it
+no tenant does for a person two tenants hold, unless the person signs in through one
+tenant's directory. The application says so where it
 builds the client, beside its administrator roles (`identity.WithOneTenantPerPerson()`),
 and every way a person comes to hold a role in a tenant is then held to it:
 
@@ -5731,12 +5733,11 @@ and every way a person comes to hold a role in a tenant is then held to it:
 A refusal says the person belongs to another tenant and never which.
 
 The application's own people are outside the rule. A person who holds a role for the
-whole application or in every tenant is no tenant's to manage, whatever else they hold
-(the role files grant a tenant its account methods on a person it holds alone,
-`heldElsewhere = false AND heldGlobally = false`), so they are given a role in any
-tenant: an operator who is asked into one customer's tenant after another holds a role
-in each. Such a
-role is no tenant's either, so it never counts as one and is never refused. So that
+whole application or in every tenant is no tenant's to manage unless they sign in through
+that tenant's directory (the role files grant a tenant its account methods on a person
+whose account it manages, `managedHere = true`), so they are given a role in any tenant:
+an operator who is asked into one customer's tenant after another holds a role in each.
+Such a role is no tenant's either, so it never counts as one and is never refused. So that
 nobody is left in several tenants with nothing outside them, the last role a person
 holds outside the tenants is not taken away while they hold roles in more than one
 (409): take the roles in all but one tenant away first. A place in a group of the whole
@@ -5800,8 +5801,8 @@ reads, in `generated_identity_invitation_test.go`), `generated_identity_lists_te
 holds a sector's lists (each sector's rows, a person of two sectors in each, the
 facts, and the grants that carry a condition on one),
 `generated_identity_tenant_methods_test.go` a sector's methods (each account method
-allowed on a person the sector holds alone, refused on one it shares and not found for
-another sector's; the roles given and taken; the identities and the unlink) with
+allowed on a person whose account the sector manages, refused on one it does not manage
+and not found for another sector's; the roles given and taken; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the required password change),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
