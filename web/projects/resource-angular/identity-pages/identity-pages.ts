@@ -957,8 +957,6 @@ class SideBuilder {
               label: 'End now',
               icon: 'timer_off',
               fill: (row) => this.heldRole(row),
-              confirm: (row) =>
-                `End ${roleInWords(String(row['role']))}${this.heldWhere(row)} for ${String(row['username'] ?? 'this person')} now? It is taken away, as any role is.`,
               successMessage: 'The role is ended.',
             },
           ],

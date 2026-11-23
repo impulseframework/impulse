@@ -93,8 +93,8 @@ export interface MethodDialogResult {
  * that takes files (they travel with the call alone) are not rehearsed.
  *
  * A method that warns before it runs (`warning` in its metadata, the method's @warning)
- * is drawn as a warning. The dialog asks the server what the call will do, with what the
- * row carries and what the person has filled, as it opens and again after each change,
+ * says first what it will do. The dialog asks the server, with what the row carries and
+ * what the person has filled, as it opens and again after each change,
  * and nothing is saved by asking. The server's words are shown, the confirm button
  * carries the words the server gave it, which say what it does, and the button is held
  * until the server has answered. A method that declares a word to type is shown in the
