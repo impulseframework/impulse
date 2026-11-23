@@ -702,8 +702,9 @@ export class LoginMethodsComponent implements OnInit {
     if (this.busy() || !waiting?.emailCode) {
       return Promise.resolve();
     }
+    const remember = this.rememberDevice && waiting.emailCode.rememberOffered;
     return this.step(async () => {
-      const result = await this.client.auth.verifyCode(this.signInCode, this.rememberDevice);
+      const result = await this.client.auth.verifyCode(this.signInCode, remember);
       await this.follow(result, () => this.returned(waiting));
     });
   }
@@ -1480,6 +1481,7 @@ export class LoginMethodsComponent implements OnInit {
         enrollEmail: false,
         codeSent: true,
         codeExpiresAt: result.codeExpiresAt,
+        rememberOffered: waiting.emailCode?.rememberOffered === true,
       },
     });
   }
