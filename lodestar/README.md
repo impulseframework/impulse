@@ -1268,11 +1268,13 @@ credential actions"), a request to start the session may drop it (`refuseClasses
 ["access"]` with no `exceptWrites`), and a request that names a record the kind does
 not keep is refused with nothing started. What the rule cannot see is a role given to
 a group she is in: that stays open to a session whose mask does not refuse the class
-`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar,
-its squadron or its sector when one is deleted, whoever the pass names. No write of the
-pass is made, so neither the rule nor the `act` kind's mask is asked, and neither kind
-refuses those deletes: every pass gives something, so such a delete only takes away.
-An application whose rows restrict refuses the parent's delete in the kind's mask.
+`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar
+or its wing when one is deleted, through the pass's own delete, so the rule is asked
+about it there: the delete of a hangar or a wing is refused whole when a pass under it
+is her own, her squadron's or her group's, under either kind (proven for her own pass
+and her squadron's in `test/integration/impersonation_taken_skipauth_test.go`). A pass
+that goes with its sector is not asked about: a sector's delete asks nothing of a row,
+the `act` kind refuses it by its class, and no role the release ships deletes a sector.
 
 | Login | Who | What their view proves |
 | --- | --- | --- |

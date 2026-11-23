@@ -353,6 +353,9 @@
                       @for (line of lines; track $index) {
                         <span class="cell-line">{{ line }}</span>
                       }
+                    } @else if (linkOf(row, col); as link) {
+                      <!-- The words of a column that opens its row: the row's link. -->
+                      <a class="cell-link" [routerLink]="link">{{ row[col.id] }}</a>
                     } @else {
                       {{ row[col.id] }}
                     }

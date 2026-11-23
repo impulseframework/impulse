@@ -24,12 +24,12 @@ import (
 // since each level is matched on the columns the link references.
 //
 // Before anything is deleted, every row found is checked as its own delete would check
-// it (PatchSet.checkDelete: the caller's grants on the row, then the kind's delete
-// rule), and the whole is sized against what one commit takes (DeleteTree.Mutations).
-// Nothing goes unless everything may go, and a refusal says why. Then the rows are
-// deleted deepest first and the record last, each through the delete of one row
-// (bufferCheckedDelete), so each has its change record, is announced to open pages, and
-// has its stored files released.
+// it (PatchSet.checkDelete: the caller's grants on the row, what the kind's generated
+// code asks of a delete, then the kind's delete rule), and the whole is sized against
+// what one commit takes (DeleteTree.Mutations). Nothing goes unless everything may go,
+// and a refusal says why. Then the rows are deleted deepest first and the record last,
+// each through the delete of one row (bufferCheckedDelete), so each has its change
+// record, is announced to open pages, and has its stored files released.
 //
 // A delete that does not say it takes the rows, of a record that has some, deletes
 // nothing and is answered with the question a person is asked first: "Delete this
@@ -45,7 +45,8 @@ const takenParameterLimit = 900
 // TakenRows is how a delete that takes a kind's rows reaches the delete of one of them.
 // The generator writes one for each kind under DeleteTree.Taken of a record that
 // declares its cascade (NewTakenRows), so a taken row goes through the kind's own
-// delete: its grants, its rule (@validateDeleteType), its change record, its files.
+// delete: its grants, what its generated write asks of a removal, its rule
+// (@validateDeleteType), its change record, its files.
 type TakenRows interface {
 	// columns are the kind's columns on the database type, each with the field that
 	// holds it and the field's Go type.
@@ -78,8 +79,10 @@ type takenRows[R Resourcer] struct {
 // NewTakenRows returns how a delete of a record deletes a row of the resource R with
 // it. arm makes the patch set of one row's delete into the resource's own delete: it
 // registers the resource's delete rule, and arms the delete against the caller unless
-// the caller is zero, which is a trusted call. The generator writes the call, with the
-// resource's generated delete patch.
+// the caller is zero, which is a trusted call. Where the resource's rows decide what a
+// person may do, it also registers what the resource's generated write asks of a
+// removal (RegisterDeleteCheckFunc). The generator writes the call, with the resource's
+// generated delete patch.
 func NewTakenRows[R Resourcer](arm func(patchSet *PatchSet[R], caller *Caller)) TakenRows {
 	return &takenRows[R]{arm: arm}
 }
@@ -410,11 +413,12 @@ type takenReader struct {
 }
 
 // recordRow is the record's row as the walk starts from it: its key, and any other
-// column a taken kind's rows are found by, read from the row.
-func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (map[string]any, error) {
+// column a taken kind's rows are found by, read from the row. there is false where the
+// row was read and is not stored: nothing is under a row that is not there.
+func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (row map[string]any, there bool, err error) {
 	columns := r.tree.reads(r.tree.Record, r.tree.Key)
 	if len(columns) == len(r.tree.Key) {
-		return key, nil
+		return key, true, nil
 	}
 
 	writer := &rowsUnderWriter{dbType: SpannerDBType}
@@ -424,14 +428,13 @@ func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (map[st
 	}
 	rows, err := r.txn.readColumns(ctx, rowsStatement(writer, r.tree.Record, columns, strings.Join(equal, " AND ")), columns, r.columns[r.tree.Record], 1)
 	if err != nil {
-		return nil, errors.Wrapf(err, "reading the %s", r.tree.Words.One)
+		return nil, false, errors.Wrapf(err, "reading the %s", r.tree.Words.One)
 	}
 	if len(rows) == 0 {
-		// The row is not there: its own delete answers for that.
-		return key, nil
+		return nil, false, nil
 	}
 
-	return rows[0], nil
+	return rows[0], true, nil
 }
 
 // under reads the kind's rows that one link puts under any of the rows above, and no
@@ -640,9 +643,12 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		deleted: spannerTxn.deleted.deletedRow,
 		changed: spannerTxn.deleted.changedRow,
 	}
-	recordRow, err := reader.recordRow(ctx, key)
+	recordRow, there, err := reader.recordRow(ctx, key)
 	if err != nil {
 		return false, err
+	}
+	if !there {
+		return true, nil
 	}
 	found, err := walk.find(ctx, recordRow)
 	if err != nil {
@@ -753,9 +759,9 @@ func (d *recordedDelete) refusedUnder(ctx context.Context, count *refusingCount,
 }
 
 // mayTake checks one row the delete would take as the row's own delete checks it. A row
-// its rule refuses answers in the rule's own sentence. A row the person may not delete,
-// or may not reach, refuses the whole delete in a sentence that names the kind where
-// the person may see it.
+// its rule refuses, or what its kind asks of a delete refuses, answers in that sentence.
+// A row the person may not delete, or may not reach, refuses the whole delete in a
+// sentence that names the kind where the person may see it.
 func (d *recordedDelete) mayTake(ctx context.Context, txn ReadWriteTransaction, taken takenDelete) error {
 	byRule, err := taken.row.checkDelete(ctx, txn)
 	switch {

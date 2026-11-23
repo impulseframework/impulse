@@ -453,6 +453,17 @@ describe('the Groups page, where a directory decides the roles', () => {
     expect(groups?.data?.[pageDataKey]).toBe(identityMenuPages(descriptor, resourceMeta, options)[1]);
   });
 
+  it("is headed Groups where the application manages one auth, and by the auth's label beside others", () => {
+    const titleOf = (on: ApiDescriptor): string =>
+      (
+        identityRoutes(on, resourceMeta, options).find((route) => route.path === 'members-groups')?.data?.[
+          directoryGroupsSaysKey
+        ] as DirectoryGroupsSays
+      ).title;
+    expect(titleOf({ ...descriptor, identity: [members] } as ApiDescriptor)).toBe('Groups');
+    expect(titleOf(descriptor)).toBe('Members groups');
+  });
+
   it("is on a tenant's side too, under the tenant, and is no list page", () => {
     const tenant = { auth: 'Members', scope: 'domain' } as const;
     expect(identityMenuPages(descriptor, resourceMeta, tenant).map((entry) => [entry.label, entry.route])).toEqual([

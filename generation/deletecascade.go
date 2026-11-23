@@ -131,6 +131,12 @@ type deleteKind struct {
 	// and a person who may delete a tenant need hold no role in it. The kind's delete
 	// rule is asked all the same.
 	Trusted bool
+	// Subject marks an armed kind whose record decides what a person may do
+	// (resourceInfo.SubjectGuarded): the delete of one of its rows also asks the
+	// record's questions as a removal (RefuseImpersonatorAs<Name>Subject), as the
+	// record's own write does. It is set once every record's subject columns are known
+	// (attachSubjectKinds), and never on a Trusted kind.
+	Subject bool
 }
 
 // depth is the kind's longest way up to the record, in steps. A kind is always deeper
@@ -492,6 +498,32 @@ func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 	return nil
 }
 
+// attachSubjectKinds marks each armed kind of every record's description whose record
+// decides what a person may do (deleteKind.Subject), so the delete of a row taken with
+// a record asks what the row's own removal asks. It runs once the run's last pass has
+// given every record the columns facts are read through (attachSubjectReadThroughs),
+// which is after the descriptions are built. A kind the tenant record's delete takes
+// (Trusted) is never marked.
+func (r *resourceGenerator) attachSubjectKinds() {
+	byName := make(map[string]*resourceInfo, len(r.resources))
+	for _, res := range r.resources {
+		byName[res.Name()] = res
+	}
+	for _, res := range r.resources {
+		if res.DeleteTree == nil {
+			continue
+		}
+		for _, kind := range res.DeleteTree.Taken {
+			if !kind.Deletes || kind.Trusted {
+				continue
+			}
+			if record, ok := byName[kind.Name]; ok {
+				kind.Subject = record.SubjectGuarded()
+			}
+		}
+	}
+}
+
 // declaredDeleteTree holds a record's @deleteCascade to the schema and writes its
 // description. Every kind it names is a resource with rows under the record, and every
 // kind with rows under the record is named: taken with it, or refusing its delete. What
@@ -837,9 +869,11 @@ func linkLiteral(link deleteLink) string {
 // writeTakenRows writes how a delete of the record deletes a row of a taken kind with
 // it (resource.NewTakenRows): the kind's generated delete patch around the row's patch
 // set, with the kind's delete rule registered where it declares one, armed against the
-// caller of the record's delete unless that call is trusted. A kind the tenant record's
-// delete takes (Trusted) is never armed: the closure takes no caller, and only the
-// kind's delete rule is asked of the row.
+// caller of the record's delete unless that call is trusted. An armed row of a record
+// that decides what a person may do is also asked that record's questions as a removal
+// (RefuseImpersonatorAs<Name>Subject), which the record's own write asks. A kind the
+// tenant record's delete takes (Trusted) is never armed: the closure takes no caller,
+// and only the kind's delete rule is asked of the row.
 func writeTakenRows(b *strings.Builder, kind *deleteKind) {
 	if kind.Trusted {
 		if !kind.Rule {
@@ -861,6 +895,11 @@ func writeTakenRows(b *strings.Builder, kind *deleteKind) {
 	}
 	b.WriteString("if !caller.IsZero() {\n")
 	b.WriteString("patch.Enforce(caller)\n")
+	if kind.Subject {
+		b.WriteString("patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {\n")
+		fmt.Fprintf(b, "return RefuseImpersonatorAs%sSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)\n", kind.Name)
+		b.WriteString("})\n")
+	}
 	b.WriteString("}\n")
 	b.WriteString("}),\n")
 }

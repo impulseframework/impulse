@@ -1014,3 +1014,95 @@ func Test_tableMetadata_foreignKeys(t *testing.T) {
 		t.Errorf("schemaLinks() mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// Test_deleteTree_subjectKinds pins which taken kinds ask a record's questions as a
+// removal (deleteKind.Subject, set by attachSubjectKinds once the run's last pass has
+// run) and what the description writes for them. An armed kind whose record decides
+// what a person may do registers the record's function after patch.Enforce(caller),
+// inside the armed branch, and so does a kind whose only subject column is one a fact
+// is read through, which the last pass finds. An armed kind that decides nothing about
+// a person registers nothing, and neither does any kind of the tenant record's
+// description, subject guarded or not.
+func Test_deleteTree_subjectKinds(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
+	c := subjectSetFixtureClient(t, structs)
+	r := &resourceGenerator{client: c}
+	run := make(map[string]*resourceInfo)
+	for _, name := range []string{"Seat", "Project", "Stake", "Depot", "Pool", "Realm"} {
+		res, err := resolveFixtureBindings(t, c, structs, name)
+		if err != nil {
+			t.Fatalf("resolveBindingAnnotations(%s) error = %v", name, err)
+		}
+		run[name] = res
+		r.resources = append(r.resources, res)
+	}
+
+	kind := func(name, one, many string, trusted bool) *deleteKind {
+		return &deleteKind{
+			Name: name, Table: c.pluralize(name), One: one, Many: many, Key: []string{"Id"},
+			Paths: [][]deleteLink{{link("PoolId", "Pools")}}, Deletes: true, Trusted: trusted,
+		}
+	}
+	taken := func(trusted bool) []*deleteKind {
+		return []*deleteKind{
+			kind("Seat", "seat", "seats", trusted),
+			kind("Project", "project", "projects", trusted),
+			kind("Depot", "depot", "depots", trusted),
+		}
+	}
+	run["Pool"].DeleteTree = &deleteTree{Record: &deleteKind{Name: "Pool", Table: "Pools", One: "pool", Many: "pools", Key: []string{"Id"}}, Taken: taken(false)}
+	run["Realm"].DeleteTree = &deleteTree{Record: &deleteKind{Name: "Realm", Table: "Realms", One: "realm", Many: "realms", Key: []string{"Id"}}, Taken: taken(true)}
+
+	r.attachSubjectReadThroughs()
+	r.attachSubjectKinds()
+
+	project := run["Project"]
+	if !project.SubjectGuarded() || len(project.SubjectUserFields()) > 0 || len(project.SubjectSetTests()) > 0 {
+		t.Fatal("Project is not a record whose only subject column is one a fact is read through, as the test needs")
+	}
+	if run["Depot"].SubjectGuarded() {
+		t.Fatal("Depot decides something about a person, and the test needs a record that decides nothing")
+	}
+
+	for _, tt := range []struct {
+		record string
+		want   map[string]bool
+	}{
+		{record: "Pool", want: map[string]bool{"Seat": true, "Project": true, "Depot": false}},
+		{record: "Realm", want: map[string]bool{"Seat": false, "Project": false, "Depot": false}},
+	} {
+		tree := run[tt.record].DeleteTree
+		for _, kind := range tree.Taken {
+			if kind.Subject != tt.want[kind.Name] {
+				t.Errorf("%s's description: %s.Subject = %v, want %v", tt.record, kind.Name, kind.Subject, tt.want[kind.Name])
+			}
+		}
+
+		literal := run[tt.record].DeleteTreeLiteral()
+		for _, kind := range tree.Taken {
+			at := strings.Index(literal, "Resource: \""+kind.Table+"\",")
+			start := at + strings.Index(literal[max(at, 0):], "Rows: resource.NewTakenRows(func(")
+			if at < 0 || start < at {
+				t.Fatalf("%s's description writes no delete of a %s row:\n%s", tt.record, kind.Name, literal)
+			}
+			closure := literal[start : start+strings.Index(literal[start:], "}),\n")+len("}),\n")]
+			if !strings.Contains(closure, "PatchSet["+kind.Name+"]") {
+				t.Fatalf("%s's description writes the delete of a %s row as another kind's:\n%s", tt.record, kind.Name, closure)
+			}
+			registration := "patch.Enforce(caller)\n" +
+				"patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {\n" +
+				"return RefuseImpersonatorAs" + kind.Name + "Subject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)\n" +
+				"})\n" +
+				"}\n" +
+				"}),\n"
+			switch {
+			case tt.want[kind.Name] && !strings.Contains(closure, "if !caller.IsZero() {\n"+registration):
+				t.Errorf("%s's delete of a %s row does not register the record's questions after patch.Enforce(caller), inside the armed branch:\n%s", tt.record, kind.Name, closure)
+			case !tt.want[kind.Name] && strings.Contains(closure, "RegisterDeleteCheckFunc"):
+				t.Errorf("%s's delete of a %s row registers a check, and none is asked of it:\n%s", tt.record, kind.Name, closure)
+			}
+		}
+	}
+}

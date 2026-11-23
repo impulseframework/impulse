@@ -58,23 +58,40 @@ import (
 // standing is read through. What stays a stated limit is the one
 // RefuseImpersonatorAsSubject names, a role given to a group the person is in.
 //
-// A row removed with its parent, which may name the person, is a limit of its own. A
-// row taken with the record it is under (the record's @deleteCascade, or its tenant's
-// delete) is deleted by the library and not through the row's own route, so the rule is
-// not asked about the person it names, and a mask that refuses the row's own writes
-// does not refuse the parent's delete. An application closes it under the mask by
-// refusing each request that removes a row above it: the parent's delete
-// (accesstypes.RefusePermission(accesstypes.Delete, parent)); the delete of each record
-// further up while the cascade goes on, since the grandparent's delete removes the
-// parent and the row with it; and an action that removes one of those rows in its own
-// body, by name (accesstypes.RefuseAction), because an action is asked for Execute on
-// its name and not for Delete on the record.
-// PostgreSQL has referential actions that change the row where it stands, again with
-// no write of it. ON DELETE SET NULL and ON DELETE SET DEFAULT rewrite the column that
-// named the parent when the parent is deleted, and the same refusals close them. ON
-// UPDATE CASCADE, SET NULL and SET DEFAULT rewrite it when the parent's key is changed,
-// which refusing the parent's update closes (Update on the record, or on the one column
-// the foreign key names), with any action that changes the key.
+// A row taken with the record it is under (the record's @deleteCascade) is held to the
+// rule as well. The library deletes it through its own kind's delete, armed against the
+// person who asked, and the generated code asks this rule and the two beside it about
+// the row there, as a removal: a delete that would take the real person's own row, or a
+// row of a set they are in, is refused whole, in the sentence the row's own removal is
+// refused with, and nothing is deleted. A mask that refuses the row's own delete
+// refuses the record's delete too, since each taken row is checked against the caller's
+// grants. A delete an application runs trusted, with no caller, asks neither: an action
+// that deletes such a record in its own body takes the rows under it unasked, and an
+// application closes that by refusing the action by name in the kind's mask
+// (accesstypes.RefuseAction).
+//
+// A row that goes with its tenant is a limit of its own. A tenant's delete takes every
+// row under the tenant on the grant to delete the tenant: no grant is asked on a row,
+// and the rule is not asked about the person a row names. The generator gives the
+// tenant record's delete the class access, so a kind of impersonation whose mask
+// refuses that class does not delete a tenant. An application closes it for any other
+// kind by refusing the delete in the kind's mask
+// (accesstypes.RefusePermission(accesstypes.Delete, tenant)), and by name any action
+// that deletes a tenant in its own body (accesstypes.RefuseAction), because an action
+// is asked for Execute on its name and not for Delete on the record.
+//
+// A row a foreign key's own rule removes or rewrites is another: no write of the row is
+// made, so nothing is asked. impulse check refuses ON DELETE CASCADE among an
+// application's own tables. A row of an application's that names a row of the library's
+// under that rule (a pass given to a group) still goes with it, and what a mask refuses
+// there is the action that removes the library's row. PostgreSQL has referential
+// actions that change the row where it stands. ON DELETE SET NULL and ON DELETE SET
+// DEFAULT rewrite the column that named the parent when the parent is deleted, which
+// refusing the parent's delete under the mask closes
+// (accesstypes.RefusePermission(accesstypes.Delete, parent)). ON UPDATE CASCADE, SET
+// NULL and SET DEFAULT rewrite it when the parent's key is changed, which refusing the
+// parent's update closes (Update on the record, or on the one column the foreign key
+// names), with any action that changes the key.
 //
 // A column that records who made a row is another. A grant may compare a column of a
 // record to the requester (bookedBy = subject). Such a column carries no subject
@@ -315,8 +332,10 @@ func heldBeforeAndAfter(
 // The rule is asked only of a change that sets the column: a change that leaves it
 // alone (the squadron's new name) asks nothing and reads nothing, and so does an add,
 // which no row of anyone's points at yet. A removal is not this rule's: the rows that
-// point at the removed row go with a constraint of the database or stop the delete.
-// It answers nil outside an impersonated session. The caller's grants answer first.
+// point at the removed row stop its delete, or go with it through their own delete
+// where a record declares that (@deleteCascade), and are asked there the rule for a row
+// that names a person or a set. It answers nil outside an impersonated session. The
+// caller's grants answer first.
 //
 // The person refused is told the column by its name in words ("change the wing id of
 // the squadron record that decides your own wings"); the line the refusal is logged

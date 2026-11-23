@@ -49,6 +49,9 @@ type PatchSet[Resource Resourcer] struct {
 	validateCreateFunc    ValidateFunc
 	validateUpdateFunc    ValidateFunc
 	validateDeleteFunc    ValidateFunc
+	// deleteCheckFunc is what the resource's generated code asks of a delete ahead of the
+	// delete itself (RegisterDeleteCheckFunc).
+	deleteCheckFunc ValidateFunc
 	// everythingUnder says a delete takes the rows the record's description lists as
 	// going with it (DeleteEverythingUnder).
 	everythingUnder bool
@@ -661,7 +664,8 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 }
 
 // checkDelete is everything a delete of the patch's row must pass before anything is
-// buffered, in the order a refusal is answered: the caller's grants on the resource, the
+// buffered, in the order a refusal is answered: the caller's grants on the resource,
+// what the resource's generated code asks of a delete (RegisterDeleteCheckFunc), the
 // conditions those grants carry, evaluated against the row inside the transaction with
 // the tenancy check, and then the resource's delete rule (RegisterValidateDeleteFunc).
 // The rule is asked last, so a caller the grants refuse gets their Forbidden whatever
@@ -669,10 +673,20 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 // delete of one row runs it (bufferDelete), and so does whatever must know that a row
 // may go before it removes any, so the two never disagree about a row: a delete that
 // takes the row with a record it is under (deleteTaken). byRule says a refusal is the
-// rule's, whose sentence is the row's own reason, and not the grants'.
+// row's own reason, the registered question's or the rule's, whose sentence is passed
+// on, and not the grants'. What the generated code asks comes ahead of the conditions,
+// as on the resource's own route, which asks it once the operation is decoded: a caller
+// who holds the grant, and whose condition would refuse the row, reads that question's
+// sentence where it refuses, by either way to the row.
 func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTransaction) (byRule bool, err error) {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
 		return false, err
+	}
+
+	if p.deleteCheckFunc != nil {
+		if err := p.deleteCheckFunc(ctx, txn); err != nil {
+			return true, errors.Wrap(err, "deleteCheckFunc()")
+		}
 	}
 
 	if err := p.enforceWriteConditions(ctx, txn); err != nil {
@@ -1088,6 +1102,16 @@ func (p *PatchSet[Resource]) RegisterValidateUpdateFunc(fn ValidateFunc) {
 // buffered. An error it returns refuses the delete, and nothing is deleted.
 func (p *PatchSet[Resource]) RegisterValidateDeleteFunc(fn ValidateFunc) {
 	p.validateDeleteFunc = fn
+}
+
+// RegisterDeleteCheckFunc registers what a resource's generated code asks of a delete
+// ahead of the delete itself, for a delete that does not come through the resource's
+// own route: a row a record's delete takes with it (NewTakenRows). The function is
+// called on a Delete Patch once the caller's grants on the resource have passed, before
+// the conditions those grants carry and before the delete rule. An error it returns
+// refuses the delete in its own sentence, and nothing is deleted.
+func (p *PatchSet[Resource]) RegisterDeleteCheckFunc(fn ValidateFunc) {
+	p.deleteCheckFunc = fn
 }
 
 // all returns an iterator over key-value pairs from m.

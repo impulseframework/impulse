@@ -251,7 +251,7 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 						return errors.Newf("the transaction is a %T, want Spanner's", txn)
 					}
 					reader := &takenReader{tree: &tree, key: tt.key, txn: spannerTxn, columns: columns}
-					recordRow, err := reader.recordRow(ctx, tt.key)
+					recordRow, _, err := reader.recordRow(ctx, tt.key)
 					if err != nil {
 						return err
 					}
@@ -310,6 +310,82 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestTakenReader_recordRow reads, over the emulator, the record's row a walk starts
+// from, for a record whose taken kind's rows are found by a column outside its key: a
+// stored row is read with that column, and a key no row has is answered as not there,
+// with no row.
+func TestTakenReader_recordRow(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "record-row")
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "f1", "Title": "named", "CreatedBy": "someone"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+
+	text := reflect.TypeFor[string]()
+	tree := &DeleteTree{
+		Record: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"},
+		Taken: []DeleteKind{{
+			Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"},
+			Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "ForkRows", References: []string{"Title"}}}},
+		}},
+	}
+	columns := map[accesstypes.Resource]map[string]takenColumn{
+		"ForkRows":        {"Id": {typ: text}, "Title": {typ: text}},
+		"TrackedForkRows": {"Id": {typ: text}, "Title": {typ: text}},
+	}
+
+	tests := []struct {
+		name      string
+		key       map[string]any
+		wantRow   map[string]any
+		wantThere bool
+	}{
+		{
+			name:      "a stored row is read with the column its taken kind is found by",
+			key:       map[string]any{"Id": "f1"},
+			wantRow:   map[string]any{"Id": "f1", "Title": "named"},
+			wantThere: true,
+		},
+		{
+			name: "a key no row has is not there",
+			key:  map[string]any{"Id": "f2"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var row map[string]any
+			var there bool
+			err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+				if !ok {
+					return errors.Newf("the transaction is a %T, want Spanner's", txn)
+				}
+				reader := &takenReader{tree: tree, key: tt.key, txn: spannerTxn, columns: columns}
+
+				var err error
+				row, there, err = reader.recordRow(ctx, tt.key)
+
+				return err
+			})
+			if err != nil {
+				t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
+			}
+			if there != tt.wantThere {
+				t.Errorf("takenReader.recordRow() there = %v, want %v", there, tt.wantThere)
+			}
+			if diff := cmp.Diff(tt.wantRow, row); diff != "" {
+				t.Errorf("takenReader.recordRow() row mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

@@ -57,6 +57,9 @@ func (Wing) DeleteTree() *resource.DeleteTree {
 					patch := &HangarPassDeletePatch{patchSet: patchSet}
 					if !caller.IsZero() {
 						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
 					}
 				}),
 			},
@@ -76,6 +79,9 @@ func (Wing) DeleteTree() *resource.DeleteTree {
 					patch := &SquadronMembershipDeletePatch{patchSet: patchSet}
 					if !caller.IsZero() {
 						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsSquadronMembershipSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
 					}
 				}),
 			},
@@ -94,6 +100,9 @@ func (Wing) DeleteTree() *resource.DeleteTree {
 					patch := &SquadronDeletePatch{patchSet: patchSet}
 					if !caller.IsZero() {
 						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsSquadronSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
 					}
 				}),
 			},
