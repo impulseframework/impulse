@@ -33,7 +33,7 @@ import {
   RootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
 
 // The pages over an Auth's people, built from the API's own description.
@@ -268,9 +268,11 @@ class SideBuilder {
    * where it comes from: their own, or the group it comes through.
    *
    * A row says the person's state in one column, State, a line for each thing there is
-   * to say (statesOf): Disabled, Must change password, and on a tenant's list that
-   * another tenant or the whole application also holds the person. It is blank when all
-   * is well. Its words come from several fields, so the column neither sorts nor filters.
+   * to say (statesOf): Disabled, Must change password, until when failed tries lock the
+   * person's sign-in, and on a tenant's list that another tenant or the whole application
+   * also holds the person. It is blank when all is well. Its words come from several
+   * fields, so the column neither sorts nor filters. Where the server says what each
+   * person holds, a Roles column lists it, a line for each role.
    * A person's page is headed by the person (personTitle), and says the same state on
    * one line, where there is any, and whether the email address is confirmed
    * (personFields).
@@ -308,6 +310,10 @@ class SideBuilder {
         rowTitle: (row: RecordData) => this.personTitle(row),
         listColumns: [
           ...this.leadingColumns(users),
+          // What the person holds, a line for each role, where the server says it.
+          ...(this.has(users, 'roles')
+            ? [{ id: 'roles' as FieldName, header: 'Roles', lines: true, filterable: false }]
+            : []),
           // The person's state, on the field it says first.
           ...(this.has(users, 'disabled')
             ? [
@@ -338,6 +344,7 @@ class SideBuilder {
               users,
               this.stateLines().filter(([name]) => name !== 'disabled'),
             ).map(([name]) => name),
+            ...this.lockOf(users),
             ...this.heldHere(users),
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
@@ -1071,6 +1078,7 @@ class SideBuilder {
       // Held by the form for the words above and for the methods offered, and not drawn.
       ...[
         ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) => name),
+        ...this.lockOf(users),
         ...this.heldHere(users),
       ].map((name) => field({ name: name as FieldName, cols: 4, shouldRender: false })),
     ];
@@ -1974,17 +1982,34 @@ class SideBuilder {
    * What a person's row says of their state, a line each (stateLines): a line for each
    * field the row holds as true, so a field the reader's role leaves out of the row says
    * nothing. A row that says the person holds a role in every tenant does not also say
-   * they are in another: the first says the second. Empty when all is well, and for no
-   * row.
+   * they are in another: the first says the second. A sign-in that failed tries lock says
+   * until when (lockLine), after the account's own lines and before what a tenant's list
+   * says of the other places that hold the person, since the lock is the account's state
+   * as Disabled is. Empty when all is well, and for no row.
    */
   private statesOf(row: RecordData | undefined): string[] {
     if (!row) {
       return [];
     }
-    return this.stateLines()
+    const said = this.stateLines()
       .filter(([name]) => row[name] === true)
-      .filter(([name]) => !(name === 'heldElsewhere' && row['heldInEveryTenant'] === true))
-      .map(([, line]) => line);
+      .filter(([name]) => !(name === 'heldElsewhere' && row['heldInEveryTenant'] === true));
+    const lines = said.map(([, line]) => line);
+    const lock = lockLine(row['lockedUntil'], Date.now());
+    if (lock) {
+      // The account's own lines lead stateLines, so the lock goes after the last of them.
+      const own = said.filter(([name]) => name === 'disabled' || name === 'passwordChangeRequired').length;
+      lines.splice(own, 0, lock);
+    }
+    return lines;
+  }
+
+  /**
+   * The field the State reads a lock from, read with a person and not drawn: until when
+   * failed tries lock their sign-in. Only where the list has it.
+   */
+  private lockOf(resource: Resource): string[] {
+    return this.has(resource, 'lockedUntil') ? ['lockedUntil'] : [];
   }
 
   /**
@@ -2323,6 +2348,23 @@ function endsIn(end: unknown, now: number): string {
   const at = format(instant, dayAndTime);
   const left = timeLeft(instant.getTime() - now);
   return left ? `${at}, ${left} left` : at;
+}
+
+/**
+ * The State's line for a person whose sign-in failed tries lock: "Locked until" and when
+ * the lock passes, in the viewer's time zone, the time alone where it passes on the day
+ * of `now` ("Locked until 3:15 PM") and with the day otherwise (dayAndTime). Empty where
+ * the lock is no moment or has passed.
+ */
+function lockLine(until: unknown, now: number): string {
+  if (typeof until !== 'string' && !(until instanceof Date)) {
+    return '';
+  }
+  const instant = new Date(until);
+  if (Number.isNaN(instant.getTime()) || instant.getTime() <= now) {
+    return '';
+  }
+  return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : dayAndTime)}`;
 }
 
 /**
