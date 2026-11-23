@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // AuthMethod names a way a person proved who they are. Sign-in methods use the
@@ -280,6 +281,17 @@ const (
 	UserProvisioned UserSource = "provisioned"
 )
 
+// UserDirectory is an organization's directory that an identity linked to a user came
+// through, with the tenants that declare it as their own. The session library reads it
+// for a sign-in with the reader the Auth was given (session.Auth.SetDirectoryAdmission).
+type UserDirectory struct {
+	Method     AuthMethod
+	Connection string
+	// Tenants are the tenants that declare the directory, in the reader's order: one at
+	// most where a directory is one tenant's, none for a directory no tenant declares.
+	Tenants []accesstypes.Domain
+}
+
 // SignInUser is the user an Auth sign-in resolved to. NewSessionRequest.User
 // carries it to the sign-in policy and the custom session data resolver.
 type SignInUser struct {
@@ -295,6 +307,13 @@ type SignInUser struct {
 	// link's tenant, or the resolution's signin.Tenant for a link made in this sign-in. It is empty
 	// for a password sign-in.
 	Tenant string
+	// Directories are the organizations' directories the user's identity links came
+	// through, each once, oldest link first, with the tenants that declare each. The
+	// sign-in sets it before the sign-in policy runs, where the Auth holds a directory
+	// reader (session.Auth.SetDirectoryAdmission). It is empty on an Auth that holds
+	// none, for a user with no such link, and where no policy is asked. A personal
+	// account is no organization's directory and is not listed.
+	Directories []UserDirectory
 }
 
 // Provisioned reports whether the sign-in created the user.
@@ -399,18 +418,22 @@ const (
 	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
 	// built with signin.AdmitWithoutTenant.
 	RefusedNoTenant LoginRefusalCode = "no_tenant"
-	// RefusedConnectionNotInTenant is the code for a sign-in through a directory by a
+	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
+	// the tenant policy refuses: by a person whose account a directory-only tenant's
+	// directory signs in, when the sign-in came through another directory, or by a
 	// person whose every tenant admits its people through its own directory only, none
-	// of which is the directory the sign-in came through, under the tenant policy.
+	// of which is the directory the sign-in came through.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
 	// RefusedDirectoryOnly is the code for a sign-in with a password, or a session the
-	// application starts itself, by a person whose every tenant admits its people
-	// through its own directory only, under the tenant policy.
+	// application starts itself, by a person whose account a directory-only tenant's
+	// directory signs in, or whose every tenant admits its people through its own
+	// directory only, under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
 	// RefusedDirectoryOnlyPersonalAccount is the code for a sign-in with a personal
 	// account (through Google or Microsoft, with an account that is in no
-	// organization's directory) by a person whose every tenant admits its people
-	// through its own directory only, under the tenant policy. It is told apart from
+	// organization's directory) by a person whose account a directory-only tenant's
+	// directory signs in, or whose every tenant admits its people through its own
+	// directory only, under the tenant policy. It is told apart from
 	// RefusedDirectoryOnly so that a login page says what is true of how the person
 	// signed in: they used no password, and are asked for their organization's account.
 	// The code names nothing of the person or of their tenants.

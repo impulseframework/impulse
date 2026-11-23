@@ -1245,9 +1245,11 @@ inside the application there.
 
 A person changes their own account on the Your account page: their name, their password,
 the browser they asked to be remembered, and their email address, which changes once they
-follow a link mailed to the new one. A person whose every tenant is directory only, who
-is an administrator of none of them and holds no role outside them, cannot sign in with a
-password at all: the page shows them no Password line, and they cannot choose a first
+follow a link mailed to the new one. Two kinds of people cannot sign in with a password
+at all: a person whose account signs in through the directory of a directory-only tenant,
+unless they administer that tenant or are a super administrator, and a person whose every
+tenant is directory only, who is an administrator of none of them and holds no role
+outside them. The page shows them no Password line, and they cannot choose a first
 password. The switcher next to the application's name lists their tenants. A tenant they
 cannot enter with the way they signed in is listed as closed, with the reason.
 

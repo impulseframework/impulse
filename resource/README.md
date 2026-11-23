@@ -865,7 +865,11 @@ about it:
   other. So a session reaches every tenant that seats the person, except a tenant that
   is directory only and whose directory is not the one the person signed in through;
   those are the session's closed tenants (`ClosedDomains`), which the tenant list of a
-  person's own sign-in names with the reason (section 5). An impersonated
+  person's own sign-in names with the reason (section 5). An account that signs in
+  through a directory-only tenant's directory does not get that far another way: the
+  sign-in policy refuses it a password, a personal account and any other directory at
+  the sign-in, whichever tenants seat the person (the session library's reference, "The
+  tenant policy", rule 2). An impersonated
   session is established by its impersonation event, so a directory-only tenant refuses
   it unless the actor, the real person behind it, is a super administrator; a super
   administrator's session started by a person who is none is refused it. The

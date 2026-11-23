@@ -99,7 +99,10 @@ password with a code sent to their email, and nothing else, and a person is
 refused only when every tenant that seats them is closed to the way they signed in (the
 portal's members come through the Entra directory the members auth registers, which the
 development seed makes North's, and reach South as well while South is not directory
-only). A super administrator is admitted whatever a tenant declares, an administrator of a
+only). One part of a declaration reaches past its own tenant: an account that signs in
+through a directory-only tenant's directory signs in through that directory alone,
+whichever tenants seat the person; that tenant's own administrators keep the password. A
+super administrator is admitted whatever a tenant declares, an administrator of a
 directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
 of their own or through one of the tenant's own groups, never one held in every tenant)
 who signs in with a password is held for the code sent to their email and then enters

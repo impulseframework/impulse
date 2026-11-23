@@ -228,8 +228,8 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 	return nil
 }
 
-// ChangeSessionUserPassword changes a user's password to one the user chose and
-// regenerates its session.
+// ChangeSessionUserPassword changes a user's password to one the user chose and, for a
+// caller that holds a session of the user's own, regenerates that session.
 //
 // The old password must match and the new one must differ from it (BadRequest
 // otherwise). The old password is checked under the attempt limiter, counted under the
@@ -244,12 +244,17 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // destroyed. The store writes the password, clears the password change mark and
 // destroys every session of the user, by UserId, in one transaction
 // (AuthStore.ChangeUserPassword): the password is changed and the sessions ended
-// together, or neither is. The caller then continues in a new session
-// (ReasonRegeneration) that carries the auth events of the session the change was made
-// in, its establishment and its factors (continuedAuthEvents); a call with no session
-// of the user's own in the context starts one that records a password event. The new
-// password is held to the judgment every password is (strongEnough), against the
-// user's username, name and address; one the judgment refuses is 400.
+// together, or neither is. A caller that holds a session of the user's own then
+// continues in a new session (ReasonRegeneration) that carries the auth events of the
+// session the change was made in, its establishment and its factors
+// (continuedAuthEvents). A call with no session of the user's own in the context (a
+// call of the application's, another person's session, a session that views as the
+// user, a request a bearer token stands in for) starts no session: the password is
+// changed, the user's sessions are ended, and the user signs in again, where the
+// sign-in policy decides. An application that wants a session there starts one with
+// StartAuthenticatedSession, which the policy decides too. The new password is held to
+// the judgment every password is (strongEnough), against the user's username, name and
+// address; one the judgment refuses is 400.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -289,22 +294,40 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 	// A reset link mailed for the password before does not reset the new one.
 	a.endResetLinks(ctx, user.ID)
 
+	// Only a session of the user's own goes on. Any other caller is left with no
+	// session, so none rests on a password the sign-in policy was not asked about.
+	own := continuedSession(ctx, user.ID)
+	if own == nil {
+		return nil
+	}
 	// The regenerated session keeps the provider's session id, and its issuer, of the
 	// session it replaces, so a provider-initiated logout still finds it.
-	req2 := &sessioninfo.NewSessionRequest{
-		Reason:     sessioninfo.ReasonRegeneration,
-		Username:   user.Username,
-		UserID:     user.ID,
-		AuthEvents: continuedAuthEvents(ctx, user.ID),
-		Browser:    browserFromCtx(ctx),
-	}
-	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
-		req2.ProviderSessionID = current.ProviderSessionID
-		req2.ProviderSessionIssuer = current.ProviderSessionIssuer
-	}
-	_, err = a.startSession(ctx, w, req2)
+	_, err = a.startSession(ctx, w, &sessioninfo.NewSessionRequest{
+		Reason:                sessioninfo.ReasonRegeneration,
+		Username:              user.Username,
+		UserID:                user.ID,
+		AuthEvents:            continuedAuthEvents(own),
+		Browser:               browserFromCtx(ctx),
+		ProviderSessionID:     own.ProviderSessionID,
+		ProviderSessionIssuer: own.ProviderSessionIssuer,
+	})
 
 	return err
+}
+
+// continuedSession is the session a password change of userID's own goes on from: the
+// session ctx holds where it is userID's own, one whose user is userID, that views the
+// application as nobody else and that no bearer token stands in for. It is nil for no
+// session, another person's session, a session that views as the user, a request a
+// bearer token authenticated, and a session with no user.
+func continuedSession(ctx context.Context, userID impulse.UUID) *sessioninfo.SessionData {
+	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || current == nil || current.Impersonation != nil || current.Token != nil ||
+		!current.UserID.Valid || current.UserID.UUID != userID {
+		return nil
+	}
+
+	return current
 }
 
 // continuedAuthEvents are the auth events of the session a person holds after their own
@@ -313,19 +336,16 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 // established the way it was and carrying the factors it carried. A person who came
 // through their organization's directory still holds a directory's session, and a
 // tenant's administrator who entered with a password and a second factor still carries
-// the factor. Nothing of it comes from the request. A change made with no session of the
-// person's own in the context (a call of the application's, a session that views as
-// someone else, a request a bearer token stands in for, which has no session row, one
-// that recorded no event) has nothing to continue, and the new session records what the
-// change proved: the password.
-func continuedAuthEvents(ctx context.Context, userID impulse.UUID) []sessioninfo.AuthEvent {
-	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
-	if !ok || current == nil || current.Impersonation != nil || current.Token != nil ||
-		!current.UserID.Valid || current.UserID.UUID != userID || len(current.AuthEvents) == 0 {
+// the factor. Nothing of it comes from the request. A session of the person's own that
+// recorded no event has nothing to continue, and the new session records what the
+// change proved: the password. A change made with no session of the person's own in the
+// context starts no session at all (changeOwnPassword).
+func continuedAuthEvents(own *sessioninfo.SessionData) []sessioninfo.AuthEvent {
+	if len(own.AuthEvents) == 0 {
 		return []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}
 	}
 
-	return slices.Clone(current.AuthEvents)
+	return slices.Clone(own.AuthEvents)
 }
 
 // RemoveSessionUserPassword removes a user's password: from then on the user signs in

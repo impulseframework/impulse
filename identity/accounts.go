@@ -21,9 +21,11 @@ import (
 // the permission store names a person by the id of their account, so the roles stay
 // where they are. A name another user holds is a Conflict; the same name in another
 // case is the person's own. The name is a typed one, held to sessioninfo.UsernameRefusal.
-// A super administrator is renamed by a super administrator
-// alone, since the name is what the person signs in with
-// (requireSuperAdministratorFor).
+// An administrator's rename is not held to the rule of a person's own choice, that a name
+// with an @ in it is their own confirmed address: an administrator gives an account the
+// name its directory will send, and is who renames an account that holds a name it
+// should not. A super administrator is renamed by a super administrator alone, since the
+// name is what the person signs in with (requireSuperAdministratorFor).
 //
 // Shared rule: the session library's ChangeSessionUserUsername, which renames the user,
 // the live sessions and the standing records in one transaction of its own.

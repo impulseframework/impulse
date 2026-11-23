@@ -1439,6 +1439,21 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) UserByUserName(ctx, username any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).UserByUserName), ctx, username)
 }
 
+// UserDirectories mocks base method.
+func (m *MockAuthStoreMethods[Tx]) UserDirectories(ctx context.Context, userID impulse.UUID, directories signin.DirectoryReader[Tx]) ([]sessioninfo.UserDirectory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDirectories", ctx, userID, directories)
+	ret0, _ := ret[0].([]sessioninfo.UserDirectory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserDirectories indicates an expected call of UserDirectories.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) UserDirectories(ctx, userID, directories any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDirectories", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).UserDirectories), ctx, userID, directories)
+}
+
 // UsernameIsEmail mocks base method.
 func (m *MockAuthStoreMethods[Tx]) UsernameIsEmail() bool {
 	m.ctrl.T.Helper()

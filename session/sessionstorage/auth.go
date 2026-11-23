@@ -167,6 +167,12 @@ type AuthStore[Tx any] interface {
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
 	// IdentitiesByUser lists a user's identity links.
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*SessionIdentity, error)
+	// UserDirectories reads the organizations' directories a user's identity links came
+	// through, each with the tenants that declare it (directories, the Auth's directory
+	// reader), in one transaction that writes nothing: what a sign-in hands its policy in
+	// sessioninfo.SignInUser.Directories, for a question asked outside a sign-in. A nil
+	// reader answers nothing.
+	UserDirectories(ctx context.Context, userID impulse.UUID, directories signin.DirectoryReader[Tx]) ([]sessioninfo.UserDirectory, error)
 	// LinkIdentity links an identity to a user outside the sign-in flow.
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*SessionIdentity, error)
 	// LinkConfirmedIdentity links an identity to the user whose password confirmed the
@@ -664,10 +670,13 @@ type SignInRules[Tx any] struct {
 	// NoPassword says the Auth registers no password method: a password an account
 	// holds then holds no sign-in for a confirmation, which no sign-in could give, and
 	// the account is decided as one with no password.
-	NoPassword  bool
-	Policy      signin.Policy[Tx]
-	Accept      signinflow.InvitationAcceptor[Tx]
-	SignUp      signinflow.SignUpSeater[Tx]
+	NoPassword bool
+	Policy     signin.Policy[Tx]
+	Accept     signinflow.InvitationAcceptor[Tx]
+	SignUp     signinflow.SignUpSeater[Tx]
+	// Directories is the reader of the tenants' directory declarations, nil for none.
+	// It also reads, for the sign-in policy, which tenants declare the directories the
+	// user's identity links came through (sessioninfo.SignInUser.Directories).
 	Directories signin.DirectoryReader[Tx]
 	Seat        signinflow.DirectorySeater[Tx]
 	// OnlyIn reports whether a tenant is the only place a person holds anything (nil
@@ -1257,6 +1266,19 @@ func (a *Auth[Tx]) IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([
 	}
 
 	return identities, nil
+}
+
+// UserDirectories implements AuthStore.
+func (a *Auth[Tx]) UserDirectories(ctx context.Context, userID impulse.UUID, directories signin.DirectoryReader[Tx]) ([]sessioninfo.UserDirectory, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	answer, err := signinflow.UserDirectories(ctx, a.flow, userID, directories)
+	if err != nil {
+		return nil, errors.Wrap(err, "signinflow.UserDirectories()")
+	}
+
+	return answer, nil
 }
 
 // LinkIdentity implements AuthStore.

@@ -1358,6 +1358,7 @@ func TestAuth_SignUp(t *testing.T) {
 	t.Run("a chosen username with a control character in it is refused in words, and no account is made", authSignUpCase6)
 	t.Run("where the usernames are the addresses, an address longer than a typed username may be is not held to that rule", authSignUpCase7)
 	t.Run("a chosen username is kept without the space around it, and one of nothing but space is refused as none", authSignUpCase8)
+	t.Run("a chosen username with an @ in it has to be the address the link was mailed to, and a refused one makes no account and spends no link", authSignUpCase9)
 }
 
 func authSignUpCase1(t *testing.T) {
@@ -1570,6 +1571,56 @@ func authSignUpCase8(t *testing.T) {
 	if _, err := f.auth.newAccount("new@lakeside.edu", " \t ", "correct horse battery staple", ""); !httpio.HasBadRequest(err) || httpio.Message(err) != "choose a username" {
 		t.Errorf("newAccount() of a username of nothing but space error = %v, want the bad request %q", err, "choose a username")
 	}
+}
+
+func authSignUpCase9(t *testing.T) {
+	t.Parallel()
+
+	t.Run("another address is refused, and the link stands", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t))
+		token, hash, err := linkToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		links.insert(&sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: "new@lakeside.edu", ExpiresAt: time.Now().Add(time.Hour)})
+
+		// The mocked store refuses a call it was not told of: SignUp is not called, so no
+		// account is made and nobody is signed in.
+		rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse battery staple", "username": "other@lakeside.edu"}, nil)
+		if rr.Code != http.StatusBadRequest || messageOf(t, rr) != ownAddressWords {
+			t.Errorf("Complete() with another address as the username = %d %s, want 400 %q", rr.Code, rr.Body.String(), ownAddressWords)
+		}
+		if links.rows[0].ConsumedAt != nil {
+			t.Error("the refused sign-up spent its link, want it standing")
+		}
+	})
+
+	t.Run("the address the link was mailed to, in another case and with space around it, is the username", func(t *testing.T) {
+		t.Parallel()
+		f, _, _ := newMailFixture(t, gomock.NewController(t))
+
+		insert, err := f.auth.newAccount("new@lakeside.edu", " New@Lakeside.EDU ", "correct horse battery staple", "")
+		if err != nil {
+			t.Fatalf("newAccount() with the account's own address as the username error = %v, want the account", err)
+		}
+		if insert.Username != "New@Lakeside.EDU" {
+			t.Errorf("newAccount() username = %q, want %q", insert.Username, "New@Lakeside.EDU")
+		}
+	})
+
+	t.Run("where the usernames are the addresses, a typed address is ignored and not refused", func(t *testing.T) {
+		t.Parallel()
+		f, _, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+
+		insert, err := f.auth.newAccount("new@lakeside.edu", "other@lakeside.edu", "correct horse battery staple", "")
+		if err != nil {
+			t.Fatalf("newAccount() where the usernames are the addresses error = %v, want the account", err)
+		}
+		if insert.Username != "new@lakeside.edu" {
+			t.Errorf("newAccount() username = %q, want the address %q", insert.Username, "new@lakeside.edu")
+		}
+	})
 }
 
 func authSignUpCase5(t *testing.T) {
