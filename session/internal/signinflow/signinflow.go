@@ -1261,10 +1261,11 @@ type ConfirmedAddress struct {
 var errConfirmationRefused = errors.New("the confirmation by link is refused")
 
 // ConfirmAddressByLink writes the address a mail link confirms on the account the link
-// names, confirmed at the database's time, in one transaction: the link c.LinkID is
-// consumed (Driver.ConsumeMailLinkIn), the account read with the link decision's lock
-// (Driver.LockUserIn) with its identity links (Driver.IdentitiesByUserIn), c.Refuse is
-// asked with what it holds (its address, when its person confirmed it, and whether one
+// names, confirmed at the database's time, in one transaction: the account is read with
+// the link decision's lock (Driver.LockUserIn), the link c.LinkID is consumed
+// (Driver.ConsumeMailLinkIn), the account's identity links are read
+// (Driver.IdentitiesByUserIn), c.Refuse is asked with what the account holds (its
+// address, when its person confirmed it, and whether one
 // of its identity links came through an organization's directory), and c.Email is
 // written, replacing what the account held (Driver.VerifyUserEmailIn), or none of it
 // happens. On a store whose usernames are the addresses the write renames the user and
@@ -1274,6 +1275,10 @@ var errConfirmationRefused = errors.New("the confirmation by link is refused")
 // at the write (dbtype.EmailConflict, dbtype.UsernameConflict), is a Conflict; an error
 // c.Refuse returns is answered as it is. Nothing is written by a refusal, and the link
 // stands.
+//
+// The account is locked before its link is consumed: an account's delete takes the
+// account's row and then its links, and the same order here keeps the two from waiting
+// on each other.
 //
 // A transaction the database ends to break a deadlock or a serialization failure
 // (dbtype.LockConflict) runs once more, and the confirmation is answered by what the
@@ -1288,15 +1293,6 @@ func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressC
 	run := func(ctx context.Context, tx Tx) error {
 		// Each run starts with nothing refused and nothing answered.
 		confirmed, refused = nil, nil
-		if err := d.ConsumeMailLinkIn(ctx, tx, c.LinkID, time.Now()); err != nil {
-			if httpio.HasNotFound(err) {
-				refused = err
-
-				return errConfirmationRefused
-			}
-
-			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
-		}
 		user, err := d.LockUserIn(ctx, tx, c.UserID)
 		if err != nil {
 			if httpio.HasNotFound(err) {
@@ -1306,6 +1302,15 @@ func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressC
 			}
 
 			return errors.Wrap(err, "Driver.LockUserIn()")
+		}
+		if err := d.ConsumeMailLinkIn(ctx, tx, c.LinkID, time.Now()); err != nil {
+			if httpio.HasNotFound(err) {
+				refused = err
+
+				return errConfirmationRefused
+			}
+
+			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
 		}
 		links, err := d.IdentitiesByUserIn(ctx, tx, c.UserID)
 		if err != nil {
