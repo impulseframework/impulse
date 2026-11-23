@@ -799,7 +799,7 @@ class SideBuilder {
       page: { label: 'Sign-in', icon: 'login' },
       routeData: { route: this.route('signIn', 'sign-in'), hasViewRoute: false },
       parentConfig: listViewConfig({
-        title: `${this.identity.label} sign-in`,
+        title: this.heading('Sign-in'),
         primaryResource: resource,
         showViewButton: false,
         showRowCount: false,

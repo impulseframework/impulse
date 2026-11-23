@@ -1753,7 +1753,7 @@ describe('identityRoutes', () => {
 describe("identityPages, the headings of the whole application's pages", () => {
   const titles = (on: ApiDescriptor): [string | undefined, string][] =>
     identityPages(on, resourceMeta, { auth: 'Crew', scope: 'global' })
-      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins'].includes(config.page?.label ?? ''))
+      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins', 'Sign-in'].includes(config.page?.label ?? ''))
       .map((config) => [config.page?.label, list(config).title]);
 
   it('are the words alone where the application manages one auth', () => {
@@ -1761,6 +1761,7 @@ describe("identityPages, the headings of the whole application's pages", () => {
       ['Mailed links', 'Mailed links'],
       ['Sessions', 'Sessions'],
       ['Failed sign-ins', 'Failed sign-ins'],
+      ['Sign-in', 'Sign-in'],
     ]);
   });
 
@@ -1769,6 +1770,7 @@ describe("identityPages, the headings of the whole application's pages", () => {
       ['Mailed links', 'Crew mailed links'],
       ['Sessions', 'Crew sessions'],
       ['Failed sign-ins', 'Crew failed sign-ins'],
+      ['Sign-in', 'Crew sign-in'],
     ]);
   });
 
