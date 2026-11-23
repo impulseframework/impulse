@@ -1561,9 +1561,11 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // The page does not draw Delete on a row that offers the removal from the tenant,
-      // on a tenant's side that has it: the removal is what the row offers in its place.
-      // A row that does not offer the removal keeps Delete.
+      // On a tenant's side that has the removal from the tenant, the page does not draw
+      // Delete on a row whose answer lists the removal: on this side the removal stands in
+      // Delete's place. Where such a row says the person holds nothing in the tenant itself
+      // the page draws neither, since there is nothing of the tenant's to take. A row whose
+      // answer does not list the removal keeps Delete.
       [
         methods.delete,
         {
