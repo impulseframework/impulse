@@ -15,7 +15,7 @@ type Method interface {
 		GiveStaffTenantGroupRole | InviteStaffTenant | InviteStaffTenantUser | InviteStaffUser |
 		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
 		RemoveStaffRole | RemoveStaffTenantGroupMember | RemoveStaffTenantPassword |
-		RemoveStaffTenantRole | RenameStaffTenantUser | RenameStaffUser |
+		RemoveStaffTenantRole | RemoveStaffTenantUser | RenameStaffTenantUser | RenameStaffUser |
 		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
 		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
 		RevokeStaffUserTrustedDevices | SendStaffTenantUserPasswordResetLink |

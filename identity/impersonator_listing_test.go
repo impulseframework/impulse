@@ -62,12 +62,16 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.AddGroupMemberFor":     {subject: true},
 	"Manager.RemoveGroupMember":     {subject: true},
 	"Manager.LeaveTenant":           {subject: true},
+	"Manager.JudgeTenantRemoval":    {subject: true},
+	"Manager.RemoveFromTenant":      {subject: true},
 	"Tenant.AssignRole":             {subject: true},
 	"Tenant.AssignRoleFor":          {subject: true},
 	"Tenant.RemoveRole":             {subject: true},
 	"Tenant.AddGroupMember":         {subject: true},
 	"Tenant.AddGroupMemberFor":      {subject: true},
 	"Tenant.RemoveGroupMember":      {subject: true},
+	"Tenant.RemovalWarning":         {subject: true},
+	"Tenant.RemovePerson":           {subject: true},
 
 	// A person reached by another key: the account a sign-in identity or a token
 	// belongs to, a session of theirs, the name their failed sign-ins are counted

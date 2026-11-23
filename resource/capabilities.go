@@ -76,15 +76,16 @@ type capabilityPlan struct {
 	// capability-free statement and every answer assembles from grants alone.
 	checksColumn string
 
-	// groups counts the rendered condition groups; the scanned array must
-	// carry exactly this many members.
+	// groups counts the rendered booleans, the condition groups and the marks'
+	// (capabilityGroups); the scanned array must carry exactly this many members.
 	groups int
 
 	perms []plannedCapability
 
-	// enteringParams are the parameters the TenantsToEnter query binds where a
-	// group holds a row to the tenants its caller enters; the statement merges
-	// them beside its own (mergeEnteringParams). Nil otherwise.
+	// enteringParams are the parameters the TenantsToEnter query binds where the
+	// statement has the entering boolean, which holds a row to the tenants its
+	// caller enters; the statement merges them beside its own
+	// (mergeEnteringParams). Nil otherwise.
 	enteringParams map[string]any
 }
 
@@ -108,12 +109,19 @@ type plannedCapability struct {
 	group int
 }
 
-// capabilityField is one field of an Update affordance: included in the
-// positive list when its group boolean holds, or unconditionally when group
-// is -1 (an unconditional grant, or a potentially-true new. condition).
+// capabilityField is one field of an Update affordance, or one member or
+// method of a Create or Execute affordance: included in the positive list
+// when its group boolean holds, or unconditionally when group is -1 (an
+// unconditional grant, or a potentially-true new. condition), and, for a
+// method, when each of its mark booleans holds too.
 type capabilityField struct {
 	jsonName string
 	group    int
+
+	// marks index the mark booleans a method needs beside its condition's: the
+	// statement's entering boolean (@callerEnters) and the own-account boolean
+	// of its column (@notOnOwnAccount). Nil where no mark is in force.
+	marks []int
 }
 
 // assemble builds one row's capability property from the scanned group
@@ -122,6 +130,18 @@ type capabilityField struct {
 func (p *capabilityPlan) assemble(checks []bool) map[accesstypes.Permission]any {
 	holds := func(group int) bool {
 		return group < 0 || (group < len(checks) && checks[group])
+	}
+	listed := func(field capabilityField) bool {
+		if !holds(field.group) {
+			return false
+		}
+		for _, mark := range field.marks {
+			if !holds(mark) {
+				return false
+			}
+		}
+
+		return true
 	}
 
 	out := make(map[accesstypes.Permission]any, len(p.perms))
@@ -138,7 +158,7 @@ func (p *capabilityPlan) assemble(checks []bool) map[accesstypes.Permission]any 
 
 		names := make([]string, 0, len(planned.fields))
 		for _, field := range planned.fields {
-			if holds(field.group) {
+			if listed(field) {
 				names = append(names, field.jsonName)
 			}
 		}
@@ -170,25 +190,12 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 			if q.collection == nil {
 				continue
 			}
-			resources = resources[:0]
-			var held accesstypes.Resource
-			for _, tm := range executeCandidates(q.collection, q.resourceSet.BaseResource()) {
-				resources = append(resources, tm.Method)
-				if tm.CallerEnters && held == "" {
-					held = tm.Method
-				}
+			var err error
+			if resources, err = q.executeResources(ctx); err != nil {
+				return err
 			}
 			if len(resources) == 0 {
 				continue
-			}
-			// A method offered only to a caller whose session enters the row's
-			// tenants (@callerEnters), one that names the row or one offered on
-			// it, needs the tenants this session does not enter, asked once for
-			// the statement.
-			if held != "" {
-				if err := q.askUnentered(ctx, held); err != nil {
-					return err
-				}
 			}
 		case accesstypes.Create:
 			// The affordance question is per member resource: the workflow
@@ -233,21 +240,65 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 	return nil
 }
 
-// capabilityGroups interns the distinct condition payloads across every
-// requested permission — one boolean per distinct payload, exactly the write
-// check's grouping.
+// executeResources answers the RPC methods the Execute capability asks about on the
+// resource's rows (executeCandidates), and reads once what their marks need: the
+// accounts that are the caller's own, for a method a row keeps off the caller's own
+// account (@notOnOwnAccount), read from the session; and the tenants this session
+// does not enter, for a method offered only to a caller whose session enters the
+// row's tenants (@callerEnters), one that names the row or one offered on it, asked
+// once for the statement.
+func (q *QuerySet[Resource]) executeResources(ctx context.Context) ([]accesstypes.Resource, error) {
+	candidates := executeCandidates(q.collection, q.resourceSet.BaseResource())
+	resources := make([]accesstypes.Resource, 0, len(candidates))
+	var held accesstypes.Resource
+	keptOffOwn := false
+	for _, tm := range candidates {
+		resources = append(resources, tm.Method)
+		if tm.CallerEnters && held == "" {
+			held = tm.Method
+		}
+		if tm.OwnAccountColumn != "" {
+			keptOffOwn = true
+		}
+	}
+	if len(resources) == 0 {
+		return nil, nil
+	}
+	if keptOffOwn && q.ownAccounts == nil {
+		q.ownAccounts = sessionOwnAccounts(ctx)
+	}
+	if held != "" {
+		if err := q.askUnentered(ctx, held); err != nil {
+			return nil, err
+		}
+	}
+
+	return resources, nil
+}
+
+// capabilityGroups interns the statement's booleans across every requested
+// permission. They are of three kinds, each rendered alone: a condition
+// boolean for each distinct condition payload, exactly the write check's
+// grouping, shared by every method under that condition, marked or not; the
+// entering boolean, at most one a statement, which holds a row to the tenants
+// its caller's session enters (@callerEnters); and an own-account boolean for
+// each distinct column, which holds the row's column to none of the caller's
+// own accounts (@notOnOwnAccount). A method is listed where its condition
+// boolean and each of its mark booleans hold (capabilityField.marks), so the
+// entering subquery is in a statement once, however many conditions the
+// methods held to it carry and whichever of them are marked.
 type capabilityGroups struct {
 	bySource map[string]int
-	exprs    []condition.Expr
 
-	// held marks, by group, a boolean that also holds the row to the tenants
-	// its caller's session enters (@callerEnters): its expression, if any,
-	// ANDed with the entering term. A held group's expression is nil where the
-	// method has none of its own. heldBySource dedupes the held groups by
-	// their expression's canonical source as bySource dedupes the rest, so a
-	// held and an unheld method with one expression take two booleans.
-	held         []bool
-	heldBySource map[string]int
+	// exprs are the condition booleans' expressions, by boolean; nil for a mark
+	// boolean.
+	exprs []condition.Expr
+
+	// held says, by boolean, which one is the entering boolean. ownColumns
+	// name, by boolean, the row's column an own-account boolean holds to none
+	// of the caller's own accounts, "" for every other boolean.
+	held       []bool
+	ownColumns []string
 }
 
 // intern resolves one Conditional decision's payload to its group index,
@@ -281,30 +332,42 @@ func (g *capabilityGroups) internExpr(expr condition.Expr) int {
 		g.bySource[source] = idx
 		g.exprs = append(g.exprs, expr)
 		g.held = append(g.held, false)
+		g.ownColumns = append(g.ownColumns, "")
 	}
 
 	return idx
 }
 
-// internHeld resolves a held method's boolean to its group index: its own
-// expression, nil when it has none, held to the tenants the caller's session
-// enters. Every held method with the same expression, or with none, shares
-// one boolean.
-func (g *capabilityGroups) internHeld(expr condition.Expr) int {
-	source := ""
-	if expr != nil {
-		source = expr.String()
+// internEntering resolves the statement's entering boolean to its index: the
+// one boolean that holds a row to the tenants its caller's session enters
+// (@callerEnters), made the first time a method needs it.
+func (g *capabilityGroups) internEntering() int {
+	if idx := slices.Index(g.held, true); idx >= 0 {
+		return idx
 	}
-	idx, ok := g.heldBySource[source]
-	if !ok {
-		if g.heldBySource == nil {
-			g.heldBySource = make(map[string]int)
-		}
-		idx = len(g.exprs)
-		g.heldBySource[source] = idx
-		g.exprs = append(g.exprs, expr)
-		g.held = append(g.held, true)
+
+	return g.internMark(true, "")
+}
+
+// internOwnAccount resolves the own-account boolean of the row's column to its
+// index: one boolean a column, holding the column to none of the caller's own
+// accounts (@notOnOwnAccount), made the first time a method needs it.
+func (g *capabilityGroups) internOwnAccount(column string) int {
+	if idx := slices.Index(g.ownColumns, column); idx >= 0 {
+		return idx
 	}
+
+	return g.internMark(false, column)
+}
+
+// internMark appends a mark boolean, one with no expression of its own: the
+// entering boolean where held says so, else the own-account boolean of
+// ownColumn.
+func (g *capabilityGroups) internMark(held bool, ownColumn string) int {
+	idx := len(g.exprs)
+	g.exprs = append(g.exprs, nil)
+	g.held = append(g.held, held)
+	g.ownColumns = append(g.ownColumns, ownColumn)
 
 	return idx
 }
@@ -384,13 +447,19 @@ func (q *QuerySet[Resource]) plannedUpdate(perm accesstypes.Permission, decision
 // membership in its from set; a conditional grant ANDs its condition into the
 // same boolean (a plain method's is the condition alone); a plain method with
 // an unconditional grant is structural — no boolean, no SQL. A method offered
-// only to a caller whose session enters the row's tenants (@callerEnters)
-// ANDs the entering term into its boolean, or takes the term alone, while the
-// session does not enter some tenant; while it enters every one, the method is
-// planned as any other. A method that names no row and is offered on the
-// resource's rows (@callerEnters naming the resource) is a candidate beside them,
-// planned as a plain method held to the tenants the caller enters. Distinct
-// expressions share one boolean per statement, the held apart from the rest.
+// only to a caller whose session enters the row's tenants (@callerEnters) also
+// needs the statement's entering boolean while the session does not enter some
+// tenant; while it enters every one, the method is planned as any other. A
+// method that names no row and is offered on the resource's rows
+// (@callerEnters naming the resource) is a candidate beside them, planned as a
+// plain method held to the tenants the caller enters. A method a row keeps off
+// the caller's own account (@notOnOwnAccount) also needs the own-account
+// boolean of its column while the request has an account of its own; while it
+// has none, the method is planned as any other. A planned method carries its
+// condition boolean, -1 for none, and the mark booleans it also needs, and is
+// listed where each of them holds: distinct conditions share one boolean per
+// statement, marked or not, the entering boolean is one a statement and the
+// own-account boolean one a column (capabilityGroups).
 func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, groups *capabilityGroups) (plannedCapability, error) {
 	planned := plannedCapability{perm: accesstypes.Execute, group: -1}
 	if q.collection == nil {
@@ -429,13 +498,17 @@ func (q *QuerySet[Resource]) plannedExecute(decisions accesstypes.Decisions, gro
 			expr = condition.And{Operands: exprs}
 		}
 		group := -1
-		switch {
-		case tm.CallerEnters && len(q.unentered) > 0:
-			group = groups.internHeld(expr)
-		case expr != nil:
+		if expr != nil {
 			group = groups.internExpr(expr)
 		}
-		planned.fields = append(planned.fields, capabilityField{jsonName: string(tm.Method), group: group})
+		var marks []int
+		if tm.CallerEnters && len(q.unentered) > 0 {
+			marks = append(marks, groups.internEntering())
+		}
+		if tm.OwnAccountColumn != "" && len(q.ownAccounts) > 0 {
+			marks = append(marks, groups.internOwnAccount(tm.OwnAccountColumn))
+		}
+		planned.fields = append(planned.fields, capabilityField{jsonName: string(tm.Method), group: group, marks: marks})
 	}
 
 	return planned, nil
@@ -579,29 +652,39 @@ func (q *QuerySet[Resource]) renderCapabilities(dbType DBType, registry *paramRe
 	}
 
 	terms := make([]string, len(groupExprs))
-	for i, expr := range groupExprs {
-		var sql string
-		if expr != nil {
-			sql, err = lowerToSQL(expr, lctx, gen, registry)
-			if err != nil {
-				return nil, "", err
-			}
+	for i := range groupExprs {
+		terms[i], err = q.capabilityTerm(groups, i, gen, lctx, entering, registry)
+		if err != nil {
+			return nil, "", err
 		}
-		if groups.held[i] {
-			term := q.enteringTerm(gen, lctx.outer, entering, registry)
-			if sql == "" {
-				sql = term
-			} else {
-				sql = "(" + sql + ") AND " + term
-			}
-		}
-		terms[i] = "(" + sql + ")"
 	}
 
 	plan.checksColumn = capabilityChecksColumnName
 	plan.groups = len(groupExprs)
 
 	return plan, capabilityChecksItem(dbType, terms), nil
+}
+
+// capabilityTerm renders the boolean at index i alone: a condition boolean's
+// expression lowered; the entering boolean's term, holding the row to the
+// tenants the caller's session enters (@callerEnters); or an own-account
+// boolean's term, holding the row's column to none of the caller's own
+// accounts (@notOnOwnAccount). A method that needs more than one boolean is
+// listed where each holds (capabilityPlan.assemble), so no term is ANDed into
+// another.
+func (q *QuerySet[Resource]) capabilityTerm(groups *capabilityGroups, i int, gen *sqlGenerator, lctx *loweringContext, entering TenantsToEnter, registry *paramRegistry) (string, error) {
+	switch {
+	case groups.held[i]:
+		return "(" + q.enteringTerm(gen, lctx.outer, entering, registry) + ")", nil
+	case groups.ownColumns[i] != "":
+		return "(" + ownAccountTerm(gen, lctx.outer, groups.ownColumns[i], q.ownAccounts, registry) + ")", nil
+	}
+	sql, err := lowerToSQL(groups.exprs[i], lctx, gen, registry)
+	if err != nil {
+		return "", err
+	}
+
+	return "(" + sql + ")", nil
 }
 
 // capabilityChecksItem renders the reserved boolean-array select item.

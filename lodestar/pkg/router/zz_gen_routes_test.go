@@ -503,6 +503,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-group-member", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-user", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		{url: "/droids/rename-crew-user", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-members-sector-user", method: http.MethodPost},
@@ -830,6 +831,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-group-member", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-user", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		{url: "/portal/api/rename-crew-user", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/replace-mission-document", method: http.MethodPost},
@@ -4035,6 +4037,10 @@ func (s *generatedHandlersStub) RemoveCrewSectorPassword() http.HandlerFunc {
 
 func (s *generatedHandlersStub) RemoveCrewSectorRole() http.HandlerFunc {
 	return s.record("RemoveCrewSectorRole")
+}
+
+func (s *generatedHandlersStub) RemoveCrewSectorUser() http.HandlerFunc {
+	return s.record("RemoveCrewSectorUser")
 }
 
 func (s *generatedHandlersStub) RenameCrewSectorUser() http.HandlerFunc {

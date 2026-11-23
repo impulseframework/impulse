@@ -38,6 +38,8 @@ type staffTenantUserRead struct {
 	LastSignInAt              *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere             bool         `json:"heldElsewhere"`
 	HeldGlobally              bool         `json:"heldGlobally"`
+	HeldHere                  bool         `json:"heldHere"`
+	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
 	OutsideDirectory          bool         `json:"outsideDirectory"`
 	CannotEnter               *string      `json:"cannotEnter"`
 	AdministratorWithPassword bool         `json:"administratorWithPassword"`
@@ -161,6 +163,8 @@ func (c *StaffTenantUserColumns) All() *StaffTenantUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"HeldHere",
+		"HeldInEveryTenant",
 		"OutsideDirectory",
 		"CannotEnter",
 		"AdministratorWithPassword",
@@ -241,6 +245,18 @@ func (c *StaffTenantUserColumns) HeldGlobally() *StaffTenantUserColumns {
 	return c
 }
 
+func (c *StaffTenantUserColumns) HeldHere() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "HeldHere")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) HeldInEveryTenant() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "HeldInEveryTenant")
+
+	return c
+}
+
 func (c *StaffTenantUserColumns) OutsideDirectory() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -289,6 +305,14 @@ func (p StaffTenantUserQueryPartialClause) HeldElsewhere() StaffTenantUserQueryI
 
 func (p StaffTenantUserQueryPartialClause) HeldGlobally() StaffTenantUserQueryIdent[bool] {
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) HeldHere() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldHere", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) HeldInEveryTenant() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
 }
 
 func (p StaffTenantUserQueryPartialClause) OutsideDirectory() StaffTenantUserQueryIdent[bool] {
@@ -411,6 +435,14 @@ func (c *staffTenantUserSort) HeldElsewhere() *StaffTenantUserSort {
 
 func (c *staffTenantUserSort) HeldGlobally() *StaffTenantUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *staffTenantUserSort) HeldHere() *StaffTenantUserSort {
+	return c.addField("HeldHere")
+}
+
+func (c *staffTenantUserSort) HeldInEveryTenant() *StaffTenantUserSort {
+	return c.addField("HeldInEveryTenant")
 }
 
 func (c *staffTenantUserSort) OutsideDirectory() *StaffTenantUserSort {

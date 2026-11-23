@@ -1932,9 +1932,9 @@ import (
 
 // Disable{{ .Subject }}User disables a person of the {{ .Auth }} auth and ends every
 // session they hold, in one transaction: their next request is refused, and so is
-// their next sign-in. Nobody disables themselves: the caller's own account is refused.` + identityTenantUserNote + identityCallerEntersNote + `
+// their next sign-in. Nobody disables themselves: the caller's own account is refused.` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + identityCallerEnters + `
+// @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Disable{{ .Subject }}User struct {
@@ -2472,9 +2472,9 @@ import (
 
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + identityCallerEntersNote + `
+// go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + identityCallerEnters + `
+// @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Delete{{ .Subject }}User struct {

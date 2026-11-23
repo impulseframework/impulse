@@ -38,6 +38,8 @@ type membersTenantUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere          bool         `json:"heldElsewhere"`
 	HeldGlobally           bool         `json:"heldGlobally"`
+	HeldHere               bool         `json:"heldHere"`
+	HeldInEveryTenant      bool         `json:"heldInEveryTenant"`
 	OutsideDirectory       bool         `json:"outsideDirectory"`
 	CannotEnter            *string      `json:"cannotEnter"`
 }
@@ -160,6 +162,8 @@ func (c *MembersTenantUserColumns) All() *MembersTenantUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"HeldHere",
+		"HeldInEveryTenant",
 		"OutsideDirectory",
 		"CannotEnter",
 	}
@@ -239,6 +243,18 @@ func (c *MembersTenantUserColumns) HeldGlobally() *MembersTenantUserColumns {
 	return c
 }
 
+func (c *MembersTenantUserColumns) HeldHere() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "HeldHere")
+
+	return c
+}
+
+func (c *MembersTenantUserColumns) HeldInEveryTenant() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "HeldInEveryTenant")
+
+	return c
+}
+
 func (c *MembersTenantUserColumns) OutsideDirectory() *MembersTenantUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -281,6 +297,14 @@ func (p MembersTenantUserQueryPartialClause) HeldElsewhere() MembersTenantUserQu
 
 func (p MembersTenantUserQueryPartialClause) HeldGlobally() MembersTenantUserQueryIdent[bool] {
 	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p MembersTenantUserQueryPartialClause) HeldHere() MembersTenantUserQueryIdent[bool] {
+	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldHere", p.partialClause, true)}
+}
+
+func (p MembersTenantUserQueryPartialClause) HeldInEveryTenant() MembersTenantUserQueryIdent[bool] {
+	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
 }
 
 func (p MembersTenantUserQueryPartialClause) OutsideDirectory() MembersTenantUserQueryIdent[bool] {
@@ -399,6 +423,14 @@ func (c *membersTenantUserSort) HeldElsewhere() *MembersTenantUserSort {
 
 func (c *membersTenantUserSort) HeldGlobally() *MembersTenantUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *membersTenantUserSort) HeldHere() *MembersTenantUserSort {
+	return c.addField("HeldHere")
+}
+
+func (c *membersTenantUserSort) HeldInEveryTenant() *MembersTenantUserSort {
+	return c.addField("HeldInEveryTenant")
 }
 
 func (c *membersTenantUserSort) OutsideDirectory() *MembersTenantUserSort {

@@ -843,6 +843,9 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		if method.CallerEnters {
 			b.SetMethodCallerEnters(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()))
 		}
+		if method.NotOnOwnAccount != "" {
+			b.SetMethodNotOnOwnAccount(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), method.NotOnOwnAccount)
+		}
 		if len(method.OfferedOn) != 0 {
 			rows := make([]accesstypes.Resource, 0, len(method.OfferedOn))
 			for _, row := range method.OfferedOn {

@@ -926,7 +926,8 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 
 // resolveRPCDeclarations applies a method's struct-level declarations in order: its
 // permission scope, its outlets, its transition, whether its row offers it only to a
-// caller who enters the row's tenants, its answers, its upload, its warning,
+// caller who enters the row's tenants, whether its row keeps it off the caller's own
+// account, its answers, its upload, its warning,
 // its body limit and its words, its feature gate, its former names, its classes and
 // its schedule, which reads the others off the method.
 func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Struct, annotations genlang.StructAnnotations, structsByName map[string]*parser.Struct) error {
@@ -943,6 +944,10 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 	}
 
 	if err := c.resolveCallerEnters(rpcMethod, s, annotations); err != nil {
+		return err
+	}
+
+	if err := c.resolveNotOnOwnAccount(rpcMethod, s, annotations); err != nil {
 		return err
 	}
 

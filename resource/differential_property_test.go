@@ -517,6 +517,9 @@ func TestQuerySet_noConditionsDifferential(t *testing.T) {
 					if field.group >= 0 {
 						t.Fatalf("case %d (%s): %s capability for %s depends on group %d under all-Granted decisions", i, shape, planned.perm, field.jsonName, field.group)
 					}
+					if len(field.marks) > 0 {
+						t.Fatalf("case %d (%s): %s capability for %s depends on the mark booleans %v under all-Granted decisions", i, shape, planned.perm, field.jsonName, field.marks)
+					}
 				}
 			}
 		}

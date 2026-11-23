@@ -83,6 +83,7 @@ var accessActions = []accesstypes.Resource{
 	"RemoveCrewRole",
 	"RemoveCrewSectorGroupMember",
 	"RemoveCrewSectorRole",
+	"RemoveCrewSectorUser",
 	"SetCrewSelfServiceReset",
 	"SetSectorPilotClearance",
 	"TakeCrewGroupRole",
