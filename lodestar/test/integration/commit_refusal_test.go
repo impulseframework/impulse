@@ -4,32 +4,33 @@ package integration
 // This suite pins what a commit Spanner refuses answers: a 4xx with a message the resource
 // library composes from the records the transaction buffered, said in words, decided on the
 // gRPC code alone. A delete of a record with rows under it does not reach the commit's refusal
-// here. A ship and a squadron declare nothing of their delete, and the rows in their way
-// refuse it before the commit, in a sentence that counts them (TestDeleteRefusal). A wing and
-// a hangar declare what goes with them (@deleteCascade), which is deleted in code, and list
-// under refusedBy the kinds that refuse them before the commit; a delete that would take a
-// row the caller may not delete is refused before anything is deleted
-// (TestDeleteAlone_refusesWhatTheCallerMayNotTake). The referential refusal (409) is
-// reproduced by a create naming a client that does not exist, and beside a delete the same
-// request makes, by the sentence covering both causes. A squadron and the one mission
-// assigned to it, deleted in one transaction, succeed in either order: the squadron declares
-// nothing, so its count runs once the request's deletes are buffered and leaves the mission
-// out. A wing declares its delete, so it is judged as the delete is buffered: deleted ahead of
-// the one mission assigned to its squadron, in one request, it is refused, and nothing is
-// deleted. A refit task created under a task number the refit already holds (a
-// client-supplied compound key) and a ship created under a seeded registry (ShipsByRegistry)
-// are the duplicate-key and duplicate-unique-value refusals on a create (409); a client renamed
-// to another client's name is the duplicate unique value on an update (409); a client updated
-// under an id that does not exist is the missing row on an update (404), which reaches the
-// commit because Client is global, untracked, and updated under unconditional grants; and a
-// mission's hazard updated to 9 is the CHECK refusal (400), beside the create validator's own
-// 400 for the same value, the two enforcement points of one rule.
+// here. A ship and a squadron declare nothing of their delete, and the rows in their way refuse
+// it before the commit, in a sentence that counts them (TestDeleteRefusal). A wing and a hangar
+// declare what goes with them (@deleteCascade), which is deleted in code, and list under
+// refusedBy the kinds that refuse them before the commit; a delete that would take a row the
+// caller may not delete is refused before anything is deleted
+// (TestDeleteAlone_refusesWhatTheCallerMayNotTake). The referential refusal (409) is reproduced
+// by a create naming a client that does not exist, and beside a delete the same request makes,
+// by the sentence covering both causes. A squadron and what is under it (the one mission
+// assigned to it, and its memberships and pass), deleted in one transaction, succeed in either
+// order: the squadron declares nothing, so its count runs once the request's deletes are
+// buffered and leaves those rows out. A wing declares its delete, so it is judged as the delete
+// is buffered: deleted ahead of the one mission assigned to its squadron, in one request, it is
+// refused, and nothing is deleted. A refit task created under a task number the refit already
+// holds (a client-supplied compound key) and a ship created under a seeded registry
+// (ShipsByRegistry) are the duplicate-key and duplicate-unique-value refusals on a create
+// (409); a client renamed to another client's name is the duplicate unique value on an update
+// (409); a client updated under an id that does not exist is the missing row on an update
+// (404), which reaches the commit because Client is global, untracked, and updated under
+// unconditional grants; and a mission's hazard updated to 9 is the CHECK refusal (400), beside
+// the create validator's own 400 for the same value, the two enforcement points of one rule.
 
 import (
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,7 +69,7 @@ func TestCommitRefusal(t *testing.T) {
 	}
 
 	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Wings", "Squadrons", missionsResource},
+		accesstypes.Delete: {"Wings", "Squadrons", missionsResource, "SquadronMemberships", "HangarPasses"},
 		accesstypes.Create: append(
 			append(
 				withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
@@ -82,6 +83,10 @@ func TestCommitRefusal(t *testing.T) {
 	const (
 		missingClientID = "10000000-0000-4000-8000-000000000099"
 		missingID       = "10000000-0000-4000-8000-000000000098"
+		// The seeded members of Portcullis and its pass.
+		memberPortcullisDispatcher = "f0000000-0000-4000-8000-000000000007"
+		memberPortcullisPilot      = "f0000000-0000-4000-8000-000000000004"
+		passPortcullisID           = "61000000-0000-4000-8000-000000000005"
 	)
 	mission := func(clientID, title string, hazard int) string {
 		return fmt.Sprintf(`{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"courier","title":%q,"hazard":%d,"fee":100,"deadline":%q}}`, opPath(anvil, "missions"), clientID, title, hazard, deadline(365))
@@ -128,12 +133,18 @@ func TestCommitRefusal(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			// The patrol is the one mission assigned to Portcullis, in Bastion: the
-			// squadron goes first, while the mission still names it, and the commit
-			// finds nothing left that does.
-			name:       "the row another names, then the row that names it, in one transaction succeed",
-			target:     "/console/api/resources",
-			ops:        "[" + removeIn(bastion, "squadrons/"+squadronPortcullisID) + "," + removeIn(bastion, "missions/"+missionPatrolID) + "]",
+			// The patrol is the one mission assigned to Portcullis, in Bastion, beside its
+			// two members and its pass into the Rampart: the squadron goes first, while the
+			// mission, the memberships and the pass still name it, and the commit finds
+			// nothing left that does.
+			name:   "the row another names, then the row that names it, in one transaction succeed",
+			target: "/console/api/resources",
+			ops: "[" + strings.Join([]string{
+				removeIn(bastion, "squadrons/"+squadronPortcullisID), removeIn(bastion, "missions/"+missionPatrolID),
+				removeIn(bastion, "squadron-memberships/"+squadronPortcullisID+"/"+memberPortcullisDispatcher),
+				removeIn(bastion, "squadron-memberships/"+squadronPortcullisID+"/"+memberPortcullisPilot),
+				removeIn(bastion, "hangar-passes/"+passPortcullisID),
+			}, ",") + "]",
 			wantStatus: http.StatusOK,
 		},
 		{

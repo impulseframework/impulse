@@ -92,7 +92,7 @@ const (
 // the real person's own.
 //
 // A row removed with its parent, which may name the person, is a limit of its own: a
-// hangar pass goes with its hangar, its squadron or its sector, a hangar goes with its
+// hangar pass goes with its hangar, its wing or its sector, a hangar goes with its
 // sector too, and no write of the pass is made for the rule or for the class to
 // refuse. Neither kind refuses those deletes here. Every pass gives something and none
 // restricts, so such a delete only takes away; an application whose rows restrict (a

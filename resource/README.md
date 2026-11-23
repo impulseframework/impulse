@@ -1696,7 +1696,7 @@ in words, each once, in the order they were buffered:
 
 | gRPC code | The transaction buffered | Status | Message |
 | --- | --- | --- | --- |
-| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key without `ON DELETE CASCADE` or as an interleaved parent under `ON DELETE NO ACTION`; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | One delete | 409 | `This hangar cannot be deleted while other records still refer to it.` |
+| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key, or as an interleaved parent; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | One delete | 409 | `This hangar cannot be deleted while other records still refer to it.` |
 | | Several deletes | 409 | `One of the hangars or ships this request deletes cannot be deleted while other records still refer to it.` |
 | | One create or update | 409 | `This ship refers to a record that does not exist, or holds a value that is too long for its field.` |
 | | Several creates or updates | 409 | `One of the ships or missions this request adds or changes refers to a record that does not exist, or holds a value that is too long for its field.` |
@@ -1772,9 +1772,8 @@ transaction, and answers the first delete that has one with a 409:
   (`@domain`) and the record is a tenant's, or is the tenant record, the count is of the
   rows of the record's own tenant (`DeleteKind.Tenant` and `DeleteTree.Tenant`, which the
   generator writes). A row of another tenant that names the record is not under it, and
-  what becomes of it is its foreign key's: one with no delete rule refuses the commit in
-  the commit's own sentence (the table that opens this section), and one declared
-  `ON DELETE CASCADE` has the database remove the row with the record, uncounted.
+  its foreign key refuses the commit in the commit's own sentence (the table that opens
+  this section).
 - A row the transaction's own patches deleted is left out of the count, by its key: a
   read inside the transaction does not see its buffered writes. So the rows and the
   record go together in one transaction, in either order. A row the transaction's
@@ -1800,11 +1799,19 @@ Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go)
 
 ### A delete that takes what is under the record
 
+Rows are deleted in code only, never by the database. No foreign key and no interleave of
+an application's records says `ON DELETE CASCADE`: a row the database removes is not
+checked against the grants of the person who asked, leaves no change record, is not
+announced to open pages and keeps its stored files, and it counts toward the commit's
+mutation limit all the same. `impulse check` holds the schema to it (`no-delete-cascade`).
+What a delete takes with it is declared on the record and deleted by the library, as
+below. A record with rows under it and no declaration is refused, in words that say what
+to delete first.
+
 A record that declares what goes with it (`@deleteCascade`) is deleted together with the
 rows of the kinds it lists as taken, and the library deletes them in code: it finds the
 rows, checks each one as that row's own delete would be checked, and deletes them in the
-record's transaction, deepest first and the record last. A foreign key's own rule
-(`ON DELETE CASCADE`) is not what removes them.
+record's transaction, deepest first and the record last.
 
 Such a delete asks first. A delete of a record with rows to take deletes nothing unless
 it says it takes them, and is answered 428 (`httpio.HasPreconditionRequired`) with the
@@ -1853,16 +1860,14 @@ with nothing gone where it cannot be made whole:
   tenant), or the one the record's row resolves to (`DeleteTree.Tenant`), compared with
   the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
   where its `@domain` goes through them. A row of another tenant that names the record,
-  or a row under it, is not found, counted, named or taken, whoever asks, a trusted delete
-  included. What becomes of such a row is its foreign key's. One with no delete rule
-  refuses the commit, in the commit's own sentence, and nothing is deleted. One declared
-  `ON DELETE CASCADE` has the database remove the row with the row it names, uncounted
-  and with no change record. Only a foreign key that holds the tenant's key beside the
-  rest (a relay's `(SectorId, CaseNumber)` to its call's) keeps such a row from being
-  written; a foreign key on the other row's key alone does not. Which of the two a link is
-  written with is the schema's choice ("A link between two records of a tenant", below). A
-  record that is no tenant's has under it whatever its links put there, and so does a kind
-  whose rows are no tenant's.
+  or a row under it, is not found, counted, named or taken, whoever asks, a trusted
+  delete included. Its foreign key refuses the commit, in the commit's own sentence, and
+  nothing is deleted. Only a foreign key that holds the tenant's key beside the rest (a
+  relay's `(SectorId, CaseNumber)` to its call's) keeps such a row from being written; a
+  foreign key on the other row's key alone does not. Which of the two a link is written
+  with is the schema's choice ("A link between two records of a tenant", below). A
+  record that is no tenant's has under it whatever its links put there, and so does a
+  kind whose rows are no tenant's.
 - A foreign key of two or more columns is written with its columns in the order of the
   key it references: for an order keyed `(Depot, Number)`, a line's is
   `FOREIGN KEY (OrderDepot, OrderNumber) REFERENCES Orders (Depot, Number)`. The generator
@@ -1938,7 +1943,7 @@ what is under the record" gives above; the generator prints the line for one wri
 another order. A child interleaved in its parent is linked by the parent's key, so the link
 holds the tenant only where that key does. What becomes of a row that names another tenant's
 row is in the same part: no delete counts or takes it for the other tenant, and its foreign
-key's delete rule decides what the delete of the row it names does.
+key refuses the delete of the row it names while it stands.
 
 A record that links to a row of one tenant and to a row of another is a fault of the schema's
 design. A schema allows one where a record has two links that nothing holds to one tenant: two
@@ -3840,12 +3845,11 @@ whose roles list a kind there reads its count, and a kind they may not list ther
 neither named nor counted (`, and records you can't see.` after the kinds they may list,
 or the question alone where they may list none). A tenant with nothing under it is
 deleted by the plain remove. A table of the application's that no resource
-describes is not a row the library can delete: it goes by the application's schema, a
-foreign key declared `ON DELETE CASCADE` in the same transaction, and one without the
-rule refuses the delete while its rows remain. An application that deletes a tenant in a
-transaction of its own buffers the record's generated delete patch with
-`WithEverythingUnder()` and calls `ClearTenant` there, and a program that generates no
-auth's management removes the memberships itself.
+describes is not a row the library can delete: its foreign key refuses the tenant's
+delete while its rows remain, so the application deletes them first, in code. An
+application that deletes a tenant in a transaction of its own buffers the record's
+generated delete patch with `WithEverythingUnder()` and calls `ClearTenant` there, and a
+program that generates no auth's management removes the memberships itself.
 
 Each thing the delete takes is an action of the class `access` when it is done alone (a
 role removed, a group deleted, an invitation withdrawn), so the generator gives the
@@ -5500,14 +5504,13 @@ own, outside any request, has no caller and is the application's act):
   refuse the real person their own row, their own set and the row their own value is
   read through.
 
-  A row removed with its parent, which may name the person, is a limit of its own. The
-  database removes the row when the parent's row is deleted (an interleaved table or a
-  foreign key declared `ON DELETE CASCADE`: a pass goes with the place it opens). No
-  write of the row is made, so the rule is not asked about the person it names, and a
-  mask that refuses the row's own writes does not refuse the parent's delete. Where
-  every such row gives something, the delete only takes away; where a row restricts (a
-  ban, a cap), the delete gives. An application closes it under the mask by refusing
-  each request that removes a row above it:
+  A row removed with its parent, which may name the person, is a limit of its own. A row
+  taken with the record it is under (the record's `@deleteCascade`, or its tenant's
+  delete) is deleted by the library and not through the row's own route, so the rule is
+  not asked about the person it names, and a mask that refuses the row's own writes does
+  not refuse the parent's delete. Where every such row gives something, the delete only
+  takes away; where a row restricts (a ban, a cap), the delete gives. An application
+  closes it under the mask by refusing each request that removes a row above it:
 
   - the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`);
   - the delete of each record further up while the cascade goes on, since the

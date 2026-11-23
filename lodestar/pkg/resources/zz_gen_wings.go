@@ -113,6 +113,20 @@ func (Wing) DeleteTree() *resource.DeleteTree {
 				},
 			},
 		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+			},
+		},
 	}
 }
 

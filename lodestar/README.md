@@ -562,36 +562,22 @@ distress call, 1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron
 membership, 1 refit, 1 mission, 1 hangar pass, 1 sortie, 1 refit task, 1 mission
 document, 1 sortie expense, and records you can't see. This can't be undone.", counting
 each kind the person may list in that sector), and the request that goes ahead says it
-takes them. The schema carries the same rule under that: each of
-the eight tables that carry a sector's key (Wings, Hangars,
-HangarPasses, Missions, Consignments, DroidReports, DistressCalls, DistressRelays)
-references `Sectors` with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
-holds every such table to the rule (`tenant-delete-rule`). A table that reaches its
-sector through another row carries the rule on every link of that way, and the check
-holds it to that too: a squadron goes with its wing and a membership with its squadron,
-a ship with its hangar, a refit with its ship and its tasks with it, a sortie and a
-document with their mission, an expense with its sortie. So a sector whose hangar holds
-a ship is deleted in the one request, and the ship is gone with it. Each rule is the
-database's, so it fires for the row deleted by itself too: a wing takes its squadrons
-and their memberships, a squadron its memberships, a hangar its ships with their
-refits, a ship its refits, a mission its sorties, their expenses and its documents, a
-sortie its expenses (`test/integration/commit_refusal_test.go` deletes a hangar that
-holds ships). Rows the database removes this way are removed past their own resource's
-Delete grant and row condition: whoever may delete the hangar deletes its ships. They
-leave no change event, and a document's stored file is the orphaned-file cleanup's, as
-the audit pass says below. The references on no table's way to its sector say nothing
-of a delete, and that is where a delete is refused: a sortie and a droid's report name a
-ship, and a mission the squadron it is assigned to, so a ship that has flown or been
-reported on is not deleted by itself, nor the hangar that would take it along, nor a
-squadron a mission is assigned to. The ship and the squadron are refused before the
-commit, with a sentence that counts what is in the way and that the person may list
-(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`: "This ship has
-2 sorties. Delete them first."; and "This squadron has 8 missions. Move or delete them
-first.", since a mission's assigned squadron may be empty and the missions can be given
-to another squadron). The hangar that would take such a ship along, and
-the wing that would take such a squadron, are refused by the database at the commit
-(`commit.referential-refusal`). A hangar pass is the exception among those references:
-it goes with its hangar and with the squadron it is issued to.
+takes them. The schema carries no rule under that: no foreign key and no interleave of
+Lodestar's records says `ON DELETE CASCADE`, as the skeletons' sample tenant table has
+none, and `impulse check` refuses one (`no-delete-cascade`). So a row deleted by itself
+takes nothing with it by the database, and what becomes of the rows under it is the
+record's to say. A record that says nothing is refused while rows are under it, before
+the commit, with a sentence that counts what is in the way and that the person may list
+(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`): a ship while
+it has refits, sorties flown on it or droid reports filed on it ("This ship has 2
+sorties. Delete them first."), and a squadron while it has memberships, hangar passes or
+missions assigned to it ("This squadron has 1 mission. Move or delete it first."
+where only missions are under it, since a mission's assigned squadron may be empty and
+the missions can be given to another squadron). The rows and the record deleted in one
+request go through, in either order. A commit the database refuses for a referential
+reason is answered in words too (`commit.referential-refusal`,
+`test/integration/commit_refusal_test.go`: a mission booked for a client that does not
+exist).
 
 A record that declares what goes with it is deleted another way
 ([`@deleteCascade`](pkg/resources/missions.go)): the library finds the rows under it and

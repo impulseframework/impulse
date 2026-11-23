@@ -62,6 +62,20 @@ func (Refit) DeleteTree() *resource.DeleteTree {
 				}),
 			},
 		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+					},
+				},
+			},
+		},
 	}
 }
 
