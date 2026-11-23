@@ -346,7 +346,10 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-			return nil, httpio.NewConflictMessageWithError(errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject), dbtype.SignInIdentityAlreadyLinkedMessage)
+			return nil, httpio.NewConflictMessageWithError(
+				errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject),
+				dbtype.SignInIdentityAlreadyLinkedMessage,
+			)
 		}
 
 		return nil, err

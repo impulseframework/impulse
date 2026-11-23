@@ -262,7 +262,10 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil, SelfServiceReset: false}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
-		return httpio.NewBadRequestMessagef("No default role is chosen here, because a person who signs up creates %s of their own and administers it. Send the request without a role.", withArticle(m.tenantWord))
+		return httpio.NewBadRequestMessagef(
+			"No default role is chosen here, because a person who signs up creates %s of their own and administers it. Send the request without a role.",
+			withArticle(m.tenantWord),
+		)
 	case open.CreatesTenant:
 	case open.DefaultRole == "":
 		return httpio.NewBadRequestMessage("Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it.")

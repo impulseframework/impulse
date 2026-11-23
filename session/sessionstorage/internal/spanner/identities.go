@@ -442,7 +442,10 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 	committedAt, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.AlreadyExists {
-			return nil, httpio.NewConflictMessageWithError(errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject), dbtype.SignInIdentityAlreadyLinkedMessage)
+			return nil, httpio.NewConflictMessageWithError(
+				errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject),
+				dbtype.SignInIdentityAlreadyLinkedMessage,
+			)
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
