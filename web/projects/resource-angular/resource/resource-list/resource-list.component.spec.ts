@@ -1693,6 +1693,76 @@ describe('ResourceListComponent', () => {
         'The whole application',
       ]);
     });
+
+    describe('says nothing above its rows of a refused read whose cells already say the tenant cannot be seen', () => {
+      let consoleError: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      });
+
+      afterEach(() => {
+        consoleError.mockRestore();
+      });
+
+      /** The list drawn with the column over the tenant record's read as given, and what it says above its rows. */
+      const drawnUnder = async (
+        column: typeof heldIn,
+        record: TransportResponse,
+      ): Promise<{ cells: unknown[]; notices: (string | undefined)[] }> => {
+        await create(
+          { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, column] },
+          rows,
+          (request) => {
+            const path = request.url.split('?')[0];
+            if (path === '/api/clients') {
+              return record;
+            }
+            if (path === '/api/user-domains') {
+              return { status: 200, body: [{ domain: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' }] };
+            }
+            return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+          },
+        );
+        await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+        fixture.detectChanges();
+        await settle();
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        fixture.detectChanges();
+        const element = fixture.nativeElement as HTMLElement;
+        return {
+          cells: fixture.componentInstance.processedRowData().map((row) => row['clientId']),
+          notices: Array.from(
+            element.querySelectorAll(
+              '.impulse-resource-list-notice[role="status"] .impulse-resource-list-notice-words',
+            ),
+          ).map((words) => words.textContent?.trim()),
+        };
+      };
+
+      it("where the read is refused under a tenant column with its own words, draws no notice: each cell says the name the person's own list of tenants holds or those words", async () => {
+        const drawn = await drawnUnder(heldIn, refused);
+        expect(drawn.cells).toEqual(['Sector Anvil', 'A sector you cannot see', 'The whole application']);
+        expect(drawn.notices).toEqual([]);
+      });
+
+      it('names a column that is not over a tenant key, though it has words of its own', async () => {
+        const drawn = await drawnUnder({ ...heldIn, tenantKey: undefined }, refused);
+        expect(drawn.notices).toEqual(['You do not have permission to see the records named in the Held in column.']);
+      });
+
+      it('names a tenant column with no words of its own, whose cells can say nothing', async () => {
+        const drawn = await drawnUnder({ ...heldIn, fallback: undefined }, refused);
+        expect(drawn.notices).toEqual(['You do not have permission to see the records named in the Held in column.']);
+      });
+
+      it('names a tenant column with words of its own where the read failed, not refused', async () => {
+        const drawn = await drawnUnder(heldIn, { status: 500, body: { message: 'the session pool is closed' } });
+        expect(drawn.notices).toEqual(['The records named in the Held in column could not be loaded.']);
+      });
+    });
   });
 
   describe('renders an icon column from the declared map', () => {

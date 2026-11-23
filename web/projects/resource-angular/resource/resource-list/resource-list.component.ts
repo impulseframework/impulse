@@ -47,6 +47,7 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import {
+  ApiError,
   Domain,
   ListPermission,
   PermissionDigestState,
@@ -338,12 +339,15 @@ export class ResourceListComponent implements OnInit {
    * their headings. Such a read is over, so the list is drawn with the rows it has, and
    * its sentence stands above them, standing still while the read is asked again, until
    * the read answers. Two reads that come to the same sentence (two columns under one
-   * heading, each naming another record) say it once.
+   * heading, each naming another record) say it once. A column over a tenant's key that
+   * says in its own words what a row shows when the tenant may not be seen (`tenantKey`
+   * with a `fallback`) is not named for a read the server refused: its cells already say
+   * it. Where no other column is over that read, nothing is said of it.
    */
   unread = computed<string[]>(() => {
     const sentences = new Set<string>();
     for (const [refKey, error] of this.unanswered()) {
-      const headings = this.headingsOver(refKey);
+      const headings = this.headingsOver(refKey, error instanceof ApiError && error.status === 403);
       if (headings.length > 0) {
         sentences.add(relatedUnreadMessage(error, headings));
       }
@@ -1618,11 +1622,18 @@ export class ResourceListComponent implements OnInit {
     return true;
   }
 
-  /** The headings, as the table draws them, of the shown columns that name a record of the related read under the key. */
-  private headingsOver(refKey: string): string[] {
+  /**
+   * The headings, as the table draws them, of the shown columns that name a record of the
+   * related read under the key. Where the server refused the read, a column over a tenant's
+   * key with words of its own for a tenant the person may not see is left out.
+   */
+  private headingsOver(refKey: string, refused: boolean): string[] {
     const headings: string[] = [];
     for (const col of this.listColumns()) {
       if (col.hidden || !('additionalIds' in col)) {
+        continue;
+      }
+      if (refused && col.tenantKey && col.fallback) {
         continue;
       }
       const reads = col.additionalIds.some(
