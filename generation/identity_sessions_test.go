@@ -15,7 +15,7 @@ import (
 // parameter, and, where the schema holds the impersonation records, the session's
 // record neither ended nor past its time. The auth's identity client tells the list the
 // timeout where it is built, from the session library.
-func Test_prepareIdentity_listedSessions(t *testing.T) {
+func Test_prepareIdentity_listedSessions(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
 
