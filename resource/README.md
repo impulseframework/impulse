@@ -1679,34 +1679,44 @@ so a write the schema refuses surfaces from the commit, not from the patch that 
 `SpannerClient.ExecuteFunc` answers such a commit with a 4xx and a message the library
 composes itself. The translation keys on the gRPC code alone, never on the message text,
 which differs between the emulator and the service and is not documented. The message
-names only the resources whose patches the transaction buffered, in the order they were
-buffered, and never the referencing table, the constraint, the index, the key, the value,
-or a count:
+says the records whose patches the transaction buffered, in words, and never a resource's
+or a table's code name, the referencing table, the constraint, the index, the key, the
+value, or a count. One buffered patch is said by its record's struct name in words ("This
+hangar"; "This record" where the patch gives no name), several by their resources' names
+in words, each once, in the order they were buffered:
 
 | gRPC code | The transaction buffered | Status | Message |
 | --- | --- | --- | --- |
-| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key without `ON DELETE CASCADE` or as an interleaved parent under `ON DELETE NO ACTION`; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | Deletes on one resource | 409 | `Hangars: this record cannot be deleted while other records still reference it.` |
-| | Deletes on several resources | 409 | `Hangars, Ships: a record cannot be deleted while other records still reference it.` |
-| | Creates or updates only | 409 | `Ships: a referenced record does not exist, or a value is too long for its field.` |
+| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key without `ON DELETE CASCADE` or as an interleaved parent under `ON DELETE NO ACTION`; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | One delete | 409 | `This hangar cannot be deleted while other records still refer to it.` |
+| | Several deletes | 409 | `One of the hangars or ships this request deletes cannot be deleted while other records still refer to it.` |
+| | One create or update | 409 | `This ship refers to a record that does not exist, or holds a value that is too long for its field.` |
+| | Several creates or updates | 409 | `One of the ships or missions this request adds or changes refers to a record that does not exist, or holds a value that is too long for its field.` |
 | | Deletes and writes together, or nothing buffered through the transaction wrapper | 409 | `The request could not be applied: a deleted record is still referenced, or a referenced record does not exist.` |
-| `AlreadyExists` (a duplicate primary key; a duplicate unique-index value) | Any create | 409 | `Ships: a record with this key or a unique value already exists.` |
-| | Updates only | 409 | `Clients: a unique value already exists on another record.` |
+| `AlreadyExists` (a duplicate primary key; a duplicate unique-index value) | Any create, one write | 409 | `This ship already exists, or it has a value that must be unique and another record already has it.` |
+| | Any create, several writes | 409 | `One of the clients or ships this request adds or changes already exists, or it has a value that must be unique and another record already has it.` |
+| | Updates only, one | 409 | `This client has a value that must be unique, and another record already has it.` |
+| | Updates only, several | 409 | `One of the clients or ships this request changes has a value that must be unique, and another record already has it.` |
 | | Nothing buffered | 409 | `The request could not be applied: a record with this key or a unique value already exists.` |
-| `OutOfRange` (a violated `CHECK` constraint) | Any write | 400 | `Missions: a value is outside the range the record allows.` |
+| `OutOfRange` (a violated `CHECK` constraint) | One write | 400 | `This mission has a value that is outside the range allowed.` |
+| | Several writes | 400 | `One of the ships or missions this request adds or changes has a value that is outside the range allowed.` |
 | | Nothing buffered | 400 | `The request could not be applied: a value is outside the range the record allows.` |
 | `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | One update | 404 | `This client does not exist.` |
 | | Several updates | 404 | `One of the clients or pilots this request changes does not exist.` |
-| | Any create | 409 | `RefitTasks: a referenced record does not exist.` |
+| | Any create, one write | 409 | `This refit task refers to a record that does not exist.` |
+| | Any create, several writes | 409 | `One of the refits or refit tasks this request adds or changes refers to a record that does not exist.` |
 | | Nothing buffered | 409 | `The request could not be applied: a record to update does not exist, or a referenced record does not exist.` |
 | anything else (`InvalidArgument`, `Internal`, `Aborted`, …) | | 500 | passes through unchanged |
 
-"Create" is a create or a create-or-update; a touch is an update. Deletes cannot cause any
-code but `FailedPrecondition`, so deletes buffered beside writes do not change the other
-codes' sentences. A tracked resource's change-event rows do not count among the buffered
-patches. An error the transaction function itself returns passes through unchanged, whatever
-its code. The 404 is said as every record that is not there is said: where one update was
-buffered, the record by its struct's name in words ("this record" for a patch that is not a
-`PatchSet`); where several were, the resources by their names in words.
+"Create" is a create or a create-or-update; a touch is an update. Several writes are "this
+request adds or changes" where a create is among them and "this request changes" where
+every one is an update; one or several is counted over the patches, so two deletes of one
+resource are several. Deletes cannot cause any code but `FailedPrecondition`, so deletes
+buffered beside writes do not change the other codes' sentences. A tracked resource's
+change-event rows do not count among the buffered patches. An error the transaction
+function itself returns passes through unchanged, whatever its code. The 404 is said as
+every record that is not there is said: where one update was buffered, the record by its
+struct's name in words ("this record" for a patch that is not a `PatchSet`); where several
+were, the resources by their names in words.
 
 ### A delete with rows under the record
 
@@ -1911,7 +1921,7 @@ of two ways:
 
 | The foreign key | What it prevents | What it allows |
 | --- | --- | --- |
-| Holds the tenant, the tenant column of the one beside the tenant column of the other: a pass's `FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars (Id, SectorId)` | A row that names another tenant's row. The database refuses every write that would leave one, whoever writes it: a create, an update of the link, a change of either row's tenant. The caller is answered as for a row that names nothing: `HangarPasses: a referenced record does not exist, or a value is too long for its field.` | Links inside one tenant and no other. It is the key for a record that must never be under another tenant's record. |
+| Holds the tenant, the tenant column of the one beside the tenant column of the other: a pass's `FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars (Id, SectorId)` | A row that names another tenant's row. The database refuses every write that would leave one, whoever writes it: a create, an update of the link, a change of either row's tenant. The caller is answered as for a row that names nothing: `This hangar pass refers to a record that does not exist, or holds a value that is too long for its field.` | Links inside one tenant and no other. It is the key for a record that must never be under another tenant's record. |
 | Is the other row's id alone: `FOREIGN KEY (HangarId) REFERENCES Hangars (Id)` | A row that names no row, and nothing more. The database does not compare the two rows' tenants, and the library holds the record being written to the request's tenant without looking whose row a foreign key names. | A record under a record of another tenant. The application's own code can move either one to another tenant, and a caller who knows the id of another tenant's row can name it. It is the key for a record that may be moved between tenants. |
 
 A key that holds the tenant has two columns or more, written in the order "A delete that takes
