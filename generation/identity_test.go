@@ -931,6 +931,15 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"// @attribute(managedHere)\n\t\tManagedHere bool", "// @attribute(managedByAnotherDirectory)\n\t\tManagedByAnotherDirectory bool",
 			"const crewShipUserQuery = `\nSELECT\n  *,\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\nSELECT\n  u.Id AS Id,",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n) p\n`",
+			// What the person holds in the tenant itself, a line for each role: for an auth
+			// that keeps no groups, the person's own memberships in the row's tenant that have
+			// not ended, read as the tenant's list of the roles held reads them.
+			"// @roleOf(Crew)\n\t\tRoles       []string   `spanner:\"Roles\"`\n\t\tLockedUntil *time.Time `spanner:\"LockedUntil\"`\n",
+			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role\n    FROM (\n      SELECT o.Role AS Role\n      FROM CrewUserRoles o\n" +
+				"      WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId\n        AND " + standingSQL("o") + "\n    ) hr\n    ORDER BY hr.Role\n  ) AS Roles,\n",
+			// Until when the person's sign-in is locked: the schema holds the sign-in attempts
+			// table, so the lock is read by the account's three keys.
+			"  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,\n  (EXISTS (",
 		},
 		"internal/crewresources/crew_ship_user_roles.go": {
 			"CrewShipUserRole struct {", "// @order(Username asc, Role asc)", "// @attribute(everyDomain)",
@@ -955,7 +964,10 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\nJOIN CrewSessionIdentities i ON i.UserId = u.Id",
 		},
-		"internal/membersresources/members_ship_users.go": {"// @outlet(portal, default)", "MembersShipUser struct {", "FROM MembersUserRoles m", "JOIN MembersSessionUsers u ON"},
+		"internal/membersresources/members_ship_users.go": {
+			"// @outlet(portal, default)", "MembersShipUser struct {", "FROM MembersUserRoles m", "JOIN MembersSessionUsers u ON",
+			"// @roleOf(Members)\n\t\tRoles []string `spanner:\"Roles\"`\n", ") AS Roles,\n  (EXISTS (",
+		},
 	} {
 		content, err := os.ReadFile(filepath.Join("pkg", "identity", file))
 		if err != nil {
@@ -977,9 +989,18 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		// whole for every tenant, and a fact that puts the two kinds of membership under
 		// one OR read the memberships table by its key for every listed person. A key
 		// joined from two values is one the database cannot look a row up by: a read of
-		// one row of the roles held joined the tenant's memberships whole.
+		// one row of the roles held joined the tenant's memberships whole. The two keys
+		// the lock of a person's sign-in is read by (identitySourceData.LockedUntil) are
+		// not that form and are taken out before the forms are looked for: each is a
+		// value made from the person's own row that another table, the sign-in attempts,
+		// is looked up by its key with, and no column of the list. Any other value joined
+		// from two is refused as before.
+		searched := string(content)
+		for _, prefix := range []string{firstPasswordAttemptPrefix, codeGuessAttemptPrefix} {
+			searched = strings.ReplaceAll(searched, "CONCAT('"+prefix+"', u.Id)", "")
+		}
 		for _, form := range []string{"NORMALIZE_AND_CASEFOLD", "o.Kind = 'every' OR", "CONCAT("} {
-			if strings.Contains(string(content), form) {
+			if strings.Contains(searched, form) {
 				t.Errorf("%s holds %q, a form the database plans as a whole-table read:\n%s", file, form, content)
 			}
 		}
@@ -991,6 +1012,16 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 	if content := readTreeFile(t, "internal/crewresources/crew_ship_identities.go"); strings.Contains(content, "HeldHere bool") || strings.Contains(content, "HeldInEveryTenant") ||
 		!strings.Contains(content, "* EXCEPT (HeldHere),\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\n") {
 		t.Errorf("the list of identities carries a fact of the list of people's alone, or reads who manages the account otherwise than the list of people:\n%s", content)
+	}
+
+	// For an auth that keeps no groups, what the person holds in the tenant itself is
+	// their own memberships alone: the column reads no second branch.
+	users := readTreeFile(t, "internal/crewresources/crew_ship_users.go")
+	from, to := strings.Index(users, "  ARRAY(\n    SELECT DISTINCT hr.Role"), strings.Index(users, ") AS Roles,")
+	if from < 0 || to < from {
+		t.Errorf("crew_ship_users.go lacks the Roles column:\n%s", users)
+	} else if column := users[from:to]; strings.Contains(column, "UNION") {
+		t.Errorf("crew_ship_users.go reads a second branch of roles for an auth that keeps no groups:\n%s", column)
 	}
 
 	// The generated file that stands beside a list's source goes with it.

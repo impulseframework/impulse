@@ -4445,6 +4445,13 @@ any view: a grant with none answers the key alone. The people's list filters and
 `username` and by the six facts; the account's other columns are no filter keys, so a
 grant may carry any of them under a condition at no cost to a page.
 
+A tenant's people list also says what each person holds in the tenant, `roles`: the name
+of each role once, of their own or through a group. A role held in every tenant at once is
+not among them: `heldInEveryTenant` says it, and a grant gives or keeps back each by
+itself. Where the schema holds the sign-in attempts table the list carries `lockedUntil`
+too: until when the person's sign-in is locked by failed tries, and nothing for a person
+who is not locked. Neither is a filter key.
+
 A view is a query the framework selects from (`FROM (<query>) AS <Resource>`), not a
 database object: nothing is created in the schema and nothing is migrated. The generator
 writes each view beside the tables it reads, with its query as a constant of the file,

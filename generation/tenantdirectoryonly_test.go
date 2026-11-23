@@ -1250,6 +1250,9 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			// file): the two are counted together. The list that declares the switch, has
 			// the password method and keeps groups holds the most.
 			query := renderedConstant(t, string(out), "crewSectorUserQuery")
+			if strings.Contains(strings.TrimPrefix(query, "const crewSectorUserQuery = `"), "`") {
+				t.Errorf("the people's list takes another query in, whose joins this count does not see:\n%s", query)
+			}
 			users, err := c.generateTemplateOutput("identityUsersTemplate", identityUsersTemplate, tt.data)
 			if err != nil {
 				t.Fatalf("generateTemplateOutput(identityUsersTemplate) error = %v", err)

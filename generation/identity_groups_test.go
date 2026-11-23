@@ -292,6 +292,18 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			// Each is written with EXISTS alone, as it adds no join to the query (below).
 			"SELECT 1 FROM CrewGroupMembers gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups hg\n        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId\n      )\n  )) AS HeldHere,",
 			"SELECT 1 FROM CrewGroupMembers gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups eg\n        WHERE eg.Id = gm.GroupId AND eg.Kind = 'global'\n      )\n      AND EXISTS (\n        SELECT 1 FROM CrewGroupRoles er\n        WHERE er.GroupId = gm.GroupId AND er.Kind = 'every' AND er.Axis = ''\n          AND " + standingSQL("er") + "\n      )\n  )) AS HeldInEveryTenant",
+			// What the person holds in the tenant itself through a group: for each place of
+			// theirs, the roles the group holds in the row's tenant and gives its members, as
+			// the tenant's list of the roles held through a group reads them, unnested beside
+			// the place's row.
+			"      UNION ALL\n      SELECT gr AS Role\n      FROM CrewGroupMembers gm, UNNEST(ARRAY(\n        SELECT r.Role FROM CrewGroupRoles r\n" +
+				"        WHERE r.GroupId = gm.GroupId AND r.Kind = 'domain' AND r.Axis = '' AND r.DomainId = t.DomainId\n          AND " + standingSQL("r") + "\n" +
+				"          AND ((" + countingSQL("r") + ") OR NOT EXISTS (\n            SELECT 1 FROM CrewGroupRoles e\n" +
+				"            WHERE e.GroupId = r.GroupId AND e.Kind = 'every' AND e.Axis = r.Axis AND e.Role = r.Role\n              AND " + countingSQL("e") + "\n          ))\n" +
+				"          AND EXISTS (\n            SELECT 1 FROM CrewGroups hg\n" +
+				"            WHERE hg.Id = gm.GroupId AND r.Role != 'SuperAdministrator' AND (hg.Kind = 'global' OR (r.Kind = hg.Kind AND r.Axis = hg.Axis AND r.DomainId = hg.DomainId))\n          )\n" +
+				"  AND " + standingSQL("gm") + "\n  AND (r.EndsAt IS NULL OR gm.StartsAt IS NULL OR gm.StartsAt < r.EndsAt)\n  AND (gm.EndsAt IS NULL OR r.StartsAt IS NULL OR r.StartsAt < gm.EndsAt)\n" +
+				"      )) AS gr\n      WHERE gm.UserId = u.Id\n    ) hr\n",
 		},
 		"crewidentity/create_crew_ship_group.go": {
 			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
@@ -334,6 +346,15 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		t.Errorf("crew_ship_users.go lacks HeldGlobally before HeldInEveryTenant:\n%s", users)
 	} else if facts := users[from:to]; strings.Contains(facts, "JOIN") {
 		t.Errorf("crew_ship_users.go joins a table in HeldHere or HeldInEveryTenant, want EXISTS alone:\n%s", facts)
+	}
+	// Nor does the column of what the person holds in the tenant itself: it is written over
+	// the tables and takes in no other query, whose joins it would bring (a backtick there
+	// is another constant taken in).
+	from, to = strings.Index(users, "u.LastSignInAt AS LastSignInAt,"), strings.Index(users, ") AS Roles,")
+	if from < 0 || to < from {
+		t.Errorf("crew_ship_users.go lacks the Roles column after LastSignInAt:\n%s", users)
+	} else if column := users[from:to]; strings.Contains(column, "JOIN") || strings.Contains(column, "`") {
+		t.Errorf("crew_ship_users.go joins a table or takes another query in for the Roles column, want neither:\n%s", column)
 	}
 
 	// A tenant's method takes no tenant in its request: the tenant is the one the
