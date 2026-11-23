@@ -8,8 +8,8 @@ require (
 	cloud.google.com/go/firestore v1.29.2
 	cloud.google.com/go/logging v1.21.1
 	cloud.google.com/go/spanner v1.96.1
-	cloud.google.com/go/storage v1.70.0
-	firebase.google.com/go/v4 v4.22.0
+	cloud.google.com/go/storage v1.71.0
+	firebase.google.com/go/v4 v4.23.0
 	github.com/cloudspannerecosystem/memefish v0.9.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/ettle/strcase v0.2.0
@@ -27,7 +27,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jackc/pgx-shopspring-decimal v0.0.0-20220624020537-1d36b5a1853e
 	github.com/jackc/pgx/v5 v5.13.0
-	github.com/moby/moby/api v1.56.1
+	github.com/moby/moby/api v1.57.0
 	github.com/momaek/formattag v0.0.10
 	github.com/sethvargo/go-envconfig v1.4.3
 	github.com/shopspring/decimal v1.6.0
@@ -52,7 +52,7 @@ require (
 	golang.org/x/term v0.48.0
 	golang.org/x/text v0.44.0
 	golang.org/x/tools v0.52.0
-	google.golang.org/api v0.313.0
+	google.golang.org/api v0.315.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -145,7 +145,7 @@ require (
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/appengine/v2 v2.0.6 // indirect
-	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261104224025-d1e00e9f33ab // indirect
+	google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
 )
