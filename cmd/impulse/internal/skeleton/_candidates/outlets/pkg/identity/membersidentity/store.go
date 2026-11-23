@@ -741,6 +741,27 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
+// SeatedCount counts the people of the Members auth who hold a role in the
+// tenant, in it or in every tenant: the rows of the tenant's own list of its people
+// (MembersTenantUser) for it, one row a person, the list DirectoryOutsiders reads, in the
+// caller's transaction. The read of the tenant's directory-only switch says it beside
+// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
+// page that shows the switch says how many of the tenant's people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := membersresources.NewMembersTenantUserQuery().
+		AddColumns(membersresources.NewMembersTenantUserColumns().ID()).
+		Where(membersresources.NewMembersTenantUserQueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "membersresources.MembersTenantUserQuery.List()")
+		}
+		seated++
+	}
+
+	return seated, nil
+}
+
 // groupID answers a group's id as the declarations hold it, from the text the permission
 // store names a group by.
 func groupID(group accesstypes.Group) (impulse.UUID, error) {

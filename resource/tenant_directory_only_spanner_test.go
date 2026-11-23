@@ -1149,7 +1149,7 @@ func TestTenantDirectoryRules_state(t *testing.T) {
 
 	// A counter's error is the read's, said by the reader that failed.
 	for name, failing := range map[string]DirectoryCounter{
-		"resource.DirectorySeated()": {Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
+		"resource.SeatedCount()": {Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
 			return 0, errors.New("the list is unreadable")
 		}},
 		"resource.DirectoryOutsiders()": {Outsiders: func(context.Context, ReadWriteTransaction, accesstypes.Domain) ([]DirectoryOutsider, error) {

@@ -2,6 +2,7 @@ package generation
 
 import (
 	"go/format"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,9 +47,13 @@ func Test_namedDirectoryRules(t *testing.T) {
 		wantNamers []string
 		wantRules  string
 		// wantSwitch is the expression of the rules the directory-only switch's frame
-		// asks: the named rules, told what each auth says of the caller's password.
+		// asks: the named rules, told what each auth says of the caller's password, and
+		// given the counters of each auth whose client answers who the switch keeps out.
 		wantSwitch string
 		wantClosed string
+		// counting are the auths among auths whose client answers who the switch keeps
+		// out: their tenants declare the switch and they list the tenant's people.
+		counting []string
 	}{
 		{
 			name: "two auths name the rules and the tenant list, in declaration order", auths: []string{"Staff", "Members"}, structs: []string{"Harbor", "HarborDirectory"},
@@ -56,6 +61,17 @@ func Test_namedDirectoryRules(t *testing.T) {
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)",
 			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
+		},
+		{
+			name: "the auths whose client answers who the switch keeps out count the tenant's people, in declaration order",
+			auths: []string{"Staff", "Members", "Guests"}, counting: []string{"Staff", "Guests"}, structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.MembersIdentity().DirectoryName", "a.GuestsIdentity().DirectoryName"},
+			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)" +
+				".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword, a.GuestsIdentity().CallerPassword)" +
+				".CountedBy(resource.DirectoryCounter{Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders}, " +
+				"resource.DirectoryCounter{Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders})",
+			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName",
 		},
 		{
 			name: "one auth", auths: []string{"Staff"}, structs: []string{"Harbor", "HarborDirectory"},
@@ -85,7 +101,13 @@ func Test_namedDirectoryRules(t *testing.T) {
 			}
 			c.resources = resources
 			for _, auth := range tt.auths {
-				c.identity = append(c.identity, &identityInstance{auth: auth})
+				inst := &identityInstance{auth: auth}
+				if slices.Contains(tt.counting, auth) {
+					directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+					inst.tenant = &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directory: directory}
+					inst.tables = map[identityTable]bool{identityUsers: true, identityMemberships: true}
+				}
+				c.identity = append(c.identity, inst)
 			}
 			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
 			if err := r.resolveTenantRecord(); err != nil {

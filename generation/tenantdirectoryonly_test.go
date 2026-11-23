@@ -1255,6 +1255,11 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 	for _, want := range []string{
 		"func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {",
 		"QueryClause().DomainID().Equal(string(tenant)).And().OutsideDirectory().Equal(true))",
+		// The read of the switch counts the tenant's people over the same list, by its
+		// rows for the tenant.
+		"func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {",
+		"Columns().ID()).\n\t\tWhere(",
+		"QueryClause().DomainID().Equal(string(tenant)))\n\tseated := 0",
 		"func (c *Client) DirectoryAdministrators(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryAdministrator, error) {",
 		"QueryClause().DomainID().Equal(string(tenant)).And().AdministratorWithPassword().Equal(true))",
 		"func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryInvitation, error) {",

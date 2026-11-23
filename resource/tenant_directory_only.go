@@ -885,7 +885,7 @@ func (r *TenantDirectoryRules) count(ctx context.Context, txn ReadWriteTransacti
 		if counter.Seated != nil {
 			seated, err := counter.Seated(ctx, txn, tenant)
 			if err != nil {
-				return nil, errors.Wrap(err, "resource.DirectorySeated()")
+				return nil, errors.Wrap(err, "resource.SeatedCount()")
 			}
 			count.Seated += seated
 		}

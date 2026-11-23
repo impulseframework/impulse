@@ -712,6 +712,27 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
+// SeatedCount counts the people of the Members auth who hold a role in the
+// sector, in it or in every sector: the rows of the sector's own list of its people
+// (MembersSectorUser) for it, one row a person, the list DirectoryOutsiders reads, in the
+// caller's transaction. The read of the sector's directory-only switch says it beside
+// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
+// page that shows the switch says how many of the sector's people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := membersresources.NewMembersSectorUserQuery().
+		AddColumns(membersresources.NewMembersSectorUserColumns().ID()).
+		Where(membersresources.NewMembersSectorUserQueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "membersresources.MembersSectorUserQuery.List()")
+		}
+		seated++
+	}
+
+	return seated, nil
+}
+
 // errNoGroups answers a call that writes a group, a member or a group's role on an auth
 // that keeps no groups of people: a directory writes the Members auth's roles at every
 // sign-in, and its own groups do that job. The generator wrote no method that
