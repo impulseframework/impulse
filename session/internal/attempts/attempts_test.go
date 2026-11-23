@@ -178,14 +178,14 @@ func TestNormalize(t *testing.T) {
 		want string
 	}{
 		{name: "an address's ASCII capitals are lowercased", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
-		{name: "an address keeps the Kelvin sign", in: "Kim@Lakeside.EDU", want: "Kim@lakeside.edu"},
-		{name: "an address keeps the sharp s", in: "straße@lakeside.edu", want: "straße@lakeside.edu"},
-		{name: "an address keeps an accented letter in two code points", in: "josé@Lakeside.edu", want: "josé@lakeside.edu"},
-		{name: "an address keeps a capital letter from outside ASCII", in: "Émilie@lakeside.edu", want: "Émilie@lakeside.edu"},
-		{name: "a name with no @ in it is case-folded, the Kelvin sign to a k", in: "Kim", want: "kim"},
-		{name: "a name with no @ in it is case-folded, the sharp s to ss", in: "Straße", want: "strasse"},
-		{name: "a kind's capitals before an address are lowercased", in: "MAIL:Émilie@lakeside.edu", want: "mail:Émilie@lakeside.edu"},
-		{name: "a name with no @ in it is one name in a composed and a decomposed spelling", in: "résumé", want: "résumé"},
+		{name: "an address keeps the Kelvin sign", in: "\u212Aim@Lakeside.EDU", want: "\u212Aim@lakeside.edu"},
+		{name: "an address keeps the sharp s", in: "stra\u00DFe@lakeside.edu", want: "stra\u00DFe@lakeside.edu"},
+		{name: "an address keeps an accented letter in two code points", in: "jose\u0301@Lakeside.edu", want: "jose\u0301@lakeside.edu"},
+		{name: "an address keeps a capital letter from outside ASCII", in: "\u00C9milie@lakeside.edu", want: "\u00C9milie@lakeside.edu"},
+		{name: "a name with no @ in it is case-folded, the Kelvin sign to a k", in: "\u212Aim", want: "kim"},
+		{name: "a name with no @ in it is case-folded, the sharp s to ss", in: "Stra\u00DFe", want: "strasse"},
+		{name: "a kind's capitals before an address are lowercased", in: "MAIL:\u00C9milie@lakeside.edu", want: "mail:\u00C9milie@lakeside.edu"},
+		{name: "a name with no @ in it is one name in a composed and a decomposed spelling", in: "re\u0301sume\u0301", want: "r\u00E9sum\u00E9"},
 		{name: "a folded name stays as it is", in: "pat", want: "pat"},
 	}
 	for _, tt := range tests {
@@ -210,12 +210,12 @@ func TestFoldWide(t *testing.T) {
 		want string
 	}{
 		{name: "ASCII capitals are lowercased", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
-		{name: "the Kelvin sign folds to a k", in: "Kim@Lakeside.EDU", want: "kim@lakeside.edu"},
-		{name: "the sharp s folds to ss", in: "straße@lakeside.edu", want: "strasse@lakeside.edu"},
-		{name: "an accented letter in two code points is composed", in: "josé@Lakeside.edu", want: "josé@lakeside.edu"},
-		{name: "a capital letter from outside ASCII is folded", in: "Émilie@lakeside.edu", want: "émilie@lakeside.edu"},
-		{name: "a name with no @ in it is folded the same way", in: "Kim", want: "kim"},
-		{name: "the sharp s in a name with no @ in it folds to ss", in: "Straße", want: "strasse"},
+		{name: "the Kelvin sign folds to a k", in: "\u212Aim@Lakeside.EDU", want: "kim@lakeside.edu"},
+		{name: "the sharp s folds to ss", in: "stra\u00DFe@lakeside.edu", want: "strasse@lakeside.edu"},
+		{name: "an accented letter in two code points is composed", in: "jose\u0301@Lakeside.edu", want: "jos\u00E9@lakeside.edu"},
+		{name: "a capital letter from outside ASCII is folded", in: "\u00C9milie@lakeside.edu", want: "\u00E9milie@lakeside.edu"},
+		{name: "a name with no @ in it is folded the same way", in: "\u212Aim", want: "kim"},
+		{name: "the sharp s in a name with no @ in it folds to ss", in: "Stra\u00DFe", want: "strasse"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

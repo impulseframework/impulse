@@ -56,7 +56,7 @@ func TestGeneratedIdentityUsernameMatch(t *testing.T) {
 	s.seedCrewAccount(ctx, t, plain, nil)
 
 	// The Kelvin sign (U+212A) for the k: another address, so another username.
-	alike := "Kim-" + suffix + "@example.com"
+	alike := "\u212Aim-" + suffix + "@example.com"
 	if err := rename(b, alike); err != nil {
 		t.Fatalf("a rename to %+q beside %q: error = %v, want it renamed", alike, kim, err)
 	}
@@ -67,8 +67,8 @@ func TestGeneratedIdentityUsernameMatch(t *testing.T) {
 		t.Errorf("a rename to %q, another's address in ASCII capitals: error = %v, want a Conflict", strings.ToUpper(kim), err)
 	}
 	// With no @ in it the same look-alike is the other person's name once normalized.
-	if err := rename(b, "Kim-"+suffix); !httpio.HasConflict(err) {
-		t.Errorf("a rename to %+q beside %q: error = %v, want a Conflict", "Kim-"+suffix, plain, err)
+	if err := rename(b, "\u212Aim-"+suffix); !httpio.HasConflict(err) {
+		t.Errorf("a rename to %+q beside %q: error = %v, want a Conflict", "\u212Aim-"+suffix, plain, err)
 	}
 	found(t, alike, b)
 }

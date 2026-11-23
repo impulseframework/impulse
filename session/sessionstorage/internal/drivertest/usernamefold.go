@@ -29,12 +29,12 @@ type namePair = struct {
 // ASCII are written as escapes so that each is the code point it is named for.
 var plainNamePairs = []namePair{
 	{name: "ASCII capitals", stored: "Kim", asked: "kim", one: true},
-	{name: "the Kelvin sign", stored: "Kim", asked: "kim", one: true},
-	{name: "the long s", stored: "moſs", asked: "moss", one: true},
-	{name: "the sharp s", stored: "straße", asked: "strasse", one: true},
-	{name: "an accented letter in one code point and in two", stored: "josé", asked: "josé", one: true},
-	{name: "a capital letter from outside ASCII", stored: "Émilie", asked: "émilie", one: true},
-	{name: "the dotted capital I", stored: "İrem", asked: "irem"},
+	{name: "the Kelvin sign", stored: "\u212Aim", asked: "kim", one: true},
+	{name: "the long s", stored: "mo\u017Fs", asked: "moss", one: true},
+	{name: "the sharp s", stored: "stra\u00DFe", asked: "strasse", one: true},
+	{name: "an accented letter in one code point and in two", stored: "jos\u00E9", asked: "jose\u0301", one: true},
+	{name: "a capital letter from outside ASCII", stored: "\u00C9milie", asked: "\u00E9milie", one: true},
+	{name: "the dotted capital I", stored: "\u0130rem", asked: "irem"},
 	{name: "two names", stored: "kim", asked: "kin"},
 }
 
