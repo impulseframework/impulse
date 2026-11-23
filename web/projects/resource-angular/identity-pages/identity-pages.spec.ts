@@ -1226,14 +1226,14 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
 
   it('says of a person who holds a role in every sector that they do, and not that another sector holds them besides', () => {
     const says = stateOf(list(people));
-    expect(says({ heldInEveryTenant: true, heldElsewhere: true })).toEqual(['Holds a role in every sector']);
+    expect(says({ heldInEveryTenant: true, heldElsewhere: true })).toEqual(['In every sector']);
     expect(says({ heldElsewhere: true })).toEqual(['Also in another sector']);
     expect(says({ heldElsewhere: true, heldInEveryTenant: true, heldGlobally: true })).toEqual([
-      'Holds a role in every sector',
+      'In every sector',
       'Also holds a role in the whole application',
     ]);
     expect(sayingOf(people, 'State')({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([
-      'Holds a role in every sector',
+      'In every sector',
       true,
     ]);
     // The whole application's side says neither.

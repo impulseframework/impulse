@@ -1913,8 +1913,9 @@ class SideBuilder {
    * The fields a person's state is said from on this side, each with the line a row
    * says where the field is true, in the order the lines are said: Disabled; Must change
    * password, where the side has a password method; and on a tenant's side that another
-   * tenant also holds the person, that they hold a role in every tenant at once, or that
-   * they hold a role in the whole application, which keeps Disable and Delete from the
+   * tenant also holds the person, that they hold a role in every tenant at once (In every
+   * tenant, in the application's word, short enough for the State column), or that they
+   * hold a role in the whole application, which keeps Disable and Delete from the
    * tenant's administrator as a shared person does.
    */
   private stateLines(): Named[] {
@@ -1925,7 +1926,7 @@ class SideBuilder {
       ...(this.tenant
         ? ([
             ['heldElsewhere', `Also in another ${this.tenantWord}`],
-            ['heldInEveryTenant', `Holds a role in every ${this.tenantWord}`],
+            ['heldInEveryTenant', `In every ${this.tenantWord}`],
             ['heldGlobally', 'Also holds a role in the whole application'],
           ] as Named[])
         : []),
