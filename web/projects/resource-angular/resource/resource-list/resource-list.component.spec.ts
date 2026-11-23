@@ -280,13 +280,14 @@ describe('ResourceListComponent', () => {
   };
 
   describe("writes each cell by its field's display type", () => {
-    it('a number array as its elements, a bytes value as its size, a date as a calendar date, and nothing configured otherwise', async () => {
+    it('a number array as its elements, a bytes value as its size, a date as its day and time of day, and nothing configured otherwise', async () => {
       const kestrel = {
         id: 's-1',
         name: 'Kestrel',
         cargoBays: [60, 60, 30],
         digest: digest32,
-        lastRefitAt: '2026-09-21T12:00:00Z',
+        // No offset: a moment on the viewer's clock, written the same wherever the spec runs.
+        lastRefitAt: '2026-09-21T12:00:00',
       };
       await create(
         {
@@ -306,12 +307,25 @@ describe('ResourceListComponent', () => {
       expect(row['name']).toBe('Kestrel');
       expect(row['cargoBays']).toBe('60, 60, 30');
       expect(row['digest']).toBe('32 B');
-      expect(row['lastRefitAt']).toBe('9/21/2026');
+      expect(row['lastRefitAt']).toBe('9/21/2026 12:00 PM');
       const cells = Array.from(
         (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
       ).map((td) => td.textContent?.trim());
-      expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026']);
+      expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026 12:00 PM']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
+    });
+
+    it('a date by the format of a column that configures one, as it always has', async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'lastRefitAt' as FieldName, formatType: 'yyyy-MM-dd' }],
+        },
+        [{ id: 's-1', name: 'Kestrel', lastRefitAt: '2026-09-21T12:00:00' }],
+      );
+      fixture.detectChanges();
+      await settle();
+      expect(fixture.componentInstance.processedRowData()[0]['lastRefitAt']).toBe('2026-09-21');
     });
   });
 

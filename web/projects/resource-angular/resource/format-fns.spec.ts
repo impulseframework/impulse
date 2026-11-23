@@ -1,4 +1,5 @@
 import { ValidDisplayTypes } from '@impulseframework/resource-angular/types';
+import { format, parseISO } from 'date-fns';
 import {
   base64ByteLength,
   formatByDisplayType,
@@ -9,7 +10,16 @@ import {
 
 // The cell formatter: one text per display type, so a grid shows a size for bytes, a
 // list for an array, a place in words for a position and a compact JSON for any other
-// object, a calendar date for a date, and the value's own text for everything else.
+// object, the day and the time of day for a moment, a calendar date for a day, and the
+// value's own text for everything else.
+
+/**
+ * A moment as the viewer's clock writes it, the day and the time of day where the test
+ * runs: a server sends a moment in UTC, and the cell is in the viewer's time zone.
+ */
+function atViewersClock(iso: string): string {
+  return format(parseISO(iso), 'M/d/yyyy h:mm a');
+}
 
 /** The base64 of 32 zero bytes: what a SHA-256 digest column carries. */
 const digest32 = btoa(String.fromCharCode(...new Array<number>(32).fill(0)));
@@ -27,7 +37,19 @@ describe('formatByDisplayType', () => {
     { name: 'a boolean is its word', displayType: 'boolean', value: false, want: 'false' },
     { name: 'a nullboolean is its word', displayType: 'nullboolean', value: true, want: 'true' },
     { name: 'an enumerated value is its key', displayType: 'enumerated', value: 'open', want: 'open' },
-    { name: 'a date is M/d/yyyy', displayType: 'date', value: '2026-09-21T12:00:00Z', want: '9/21/2026' },
+    // A moment with no offset is one on the viewer's clock, so its text is the same wherever the test runs.
+    {
+      name: 'a date is its day and its time of day',
+      displayType: 'date',
+      value: '2026-11-23T15:15:00',
+      want: '11/23/2026 3:15 PM',
+    },
+    {
+      name: "a date the server sends is written on the viewer's clock",
+      displayType: 'date',
+      value: '2026-09-21T12:00:00Z',
+      want: atViewersClock('2026-09-21T12:00:00Z'),
+    },
     { name: 'a civildate is M/d/yyyy', displayType: 'civildate', value: '2026-02-03', want: '2/3/2026' },
     {
       name: 'a bytes value is its decoded size, never the base64',
@@ -80,10 +102,10 @@ describe('formatByDisplayType', () => {
     },
     { name: 'a boolean array is its words', displayType: 'boolean[]', value: [true, false], want: 'true, false' },
     {
-      name: 'a date array formats each element',
+      name: 'a date array writes each element with its time of day',
       displayType: 'date[]',
-      value: ['2026-09-21T12:00:00Z', '2026-10-01T12:00:00Z'],
-      want: '9/21/2026, 10/1/2026',
+      value: ['2026-09-21T08:05:00', '2026-10-01T12:00:00Z'],
+      want: `9/21/2026 8:05 AM, ${atViewersClock('2026-10-01T12:00:00Z')}`,
     },
     {
       name: 'a civildate array formats each element',
