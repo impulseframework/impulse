@@ -84,7 +84,9 @@ func WithUserTableName(name string) BaseSessionOption {
 
 var defaultSessionTimeout = sessioncore.DefaultSessionTimeout
 
-// WithSessionTimeout sets the session timeout. (default: 10m)
+// WithSessionTimeout sets the session timeout: how long a session may sit idle. A
+// timeout longer than 30 days is refused when the session is built, since a session's
+// row is removed 30 days after its last activity. (default: 10m)
 func WithSessionTimeout(d time.Duration) BaseSessionOption {
 	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.SessionTimeout = d
