@@ -1945,8 +1945,9 @@ func Test_snapshot_userHasGrants(t *testing.T) {
 
 // Test_snapshot_userDigest pins the digest enumeration: structural (nothing
 // folds), fail-closed by absence (denied targets never appear), granted
-// beating conditional, all-fields grants enumerating the known field
-// vocabulary, and scope-wide grants staying outside the digest.
+// beating conditional, conditional on time where every covering condition
+// reads the time of the request alone, all-fields grants enumerating the
+// known field vocabulary, and scope-wide grants staying outside the digest.
 func Test_snapshot_userDigest(t *testing.T) {
 	t.Parallel()
 
@@ -1968,6 +1969,21 @@ func Test_snapshot_userDigest(t *testing.T) {
 			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
 			// Pinger holds only a scope-wide grant: no resource to enumerate.
 			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Pinger"), Perm: "Ping"},
+			// Shifter: List on the employees endpoint and fields under conditions
+			// that read the time alone, beside a row condition on the status, and
+			// an all-fields Export on a weekday condition, beside a row condition
+			// on the status's own Export.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "name", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "salary", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "salary", Condition: "timeOfDay(now, 'UTC') < '18:00'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "status", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "status", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "title", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "Export", Resource: "employees", Field: "*", Condition: "dayOfWeek(now, 'UTC') IN ('mon', 'tue')"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "Export", Resource: "employees", Field: "status", Condition: "status = 'open'"},
+			// Lister: the title outright, which settles Shifter's time-only cover.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Lister"), Perm: "List", Resource: "employees", Field: "title"},
 		},
 		Memberships: []policy.Membership{
 			{Scope: tenant1.PolicyScope(), Member: userSubject("erin"), Role: "Editor"},
@@ -1975,6 +1991,8 @@ func Test_snapshot_userDigest(t *testing.T) {
 			{Scope: tenant1.PolicyScope(), Member: userSubject("casey"), Role: "Chief"},
 			{Scope: tenant1.PolicyScope(), Member: userSubject("wren"), Role: "Chief"},
 			{Scope: tenant1.PolicyScope(), Member: userSubject("gale"), Role: "Pinger"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("tess"), Role: "Shifter"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("tess"), Role: "Lister"},
 		},
 	})
 
@@ -2019,6 +2037,23 @@ func Test_snapshot_userDigest(t *testing.T) {
 			want:  accesstypes.PermissionDigest{},
 		},
 		{
+			// The endpoint and the name are covered by one condition on the time,
+			// the salary by two; the status also by a row condition, which leaves
+			// it to the rows; the title outright from another role. The
+			// all-fields Export reads the weekday alone, so every known field is
+			// conditional on time but the status, whose own Export reads the row.
+			name:  "conditions that read the time alone answer conditional on time, and one that reads more answers conditional",
+			user:  "tess",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":        {"List": accesstypes.DigestConditionalOnTime},
+				"employees.name":   {"List": accesstypes.DigestConditionalOnTime, "Export": accesstypes.DigestConditionalOnTime},
+				"employees.salary": {"List": accesstypes.DigestConditionalOnTime, "Export": accesstypes.DigestConditionalOnTime},
+				"employees.status": {"List": accesstypes.DigestConditional, "Export": accesstypes.DigestConditional},
+				"employees.title":  {"List": accesstypes.DigestGranted, "Export": accesstypes.DigestConditionalOnTime},
+			},
+		},
+		{
 			name:  "grants in another scope do not carry over",
 			user:  "erin",
 			scope: accesstypes.DomainScope("tenant2"),
@@ -2038,6 +2073,106 @@ func Test_snapshot_userDigest(t *testing.T) {
 			got := snap.userDigest(tt.scope, tt.user)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("userDigest(%s, %s) mismatch (-want +got):\n%s", tt.scope, tt.user, diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_userDigest_declaredFields pins that a grant on all of a resource's
+// fields is told field by field over the fields the release declares for the
+// resource, under any permission, though no grant names them: each with the state
+// the grant gives it, granted, conditional or conditional on time. A subject whose
+// grants name their fields is listed as before, and each field's entry answers as a
+// check of the field does.
+func Test_snapshot_userDigest_declaredFields(t *testing.T) {
+	t.Parallel()
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	records := &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Lister"), Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Opener"), Perm: "List", Resource: "widgets", Field: "*", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "widgets", Field: "*", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Labeler"), Perm: "List", Resource: "widgets", Field: "label"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1.PolicyScope(), Member: userSubject("lou"), Role: "Lister"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("olive"), Role: "Opener"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("tess"), Role: "Shifter"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("lana"), Role: "Labeler"},
+		},
+	}
+	// The release declares two fields of widgets no grant names: List on the
+	// serial, and Read alone on the model.
+	collection, ok := declaringRecords(records).(*stubCollection)
+	if !ok {
+		t.Fatalf("declaringRecords() = %T, want *stubCollection", declaringRecords(records))
+	}
+	collection.list[accesstypes.List] = append(collection.list[accesstypes.List], "widgets.serial")
+	collection.list[accesstypes.Read] = append(collection.list[accesstypes.Read], "widgets.model")
+	snap, findings, err := newSnapshot(records, nil, collection, time.Now())
+	if err != nil {
+		t.Fatalf("newSnapshot() error = %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("newSnapshot() findings = %v, want none", findings)
+	}
+
+	fields := []accesstypes.Resource{"widgets.label", "widgets.model", "widgets.serial"}
+	every := func(state accesstypes.DigestState) accesstypes.PermissionDigest {
+		digest := make(accesstypes.PermissionDigest, len(fields))
+		for _, field := range fields {
+			digest[field] = map[accesstypes.Permission]accesstypes.DigestState{accesstypes.List: state}
+		}
+
+		return digest
+	}
+	tests := []struct {
+		name string
+		user accesstypes.User
+		want accesstypes.PermissionDigest
+	}{
+		{
+			name: "a grant on all fields outright lists every declared field granted",
+			user: "lou",
+			want: every(accesstypes.DigestGranted),
+		},
+		{
+			name: "a grant on all fields under a row condition lists every declared field conditional",
+			user: "olive",
+			want: every(accesstypes.DigestConditional),
+		},
+		{
+			name: "a grant on all fields under a condition on the time lists every declared field conditional on time",
+			user: "tess",
+			want: every(accesstypes.DigestConditionalOnTime),
+		},
+		{
+			name: "a grant that names its field lists that field alone",
+			user: "lana",
+			want: accesstypes.PermissionDigest{"widgets.label": {accesstypes.List: accesstypes.DigestGranted}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snap.userDigest(tenant1, tt.user)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("userDigest(%s, %s) mismatch (-want +got):\n%s", tenant1, tt.user, diff)
+			}
+			// The digest says of each field what a check of it answers: granted
+			// outright, held under conditions, or neither, where it is absent.
+			for i, decision := range snap.decideUserResources(tt.user, tenant1, accesstypes.List, fields...) {
+				state, listed := tt.want[fields[i]][accesstypes.List]
+				switch {
+				case state == accesstypes.DigestGranted && !decision.granted:
+					t.Errorf("List on %s for %s: the digest says granted, the check does not grant it", fields[i], tt.user)
+				case listed && state != accesstypes.DigestGranted && (decision.granted || len(decision.conditions) == 0):
+					t.Errorf("List on %s for %s: the digest says %s, the check answers granted %v under %v", fields[i], tt.user, state, decision.granted, decision.conditions)
+				case !listed && (decision.granted || len(decision.conditions) > 0):
+					t.Errorf("List on %s for %s: the digest leaves it out, the check answers granted %v under %v", fields[i], tt.user, decision.granted, decision.conditions)
+				}
 			}
 		})
 	}
@@ -2105,6 +2240,7 @@ func Test_snapshot_roleDigest(t *testing.T) {
 			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
 			{Scope: tenant1Policy, Subject: roleSubject("Pinger"), Perm: "Ping"},
 			{Scope: tenant1Policy, Subject: userSubject("erin"), Perm: "Delete", Resource: "employees"},
+			{Scope: tenant1Policy, Subject: roleSubject("Shifter"), Perm: "List", Resource: "employees", Field: "name", Condition: "now < '2099-01-01T00:00:00Z'"},
 		},
 		Memberships: []policy.Membership{
 			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Editor"},
@@ -2136,6 +2272,14 @@ func Test_snapshot_roleDigest(t *testing.T) {
 				"employees":      {"Read": accesstypes.DigestGranted},
 				"employees.name": {"Update": accesstypes.DigestGranted},
 				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "a role's grant under a condition that reads the time alone answers conditional on time",
+			role:  "Shifter",
+			scope: tenant1Scope,
+			want: accesstypes.PermissionDigest{
+				"employees.name": {"List": accesstypes.DigestConditionalOnTime},
 			},
 		},
 		{

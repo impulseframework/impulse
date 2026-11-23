@@ -147,6 +147,19 @@ describe('PermissionsCardComponent', () => {
       expect(texts('td.held .pill.absent')).toHaveLength(8);
     });
 
+    it('says a grant that depends on the time alone as at certain times, with the class terms apply is drawn with', async () => {
+      await draw([{ name: 'Bulletins', held: { List: 'conditionalOnTime', Read: 'conditional', Create: 'granted' } }]);
+
+      expect(rows()).toEqual([
+        {
+          name: 'Bulletins',
+          answers: ['at certain times', 'terms apply', 'granted', '—', '—'],
+          named: ['List', 'Read', 'Create', 'Update', 'Delete'],
+        },
+      ]);
+      expect(texts('td.held .pill.conditional')).toEqual(['at certain times', 'terms apply']);
+    });
+
     it('writes where an answer holds small beside the name, for a resource that says where', async () => {
       await draw(marshal);
 

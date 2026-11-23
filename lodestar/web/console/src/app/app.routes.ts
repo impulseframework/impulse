@@ -18,6 +18,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { consignmentsConfig } from './configs/consignments.config';
 import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { expenseManifestsConfig } from './configs/expenseManifests.config';
 import { hangarsConfig } from './configs/hangars.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
@@ -174,6 +175,8 @@ export const routes: Routes = [
         // The hazard board's rows have a compound key (a ship's one subsystem): the list
         // route alone, no row route.
         resourceRoutes(sectorHazardBoardsConfig, resourceMeta),
+        // The expense manifests: the list route alone, no row route.
+        resourceRoutes(expenseManifestsConfig, resourceMeta),
         // The sector's people and its invitations, with a person's row page (the roles
         // held here and the identities under it): the tenant's side of the same generated
         // management, built by the library from the same description. The Sector Marshal

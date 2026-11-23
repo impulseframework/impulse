@@ -192,12 +192,14 @@ func TestClassify_temporal(t *testing.T) {
 		wantRowFree  bool
 		wantBindings []string
 		wantUsesNow  bool
+		wantTimeOnly bool
 	}{
 		{
-			name:        "temporal terms are environment facts",
-			source:      "dayOfWeek(now, local) IN ('mon', 'tue') AND timeOfDay(now, 'UTC') < '18:00'",
-			wantRowFree: true,
-			wantUsesNow: true,
+			name:         "temporal terms are environment facts",
+			source:       "dayOfWeek(now, local) IN ('mon', 'tue') AND timeOfDay(now, 'UTC') < '18:00'",
+			wantRowFree:  true,
+			wantUsesNow:  true,
+			wantTimeOnly: true,
 		},
 		{
 			name:         "a row term beside a temporal term keeps the row classification",
@@ -226,6 +228,10 @@ func TestClassify_temporal(t *testing.T) {
 			if got := UsesNow(expr); got != tt.wantUsesNow {
 				t.Errorf("UsesNow() = %v, want %v", got, tt.wantUsesNow)
 			}
+			if got := TimeOnly(expr); got != tt.wantTimeOnly {
+				t.Errorf("TimeOnly() = %v, want %v", got, tt.wantTimeOnly)
+			}
+			assertTimeOnlyFolds(t, expr, tt.wantTimeOnly)
 		})
 	}
 }
