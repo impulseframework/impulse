@@ -523,7 +523,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// in: the session library calls the identity client's SignedIn once the session is
 	// committed, apart from the sign-in, so a failure is logged and the session stands.
 	// It removes the person's ended roles and places and nothing else, never the
-	// account, and no job runs on a schedule.
+	// account, and no job runs on a schedule. The same hook announces the sign-in to the
+	// open pages: the session it made, the person's account, and the identities and roles
+	// a sign-in can write, so a list of accounts, a person's page and a tenant's people
+	// show them without a reload. The generated handlers hand the client the live service
+	// to announce through; until they do, nothing is announced.
 	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	// A person's own tenants, on their account page: the session library asks the

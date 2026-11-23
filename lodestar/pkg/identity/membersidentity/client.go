@@ -21,6 +21,8 @@ import (
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/resource/live"
+	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -64,6 +66,15 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("sector")}, opts...)
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	// What a sign-in writes is announced by the auth's tables as the generated types over
+	// them name them (AnnounceThrough).
+	opts = append(opts, identity.WithAccountTables(identity.AccountTables{
+		Users:       membersresources.MembersSessionUser{}.Resource(),
+		Sessions:    membersresources.MembersSession{}.Resource(),
+		Identities:  membersresources.MembersSessionIdentity{}.Resource(),
+		Memberships: membersresources.MembersUserRole{}.Resource(),
+		MailLinks:   membersresources.MembersSessionMailLink{}.Resource(),
+	}))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
@@ -186,4 +197,32 @@ func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTrans
 // that makes a tenant directory only says so (resource.DirectoryPeople).
 func (c *Client) AdministratorsEnterWithPassword() bool {
 	return c.manager.AdministratorsEnterWithPassword()
+}
+
+// AnnounceThrough has the client announce what a sign-in writes to the open pages,
+// through the application's live service and with its live derivations: the session a
+// sign-in makes, the person's account, the identities and the roles a sign-in can write,
+// the roles an accepted invitation, a directory's default role or a sign-up gives, and
+// what a person's leaving a tenant writes. The auth's generated handlers call it where
+// the application constructs them (New), so an application writes nothing; the first
+// service and derivations handed over are kept. Until then nothing is announced.
+func (c *Client) AnnounceThrough(svc live.Service, derivations *live.Derivations) {
+	if c == nil || svc == nil {
+		return
+	}
+	c.manager.AnnounceWith(func(ctx context.Context, touched *resource.TouchedRows) {
+		live.Announce(ctx, svc, derivations, touched)
+	})
+}
+
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the Members auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
+// package sets it where it builds the auth and this client.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("Members", db)
 }

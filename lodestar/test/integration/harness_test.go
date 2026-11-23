@@ -427,10 +427,16 @@ func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
 	return client
 }
 
-// MembersIdentity is the members auth's identity client over the suite's members engine.
-// A suite that serves no members population answers its members checks from the crew
-// engine (App.engine), and the client stands over the same one.
+// MembersIdentity is the members auth's identity client: on the served stack the one the
+// members auth built when it opened, as production's is, so the client the generated
+// handlers hand the live service to is the one whose hook a portal sign-in calls; in a
+// suite that serves no session manager, one over the suite's members engine. A suite that
+// serves no members population answers its members checks from the crew engine
+// (App.engine), and the client stands over the same one.
 func (c *testConfigurer) MembersIdentity() *membersidentity.Client {
+	if c.membersAuth != nil {
+		return c.membersAuth.Identity()
+	}
 	engine := c.membersAccess
 	if engine == nil {
 		engine = c.access
