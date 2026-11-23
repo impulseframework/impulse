@@ -177,6 +177,21 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) ClearSignInAttempts(ctx, name an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSignInAttempts", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).ClearSignInAttempts), ctx, name)
 }
 
+// ConfirmAddressByLink mocks base method.
+func (m *MockAuthStoreMethods[Tx]) ConfirmAddressByLink(ctx context.Context, c *sessionstorage.AddressConfirmation) (*sessionstorage.ConfirmedAddress, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfirmAddressByLink", ctx, c)
+	ret0, _ := ret[0].(*sessionstorage.ConfirmedAddress)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConfirmAddressByLink indicates an expected call of ConfirmAddressByLink.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) ConfirmAddressByLink(ctx, c any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfirmAddressByLink", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).ConfirmAddressByLink), ctx, c)
+}
+
 // ConsumeFactorCode mocks base method.
 func (m *MockAuthStoreMethods[Tx]) ConsumeFactorCode(ctx context.Context, id impulse.UUID) error {
 	m.ctrl.T.Helper()
@@ -965,6 +980,20 @@ func (m *MockAuthStoreMethods[Tx]) SetPendingSignInsTableName(name string) error
 func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetPendingSignInsTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPendingSignInsTableName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetPendingSignInsTableName), name)
+}
+
+// SetSelfServiceReset mocks base method.
+func (m *MockAuthStoreMethods[Tx]) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSelfServiceReset", ctx, method, on)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSelfServiceReset indicates an expected call of SetSelfServiceReset.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetSelfServiceReset(ctx, method, on any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSelfServiceReset", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetSelfServiceReset), ctx, method, on)
 }
 
 // SetSessionTableName mocks base method.

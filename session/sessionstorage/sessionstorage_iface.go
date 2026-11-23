@@ -235,6 +235,10 @@ type db interface {
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
 	// SetSignInMethod writes the row of the sign-in method m names, replacing the one it had.
 	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
+	// SetSelfServiceReset writes whether a person may ask for their own password reset
+	// link on the row of the sign-in method registered under method, and leaves what else
+	// the row says as it stands.
+	SetSelfServiceReset(ctx context.Context, method string, on bool) error
 	// InsertMailLink inserts a mail link.
 	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
 	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.
