@@ -40,6 +40,14 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			}
 		}
 	})
+	named := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
+		for _, f := range res.Fields {
+			f.typescriptType = "string"
+			if f.Name() == "ListedName" {
+				res.RowNameField = f
+			}
+		}
+	})
 	publishedView := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
 		res.IsVirtual = true
 		res.published = &publishedSet{Root: "Widgets", Tables: []string{"Gizmos"}}
@@ -72,7 +80,7 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			wantNotContains: []string{
 				"  id?: string;",
 				"  name: string;",
-				// A resource that is not the tenant record says no field its rows are called by.
+				// A resource that declares neither @name nor @tenantName says no field its rows are called by.
 				"nameField",
 				// A table's sorts and filters run over what the caller may see: it is not marked computed.
 				"    computed: true,",
@@ -87,6 +95,15 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			// The record is keyed by an id: a picker over it and a page that names a row's
 			// tenant show this field.
 			wantContains: []string{"    live: true,\n    nameField: 'name',\n    fields: ["},
+		},
+		{
+			name: "a resource's metadata says which field its rows are known by, the field marked @name",
+			data: tsResourcesData{
+				Resources: []*resourceInfo{named},
+				GenPrefix: "zz_gen",
+			},
+			// A picker over it shows and lists its rows by this field, by wire name.
+			wantContains: []string{"    live: true,\n    nameField: 'listedName',\n    fields: ["},
 		},
 		{
 			name: "computed resource interface fields are optional except primary keys",

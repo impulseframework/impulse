@@ -168,6 +168,9 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 	// actorAccount is the account of a local actor: what the permission store names
 	// them by. A foreign actor has none here, and the column stays NULL.
 	actorAccount := impulse.Must(impulse.NewUUID())
+	// principalAccount is the account of the person a session is held as: the record
+	// names them by its id and keeps their username beside it.
+	principalAccount := impulse.Must(impulse.NewUUID())
 
 	tests := []struct {
 		name       string
@@ -178,6 +181,8 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 		wantCustom any
 	}{
 		{
+			// A session held as a role is held as no person, and the record keeps no
+			// person's username.
 			name: "role principal",
 			cfg:  Config{Impersonation: true},
 			req:  &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice@example.com"},
@@ -190,7 +195,7 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			},
 		},
 		{
-			name: "user principal with the actor's account, mask, reason, source session and per-call custom data",
+			name: "user principal by account and username, with the actor's account, mask, reason, source session and per-call custom data",
 			cfg:  Config{Impersonation: true, CustomData: true},
 			req: &sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonImpersonation,
@@ -198,14 +203,15 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 				CustomData: &CustomStringData{CustomString: "support"},
 			},
 			imp: &dbtype.InsertImpersonation{
-				ActorUsername:   "alice@example.com",
-				ActorUserID:     &actorAccount,
-				SourceSessionID: &SeededSource,
-				PrincipalKind:   dbtype.PrincipalKindUser,
-				PrincipalUserID: strPtr("bob@partner.org"),
-				Mask:            strPtr("List,Read"),
-				Reason:          strPtr("ticket JRN-2"),
-				ExpiresAt:       expires,
+				ActorUsername:     "alice@example.com",
+				ActorUserID:       &actorAccount,
+				SourceSessionID:   &SeededSource,
+				PrincipalKind:     dbtype.PrincipalKindUser,
+				PrincipalUserID:   strPtr(principalAccount.String()),
+				PrincipalUsername: strPtr("bob@partner.org"),
+				Mask:              strPtr("List,Read"),
+				Reason:            strPtr("ticket JRN-2"),
+				ExpiresAt:         expires,
 			},
 			wantCustom: &CustomStringData{CustomString: "support"},
 		},
@@ -260,18 +266,19 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			// The record starts when the row is created, at the database's time.
 			w.assertStamped(t, "Session().CreatedAt", got.CreatedAt)
 			want := &dbtype.Impersonation{
-				SessionID:       id,
-				ActorUsername:   tt.imp.ActorUsername,
-				ActorUserID:     tt.imp.ActorUserID,
-				ActorRealm:      tt.imp.ActorRealm,
-				SourceSessionID: tt.imp.SourceSessionID,
-				PrincipalKind:   tt.imp.PrincipalKind,
-				PrincipalUserID: tt.imp.PrincipalUserID,
-				PrincipalRole:   tt.imp.PrincipalRole,
-				Mask:            tt.imp.Mask,
-				Reason:          tt.imp.Reason,
-				StartedAt:       got.CreatedAt,
-				ExpiresAt:       tt.imp.ExpiresAt,
+				SessionID:         id,
+				ActorUsername:     tt.imp.ActorUsername,
+				ActorUserID:       tt.imp.ActorUserID,
+				ActorRealm:        tt.imp.ActorRealm,
+				SourceSessionID:   tt.imp.SourceSessionID,
+				PrincipalKind:     tt.imp.PrincipalKind,
+				PrincipalUserID:   tt.imp.PrincipalUserID,
+				PrincipalUsername: tt.imp.PrincipalUsername,
+				PrincipalRole:     tt.imp.PrincipalRole,
+				Mask:              tt.imp.Mask,
+				Reason:            tt.imp.Reason,
+				StartedAt:         got.CreatedAt,
+				ExpiresAt:         tt.imp.ExpiresAt,
 			}
 			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
 				t.Errorf("Session().Impersonation mismatch (-want +got):\n%s", diff)

@@ -34,12 +34,15 @@ type QuerySet[Resource Resourcer] struct {
 	// order whose id the person may not read (closeDeclaredOrder). filterNames are
 	// the names the request's filter names, each once, in first appearance: the
 	// statement tests each through the pointed-to table (name_filter.go), and
-	// each takes its grants as a name the request sorts by does.
+	// each takes its grants as a name the request sorts by does. nameViews are
+	// the decoder's views (WithNameViews), which a name read from a view is read
+	// through.
 	names       []requestName
 	shownNames  []accesstypes.Field
 	filterNames []accesstypes.Field
 	nameGrants  map[accesstypes.Field]accesstypes.Decision
 	closedNames map[accesstypes.Field]struct{}
+	nameViews   NameViews
 	// closedOrder are the fields of the declared order in force that the person
 	// may not read (closeDeclaredOrder): the statement reads each as NULL on
 	// every row (withClosedOrder), so the list comes in the order of the
@@ -71,12 +74,17 @@ type QuerySet[Resource Resourcer] struct {
 	// so a dropped field discloses nothing by its absence. droppedSearchFields
 	// records those; branchDecisions and droppedBranches record what the checks
 	// decided for the resource's @searchAlso branches, by the branch's dotted name.
-	// All empty on a hand-built QuerySet.
+	// hiddenBranches are the branches behind a flag that is off, which the box does
+	// not carry (the decode sets it from the parsed tree): no grant is asked for one,
+	// no fingerprint names it and nothing renders it. The per-tenant copies of a
+	// list across tenants share it, since the checks do not write it. All empty on
+	// a hand-built QuerySet.
 	searchBox           bool
 	searchFields        []accesstypes.Field
 	droppedSearchFields map[accesstypes.Field]struct{}
 	branchDecisions     map[string]accesstypes.Decision
 	droppedBranches     map[string]struct{}
+	hiddenBranches      map[string]struct{}
 	// keyFields are the resource's primary-key fields, in declaration order,
 	// appended to every decoded list's order so the order is total: two rows
 	// equal on every sort column are separated by the key. Stamped by the
@@ -200,7 +208,7 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 	var r Resource
 
 	switch t := any(r).(type) {
-	case virtualQuerier:
+	case View:
 		withClause, query, params, err := viewFromItem(r.Resource(), t)
 		if err != nil {
 			panic(err.Error())
@@ -217,7 +225,7 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 // lifted out to lead the statement, and the parameters the query binds. A parameter
 // whose name starts with an underscore is refused: that namespace is the statement's
 // own.
-func viewFromItem(res accesstypes.Resource, view virtualQuerier) (withClause, item string, params map[string]any, err error) {
+func viewFromItem(res accesstypes.Resource, view View) (withClause, item string, params map[string]any, err error) {
 	query, params := view.Subquery()
 	for name := range params {
 		if strings.HasPrefix(name, "_") {
@@ -1751,6 +1759,109 @@ func extractWithClause(query string) (withClause, remainingQuery string) {
 	}
 
 	return "", query
+}
+
+// withTableNames returns the names of the WITH tables a query opens with, as the query
+// spells them, in order: the identifier, or the string written in double quotes,
+// heading each item of the clause extractWithClause lifts (the first after WITH, each
+// one after a comma at depth 0), before its optional column list and AS (. A WITH
+// inside an item's body is the body's own and is not returned; a query that does not
+// open with WITH has none.
+func withTableNames(query string) []string {
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	var toks []token.Token
+	for {
+		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
+			break
+		}
+		toks = append(toks, lex.Token)
+	}
+	if len(toks) == 0 || !strings.EqualFold(toks[0].Raw, "WITH") {
+		return nil
+	}
+
+	i := 1
+	if i < len(toks) && strings.EqualFold(toks[i].Raw, "RECURSIVE") {
+		i++
+	}
+	var names []string
+	for i < len(toks) && namesSomething(&toks[i]) {
+		name := toks[i].AsString
+		i++
+		if i < len(toks) && toks[i].Kind == "(" {
+			i = closingParen(toks, i) + 1
+		}
+		if i+1 >= len(toks) || !strings.EqualFold(toks[i].Raw, "AS") || toks[i+1].Kind != "(" {
+			break
+		}
+		names = append(names, name)
+		i = closingParen(toks, i+1) + 1
+		if i >= len(toks) || toks[i].Kind != "," {
+			break
+		}
+		i++
+	}
+
+	return names
+}
+
+// namesSomething reports whether a token is a name: an identifier, or a string written
+// in double quotes, PostgreSQL's spelling of a name that keeps its case, which the
+// lexer reads as a string.
+func namesSomething(tok *token.Token) bool {
+	if tok.Kind == token.TokenIdent {
+		return true
+	}
+
+	return tok.Kind == token.TokenString && strings.HasPrefix(tok.Raw, `"`)
+}
+
+// firstWithTableUsed returns the first of withTables that query names, as withTables
+// spells it: the query is read in order, to its end or to the lexer's first error, and
+// each of its names is compared with the WITH tables without regard to case.
+func firstWithTableUsed(query string, withTables []string) (string, bool) {
+	if len(withTables) == 0 {
+		return "", false
+	}
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	for {
+		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
+			return "", false
+		}
+		if !namesSomething(&lex.Token) {
+			continue
+		}
+		for _, withTable := range withTables {
+			if strings.EqualFold(withTable, lex.Token.AsString) {
+				return withTable, true
+			}
+		}
+	}
+}
+
+// closingParen returns the index of the parenthesis that closes the one at open, or
+// the last index where the tokens end first.
+func closingParen(toks []token.Token, open int) int {
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch toks[i].Kind {
+		case "(":
+			depth++
+		case ")":
+			depth--
+			if depth == 0 {
+				return i
+			}
+		default:
+			// Any other token leaves the depth as it is.
+		}
+	}
+
+	return len(toks) - 1
 }
 
 // moreThan checks if more than a given count of boolean expressions are true.

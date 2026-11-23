@@ -86,6 +86,7 @@ DROP INDEX WingsBySectorIdName;
 DROP INDEX HangarsBySectorIdName;
 DROP INDEX MissionsByDeadline;
 DROP INDEX MissionsBySectorIdDeadline;
+DROP INDEX CrewSessionImpersonations_PrincipalUsername_idx;
 DROP INDEX CrewSessionImpersonations_PrincipalUserId_idx;
 DROP INDEX CrewSessionImpersonations_ActorUsername_idx;
 DROP TABLE CrewSessionImpersonations;

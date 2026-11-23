@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -299,6 +300,179 @@ func TestNewQueryDecoder_undescribedName(t *testing.T) {
 	}
 }
 
+// passViewQuery is the query a test view of passes opens with.
+type passViewQuery interface {
+	query() string
+}
+
+// squadronsWith opens the view's query with a WITH table spelled as the table the
+// squadron's name is read from.
+type squadronsWith struct{}
+
+func (squadronsWith) query() string {
+	return "WITH Squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM Squadrons"
+}
+
+// lowerSquadronsWith spells that WITH table in another case.
+type lowerSquadronsWith struct{}
+
+func (lowerSquadronsWith) query() string {
+	return "WITH squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM squadrons"
+}
+
+// levelsThenSquadronsWith opens with a WITH table spelled as each of two names'
+// tables, the later name's first.
+type levelsThenSquadronsWith struct{}
+
+func (levelsThenSquadronsWith) query() string {
+	return "WITH PassLevels AS (SELECT Id FROM Levels), Squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM Squadrons"
+}
+
+// wingsWith opens the view's query with a WITH table spelled as the table the crew's
+// name is held to its tenant through.
+type wingsWith struct{}
+
+func (wingsWith) query() string {
+	return "WITH Wings AS (SELECT Id, SectorId FROM Sectors) SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses"
+}
+
+// quotedSquadronsWith writes the WITH table spelled as the squadron's name's table in
+// double quotes.
+type quotedSquadronsWith struct{}
+
+func (quotedSquadronsWith) query() string {
+	return `WITH "Squadrons" AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM "Squadrons"`
+}
+
+// renamedWith opens with a WITH table no name is read from.
+type renamedWith struct{}
+
+func (renamedWith) query() string {
+	return "WITH PassRows AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM PassRows"
+}
+
+// passView is a view (a @virtual resource) of passes, with lookupPass's names, whose
+// query Q gives.
+type passView[Q passViewQuery] struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SectorID   string  `spanner:"SectorId"   postgres:"SectorId"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+	LevelID    string  `spanner:"LevelId"    postgres:"LevelId"`
+	CrewID     *string `spanner:"CrewId"     postgres:"CrewId"`
+}
+
+// Resource names the resource in grants and routes.
+func (passView[Q]) Resource() accesstypes.Resource {
+	return "PassViews"
+}
+
+// DefaultConfig is the resource's configuration.
+func (passView[Q]) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the view's name fields: lookupPass's.
+func (passView[Q]) NameFields() []NameField {
+	return lookupPass{}.NameFields()
+}
+
+// Subquery is the view's query.
+func (passView[Q]) Subquery() (query string, params map[string]any) {
+	var q Q
+
+	return q.query(), nil
+}
+
+// passViewPlainRequest is a list request type of the view that carries no name.
+type passViewPlainRequest struct {
+	ID         string  `json:"id"         index:"true" perm:"-"`
+	SectorID   string  `json:"sectorId"   index:"true"`
+	SquadronID *string `json:"squadronId" index:"true"`
+}
+
+// newPassViewDecoder builds the decoder of a list of the view over the request type.
+func newPassViewDecoder[Q passViewQuery, Request any](t *testing.T) error {
+	t.Helper()
+
+	resSet, err := NewSet[passView[Q], Request](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	_, err = NewQueryDecoder[passView[Q], Request](resSet)
+
+	return err
+}
+
+// TestNewQueryDecoder_withTableNamedAsAName pins that a view whose query opens with a
+// WITH table spelled, in any case, plain or in double quotes, as the table one of the
+// request's names is read from, or as a table such a name is held to its tenant
+// through, is refused where its list's decoder is built, naming the first such name in
+// the request type's order and what to rename; and that the view builds with the WITH
+// table renamed, or over a request type that carries no name.
+func TestNewQueryDecoder_withTableNamedAsAName(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "the query of PassViews opens with a WITH table named %s, which is also the table the name %s is read from: a statement over the view would read the name from the WITH table's rows. Rename the WITH table in the view's query."
+	const hopRefusal = "the query of PassViews opens with a WITH table named %s, which is also a table the name %s is held to its tenant through: a statement over the view would read the tenant from the WITH table's rows. Rename the WITH table in the view's query."
+	tests := []struct {
+		name    string
+		build   func(t *testing.T) error
+		wantErr string
+	}{
+		{
+			name:    "a WITH table spelled as a name's table",
+			build:   newPassViewDecoder[squadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
+		},
+		{
+			name:    "spelled in another case",
+			build:   newPassViewDecoder[lowerSquadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "squadrons", "SquadronName"),
+		},
+		{
+			name:    "two names' tables: the first name in the request type's order",
+			build:   newPassViewDecoder[levelsThenSquadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
+		},
+		{
+			name:    "a WITH table spelled as a table a name is held to its tenant through",
+			build:   newPassViewDecoder[wingsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(hopRefusal, "Wings", "CrewName"),
+		},
+		{
+			name:    "a WITH table written in double quotes",
+			build:   newPassViewDecoder[quotedSquadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
+		},
+		{
+			name:  "the WITH table renamed",
+			build: newPassViewDecoder[renamedWith, lookupPassRequest],
+		},
+		{
+			name:  "a request type with no name",
+			build: newPassViewDecoder[squadronsWith, passViewPlainRequest],
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.build(t)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("NewQueryDecoder() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("NewQueryDecoder() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // flaggedPass is a resource whose rows point to a squadron by an id a feature flag
 // hides, with the squadron's name beside it.
 type flaggedPass struct {
@@ -425,6 +599,171 @@ func TestNameLookup_hiddenID(t *testing.T) {
 			if calls := perms.askedFor("Squadrons.name"); len(calls) != 0 {
 				t.Errorf("checkPermissions(%s) asked %v, want no Check naming Squadrons.name: the name's id is hidden and the order does not name it", dbType, calls)
 			}
+		}
+	})
+}
+
+// gatedNamePass is a resource whose rows point to a squadron by an id no flag hides,
+// with the squadron's name beside it, read from a resource behind the flag
+// squadrons and a name field behind the flag squadron_names.
+type gatedNamePass struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+}
+
+// Resource names the resource in grants and routes.
+func (gatedNamePass) Resource() accesstypes.Resource {
+	return "GatedNamePasses"
+}
+
+// NameFields describes the gated name as the generator writes it.
+func (gatedNamePass) NameFields() []NameField {
+	return []NameField{
+		{
+			Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId",
+			Features: []Feature{"squadrons", "squadron_names"},
+		},
+	}
+}
+
+// gatedNamePassRequest is gatedNamePass's list request type.
+type gatedNamePassRequest struct {
+	ID           string  `json:"id"           index:"true" perm:"-"`
+	SquadronID   *string `json:"squadronId"   index:"true"`
+	SquadronName *string `json:"squadronName" index:"true" nameof:"SquadronID"`
+}
+
+// decodeGatedName decodes a list request for sector-1's gated-name passes, which the
+// declared order sorts by the squadron's name, under the flags features holds and
+// the grants perms answers.
+func decodeGatedName(t *testing.T, target string, features *FeatureSet, perms *nameGrantPermissions) (*QuerySet[gatedNamePass], error) {
+	t.Helper()
+
+	resSet, err := NewSet[gatedNamePass, gatedNamePassRequest](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedNamePass, gatedNamePassRequest](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+	key, err := NewCursorKey("dGVzdC1jdXJzb3Ita2V5LW1hdGVyaWFsLTMyLWJ5dGVzIQ==")
+	if err != nil {
+		t.Fatalf("NewCursorKey() error = %v", err)
+	}
+	decoder = decoder.WithCursorKey(key).WithPaging(Paging{Order: []SortField{{Field: "SquadronName", Direction: SortAscending}}}).WithFeatures(features)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+
+	return decoder.Decode(req, perms, inSector1)
+}
+
+// TestNameLookup_sourceBehindFlag pins a name whose pointed-to resource, or whose
+// name field there, stands behind a flag that is off: it is unknown to a request,
+// as a name beside a hidden id is, while a declared order by it still orders by
+// its lookup. With every flag on it is a name as any other.
+func TestNameLookup_sourceBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	lookups := bothDatabases(
+		"(SELECT `ca1`.`Name` FROM `Squadrons` `ca1` WHERE `ca1`.`Id` = `GatedNamePasses`.`SquadronId` AND `ca1`.`SectorId` = @domain)",
+		`(SELECT "ca1"."Name" FROM "Squadrons" "ca1" WHERE "ca1"."Id" = "GatedNamePasses"."SquadronId" AND "ca1"."SectorId" = @domain)`,
+	)
+	squadrons := NameSource{Resource: "Squadrons", Field: "name", Domain: "sector-1"}
+	offs := map[string]*FeatureSet{
+		"the resource's flag off":   featureSetOf(map[Feature]bool{"squadrons": false, "squadron_names": true}),
+		"the name field's flag off": featureSetOf(map[Feature]bool{"squadrons": true, "squadron_names": false}),
+		"no flags wired":            nil,
+	}
+	on := featureSetOf(map[Feature]bool{"squadrons": true, "squadron_names": true})
+
+	for name, features := range offs {
+		t.Run(name+": the name is unknown to columns, sort and filter", func(t *testing.T) {
+			t.Parallel()
+
+			for target, want := range map[string]string{
+				"/?columns=id,squadronName&limit=2":               "unknown column: squadronName",
+				"/?columns=id&sort=squadronName&limit=2":          "unknown sort field: squadronName",
+				"/?columns=id&filter=squadronName:eq:Red&limit=2": "'squadronName' is not filterable",
+			} {
+				_, err := decodeGatedName(t, target, features, &nameGrantPermissions{})
+				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), want) {
+					t.Errorf("Decode(%s) error = %v, want a bad request saying %q", target, err, want)
+				}
+			}
+		})
+
+		t.Run(name+": no columns named: the id and not the name, ordered by the name's lookup", func(t *testing.T) {
+			t.Parallel()
+
+			for dbType, lookup := range lookups {
+				qSet, err := decodeGatedName(t, "/?limit=2", features, &nameGrantPermissions{})
+				if err != nil {
+					t.Fatalf("Decode() error = %v", err)
+				}
+				if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+					t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+				}
+				stmt, err := qSet.stmt(dbType)
+				if err != nil {
+					t.Fatalf("stmt(%s) error = %v", dbType, err)
+				}
+				if sql := oneLine(stmt.SQL); !strings.Contains(sql, "ORDER BY "+lookup+" ASC") {
+					t.Errorf("stmt(%s) SQL =\n%s\nwant its order to open with the name's lookup:\n%s", dbType, sql, lookup)
+				}
+				if diff := cmp.Diff([]accesstypes.Field{"ID", "SquadronID"}, qSet.Fields()); diff != "" {
+					t.Errorf("Fields() on %s mismatch (-want +got):\n%s", dbType, diff)
+				}
+				if names := qSet.Names(); len(names) != 0 {
+					t.Errorf("Names() on %s = %v, want none: a flag hides the name's source", dbType, names)
+				}
+			}
+		})
+
+		t.Run(name+": the name's list is not answered", func(t *testing.T) {
+			t.Parallel()
+
+			qSet, err := decodeGatedName(t, "/?sort=id&limit=2", features, &nameGrantPermissions{})
+			if err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			got, err := qSet.NameSources(t.Context())
+			if err != nil {
+				t.Fatalf("NameSources() error = %v", err)
+			}
+			if len(got) != 0 {
+				t.Errorf("NameSources() = %v, want none: a flag hides the name's source", got)
+			}
+		})
+	}
+
+	t.Run("every flag on: the name is asked for, sorted by, filtered by and given", func(t *testing.T) {
+		t.Parallel()
+
+		for _, target := range []string{
+			"/?columns=id,squadronName&limit=2",
+			"/?columns=id&sort=squadronName&limit=2",
+			"/?columns=id&filter=squadronName:eq:Red&limit=2",
+		} {
+			if _, err := decodeGatedName(t, target, on, &nameGrantPermissions{}); err != nil {
+				t.Errorf("Decode(%s) error = %v, want the name taken", target, err)
+			}
+		}
+		qSet, err := decodeGatedName(t, "/?sort=id&limit=2", on, &nameGrantPermissions{})
+		if err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if err := qSet.checkPermissions(t.Context(), SpannerDBType); err != nil {
+			t.Fatalf("checkPermissions() error = %v", err)
+		}
+		if diff := cmp.Diff([]RequestedName{{Field: "SquadronName", JSONName: "squadronName"}}, qSet.Names()); diff != "" {
+			t.Errorf("Names() mismatch (-want +got):\n%s", diff)
+		}
+		got, err := qSet.NameSources(t.Context())
+		if err != nil {
+			t.Fatalf("NameSources() error = %v", err)
+		}
+		if diff := cmp.Diff([]NameSource{squadrons}, got); diff != "" {
+			t.Errorf("NameSources() mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

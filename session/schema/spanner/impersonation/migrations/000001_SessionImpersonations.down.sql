@@ -1,3 +1,5 @@
+DROP INDEX SessionImpersonations_PrincipalUsername_idx;
+
 DROP INDEX SessionImpersonations_PrincipalUserId_idx;
 
 DROP INDEX SessionImpersonations_ActorUsername_idx;

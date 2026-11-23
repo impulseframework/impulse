@@ -973,6 +973,25 @@ func (h *handlerHome) LiveDerivations() string {
 	return h.receiverName + "." + liveDerivationsName
 }
 
+// nameViewsOf names the views the home's query decoders are handed, which a name that
+// points into a view is read from. The application's handlers name the merged
+// nameViews in their own package. An instance's name their own package's NameViews,
+// or nil where the package declares none: an auth's lists point into the auth's own
+// views and into tables, never into the application's views, and nothing under the
+// tree may import the application's handler package.
+func (r *resourceGenerator) nameViewsOf(home *handlerHome) string {
+	if home.instance == nil {
+		return nameViewsAssemblyName
+	}
+	for _, pkg := range r.nameViewsByPackage() {
+		if pkg.instance == home.instance {
+			return nameViewsValueName
+		}
+	}
+
+	return "nil"
+}
+
 // homes lists every home of the run: the application's first, then each instance's.
 func (r *resourceGenerator) homes() []*handlerHome {
 	homes := make([]*handlerHome, 0, 1+len(r.identity))

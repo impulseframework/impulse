@@ -2,6 +2,7 @@ package generation
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -143,9 +144,11 @@ func (n *nameField) filterability() (indexed, filterable bool) {
 }
 
 // answersMatches reports whether the name answers the text matches: the id is indexed
-// and the pointed-to name carries a search fact.
+// and the pointed-to name carries a search fact. A name read from a view answers none:
+// a search fact names a token column of a table, which the view's projection does not
+// carry.
 func (n *nameField) answersMatches() bool {
-	return n.key.IndexTag() != "" && n.source != nil && n.source.SearchTag() != ""
+	return !n.View && n.key.IndexTag() != "" && n.source != nil && n.source.SearchTag() != ""
 }
 
 // declareRowName records the field a resource's rows are known by (@name) on a
@@ -307,7 +310,9 @@ func (r *resourceInfo) checkNameFieldFree(name *nameField) error {
 
 // nameFieldOf is the name field the generator adds beside field, nil where it adds
 // none: the field points to no row, the row it points to has no name, or the name
-// could not be held to the request's tenant.
+// could not be held to the request's tenant. The pointed-to resource may be a view,
+// whose name is read from the view's query (View): a view binds its tenant on a column
+// of its own, never through other tables.
 func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo) *nameField {
 	target, ok := pointedToResource(field)
 	if !ok || field.IsInputOnly() {
@@ -330,9 +335,7 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 	}
 
 	pointed := byName[target]
-	if pointed == nil || pointed.IsVirtual {
-		// A view is no table a statement can read the name from: its rows are a query
-		// of the application's, which a lookup does not yet carry.
+	if pointed == nil {
 		return nil
 	}
 	name.source = pointed.rowName()
@@ -351,12 +354,14 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 		name.TenantColumn = fieldColumn(pointed.DomainBinding.Anchor)
 		name.TenantPath = collectionHops(pointed.DomainBinding.Path)
 	}
+	name.View = pointed.IsVirtual
 	name.Resource = accesstypes.Resource(target)
 	if !name.source.IsPrimaryKey {
 		name.Tag = accesstypes.Tag(name.source.WireName())
 	}
 	name.KeyColumn = keyColumn
 	name.NameColumn = fieldColumn(name.source)
+	name.Features = gatesOf(pointed.Feature, name.source.Feature)
 
 	return name
 }
@@ -409,4 +414,92 @@ func nameFieldName(idField string) (string, bool) {
 	}
 
 	return stem + nameFieldSuffix, true
+}
+
+// nameViewsValueName is the exported value each package holding name views declares,
+// and nameViewsAssemblyName the handler package's merge of them.
+const (
+	nameViewsValueName    = "NameViews"
+	nameViewsAssemblyName = "nameViews"
+)
+
+// nameViewData is one entry of a package's name views: the view's resource, and its
+// type as the package names it.
+type nameViewData struct {
+	Resource string
+	Type     string
+}
+
+// nameViewsPackage is one package's name views, ready to render. instance is the auth
+// whose generated management declares the views, which are written into the auth's
+// handlers package; nil for the application's virtual resources package.
+type nameViewsPackage struct {
+	dir      packageDir
+	instance *identityInstance
+	Views    []nameViewData
+}
+
+// nameViewsPackageData renders one package's generated name views.
+type nameViewsPackageData struct {
+	Source  string
+	Package string
+	Views   []nameViewData
+}
+
+// nameViewsAssemblyData renders the handler package's merge of the packages' name
+// views.
+type nameViewsAssemblyData struct {
+	Source  string
+	Package string
+	// Values are the packages' NameViews, each qualified by its package name: the
+	// application's first, then each auth's by the auth's name.
+	Values []string
+}
+
+// nameViewsByPackage groups the views that declare what their rows are known by
+// (@name) into the packages their NameViews are written in: the application's virtual
+// resources package first, then, by the auth's name, the handlers package of each auth
+// whose generated management declares such views, where each is named through the
+// management's declarations package. Each package's views are in resource order. A
+// package with no such view is not listed.
+func (r *resourceGenerator) nameViewsByPackage() []nameViewsPackage {
+	byDir := make(map[string]*nameViewsPackage)
+	for _, res := range r.resources {
+		if !res.IsVirtual || res.rowName() == nil {
+			continue
+		}
+		dir := r.virtual
+		if res.identity != nil {
+			dir = res.identity.handlers
+		}
+		key := filepath.Clean(dir.Dir())
+		if byDir[key] == nil {
+			byDir[key] = &nameViewsPackage{dir: dir, instance: res.identity}
+		}
+		byDir[key].Views = append(byDir[key].Views, nameViewData{
+			Resource: r.pluralize(res.Name()),
+			Type:     packageQualifier(dir, r.resourcesDirOf(res)) + res.Name(),
+		})
+	}
+	packages := make([]nameViewsPackage, 0, len(byDir))
+	for _, pkg := range byDir {
+		slices.SortFunc(pkg.Views, func(a, b nameViewData) int {
+			return strings.Compare(a.Resource, b.Resource)
+		})
+		packages = append(packages, *pkg)
+	}
+	slices.SortFunc(packages, func(a, b nameViewsPackage) int {
+		switch {
+		case a.instance == b.instance:
+			return 0
+		case a.instance == nil:
+			return -1
+		case b.instance == nil:
+			return 1
+		default:
+			return strings.Compare(a.instance.auth, b.instance.auth)
+		}
+	})
+
+	return packages
 }

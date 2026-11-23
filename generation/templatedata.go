@@ -488,6 +488,10 @@ type decodersFileData struct {
 	// RouterPackage qualifies the generated collection the query decoders render
 	// conditional grants against.
 	RouterPackage string
+	// NameViews is the views the query decoders are handed, which a name that points
+	// into a view is read from: the application's merged nameViews, an auth's own
+	// package's NameViews, or nil where the auth's package declares none.
+	NameViews string
 	// The Has* fields emit each constructor only when a generated handler calls it,
 	// so an application carries no constructor its code does not use.
 	HasQueryDecoder         bool
