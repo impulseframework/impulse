@@ -1,7 +1,7 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   ApiDescriptor,
   ClientBase,
@@ -2168,6 +2168,142 @@ describe('ResourceListComponent', () => {
       expect(fixture.componentInstance.createButtonLabel()).toBe('Create');
       expect(deleted({ id: 's-1', name: 'Kestrel' })).toEqual(['Deleted.']);
     });
+  });
+
+  describe("keeps its column filters in the page's address", () => {
+    // The list a page is built on reads its column filters from the page's address when it
+    // opens and after each navigation, and writes each commit back in place. A filter the
+    // list cannot show the person is left out, and the list says so above its rows.
+    const options = {
+      primaryResource: ships,
+      listColumns: [{ id: 'name' as FieldName }, { id: 'homePort' as FieldName }, { id: 'statusId' as FieldName }],
+    };
+    const rows = [{ id: 's-1', name: 'Kestrel', homePort: 'Anvil', statusId: 'docked' }];
+    const leftOutWords =
+      'This list was opened with a filter it does not offer you, so it is shown without that filter. You can filter it from its column headings.';
+
+    /** The request filter of each list request, in order; null for a request with none. */
+    const shipsFilters = (): (string | null)[] =>
+      transport.requests
+        .filter((request) => request.url.startsWith('/api/ships'))
+        .map((request) => new URL(request.url, 'http://ships.test').searchParams.get('filter'));
+    const address = (): ReturnType<Router['parseUrl']> => {
+      const router = TestBed.inject(Router);
+      return router.parseUrl(router.url);
+    };
+    const leftOutNotice = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('.impulse-resource-list-filters-left-out[role="status"] .impulse-resource-list-notice-words')
+        ?.textContent?.trim();
+    const grid = (): AppGridComponent =>
+      fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+
+    /** Opens the page's list at an address, as the router opens a page it has navigated to. */
+    const open = async (url: string): Promise<void> => {
+      await create(options, rows);
+      await TestBed.inject(Router).navigateByUrl(url);
+      fixture.detectChanges();
+      await settle();
+    };
+
+    it('opened at an address naming a filter it offers, asks once with it, holds it in its column, and says nothing', async () => {
+      await open('/?filter=homePort:eq:Anvil');
+      expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+      expect(grid().filters()).toEqual([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('opened at an address naming a filter on a field no column shows, leaves it out, says so, and writes the address it shows', async () => {
+      await open('/?filter=homePort:eq:Anvil&filter=registry:eq:Civil');
+      expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      expect(TestBed.inject(Router).lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+      // The list's own rewrite of the address leaves the notice standing.
+      expect(leftOutNotice()).toBe(leftOutWords);
+    });
+
+    it("writes a commit into the address in place, and a cleared filter takes the parameter away, the address's others kept", async () => {
+      await open('/?tab=2');
+      const router = TestBed.inject(Router);
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      await settle();
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      expect(address().queryParamMap.get('tab')).toBe('2');
+      expect(router.lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+
+      fixture.componentInstance.onFilterChange([]);
+      await settle();
+      expect(address().queryParamMap.has('filter')).toBe(false);
+      expect(address().queryParamMap.get('tab')).toBe('2');
+      expect(router.lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+    });
+
+    it('asks once for a commit', async () => {
+      await open('/');
+      expect(shipsFilters()).toEqual([null]);
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      await settle();
+      await settle();
+      expect(shipsFilters()).toEqual([null, 'homePort:eq:Anvil']);
+    });
+
+    it('takes a navigation to its page with another filter, and asks nothing for the address it already shows', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      await router.navigateByUrl('/?filter=statusId:in:docked,in_refit');
+      await settle();
+      expect(fixture.componentInstance.store.columnFilters()).toEqual([
+        { field: 'statusId', operator: 'in', value: 'docked,in_refit' },
+      ]);
+      expect(shipsFilters()).toEqual([null, 'statusId:in:(docked,in_refit)']);
+
+      await router.navigateByUrl('/?filter=statusId:in:docked,in_refit');
+      await settle();
+      await router.navigateByUrl('/?filter=statusId:in:docked,in_refit&tab=1');
+      await settle();
+      expect(shipsFilters()).toEqual([null, 'statusId:in:(docked,in_refit)']);
+    });
+
+    it("takes the notice away at the person's next commit", async () => {
+      await open('/?filter=registry:eq:Civil');
+      expect(leftOutNotice()).toBe(leftOutWords);
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      await settle();
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('writes a commit made while another navigation is on its way once that one ends, never cancelling it', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      const elsewhere = router.navigateByUrl('/?tab=9');
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      expect(await elsewhere).toBe(true);
+      await settle();
+      expect(address().queryParamMap.get('tab')).toBe('9');
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+    });
+
+    const notOwning: { name: string; hand: () => void }[] = [
+      { name: 'a list handed isRootList false', hand: () => fixture.componentRef.setInput('isRootList', false) },
+      {
+        name: "a list handed a config that is not the route's own",
+        hand: () => fixture.componentRef.setInput('resourceConfig', listViewConfig({ elements: [], ...options })),
+      },
+    ];
+    for (const tt of notOwning) {
+      it(`${tt.name} ignores the address and writes nothing on a commit`, async () => {
+        await create(options, rows);
+        tt.hand();
+        await TestBed.inject(Router).navigateByUrl('/?filter=homePort:eq:Anvil');
+        fixture.detectChanges();
+        await settle();
+        expect(shipsFilters()).toEqual([null]);
+        fixture.componentInstance.onFilterChange([{ field: 'statusId', operator: 'eq', value: 'docked' }]);
+        await settle();
+        expect(shipsFilters()).toEqual([null, 'statusId:eq:docked']);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      });
+    }
   });
 
   describe('asks for its first page once per request', () => {
