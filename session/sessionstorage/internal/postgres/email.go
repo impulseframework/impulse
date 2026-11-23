@@ -33,7 +33,7 @@ func addressFold(operand string) string {
 // errUsernameIsEmail is the refusal of a rename, or of an address entered by hand, on a
 // store whose usernames are the addresses: both change through a verified link.
 func errUsernameIsEmail() error {
-	return httpio.NewConflictMessage("the username is the user's email address: it changes when the person verifies a new address, not by a rename")
+	return httpio.NewConflictMessage(dbtype.UsernameIsEmailMessage)
 }
 
 // insertedAddress is the address a new user row holds: the one the insert names, or,
@@ -49,7 +49,7 @@ func insertedAddress(user *dbtype.InsertSessionUser) string {
 
 // errEmailTaken is the refusal of an address another user holds, verified or not.
 func errEmailTaken(email string) error {
-	return httpio.NewConflictMessagef("the email address %q is already in use", email)
+	return httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", email), dbtype.EmailInUseMessage)
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without

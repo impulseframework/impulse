@@ -125,7 +125,7 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	t.Run("a password is not removed from a person who holds no identity", func(t *testing.T) {
 		status, body := remove("marshal", anvil, "ada")
 		assertStatus(t, status, http.StatusConflict, body)
-		if !strings.Contains(string(body), "link a directory sign-in first") {
+		if !strings.Contains(string(body), "The password is the account's only way to sign in. Link a directory sign-in first.") {
 			t.Errorf("the refusal = %s, want it to say what to do first", body)
 		}
 		if got := hash("ada"); got.StringVal != "the-hash-of-ada" || !mustChange("ada") {
@@ -148,7 +148,7 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	t.Run("a password is not removed while the one identity linked signs nobody in, and that identity is no way in", func(t *testing.T) {
 		status, body := remove("marshal", anvil, "ada")
 		assertStatus(t, status, http.StatusConflict, body)
-		if !strings.Contains(string(body), "none of the identities linked to the user can sign them in any more") {
+		if !strings.Contains(string(body), "None of the sign-in identities linked to the account can sign in any more, so the password is its only way to sign in. Link a directory sign-in the login page offers first.") {
 			t.Errorf("the refusal = %s, want it to say the identity linked signs nobody in", body)
 		}
 		if got := hash("ada"); got.StringVal != "the-hash-of-ada" {
@@ -313,7 +313,7 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 		// The directory's identity is still her one way in, and stays.
 		status, body := unlink(links["ada"])
 		assertStatus(t, status, http.StatusConflict, body)
-		if !strings.Contains(string(body), "none of the other identities linked to the user can sign them in any more") {
+		if !strings.Contains(string(body), "None of the other sign-in identities linked to the account can sign in any more, so this one is its only way to sign in. Link a directory sign-in the login page offers first, or give the account a password.") {
 			t.Errorf("the refusal = %s, want it to say the other identity signs nobody in", body)
 		}
 		if _, err := w.db.Single().ReadRow(ctx, "CrewSessionIdentities", spanner.Key{links["ada"]}, []string{"Id"}); err != nil {

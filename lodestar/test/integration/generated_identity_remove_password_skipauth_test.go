@@ -89,7 +89,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	pilotID := crewAccountID(ctx, t, hq, "pilot")
 	status, body := remove(hq, pilotID)
 	assertStatus(t, status, http.StatusConflict, body)
-	if !strings.Contains(string(body), "link a directory sign-in first") {
+	if !strings.Contains(string(body), "The password is the account's only way to sign in. Link a directory sign-in first.") {
 		t.Errorf("remove-crew-password of a person with no identity = %s, want it to say what to do first", body)
 	}
 	if !hash(pilotID).Valid {

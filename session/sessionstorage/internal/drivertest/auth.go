@@ -703,6 +703,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a person's name is stored without the space around it, replaced or taken off by hand, and claimed only for a user who holds none", run: testUserName},
 		{name: "the look a person chose is kept as a whole, a half it does not name taken off, and a scheme that is not light, dark or device refused", run: testUserLook},
 		{name: "an account, a session or a sign-in identity the store does not hold is not found in one plain sentence that carries none of what was asked for", run: testNotFoundInWords},
+		{name: "a sign-in identity that is linked already is refused as a conflict in one plain sentence that carries neither the directory's connection nor the subject", run: testConflictsInWords},
 		{name: "where the username is the address, the database derives the address, a rename is refused and a verified address renames the user", run: testUsernameIsEmail},
 		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
 		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},

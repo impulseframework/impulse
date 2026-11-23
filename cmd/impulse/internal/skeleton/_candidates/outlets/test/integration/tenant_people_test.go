@@ -243,7 +243,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		if status != want {
 			t.Fatalf("%s on nora: status %d, want %d: %s", m.method, status, want, body)
 		}
-		if want == http.StatusConflict && !strings.Contains(string(body), "none of the identities linked to the user can sign them in any more") {
+		if want == http.StatusConflict && !strings.Contains(string(body), "None of the sign-in identities linked to the account can sign in any more, so the password is its only way to sign in. Link a directory sign-in the login page offers first.") {
 			t.Errorf("%s on nora = %s, want it to say her identity signs nobody in", m.method, body)
 		}
 	}

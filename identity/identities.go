@@ -74,11 +74,11 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 		})
 		switch {
 		case len(others) == 0:
-			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "This is the account's only way to sign in. Link another directory sign-in first, or give the account a password.")
 		case !m.linksSignIn(others):
 			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
-				"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
-					"link a directory sign-in the login page offers first, or give the user a password")
+				"None of the other sign-in identities linked to the account can sign in any more, so this one is its only way to sign in. "+
+					"Link a directory sign-in the login page offers first, or give the account a password.")
 		}
 	}
 	if err := m.store.DeleteIdentity(ctx, txn, identityID); err != nil {
@@ -139,7 +139,7 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 		return accountNotFound(userID)
 	}
 	if !hasPassword {
-		return httpio.NewBadRequestMessage("the user has no password to remove")
+		return httpio.NewBadRequestMessage("This account has no password to remove.")
 	}
 	links, err := m.store.Identities(ctx, txn, userID)
 	if err != nil {
@@ -147,10 +147,10 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	}
 	switch {
 	case len(links) == 0:
-		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "The password is the account's only way to sign in. Link a directory sign-in first.")
 	case !m.linksSignIn(links):
 		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
-			"none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first")
+			"None of the sign-in identities linked to the account can sign in any more, so the password is its only way to sign in. Link a directory sign-in the login page offers first.")
 	}
 	if err := m.store.RemovePassword(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.RemovePassword()")

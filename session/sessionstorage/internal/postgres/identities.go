@@ -121,7 +121,7 @@ func (s *SessionStorageDriver) insertLink(
 	}, userID impulse.UUID, identity *sessioninfo.Identity, tenant string,
 ) (*dbtype.SessionIdentity, error) {
 	if !dbtype.IsExternal(identity) || identity.Subject == "" {
-		return nil, httpio.NewBadRequestMessage("only an external identity with a subject can be linked")
+		return nil, httpio.NewBadRequestMessage(dbtype.OnlyDirectoryIdentityLinksMessage)
 	}
 
 	id, err := impulse.NewUUID()
@@ -346,7 +346,7 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-			return nil, httpio.NewConflictMessagef("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject)
+			return nil, httpio.NewConflictMessageWithError(errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject), dbtype.SignInIdentityAlreadyLinkedMessage)
 		}
 
 		return nil, err
@@ -475,7 +475,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		return errPasswordChanged()
 	}
 	if !hasPassword {
-		return httpio.NewBadRequestMessage("the user has no password to remove")
+		return httpio.NewBadRequestMessage(dbtype.NoPasswordToRemoveMessage)
 	}
 	// Only an identity the caller named counts: one that signs nobody in any more is no
 	// means of sign-in, however many of them the user holds.
@@ -489,7 +489,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
 	}
 	if links == 0 {
-		return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+		return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, dbtype.PasswordIsLastSignInMessage)
 	}
 
 	removal := fmt.Sprintf(`UPDATE %s SET "PasswordHash" = NULL, "PasswordChangeRequired" = FALSE WHERE "Id" = $1`, s.userTable())
@@ -587,7 +587,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return dbtype.ErrNoAuthEvents
 	}
 	if event.Method == "" {
-		return httpio.NewBadRequestMessage("an auth event needs a method")
+		return httpio.NewBadRequestMessage(dbtype.AuthEventNeedsMethodMessage)
 	}
 
 	txn, err := s.conn.Begin(ctx)
@@ -608,7 +608,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
 	}
 	if expired {
-		return httpio.NewBadRequestMessage("cannot record an auth event on an expired session")
+		return httpio.NewBadRequestMessage(dbtype.AuthEventOnExpiredSessionMessage)
 	}
 
 	var seq int64
