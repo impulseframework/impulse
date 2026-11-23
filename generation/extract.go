@@ -142,12 +142,6 @@ func (c *client) resolveAcrossResources(resources []*resourceInfo) error {
 		return err
 	}
 
-	// A foreign key between two tables that keep their tenant in a column holds the
-	// tenant: which tables keep it so is known once every resource is extracted.
-	if err := c.refuseKeysWithoutTenant(resources); err != nil {
-		return err
-	}
-
 	// What is under a record crosses resources: a @deleteCascade is held to the schema,
 	// and the tenant record's description written, once every resource is extracted.
 	if err := c.resolveDeleteTrees(resources); err != nil {

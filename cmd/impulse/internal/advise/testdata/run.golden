@@ -70,12 +70,25 @@ A line's kind is told by its wording. The reading is impulse's and fixed; the qu
 
 A line of a kind not listed here is read as written.
 
+## What no tool judges
+
+Some of a schema's design is the application's choice, and no line above speaks of it: the generator and `impulse check` take it as it is declared. Read the migrations and the resource structs for each choice below, whether or not anything was raised.
+
+**Links between a tenant's records** (read every `FOREIGN KEY` and `INTERLEAVE IN PARENT` of the migrations that joins two tables whose resources carry `@domain`). A record keeps its tenant in a column of its own (a bare `@domain`) or reads it through the record it is under (`@domain(via: ...)`). Between two records that each keep the column, a foreign key is written in one of two ways, and which one is the application's choice, link by link. Say a company is the tenant, with projects and vehicles. A key that holds the tenant, the tenant column of the one beside the tenant column of the other (`FOREIGN KEY (ProjectId, CompanyId) REFERENCES Projects (Id, CompanyId)`), has the database refuse every row that names another tenant's row, whoever writes it: it is the key for a record that must never be under another tenant's record. A key on the other row's id alone (`FOREIGN KEY (ProjectId) REFERENCES Projects (Id)`) leaves the link free. The database holds the row to a record that exists and to nothing more, and the library holds the row being written to the request's tenant without looking whose row its foreign key names. It is the key for a record the application may move between tenants, and it lets a caller who knows the id of another tenant's row name that row. A child interleaved in its parent is linked by the parent's key, so the link holds the tenant only where that key does. A record that reads its tenant through other rows has no tenant column to put in a key: the library proves the link its tenant is read through when the row is written, and no other link of the record.
+
+*Design fault:* A record that can link a row of one tenant to a row of another: one with two links that nothing holds to one tenant, whether two foreign keys on an id alone or, on a record that reads its tenant through other rows, a foreign key beside the link its tenant is read through. No tool looks for it.
+
+*Question:* For each link, whether the record is ever meant to be moved to another tenant or to stand under another tenant's record. Where nothing in the code moves it or attaches it across tenants, the key that holds the tenant closes the link; where the application does, the free link is the design. For each record with two or more links to a tenant's records, whether the schema holds them to one tenant.
+
+*Edits on offer:* the migration that rewrites a foreign key to hold the tenant column of each table, in the order of the key it references (the generator prints the line for another order), for a record that must never be under another tenant's record; no edit for a link the application means to leave free, said so in the resource's doc; for a design fault, the record and its links named, with the keys that would hold them to one tenant where each table keeps the tenant column, and where one does not, the choice put to the developer as a question.
+
 ## Rules
 
 1. Answer per warning and finding, in prose: name it, apply the reading above to it (read the resource struct, its migrations, the role file, and how the table is used, to say which branch of the reading holds), answer the question from what the code tells you, and name the edit you recommend, from the edits on offer or better, or say the warning should be accepted and where its pin goes (the program's warnings test for a schema warning, the deploy test for a role warning). The pinned values in those tests are warnings to advise on too.
-2. Edit nothing. Run nothing that writes: no `go generate`, no `impulse` command, no test. Read the code.
-3. Where the code cannot answer the question (whether a table will grow, whether a field's rank is sensitive to a role), say so and state the question for the developer in one sentence.
-4. Finish with the edits you recommend as a list, in the order you would make them, each naming its file.
+2. Answer on each choice under "What no tool judges" too, whether or not anything was raised: for each link, say which design it is and whether that fits how the code uses the record, and name every design fault you find, with its table and its links.
+3. Edit nothing. Run nothing that writes: no `go generate`, no `impulse` command, no test. Read the code.
+4. Where the code cannot answer the question (whether a table will grow, whether a field's rank is sensitive to a role), say so and state the question for the developer in one sentence.
+5. Finish with the edits you recommend as a list, in the order you would make them, each naming its file.
 
 ## Done when
 
