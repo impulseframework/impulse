@@ -56,10 +56,11 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffListedGroups",
 			},
 			{
-				Name:        "DeleteStaffUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffSessionUsers",
+				Name:            "DeleteStaffUser",
+				Scope:           accesstypes.GlobalPermissionScope,
+				Permissions:     []accesstypes.Permission{accesstypes.Execute},
+				Target:          "StaffSessionUsers",
+				NotOnOwnAccount: "Id",
 			},
 			{
 				Name:        "DescribeStaffGroup",
@@ -68,10 +69,11 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffListedGroups",
 			},
 			{
-				Name:        "DisableStaffUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffSessionUsers",
+				Name:            "DisableStaffUser",
+				Scope:           accesstypes.GlobalPermissionScope,
+				Permissions:     []accesstypes.Permission{accesstypes.Execute},
+				Target:          "StaffSessionUsers",
+				NotOnOwnAccount: "Id",
 			},
 			{
 				Name:        "EnableStaffUser",

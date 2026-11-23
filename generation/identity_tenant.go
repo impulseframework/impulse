@@ -211,7 +211,10 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 			)
 		}
 		if !i.rolesSynced {
-			files = append(files, method("Assign"+subject+"Role", identityTenantAssignRoleTemplate, identityMemberships))
+			files = append(files,
+				method("Assign"+subject+"Role", identityTenantAssignRoleTemplate, identityMemberships),
+				method("Remove"+subject+"User", identityTenantRemoveUserTemplate, identityUsers, identityMemberships),
+			)
 		}
 	}
 	if i.hasList(listIdentitiesSuffix) {

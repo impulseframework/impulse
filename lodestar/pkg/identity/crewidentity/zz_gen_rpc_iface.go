@@ -15,13 +15,14 @@ type Method interface {
 		EndCrewUserSessions | GiveCrewGroupRole | GiveCrewSectorGroupRole | InviteCrewSector |
 		InviteCrewSectorUser | InviteCrewUser | MakeCrewInviteOnly | OpenCrewSignUp |
 		RemoveCrewGroupMember | RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
-		RemoveCrewSectorPassword | RemoveCrewSectorRole | RenameCrewSectorUser | RenameCrewUser |
-		RequireCrewPasswordChange | RequireCrewSectorPasswordChange |
-		RevokeCrewSectorUserTrustedDevices | RevokeCrewSessionToken |
-		RevokeCrewUserTrustedDevices | SendCrewSectorUserPasswordResetLink |
-		SendCrewUserPasswordResetLink | SetCrewSectorUserEmail | SetCrewSectorUserName |
-		SetCrewSelfServiceReset | SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole |
-		TakeCrewRole | TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity |
-		UnlinkCrewSessionIdentity | UnlockCrewSignIn | WithdrawCrewInvitation |
-		WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
+		RemoveCrewSectorPassword | RemoveCrewSectorRole | RemoveCrewSectorUser |
+		RenameCrewSectorUser | RenameCrewUser | RequireCrewPasswordChange |
+		RequireCrewSectorPasswordChange | RevokeCrewSectorUserTrustedDevices |
+		RevokeCrewSessionToken | RevokeCrewUserTrustedDevices |
+		SendCrewSectorUserPasswordResetLink | SendCrewUserPasswordResetLink |
+		SetCrewSectorUserEmail | SetCrewSectorUserName | SetCrewSelfServiceReset |
+		SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole | TakeCrewRole |
+		TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity |
+		UnlockCrewSignIn | WithdrawCrewInvitation | WithdrawCrewInvitedSector |
+		WithdrawCrewSectorInvitation
 }

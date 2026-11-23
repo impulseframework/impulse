@@ -1016,6 +1016,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/invite_crew_ship_user.go",
 		"crewidentity/remove_crew_ship_password.go",
 		"crewidentity/remove_crew_ship_role.go",
+		"crewidentity/remove_crew_ship_user.go",
 		"crewidentity/rename_crew_ship_user.go",
 		"crewidentity/require_crew_ship_password_change.go",
 		"crewidentity/revoke_crew_ship_user_trusted_devices.go",

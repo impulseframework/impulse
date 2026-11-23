@@ -480,6 +480,8 @@ type GeneratedHandlers interface {
 
 	RemoveCrewSectorRole() http.HandlerFunc
 
+	RemoveCrewSectorUser() http.HandlerFunc
+
 	RenameCrewSectorUser() http.HandlerFunc
 
 	RenameCrewUser() http.HandlerFunc
@@ -1291,6 +1293,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/remove-crew-sector-password", domainGuard(h.RemoveCrewSectorPassword()))
 
 	asked.Post("/console/api/sectors/{sectorID}/remove-crew-sector-role", domainGuard(h.RemoveCrewSectorRole()))
+
+	asked.Post("/console/api/sectors/{sectorID}/remove-crew-sector-user", domainGuard(h.RemoveCrewSectorUser()))
 
 	asked.Post("/console/api/sectors/{sectorID}/rename-crew-sector-user", domainGuard(h.RenameCrewSectorUser()))
 

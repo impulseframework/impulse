@@ -21,12 +21,16 @@ import (
 // also holds a role outside it is the role file's to say, in a condition on the
 // method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
 //
+// The person's own row does not offer it (@notOnOwnAccount): nobody disables or deletes
+// themselves, and the method refuses the call.
+//
 // A row offers it only to a caller whose session enters every tenant the person
 // administers (@callerEnters); the method refuses anyone else.
 //
 // @rpc
 // @permissionScope(domain)
 // @callerEnters
+// @notOnOwnAccount(ID)
 // @outlet(default)
 // @answers(204)
 type DisableStaffTenantUser struct {
