@@ -29,6 +29,7 @@ const (
 	removalStaysSays            = "Their account stays, and they remain one of this sector's people through a role held outside it, which this does not take away."
 	removalKeepsSays            = "Their account stays, because they hold something outside this sector."
 	wardenKeptFromOutsidersSays = "Warden is a role that administers a sector, and this sector admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator."
+	removalTakesReaderSays      = "Removing this person from the sector takes away the role Reader, which you may not take from them."
 )
 
 // danaAddress is the address dana confirmed in the tests of a removal.
@@ -292,8 +293,9 @@ func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 // real person behind it; a request names the tenant; a person who holds nothing in the
 // tenant itself, a role in every tenant alone among them, is not found there, nor is an
 // account that does not exist; an administrator's role of a directory-only tenant is
-// taken only by a caller whose session enters it; and a place in a group of the tenant
-// goes only where the caller may take each role the group gives.
+// taken only by a caller whose session enters it; a role of the person's own goes only
+// where the caller may take it away; and a place in a group of the tenant goes only where
+// the caller may take each role the group gives.
 func TestManager_RemoveFromTenant_refused(t *testing.T) {
 	t.Parallel()
 
@@ -348,8 +350,15 @@ func TestManager_RemoveFromTenant_refused(t *testing.T) {
 			tenantAdministrators: []accesstypes.Role{"Warden"},
 			wantErr:              httpio.HasForbidden, wantSays: wardenKeptFromOutsidersSays,
 		},
+		"a role of the person's own in the tenant that the caller may not take": {
+			request: asErinIn, domain: "alpha", grants: &fakeGrants{noTake: []accesstypes.Role{"Reader"}},
+			wantErr: httpio.HasForbidden, wantSays: removalTakesReaderSays,
+		},
 		"a place in a group of the tenant that gives a role the caller may not take": {
+			// dana holds nothing of her own in the tenant, so the group's role alone is
+			// judged.
 			held: func(store *fakeStore) {
+				delete(store.memberships, danaAlphaReader)
 				store.groupMembers[memberKey(nightID, userID)] = true
 				store.groupRoles[nightReader] = true
 			},
@@ -397,6 +406,111 @@ func TestManager_RemoveFromTenant_refused(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestManager_RemoveFromTenant_takingRoles pins that a removal gives nobody a power that
+// taking each role away directly would not: each role of the person's own held in the
+// tenant that has not ended is asked of the grant that takes one role away, for that
+// role, and the removal goes where each is one the caller may take. A role whose period
+// has ended is not asked, a call outside any request is not judged, and a request made
+// to a manager built without the grants is an error, never a pass.
+func TestManager_RemoveFromTenant_takingRoles(t *testing.T) {
+	t.Parallel()
+
+	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	t.Run("every role one the caller may take: each that has not ended is asked, and the removal goes", func(t *testing.T) {
+		t.Parallel()
+
+		store := removalStore()
+		for _, key := range []access.MembershipKey{danaAlphaReader, danaAlphaLead, danaBetaReader} {
+			store.memberships[key] = true
+		}
+		store.membershipPeriods[danaAlphaLead] = ended
+		grants := &fakeGrants{}
+		m, _, _ := removalManager(t, store, grants, false)
+
+		if _, err := judgeDana(t, m, asErinIn, "alpha"); err != nil {
+			t.Fatalf("JudgeTenantRemoval() error = %v", err)
+		}
+		if diff := cmp.Diff([]string{"take " + membershipText(&danaAlphaReader)}, grants.asked); diff != "" {
+			t.Errorf("the grants asked by the judgment (-want +got):\n%s", diff)
+		}
+		grants.asked = nil
+		if _, err := removeDana(t, m, asErinIn, "alpha"); err != nil {
+			t.Fatalf("RemoveFromTenant() error = %v", err)
+		}
+		if diff := cmp.Diff([]string{"take " + membershipText(&danaAlphaReader)}, grants.asked); diff != "" {
+			t.Errorf("the grants asked by the removal (-want +got):\n%s", diff)
+		}
+		want := []string{
+			"delete membership " + membershipText(&danaAlphaLead),
+			"delete membership " + membershipText(&danaAlphaReader),
+		}
+		if diff := cmp.Diff(want, store.writes); diff != "" {
+			t.Errorf("buffered writes (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("an ended role the caller may not take does not refuse", func(t *testing.T) {
+		t.Parallel()
+
+		store := removalStore()
+		for _, key := range []access.MembershipKey{danaAlphaReader, danaAlphaLead, danaBetaReader} {
+			store.memberships[key] = true
+		}
+		store.membershipPeriods[danaAlphaLead] = ended
+		m, _, _ := removalManager(t, store, &fakeGrants{noTake: []accesstypes.Role{"NightShiftLead"}}, false)
+
+		if _, err := removeDana(t, m, asErinIn, "alpha"); err != nil {
+			t.Fatalf("RemoveFromTenant() error = %v, want the ended role taken with the rest", err)
+		}
+		if len(store.writes) != 2 {
+			t.Errorf("buffered writes = %v, want both of dana's rows in the tenant deleted", store.writes)
+		}
+	})
+
+	t.Run("a call outside any request is not judged", func(t *testing.T) {
+		t.Parallel()
+
+		store := removalStore()
+		store.memberships[danaAlphaReader], store.memberships[danaBetaReader] = true, true
+		grants := &fakeGrants{noTake: []accesstypes.Role{"Reader"}}
+		m, _, _ := removalManager(t, store, grants, false)
+
+		outside := func(ctx context.Context) context.Context { return ctx }
+		if _, err := removeDana(t, m, outside, "alpha"); err != nil {
+			t.Fatalf("RemoveFromTenant() error = %v, want the application's own act unjudged", err)
+		}
+		if len(grants.asked) != 0 {
+			t.Errorf("the grants were asked %v, want nothing asked outside a request", grants.asked)
+		}
+		if diff := cmp.Diff([]string{"delete membership " + membershipText(&danaAlphaReader)}, store.writes); diff != "" {
+			t.Errorf("buffered writes (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a request to a manager without the grants is an error", func(t *testing.T) {
+		t.Parallel()
+
+		store := removalStore()
+		store.memberships[danaAlphaReader], store.memberships[danaBetaReader] = true, true
+		engine := &fakeEngine{roles: tenantRoles}
+		m, err := New(managedAuth, store, engine, fakeSessions{mail: &fakeMail{}}, WithTenantWord("sector"), WithAdministratorRoles([]accesstypes.Role{"Warden"}))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+
+		const says = "a request removes a person from a tenant and the manager holds no role grants to judge it by"
+		if _, err := judgeDana(t, m, asErinIn, "alpha"); err == nil || !strings.Contains(err.Error(), says) {
+			t.Errorf("JudgeTenantRemoval() error = %v, want it to say %q", err, says)
+		}
+		if _, err := removeDana(t, m, asErinIn, "alpha"); err == nil || !strings.Contains(err.Error(), says) {
+			t.Errorf("RemoveFromTenant() error = %v, want it to say %q", err, says)
+		}
+		if len(store.writes) != 0 || engine.changed != 0 {
+			t.Errorf("buffered writes = %v and the engine told %d time(s), want nothing", store.writes, engine.changed)
+		}
+	})
 }
 
 // TestManager_RemoveFromTenant_lastAdministrator pins that the rule on a tenant's last

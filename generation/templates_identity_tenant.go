@@ -789,8 +789,10 @@ import (
 //
 // It is a tenant's method: it names a row of {{ .TenantUser }}, the tenant's own list of the
 // auth's people. It takes only what is the tenant's own, so its grant needs no condition on
-// the row. Nobody removes themselves with it: the person's own row does not offer it
-// (@notOnOwnAccount), and a person leaves a tenant from their own account page.
+// the row. Each role it takes is one the caller could take away with the method that takes
+// one role: a role the caller may not take away refuses the removal. Nobody removes
+// themselves with it: the person's own row does not offer it (@notOnOwnAccount), and a
+// person leaves a tenant from their own account page.
 //
 // The method declares a warning, which a person types "remove" under before the call is
 // confirmed: the roles that go, and whether the account goes with them.

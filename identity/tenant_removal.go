@@ -107,12 +107,14 @@ func (m *Manager) JudgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 //
 // Nobody removes their own account (they leave the tenant from their own account page),
 // the account their session views as, or, in a session that acts as someone else, the
-// real person behind it. Each membership's removal is held to the rule on a directory-only
-// tenant's administrators (requireEnteringToChange), and each place's to what taking the
-// person out of the group needs (refuseTakingPlace). The rule that keeps a tenant's last
-// administrator is not asked: it holds a person's own leaving, and another person removes
-// them. The person is told at the address they confirmed, read before anything goes,
-// unless they stay one of the tenant's people another way.
+// real person behind it. The removal gives nobody a power that taking each role away
+// directly would not: each membership that has not ended is held to the rule on a
+// directory-only tenant's administrators (requireEnteringToChange) and to the grant of the
+// method that takes one role away, asked for that role (RoleGrants.MayTake), and each
+// place to what taking the person out of the group needs (refuseTakingPlace). The rule
+// that keeps a tenant's last administrator is not asked: it holds a person's own leaving,
+// and another person removes them. The person is told at the address they confirmed,
+// read before anything goes, unless they stay one of the tenant's people another way.
 //
 // What the person holds is read as committed: remove one person from one tenant per
 // transaction.
@@ -279,16 +281,37 @@ func (m *Manager) judgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 
 // refuseRemovingFromTenant holds what a removal takes in the tenant, of what has not
 // ended, to the rules of taking each away: a membership of the person's own to the rule
-// on a directory-only tenant's administrators, and a place in a group of the tenant to
-// what taking the person out of the group needs. It answers whether the person has a
+// on a directory-only tenant's administrators and to the grant of the method that takes
+// one role away (RoleGrants.MayTake), and a place in a group of the tenant to what taking
+// the person out of the group needs. The grants are asked only of a request: a call
+// outside any request is the application's own act. It answers whether the person has a
 // place in a group of the tenant.
 func (m *Manager) refuseRemovingFromTenant(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, userID impulse.UUID, domain accesstypes.Domain) (inGroups bool, err error) {
+	requested := !resource.CallerFrom(ctx).IsZero()
+	if requested && m.grants == nil {
+		return false, errors.New("a request removes a person from a tenant and the manager holds no role grants to judge it by: build it with identity.WithRoleGrants, as the generated client does")
+	}
+	scope := accesstypes.DomainPolicyScope(domain)
+	act := "removing this person from the " + m.tenantWord + " takes away"
 	for _, key := range holds.own {
 		if !heldIn(key.Kind, key.Axis, key.Domain, domain) {
 			continue
 		}
-		if err := m.requireEnteringToChange(ctx, accesstypes.DomainPolicyScope(domain), key.Role, nil); err != nil {
+		if err := m.requireEnteringToChange(ctx, scope, key.Role, nil); err != nil {
 			return false, err
+		}
+		if !requested {
+			continue
+		}
+		allowed, err := m.grants.MayTake(ctx, txn, scope, userID, key.Role)
+		if err != nil {
+			return false, errors.Wrap(err, "identity.RoleGrants")
+		}
+		if !allowed {
+			return false, httpio.NewForbiddenMessageWithError(
+				errors.Newf("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(key.Role)),
+				sentenceStart(act)+" the role "+roleInWords(key.Role)+", which you may not take from them.",
+			)
 		}
 	}
 	for _, place := range holds.places {

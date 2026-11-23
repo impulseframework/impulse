@@ -71,7 +71,8 @@ func Test_prepareIdentity_notOnOwnAccount(t *testing.T) {
 				held[file] = "// @rpc\n// @permissionScope(domain)\n// @notOnOwnAccount(ID)\n// @outlet("
 				removals[file] = []string{
 					"// @answers(204)\n// @warning(typed: remove)\n// @class(access)\ntype Remove" + people + " struct {\n// @target(" + people + ")\nUserID impulse.UUID\n}",
-					"Nobody removes themselves with it: the person's own row does not offer it\n// (@notOnOwnAccount), and a person leaves a tenant from their own account page.",
+					"Each role it takes is one the caller could take away with the method that takes\n// one role: a role the caller may not take away refuses the removal. Nobody removes\n" +
+						"// themselves with it: the person's own row does not offer it (@notOnOwnAccount), and a\n// person leaves a tenant from their own account page.",
 					"func (m *Remove" + people + ") Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {",
 					"warning, err := tenant.RemovalWarning(ctx, txn, m.UserID)",
 					"func (m *Remove" + people + ") Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {",
