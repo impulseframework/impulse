@@ -357,27 +357,34 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 	if err != nil {
 		return nil, err
 	}
-	judged := &leaving{memberships: memberships, places: gone, refusal: refusal}
-	judged.deletesAccount = !slices.ContainsFunc(holds.own, func(key access.MembershipKey) bool {
+	deletesAccount := !slices.ContainsFunc(holds.own, func(key access.MembershipKey) bool {
 		return !heldIn(key.Kind, key.Axis, key.Domain, domain)
 	}) && !slices.ContainsFunc(holds.places, func(place GroupPlace) bool {
 		return !heldIn(place.Kind, place.Axis, place.Domain, domain)
 	})
-	if !judged.deletesAccount {
-		return judged, nil
-	}
-	for _, key := range holds.rows.own {
-		if !heldIn(key.Kind, key.Axis, key.Domain, domain) {
-			judged.endedMemberships = append(judged.endedMemberships, key)
+	var endedMemberships []access.MembershipKey
+	var endedPlaces []access.GroupMemberKey
+	if deletesAccount {
+		for _, key := range holds.rows.own {
+			if !heldIn(key.Kind, key.Axis, key.Domain, domain) {
+				endedMemberships = append(endedMemberships, key)
+			}
 		}
-	}
-	for _, place := range holds.rows.places {
-		if !heldIn(place.Kind, place.Axis, place.Domain, domain) {
-			judged.endedPlaces = append(judged.endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
+		for _, place := range holds.rows.places {
+			if !heldIn(place.Kind, place.Axis, place.Domain, domain) {
+				endedPlaces = append(endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
+			}
 		}
 	}
 
-	return judged, nil
+	return &leaving{
+		memberships:      memberships,
+		places:           gone,
+		endedMemberships: endedMemberships,
+		endedPlaces:      endedPlaces,
+		refusal:          refusal,
+		deletesAccount:   deletesAccount,
+	}, nil
 }
 
 // leavingRefusal answers why the person may not leave the tenant, empty where they may.
