@@ -1195,6 +1195,7 @@ class SideBuilder {
         showViewButton: link !== undefined,
         ...(link ? { rowRoute: link } : {}),
         collapsible: false,
+        emptyMessage: 'This person holds no role here.',
         listColumns: [
           ...this.columns(resource, [['role', 'Role']]),
           ...comesFrom,
@@ -1231,6 +1232,7 @@ class SideBuilder {
       showViewButton: link !== undefined,
       ...(link ? { rowRoute: link } : {}),
       collapsible: false,
+      emptyMessage: 'This person holds no role.',
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
         ...comesFrom,
@@ -1288,6 +1290,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'No role comes to this person through a group.',
       listColumns: this.tenant
         ? this.columns(resource, [
             ...named,
@@ -1323,6 +1326,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'Nobody is in the group.',
       listColumns: this.columns(resource, [
         ['username', 'Username'],
         ['name', 'Name'],
@@ -1385,6 +1389,7 @@ class SideBuilder {
         parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
         showViewButton: false,
         collapsible: false,
+        emptyMessage: 'The group holds no role.',
         listColumns: [
           ...this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
           ...counted,
@@ -1412,6 +1417,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'The group holds no role.',
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
         ...(this.has(resource, 'kind') && this.identity.tenant
@@ -1464,6 +1470,11 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      // A role file may keep a shared person's password and identities from a tenant's
+      // reader, so an empty list there says what is shown, not what is.
+      emptyMessage: this.tenant
+        ? 'Nothing of how this person signs in is shown here.'
+        : 'This person has no way to sign in.',
       listColumns: this.columns(resource, [
         ['through', 'Signs in with'],
         ['connection', 'Connection'],
@@ -1503,6 +1514,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: this.tenant ? 'No directory sign-in is shown here.' : 'No directory sign-in is linked.',
       listColumns: this.columns(resource, [
         ['method', 'Sign-in method'],
         ['connection', 'Connection'],

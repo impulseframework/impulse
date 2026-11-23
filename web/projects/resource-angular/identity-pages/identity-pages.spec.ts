@@ -1493,6 +1493,7 @@ describe("identityPages, a person's password", () => {
       ways: 'CrewSignInWays',
       remove: 'RemoveCrewPassword',
       unlink: 'UnlinkCrewSessionIdentity',
+      noWay: 'This person has no way to sign in.',
     },
     {
       name: "a tenant's side",
@@ -1500,8 +1501,17 @@ describe("identityPages, a person's password", () => {
       ways: 'CrewSectorSignInWays',
       remove: 'RemoveCrewSectorPassword',
       unlink: 'UnlinkCrewSectorSessionIdentity',
+      // A role file may keep a shared person's password and identities from a tenant's
+      // reader: the sentence says what is shown, not what is.
+      noWay: 'Nothing of how this person signs in is shown here.',
     },
   ]) {
+    it(`says in a sentence of its own that a person has no way to sign in that is shown, on ${tt.name}`, () => {
+      expect(waysOf(identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope })).emptyMessage).toBe(
+        tt.noWay,
+      );
+    });
+
     it(`lists the ways a person signs in under the person, above their identities, on ${tt.name}`, () => {
       const pages = identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope });
       const titles = children(pages[0]).map((child) => child.title);
@@ -1941,6 +1951,30 @@ describe('identityPages, an Auth that keeps groups', () => {
         routes: { groups: 'sectors/:sectorID/groups' },
       })[1].routeData.route,
     ).toBe('sectors/:sectorID/groups');
+  });
+
+  it('says, under a person and under a group, in a sentence of its own that a list holds nothing, on both sides', () => {
+    const said = (page: RootConfig): [string, string | undefined][] =>
+      children(page).map((child) => [child.title, child.emptyMessage]);
+    expect(said(global[0])).toEqual([
+      ['Roles held', 'This person holds no role.'],
+      ['Roles held through a group', 'No role comes to this person through a group.'],
+      ['Sign-in identities', 'No directory sign-in is linked.'],
+      ['Sessions', undefined],
+    ]);
+    // A tenant's side says what is shown: a role file may keep a shared person's
+    // identities from a tenant's reader, so an empty list there does not say there are none.
+    expect(said(domain[0])).toEqual([
+      ['Roles held here', 'This person holds no role here.'],
+      ['Roles held here through a group', 'No role comes to this person through a group.'],
+      ['Sign-in identities', 'No directory sign-in is shown here.'],
+    ]);
+    for (const page of [global[1], domain[1]]) {
+      expect(said(page)).toEqual([
+        ['People in the group', 'Nobody is in the group.'],
+        ['Roles the group holds', 'The group holds no role.'],
+      ]);
+    }
   });
 
   it('leaves the Groups page and the roles through groups out where the Auth keeps none', () => {
