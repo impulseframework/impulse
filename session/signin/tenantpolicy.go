@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -134,7 +135,9 @@ func (d *TenantDeclaration) declares(directory Directory) bool {
 // must not have side effects outside it.
 type DeclarationReader[Tx any] func(ctx context.Context, tx Tx, tenant accesstypes.Domain) (*TenantDeclaration, error)
 
-// TenantPolicyOption refines the tenant policy.
+// TenantPolicyOption refines the tenant policy. PasswordsDisabledByTenants takes none,
+// since no option changes whether a sign-in with a password is refused as directory
+// only: an option that could must be taken by it too, or the check and the policy part.
 type TenantPolicyOption func(settings *tenantPolicySettings)
 
 // tenantPolicySettings are the tenant policy's options.
@@ -234,6 +237,9 @@ type tenantPolicy[Tx any] struct {
 // default seat admits and seats the person, so the policy then finds the membership,
 // and a declaration without one refuses them by invitation only, unless they carry
 // another tenant's invitation, which seats them in the tenant that invited them.
+//
+// PasswordsDisabledByTenants asks the same rules outside a sign-in, for one person: whether
+// a password would be refused them as directory_only.
 func TenantPolicy[Tx any](roles UserRoleManager, declarations DeclarationReader[Tx], opts ...TenantPolicyOption) Policy[Tx] {
 	if roles == nil {
 		panic("signin: TenantPolicy was given no role store: pass the access library's user manager")
@@ -247,6 +253,67 @@ func TenantPolicy[Tx any](roles UserRoleManager, declarations DeclarationReader[
 	}
 
 	return p.decide
+}
+
+// PasswordDisabledCheck answers whether the user's password is disabled: whether a
+// sign-in of theirs with a password would be refused because the tenants' sign-in
+// settings close every tenant of theirs to it, whether or not they hold one. A page
+// asks it to know whether to offer a password at all. PasswordsDisabledByTenants
+// builds the library's own.
+type PasswordDisabledCheck func(ctx context.Context, userID impulse.UUID) (bool, error)
+
+// outsideSignIn is the transaction the tenant policy is asked under outside a sign-in:
+// there is none, and the reader PasswordsDisabledByTenants is given takes none.
+type outsideSignIn struct{}
+
+// PasswordsDisabledByTenants is the tenant policy's own decision for a sign-in with a
+// password, asked for one person outside any sign-in: the check answers true exactly
+// when TenantPolicy, over the same role store and the same declarations, would refuse
+// that person's sign-in with a password as directory_only, so when every tenant that
+// seats them is directory only. It answers false for a super administrator, for an
+// administrator of a directory-only tenant of theirs (the administrators' way in, held
+// for the mailed code), for a person who holds a role outside any one tenant, for a
+// person a tenant that is not directory only seats, and for a person who is a member of
+// no tenant (no_tenant is another refusal, and with AdmitWithoutTenant no refusal). It
+// is decide itself, asked with a password identity, not a second statement of the
+// rules, so the answer follows the policy wherever the policy changes.
+//
+// roles is the access library's user manager, as for TenantPolicy; declarations reads
+// a tenant's declaration with no sign-in transaction, answering nil for a tenant that
+// declares nothing (on Spanner resource.OutsideSignIn over the sign-in's reader). The
+// check reads the person's memberships and their tenants' declarations and never
+// writes. It answers for the tenant policy alone: a rule chained after it (Then) is
+// not asked, since a chained rule is never asked outside a sign-in. An error of the
+// role store or the reader is returned as the policy returns it. Set it with
+// session.Auth.SetPasswordDisabledCheck. A nil roles or declarations is a wiring
+// mistake and panics.
+func PasswordsDisabledByTenants(
+	roles UserRoleManager,
+	declarations func(ctx context.Context, tenant accesstypes.Domain) (*TenantDeclaration, error),
+) PasswordDisabledCheck {
+	if roles == nil {
+		panic("signin: PasswordsDisabledByTenants was given no role store: pass the access library's user manager")
+	}
+	if declarations == nil {
+		panic("signin: PasswordsDisabledByTenants was given no declaration reader: pass a reader of a tenant's declaration " +
+			"that needs no transaction (on Spanner, resource.OutsideSignIn over the sign-in's reader)")
+	}
+	p := &tenantPolicy[outsideSignIn]{
+		roles: roles,
+		declarations: func(ctx context.Context, _ outsideSignIn, tenant accesstypes.Domain) (*TenantDeclaration, error) {
+			return declarations(ctx, tenant)
+		},
+	}
+
+	return func(ctx context.Context, userID impulse.UUID) (bool, error) {
+		req := &sessioninfo.NewSessionRequest{UserID: userID, Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword}}
+		decision, err := p.decide(ctx, outsideSignIn{}, req)
+		if err != nil {
+			return false, err
+		}
+
+		return decision.Outcome() == DenySignIn && decision.Refusal() == sessioninfo.RefusedDirectoryOnly, nil
+	}
 }
 
 // decide is the policy: see TenantPolicy for the rules.

@@ -24,7 +24,9 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
  * holds no password is offered the choice of a first one in their place. The removal and
  * the first password are offered on the server's word alone: where the read answers
  * nothing, because the server names none or the read failed, neither is offered. A hidden
- * offer is a courtesy; the server refuses what it must.
+ * offer is a courtesy; the server refuses what it must. Where the server says the person's
+ * password is disabled, no Password line is drawn at all and nothing about a password is
+ * offered: their organization signs in through its directory only.
  */
 @Injectable({ providedIn: 'root' })
 export class Account {
@@ -93,19 +95,26 @@ export class Account {
    * is theirs: the page offers no change of it, which the server refuses.
    */
   readonly directoryAddress = computed(() => this.signInMeans()?.directoryAddress === true);
+  /**
+   * The server says a password does not sign the person in, whether or not they hold one:
+   * their organization signs in through its directory only. No Password line is drawn.
+   */
+  readonly passwordDisabled = computed(() => this.signInMeans()?.passwordDisabled === true);
   /** The methods list says the username is the person's email address. */
   readonly usernameIsEmail = computed(() => this.methods.hasValue() && this.methods.value().usernameIsEmail === true);
   /**
    * The person's auth has the password method, and the person holds a password as far
    * as the page knows: they change it. Nothing is offered while what they sign in with is
-   * first read, so a line is not drawn and then taken away.
+   * first read, so a line is not drawn and then taken away, nor where the server says the
+   * password is disabled.
    */
   readonly password = computed(
     () =>
       this.methods.hasValue() &&
       this.methods.value().changePassword !== undefined &&
       this.meansRead() &&
-      this.signInMeans()?.password !== false,
+      this.signInMeans()?.password !== false &&
+      !this.passwordDisabled(),
   );
   /**
    * The server serves the removal of a person's own password where they change it, and
@@ -130,7 +139,8 @@ export class Account {
    * does where their auth has the password method, and the session is the person's own:
    * they choose one, with a code mailed to the address their account holds confirmed. It
    * is offered on the server's word that they hold none: a read that answers nothing, or
-   * is first being read, offers nothing.
+   * is first being read, offers nothing. Nor is it offered where the server says the
+   * password is disabled: the server refuses it.
    */
   readonly firstPassword = computed(
     () =>
@@ -138,13 +148,18 @@ export class Account {
       this.methods.hasValue() &&
       this.methods.value().firstPassword !== undefined &&
       this.meansRead() &&
-      this.signInMeans()?.password === false,
+      this.signInMeans()?.password === false &&
+      !this.passwordDisabled(),
   );
   /**
-   * The person holds a password: the server says so, or it said nothing and the person's
-   * auth has the password method, where the page takes it that they do.
+   * The person holds a password that signs them in: the server says so, or it said nothing
+   * and the person's auth has the password method, where the page takes it that they do.
+   * A password the server says is disabled signs nobody in, and is none here.
    */
   readonly holdsPassword = computed(() => {
+    if (this.passwordDisabled()) {
+      return false;
+    }
     const means = this.signInMeans();
     return means !== undefined ? means.password : this.password();
   });

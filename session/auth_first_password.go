@@ -30,8 +30,9 @@ import (
 // a signed-in person replaces with a link mailed to the new one (Email()). It is the
 // only way to a first password a person has; an account that holds
 // a password changes it with the old one (PasswordMethod.ChangeUserPassword), and one
-// who has lost theirs follows a reset link (AuthAPI.SendPasswordReset). See "A person's
-// first password" in the README.
+// who has lost theirs follows a reset link (AuthAPI.SendPasswordReset). A person whose
+// password the tenants' sign-in settings disable is refused one, since it would not sign
+// them in (SetPasswordDisabledCheck). See "A person's first password" in the README.
 
 // firstPasswordAttempts bounds the wrong codes entered for an account's first password:
 // five within fifteen minutes end the code that stands and hold the account's first
@@ -69,7 +70,9 @@ type FirstPasswordHandlers struct {
 // being accepted. It is refused (409) for an account that holds a password, which is
 // changed with the old one; for an account with no confirmed address, since the code
 // has nowhere to go that the person has shown is theirs (they add and confirm one
-// first, Email()); and on an Auth with no password method. A mailbox sent five codes
+// first, Email()); and on an Auth with no password method. It is refused (403) for a
+// person whose password the tenants' sign-in settings disable
+// (SetPasswordDisabledCheck), before any code is mailed. A mailbox sent five codes
 // within fifteen minutes and using none is refused with too_many_emails and the wait,
 // and an account held after five wrong codes with too_many_attempts and the wait. It
 // is refused in an impersonated session. Route it behind ValidateSession.
@@ -84,7 +87,9 @@ func (h *FirstPasswordHandlers) SendCode() http.HandlerFunc {
 // holds the account's first password for fifteen minutes (429, too_many_attempts and
 // the wait); a code entered when none stands, because none was sent or the one sent
 // expired, was used or was ended, is 409. It is refused (409) for an account that holds
-// a password and on an Auth with no password method, and in an impersonated session.
+// a password and on an Auth with no password method, refused (403) for a person whose
+// password the tenants' sign-in settings disable (SetPasswordDisabledCheck), and
+// refused in an impersonated session.
 // No session of the user ends, this one among them; where the Auth records auth
 // events, this session records a password event beside the ones it had. It answers {}.
 // Route it behind ValidateSession.
@@ -172,6 +177,13 @@ func errPasswordHeld() error {
 	return httpio.NewConflictMessage("Your account already has a password. To change it, enter the one you have and the new one")
 }
 
+// errPasswordDisabled is the refusal of a first password for a person whose password
+// the tenants' sign-in settings disable (SetPasswordDisabledCheck): it would not sign
+// them in.
+func errPasswordDisabled() error {
+	return httpio.NewForbiddenMessage("Your organization does not sign in with a password here, so there is none to choose. Keep signing in the way your organization has set up")
+}
+
 // errNoConfirmedAddress is the refusal of a first password's code for an account with
 // no confirmed address, or with one no message can be sent to.
 func errNoConfirmedAddress() error {
@@ -195,8 +207,10 @@ func errFirstPasswordCodeDead() error {
 }
 
 // firstPasswordUser reads the account a first password is asked for and refuses the
-// ones that get none: every account of an Auth with no password method, and an account
-// that holds a password.
+// ones that get none: every account of an Auth with no password method, an account
+// that holds a password, and the account of a person whose password the tenants'
+// sign-in settings disable, asked last, so the two refusals before it answer as they
+// did. A check that fails fails the request.
 func (a *Auth[S, U, Tx]) firstPasswordUser(ctx context.Context, userID impulse.UUID) (*sessionstorage.SessionUser, error) {
 	if !a.registered().passwordRegistered() {
 		return nil, errNoPasswordMethod()
@@ -207,6 +221,13 @@ func (a *Auth[S, U, Tx]) firstPasswordUser(ctx context.Context, userID impulse.U
 	}
 	if user.PasswordHash != nil {
 		return nil, errPasswordHeld()
+	}
+	disabled, err := a.passwordDisabled(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if disabled {
+		return nil, errPasswordDisabled()
 	}
 
 	return user, nil
