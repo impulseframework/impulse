@@ -72,6 +72,15 @@ const descriptor: ApiDescriptor = {
       keys: ['id'],
       operations: ['list', 'read', 'create', 'remove', 'batch'],
     },
+    Teams: {
+      resource: 'Teams' as Resource,
+      property: 'teams',
+      route: 'teams',
+      scope: 'global',
+      consolidated: true,
+      keys: ['id'],
+      operations: ['list', 'read'],
+    },
     StaffTeamDirectoryRoles: {
       resource: 'StaffTeamDirectoryRoles' as Resource,
       property: 'staffTeamDirectoryRoles',
@@ -130,6 +139,7 @@ const descriptor: ApiDescriptor = {
       label: 'Staff',
       tenant: 'Team',
       tenantResource: 'Teams',
+      tenantDirectoryOnlyField: 'directoryOnly',
       sides: [
         {
           scope: 'domain',
@@ -313,6 +323,10 @@ const wouldOpen = (role: string): MethodWarning => ({
 interface World {
   /** The grants in the team. */
   digest: PermissionDigest;
+  /** The grants of the whole application; none unless given. */
+  globalDigest?: PermissionDigest;
+  /** The team's own row of the tenant record; refused unless given. */
+  record?: Record<string, unknown>;
   session?: object;
   /** The read of the sign-in settings; a team with no directory, off, unless given. */
   state?: TenantSignInSettings;
@@ -358,13 +372,20 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
       case '/api/user/session':
         return { status: 200, body: world.session ?? byPassword };
       case '/api/permission-digest':
-        return { status: 200, body: url.searchParams.get('domain') === team ? world.digest : {} };
+        return {
+          status: 200,
+          body: url.searchParams.get('domain') === team ? world.digest : (world.globalDigest ?? {}),
+        };
       case '/api/user-domains':
         return { status: 200, body: [{ domain: team, name: 'Riverside' }] };
       case `/api/teams/${team}/sign-in-settings`: {
         const read: TransportResponse = { status: 200, body: world.state ?? { directoryOnly: false } };
         return world.held ? world.held.then(() => read) : read;
       }
+      case `/api/teams/${team}`:
+        return world.record
+          ? { status: 200, body: world.record }
+          : { status: 403, body: { message: 'Your role does not cover this team.' } };
       case `/api/teams/${team}/team-directories`:
         return { status: 200, body: world.directories ?? [] };
       case `/api/teams/${team}/staff-team-directory-roles`:
@@ -1447,6 +1468,122 @@ describe('TenantSignInPageComponent', () => {
     ]);
     expect(element().querySelectorAll('h2, button').length).toBe(0);
     expect(transport.requests.map((r) => r.url).filter((u) => u.includes(`/teams/${team}`))).toEqual([]);
+  });
+
+  describe("a reader who holds none of the team's sign-in methods reads the switch from the team's own row", () => {
+    /** How many times the page read the team's own row of the tenant record. */
+    const readsOfTheRow = (): number =>
+      transport.requests.filter((r) => r.method === 'GET' && r.url.replace(/\?.*$/, '') === `/api/teams/${team}`)
+        .length;
+    const readsTeams: PermissionDigest = { Teams: { Read: 'granted' } };
+
+    it('a reader who holds one of the methods is answered by the read of the sign-in settings, and the row is not read', async () => {
+      await pageFor({
+        digest: administrator,
+        globalDigest: readsTeams,
+        session: throughWorkspace,
+        state: withDirectory,
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(readsOfTheSettings()).toBe(1);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        'Off: a person who holds a role here enters however they signed in.',
+      ]);
+    });
+
+    it('a reader who may read the field is told the switch is on, and nothing more', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: readsTeams,
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(readsOfTheSettings()).toBe(0);
+      expect(texts('h2')).toEqual(['Directory only']);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        "On: only people who sign in through this team's directory enter it.",
+      ]);
+      expect(element().querySelector('.impulse-tenant-sign-in-people')).toBeNull();
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+      expect(element().querySelectorAll('button').length).toBe(0);
+    });
+
+    it('a reader who may read the field is told the switch is off, and nothing more', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { ...readsTeams, 'Teams.name': { Read: 'granted' }, 'Teams.directoryOnly': { Read: 'granted' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: false },
+      });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(texts('h2')).toEqual(['Directory only']);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        'Off: a person who holds a role here enters however they signed in.',
+      ]);
+      expect(element().querySelector('.impulse-tenant-sign-in-note')).toBeNull();
+      expect(element().querySelectorAll('button').length).toBe(0);
+    });
+
+    it('where the Read names other fields and not the switch, the row is not read', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { ...readsTeams, 'Teams.name': { Read: 'granted' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
+
+    it('where the Read names the switch on a condition, the row is not read', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { ...readsTeams, 'Teams.directoryOnly': { Read: 'conditional' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
+
+    it('where the reader may not read the tenant record, the row is not read', async () => {
+      await pageFor({ digest: lister, directories: [workspace], record: { id: team, directoryOnly: true } });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
+
+    it('a refusal of the row draws no part and no alert', async () => {
+      await pageFor({ digest: lister, globalDigest: readsTeams, directories: [workspace] });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(texts('h2')).toEqual([]);
+      expect(element().querySelector('[role=alert]')).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-stands')).toEqual(['This team has a directory.']);
+    });
+
+    it('route data that names no tenant record asks nothing of it', async () => {
+      const unnamed: TenantSignIn = { ...signIn };
+      delete unnamed.tenantRecord;
+      await pageFor({
+        digest: lister,
+        globalDigest: readsTeams,
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+        route: unnamed,
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
   });
 
   // Opened by its address (a reload, a bookmark), the page renders before the team's digest

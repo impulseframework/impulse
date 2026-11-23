@@ -205,6 +205,14 @@ export interface IdentityDescriptor {
    */
   readonly tenantResource?: string;
   /**
+   * The tenant record's directory-only field, as the wire names it, where the outlet serves
+   * the record and the record declares the switch. A tenant's Sign-in settings page reads it
+   * from the tenant's own row for a reader who holds none of the tenant's sign-in methods,
+   * so the page holds no field name. Absent where there is no such field, and on a
+   * description from a generator that predates it.
+   */
+  readonly tenantDirectoryOnlyField?: string;
+  /**
    * The directories that decide the Auth's roles, in the words of its login page's
    * buttons ("Google", "Google or Microsoft"), where a directory writes them at every
    * sign-in. Such an Auth keeps no groups of its own, and its Groups page says whose

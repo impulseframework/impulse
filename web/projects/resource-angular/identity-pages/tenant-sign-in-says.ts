@@ -28,6 +28,12 @@ export interface TenantSignIn {
   directories: Resource;
   /** The record a tenant's people are rows of. */
   people?: Resource;
+  /**
+   * The tenant record and its directory-only field, where the description names both: what
+   * the page reads the switch from for a reader who is served no read of the sign-in
+   * settings.
+   */
+  tenantRecord?: { resource: Resource; directoryOnlyField: string };
   /** The tenant's methods that set how its people enter. */
   methods: {
     openToDirectory?: Method;

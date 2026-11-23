@@ -73,6 +73,12 @@ type tsAPIIdentity struct {
 	// since the row carries the tenant's key, an id nobody reads. Empty where the outlet
 	// does not serve the record, and the page shows the key.
 	TenantResource string
+	// TenantDirectoryOnlyField is the tenant record's directory-only field as the wire
+	// names it, where the outlet serves the record (TenantResource) and the record
+	// declares the switch: a tenant's Sign-in settings page reads it from the tenant's
+	// own row for a reader who holds none of the tenant's sign-in methods. Empty
+	// otherwise.
+	TenantDirectoryOnlyField string
 	// RolesFrom is the directories that decide the auth's roles, in the words of its
 	// login page's buttons ("Google", "Google or Microsoft"), where a directory writes
 	// them: the auth keeps no groups of its own, and the Groups page says whose groups
@@ -225,6 +231,18 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	return parts
 }
 
+// tenantDirectoryOnlyWire is the tenant record's directory-only field as the wire names
+// it, where the package's tenant record declares the switch; empty otherwise.
+func (t *typescriptGenerator) tenantDirectoryOnlyWire() string {
+	for _, res := range t.resources {
+		if res.declaresDirectoryOnly() {
+			return res.DirectoryOnlyField.WireName()
+		}
+	}
+
+	return ""
+}
+
 // identityOn is the descriptor's identity block for the target's outlet: every auth
 // whose generated management the outlet serves, each side holding the lists and the
 // methods the outlet's description carries. A side whose list of people the outlet does
@@ -250,6 +268,7 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 			identity.Tenant = inst.tenant.name
 			if name := t.pluralize(inst.tenant.name); resources[name] {
 				identity.TenantResource = name
+				identity.TenantDirectoryOnlyField = t.tenantDirectoryOnlyWire()
 			}
 			sides = append(sides, true)
 		}

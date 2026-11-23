@@ -14,6 +14,7 @@ import {
   Method,
   methodHandle,
   Permission,
+  ReadPermission,
   Resource,
   TenantSignInCondition,
   TenantSignInSettings,
@@ -52,7 +53,10 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * where the digest grants any of the tenant's own sign-in methods the route names, which
  * says it all in the server's words for the person reading; and the list of the tenant's
  * directories, asked where the digest grants List on it, which says only whether there is
- * one. A tenant has one directory, and nobody types one in: a person who may create it and
+ * one. A reader who holds none of the tenant's sign-in methods is served neither count nor
+ * control; where the digest lets them read the tenant record's directory-only field, the
+ * page reads the tenant's own row and says whether the tenant is directory only, and no
+ * more. A tenant has one directory, and nobody types one in: a person who may create it and
  * is signed in through an organization's directory makes that one the tenant's, and the
  * request names none. Everything else the page changes is one of the tenant's own methods,
  * run through the library's method dialog; a method that warns is asked for its warning
@@ -113,24 +117,71 @@ export class TenantSignInPageComponent {
   readonly canVouch = computed(() => this.grants('vouchForDirectorySecondFactor'));
   readonly canStopVouching = computed(() => this.grants('stopVouchingForDirectorySecondFactor'));
 
+  /** Whether the reader is served the read of the sign-in settings: the digest grants one of the tenant's own sign-in methods the route names. */
+  private readonly readsSettings = computed(
+    () =>
+      this.canOpen() ||
+      this.canInviteOnly() ||
+      this.canMakeOnly() ||
+      this.canEndOnly() ||
+      this.canVouch() ||
+      this.canStopVouching(),
+  );
+
   /**
    * The tenant's sign-in settings as they stand, read under the grant of any of the
    * tenant's own sign-in methods the route names: everything the page says in the server's
    * words for the person reading.
    */
   private readonly read = resource({
-    params: () => ({
-      tenant: this.tenant(),
-      readable:
-        this.canOpen() ||
-        this.canInviteOnly() ||
-        this.canMakeOnly() ||
-        this.canEndOnly() ||
-        this.canVouch() ||
-        this.canStopVouching(),
-    }),
+    params: () => ({ tenant: this.tenant(), readable: this.readsSettings() }),
     loader: ({ params }): Promise<TenantSignInSettings | undefined> =>
       params.readable && params.tenant ? tenantSignInSettings(this.client, params.tenant) : Promise.resolve(undefined),
+  });
+
+  /**
+   * Whether the tenant's own row of the tenant record is read, for what it says of the
+   * switch: the reader is served no read of the sign-in settings, the route names the record
+   * and its directory-only field, the digest grants Read on the record, and its Read names
+   * no field at all or names that field as granted or conditional on time.
+   */
+  readonly readsRecord = computed(() => {
+    const record = this.signIn.tenantRecord;
+    if (this.readsSettings() || !record || !this.allows(ReadPermission, record.resource)) {
+      return false;
+    }
+    const states = this.auth.fieldPermissionStates({ resource: record.resource, permission: ReadPermission });
+    if (Object.keys(states).length === 0) {
+      return true;
+    }
+    const state = states[record.directoryOnlyField];
+    return state === 'granted' || state === 'conditionalOnTime';
+  });
+
+  /** The tenant's own row of the tenant record, read by the tenant's key where readsRecord holds. */
+  private readonly recordRow = resource({
+    params: () => ({ tenant: this.tenant(), reads: this.readsRecord() }),
+    loader: ({ params }): Promise<Record<string, unknown> | undefined> => {
+      const record = this.signIn.tenantRecord;
+      if (!params.reads || !params.tenant || !record) {
+        return Promise.resolve(undefined);
+      }
+      const handle: AnyResourceHandle = this.client.define(this.client.descriptor.resources[record.resource]);
+      return handle.read([params.tenant]) as Promise<Record<string, unknown>>;
+    },
+  });
+
+  /**
+   * What the tenant's own row says of the switch: true or false, or undefined where the row
+   * is not read, is refused, or carries no such field.
+   */
+  readonly recordSays = computed((): boolean | undefined => {
+    const field = this.signIn.tenantRecord?.directoryOnlyField;
+    if (!field || !this.recordRow.hasValue()) {
+      return undefined;
+    }
+    const value = this.recordRow.value()?.[field];
+    return typeof value === 'boolean' ? value : undefined;
   });
 
   /** The tenant's rows of the directories record, listed where the digest grants List. */
@@ -147,9 +198,9 @@ export class TenantSignInPageComponent {
   );
 
   /**
-   * The read, where the part headed Directory only is drawn: it has answered and the route
-   * names a method of the switch. An application whose tenant has no switch draws no such
-   * part.
+   * The read, where the part headed Directory only says more than its one sentence: it has
+   * answered and the route names a method of the switch. An application whose tenant has no
+   * switch draws no such part.
    */
   readonly switchFacts = computed((): TenantSignInSettings | undefined =>
     this.signIn.methods.makeDirectoryOnly !== undefined || this.signIn.methods.endDirectoryOnly !== undefined
@@ -174,7 +225,8 @@ export class TenantSignInPageComponent {
       !!tenant &&
       this.client.permissions.digest(tenant) !== undefined &&
       this.read.status() !== 'loading' &&
-      this.rows.status() !== 'loading'
+      this.rows.status() !== 'loading' &&
+      this.recordRow.status() !== 'loading'
     );
   });
 
@@ -190,7 +242,14 @@ export class TenantSignInPageComponent {
   );
 
   /** Whether the reader may know anything here: the read of the sign-in settings or the list. */
-  readonly reads = computed(() => this.facts() !== undefined || this.canList());
+  readonly reads = computed(() => this.facts() !== undefined || this.canList() || this.recordSays() !== undefined);
+
+  /**
+   * Whether the tenant is directory only, as far as the reader may know it: from the read of
+   * the sign-in settings where the part is drawn from it (switchFacts), else from the
+   * tenant's own row (recordSays); undefined where neither says, and no part is drawn.
+   */
+  readonly switchOn = computed((): boolean | undefined => this.switchFacts()?.directoryOnly ?? this.recordSays());
 
   /** Whether the tenant has a directory, as far as the reader may know it. */
   readonly hasDirectory = computed(() => {
@@ -465,10 +524,11 @@ export class TenantSignInPageComponent {
     });
   }
 
-  /** Reads the sign-in settings and the list again. */
+  /** Reads the sign-in settings, the list and the tenant's own row again. */
   private reload(): void {
     this.read.reload();
     this.rows.reload();
+    this.recordRow.reload();
   }
 
   private async write(act: () => Promise<void>): Promise<void> {

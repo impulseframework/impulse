@@ -116,6 +116,32 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
     expect(Object.keys(plain.methods)).not.toContain('stopVouchingForDirectorySecondFactor');
   });
 
+  it('the route carries the tenant record and its directory-only field where the description names both, and neither where it names one', () => {
+    const named = (identity: { tenantResource?: string; tenantDirectoryOnlyField?: string }): ApiDescriptor => ({
+      ...descriptor,
+      identity: [
+        {
+          auth: 'Staff',
+          label: 'Staff',
+          tenant: 'Team',
+          ...identity,
+          sides: [side('global', {}), side('domain', { directories: 'TeamDirectories' }, methods)],
+        },
+      ],
+    });
+    const carried = (d: ApiDescriptor): TenantSignIn =>
+      tenantSignInRoute(d, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+
+    expect(carried(named({ tenantResource: 'Teams', tenantDirectoryOnlyField: 'directoryOnly' })).tenantRecord).toEqual(
+      {
+        resource: 'Teams',
+        directoryOnlyField: 'directoryOnly',
+      },
+    );
+    expect(carried(named({ tenantResource: 'Teams' })).tenantRecord).toBeUndefined();
+    expect(carried(named({ tenantDirectoryOnlyField: 'directoryOnly' })).tenantRecord).toBeUndefined();
+  });
+
   it('refuse an Auth the description does not carry', () => {
     expect(() => tenantSignInPage(descriptor, { auth: 'Visitors' })).toThrowError(
       'tenantSignInPage: the API description carries no generated management of the auth Visitors (it carries: Staff, Members, Guests); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it',

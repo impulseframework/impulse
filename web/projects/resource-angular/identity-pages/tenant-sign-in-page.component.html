@@ -120,12 +120,20 @@
         }
       }
 
-      @if (switchFacts(); as facts) {
+      @if (switchOn() !== undefined) {
         <h2>Directory only</h2>
-        @if (facts.directoryOnly) {
+        @if (switchOn()) {
           <p class="impulse-tenant-sign-in-directory-only">
             On: only people who sign in through this {{ word }}'s directory enter it.
           </p>
+        } @else {
+          <p class="impulse-tenant-sign-in-directory-only">
+            Off: a person who holds a role here enters however they signed in.
+          </p>
+        }
+      }
+      @if (switchFacts(); as facts) {
+        @if (facts.directoryOnly) {
           <ng-container [ngTemplateOutlet]="peopleSaid" />
           <div class="impulse-tenant-sign-in-action">
             @if (canEndOnly()) {
@@ -141,9 +149,6 @@
             <p class="impulse-tenant-sign-in-note">{{ keptOut() }}</p>
           </div>
         } @else {
-          <p class="impulse-tenant-sign-in-directory-only">
-            Off: a person who holds a role here enters however they signed in.
-          </p>
           @if (!hasDirectory()) {
             <p class="impulse-tenant-sign-in-note">
               Set a directory first: a {{ word }} with no directory cannot be directory only, since nobody could enter

@@ -115,6 +115,14 @@ function buildSignIn(descriptor: ApiDescriptor, options: TenantSignInOptions): B
       word: identity.tenant ? nameInLowerWords(identity.tenant) : 'tenant',
       directories: directories as Resource,
       ...(side.lists.users ? { people: side.lists.users as Resource } : {}),
+      ...(identity.tenantResource && identity.tenantDirectoryOnlyField
+        ? {
+            tenantRecord: {
+              resource: identity.tenantResource as Resource,
+              directoryOnlyField: identity.tenantDirectoryOnlyField,
+            },
+          }
+        : {}),
       methods: {
         ...(openToDirectory ? { openToDirectory: openToDirectory as Method } : {}),
         ...(makeDirectoryInviteOnly ? { makeDirectoryInviteOnly: makeDirectoryInviteOnly as Method } : {}),

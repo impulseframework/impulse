@@ -1907,6 +1907,7 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Crew',
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
+      tenantDirectoryOnlyField: 'directoryOnly',
       sides: [
         {
           scope: 'global',
@@ -1925,6 +1926,7 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Members',
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
+      tenantDirectoryOnlyField: 'directoryOnly',
       rolesFrom: 'Company directory',
       sides: [
         {
