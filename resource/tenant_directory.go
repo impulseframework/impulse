@@ -116,16 +116,6 @@ func (r *TenantDirectoryRules) PasswordsBy(readers ...CallerPassword) *TenantDir
 // it (SeatedCount); an application names none.
 type SeatedCount func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (int, error)
 
-// DirectoryCounter is one auth's part of the count the read of a tenant's directory-only
-// switch says (DirectoryOnlyState.People): how many people the tenant's list holds, and
-// who of them the switch keeps out, read by the same reader the warning that turns the
-// switch on asks, so the read and the warning always say the same number. A nil reader
-// counts nobody.
-type DirectoryCounter struct {
-	Seated    SeatedCount
-	Outsiders DirectoryOutsiders
-}
-
 // CountedBy answers the rules with the application's auths whose people a tenant seats,
 // one entry for each: the readers of whom the directory-only switch keeps out and of who
 // keeps the administrators' way in, how many people the tenant's list holds, and the
