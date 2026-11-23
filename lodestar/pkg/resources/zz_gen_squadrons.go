@@ -28,10 +28,11 @@ func (Squadron) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "WingID", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
-// DeleteTree describes what keeps a Squadron from being deleted: the kinds with a
-// row directly under a Squadron that the database does not remove with it, each
-// with the columns that name the Squadron. A delete of a Squadron with
-// such a row is refused in a sentence that says what is in the way.
+// DeleteTree describes what a delete of a Squadron takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Squadron and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Squadron
+// that the database does not remove with it.
 func (Squadron) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "Squadrons",
@@ -39,6 +40,58 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
 		Tenant: &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+					patch := &HangarPassDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "SquadronMemberships",
+				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
+				Key:      []string{"SquadronId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SquadronId", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SquadronMembership], caller *resource.Caller) {
+					patch := &SquadronMembershipDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		RefusedBy: []resource.DeleteKind{
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+			},
+		},
 		Under: []resource.DeleteKind{
 			{
 				Resource: "Missions",
@@ -622,6 +675,17 @@ func NewSquadronDeletePatch(id impulse.UUID) *SquadronDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &SquadronDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Squadron with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Squadron that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *SquadronDeletePatch) WithEverythingUnder() *SquadronDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *SquadronDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

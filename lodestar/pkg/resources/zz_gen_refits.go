@@ -30,6 +30,41 @@ func (Refit) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "ShipID", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
+// DeleteTree describes what a delete of a Refit takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Refit and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Refit
+// that the database does not remove with it.
+func (Refit) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Refits",
+		Words:  resource.DeleteWords{One: "refit", Many: "refits"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[RefitTask], caller *resource.Caller) {
+					patch := &RefitTaskDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+	}
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows and sorts by. A name is looked up in
 // the pointed-to table by the id; it is no column of this resource.
@@ -814,6 +849,17 @@ func NewRefitDeletePatch(id impulse.UUID) *RefitDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &RefitDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Refit with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Refit that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *RefitDeletePatch) WithEverythingUnder() *RefitDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *RefitDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

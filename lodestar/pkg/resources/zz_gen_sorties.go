@@ -29,6 +29,42 @@ func (Sortie) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "MissionID", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
+// DeleteTree describes what a delete of a Sortie takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Sortie and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Sortie
+// that the database does not remove with it.
+func (Sortie) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Sorties",
+		Words:  resource.DeleteWords{One: "sortie", Many: "sorties"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], caller *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+	}
+}
+
 // sortieRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sortieReadSets holds one Set per read operation.
@@ -745,6 +781,17 @@ func NewSortieDeletePatch(id impulse.UUID) *SortieDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &SortieDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Sortie with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Sortie that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *SortieDeletePatch) WithEverythingUnder() *SortieDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *SortieDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

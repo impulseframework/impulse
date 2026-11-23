@@ -4,7 +4,9 @@ package integration
 // This suite pins what a record declares its delete takes (@deleteCascade). A mission
 // names its sorties, their expenses and its documents as going with it; a client names
 // its contacts, and a mission or a consignment as refusing its delete. The generator
-// holds each list to the schema and writes the description the first test reads.
+// holds each list to the schema and writes the description the first test reads. A
+// wing, a squadron, a hangar, a ship, a refit and a sortie declare theirs too
+// (TestDeleteCascade_sixRecords).
 //
 // The rest is the delete itself on the served routes. A delete of a mission with rows
 // under it deletes nothing unless the request says it takes them: it is answered 428
@@ -421,6 +423,287 @@ func TestDeleteCascade_takesWhatIsUnder(t *testing.T) {
 		status, body := doRequest(t, as(everything), http.MethodPatch, batch, ops)
 		assertStatus(t, status, http.StatusBadRequest, body)
 		allStand(t, m)
+	})
+}
+
+// takenRow is a row a case of TestDeleteCascade_sixRecords reads back: its table, its
+// key and a column of the table.
+type takenRow struct {
+	table  string
+	key    spanner.Key
+	column string
+}
+
+// rowByID is the row of the table whose key is its Id.
+func rowByID(table, id string) takenRow {
+	return takenRow{table: table, key: spanner.Key{id}, column: "Id"}
+}
+
+// TestDeleteCascade_sixRecords pins the declared deletes (@deleteCascade) of a wing, a
+// squadron, a hangar, a ship, a refit and a sortie, on the served routes: a wing takes
+// its squadrons with their memberships and the hangar passes they hold, a squadron its
+// memberships and passes, a hangar its passes and its ships with their refits and tasks,
+// a ship its refits and their tasks, a refit its tasks, and a sortie its expenses. A
+// delete with rows under the record is asked first, with a count of each kind, and
+// deletes nothing; the same delete saying it takes them deletes every row through its
+// own delete, so a task's photo is released, an expense's rule is asked and a tracked
+// row's change record is written. A kind the record lists under refusedBy refuses its
+// delete whatever the request says. Each case writes the rows it deletes, in Anvil, and
+// the person may delete and list every kind.
+func TestDeleteCascade_sixRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stores := newTestStores()
+	h := router.NewTestRouter(newAppWithStores(db, &staticAccess{g: grants{
+		accesstypes.Delete: {"Wings", "Squadrons", "SquadronMemberships", "HangarPasses", "Hangars", "Ships", "Refits", "RefitTasks", "Sorties", "SortieExpenses"},
+		accesstypes.List:   {"Squadrons", "SquadronMemberships", "HangarPasses", "Ships", "Refits", "RefitTasks", "Sorties", "SortieExpenses", "DroidReports", missionsResource},
+	}}, stores))
+	const (
+		batch   = "/console/api/resources"
+		marshal = "f0000000-0000-4000-8000-000000000004"
+	)
+
+	// Every row a case writes has an id of its own: a kind's three hex digits, then a
+	// count over the whole test.
+	written := 0
+	id := func(kind string) string {
+		written++
+
+		return fmt.Sprintf("%s00000-0000-4000-8000-0000000d%04d", kind, written)
+	}
+	write := func(t *testing.T, rows ...*spanner.Mutation) {
+		t.Helper()
+
+		if _, err := db.Apply(ctx, rows); err != nil {
+			t.Fatalf("spanner.Apply(): %v", err)
+		}
+	}
+	stands := func(t *testing.T, row takenRow) bool {
+		t.Helper()
+
+		_, err := db.Single().ReadRow(ctx, row.table, row.key, []string{row.column})
+		if err != nil && spanner.ErrCode(err) != codes.NotFound {
+			t.Fatalf("ReadRow(%s, %v): %v", row.table, row.key, err)
+		}
+
+		return err == nil
+	}
+	allStand := func(t *testing.T, rows []takenRow) {
+		t.Helper()
+
+		for _, row := range rows {
+			if !stands(t, row) {
+				t.Errorf("%s %v is gone, though the delete was not made", row.table, row.key)
+			}
+		}
+	}
+	remove := func(path string, everythingUnder bool) string {
+		if !everythingUnder {
+			return fmt.Sprintf(`[{"op":"remove","path":%q}]`, path)
+		}
+
+		return fmt.Sprintf(`[{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, path)
+	}
+	// askedThenTaken sends the delete of the record at path twice. Plain, it is asked the
+	// question and every row stands, with the stored files; saying it takes the rows, it
+	// deletes every row and releases the files.
+	askedThenTaken := func(t *testing.T, target, path, question string, rows []takenRow, files ...string) {
+		t.Helper()
+
+		status, body := doRequest(t, h, http.MethodPatch, target, remove(path, false))
+		assertStatus(t, status, http.StatusPreconditionRequired, body)
+		if got := refusalMessage(t, body); got != question {
+			t.Errorf("message = %q, want %q", got, question)
+		}
+		allStand(t, rows)
+		for _, key := range files {
+			if !slices.Contains(stores.files.Keys(), key) {
+				t.Errorf("the stored file %s is gone, though the delete was not made", key)
+			}
+		}
+
+		status, body = doRequest(t, h, http.MethodPatch, target, remove(path, true))
+		assertStatus(t, status, http.StatusOK, body)
+		for _, row := range rows {
+			if stands(t, row) {
+				t.Errorf("%s %v stands after its record was deleted with everything under it", row.table, row.key)
+			}
+		}
+		for _, key := range files {
+			if slices.Contains(stores.files.Keys(), key) {
+				t.Errorf("the stored file %s is still stored after its row was deleted", key)
+			}
+		}
+	}
+	// refused sends the delete of the record at path, plain and saying it takes the rows:
+	// each is refused in the sentence, and every row stands.
+	refused := func(t *testing.T, path string, wantStatus int, want string, rows []takenRow) {
+		t.Helper()
+
+		for _, everythingUnder := range []bool{false, true} {
+			status, body := doRequest(t, h, http.MethodPatch, batch, remove(path, everythingUnder))
+			assertStatus(t, status, wantStatus, body)
+			if got := refusalMessage(t, body); got != want {
+				t.Errorf("message = %q, want %q", got, want)
+			}
+		}
+		allStand(t, rows)
+	}
+
+	wing := func(wingID string) *spanner.Mutation {
+		return spanner.Insert("Wings", []string{"Id", "SectorId", "Name"}, []any{wingID, anvil, "Cascade Wing"})
+	}
+	squadron := func(squadronID, wingID string) *spanner.Mutation {
+		return spanner.Insert("Squadrons", []string{"Id", "WingId", "Name"}, []any{squadronID, wingID, "Cascade Squadron"})
+	}
+	membership := func(squadronID string) *spanner.Mutation {
+		return spanner.Insert("SquadronMemberships", []string{"SquadronId", "UserId"}, []any{squadronID, marshal})
+	}
+	membershipRow := func(squadronID string) takenRow {
+		return takenRow{table: "SquadronMemberships", key: spanner.Key{squadronID, marshal}, column: "UserId"}
+	}
+	// pass is a pass into the hangar, held by a person or by a squadron (column).
+	pass := func(passID, hangarID, column, holder string) *spanner.Mutation {
+		return spanner.InsertMap("HangarPasses", map[string]any{"Id": passID, "SectorId": anvil, "HangarId": hangarID, column: holder, "LevelId": "visit"})
+	}
+	hangar := func(hangarID string) *spanner.Mutation {
+		return spanner.Insert("Hangars", []string{"Id", "SectorId", "Name", "Zone"}, []any{hangarID, anvil, "Cascade Dock", "dock"})
+	}
+	ship := func(shipID, hangarID string) *spanner.Mutation {
+		return spanner.Insert("Ships", []string{"Id", "HangarId", "ClassId", "Registry", "Name"}, []any{shipID, hangarID, shipClassKestrelID, "CAS-" + shipID[32:], "Cascade Hull"})
+	}
+	refit := func(refitID, shipID string) *spanner.Mutation {
+		return spanner.InsertMap("Refits", map[string]any{"Id": refitID, "ShipId": shipID, "StatusId": "docked", "OpenedByUserId": marshal, "OpenedByName": "marshal"})
+	}
+	// task is the refit's task n, with a photo where photo is a stored file's key.
+	task := func(refitID string, n int64, photo string) *spanner.Mutation {
+		row := map[string]any{"Id": refitID, "TaskNumber": n, "Instructions": fmt.Sprintf("Cascade task %d", n)}
+		if photo != "" {
+			row["PhotoKey"] = photo
+		}
+
+		return spanner.InsertMap("RefitTasks", row)
+	}
+	taskRow := func(refitID string, n int64) takenRow {
+		return takenRow{table: "RefitTasks", key: spanner.Key{refitID, n}, column: "Id"}
+	}
+	// mission is a stood-down mission, assigned to the squadron where one is given.
+	mission := func(missionID, squadronID string) *spanner.Mutation {
+		row := map[string]any{
+			"Id": missionID, "SectorId": anvil, "ClientId": clientHalvardID, "KindId": "courier", "Title": "Cascade run", "Hazard": 1,
+			"Fee": *big.NewRat(100, 1), "Deadline": time.Now().Add(24 * time.Hour), "BookedByUserId": marshal, "BookedByName": "marshal", "StatusId": "stood_down",
+		}
+		if squadronID != "" {
+			row["AssignedSquadronId"] = squadronID
+		}
+
+		return spanner.InsertMap("Missions", row)
+	}
+	sortie := func(sortieID, missionID, shipID string) *spanner.Mutation {
+		return spanner.InsertMap("Sorties", map[string]any{"Id": sortieID, "MissionId": missionID, "ShipId": shipID, "PilotUserId": marshal, "LaunchedAt": time.Now().UTC()})
+	}
+	expense := func(expenseID, sortieID, category string) *spanner.Mutation {
+		return spanner.InsertMap("SortieExpenses", map[string]any{"Id": expenseID, "SortieId": sortieID, "Category": category, "Amount": big.NewRat(750, 1)})
+	}
+	droidReport := func(reportID, shipID string) *spanner.Mutation {
+		return spanner.InsertMap("DroidReports", map[string]any{"Id": reportID, "SectorId": anvil, "ShipId": shipID, "Subsystem": "hull", "Reading": 0.5, "RecordedAt": time.Now().UTC()})
+	}
+
+	t.Run("a refit's tasks are asked about, then taken, and a task's photo is released", func(t *testing.T) {
+		hull, bay, photo := id("7d0"), id("ad0"), id("5d1")
+		write(t, ship(hull, hangarAnvilDockID), refit(bay, hull), task(bay, 1, photo), task(bay, 2, ""))
+		if err := stores.files.Put(ctx, photo, "image/png", strings.NewReader("PNG hull seals")); err != nil {
+			t.Fatalf("storing the task's photo: %v", err)
+		}
+
+		before := countChangeEvents(ctx, t, db, "Refits")
+		askedThenTaken(t, batch, opPath(anvil, "refits/"+bay), "Delete this refit and everything under it: 2 refit tasks. This can't be undone.",
+			[]takenRow{rowByID("Refits", bay), taskRow(bay, 1), taskRow(bay, 2)}, photo)
+		if got := countChangeEvents(ctx, t, db, "Refits") - before; got != 1 {
+			t.Errorf("the refit's delete wrote %d change records for Refits, want 1", got)
+		}
+		if !stands(t, rowByID("Ships", hull)) {
+			t.Error("the refit's ship is gone with the refit")
+		}
+	})
+
+	t.Run("a sortie's expenses are asked about, then taken, and a penalty refuses the delete", func(t *testing.T) {
+		run, flight, fuel, supplies := id("8d0"), id("9d0"), id("9d1"), id("9d1")
+		write(t, mission(run, ""), sortie(flight, run, shipLanternID), expense(fuel, flight, "fuel"), expense(supplies, flight, "supplies"))
+
+		askedThenTaken(t, batch, opPath(anvil, "sorties/"+flight), "Delete this sortie and everything under it: 2 sortie expenses. This can't be undone.",
+			[]takenRow{rowByID("Sorties", flight), rowByID("SortieExpenses", fuel), rowByID("SortieExpenses", supplies)})
+		if !stands(t, rowByID("Missions", run)) {
+			t.Error("the sortie's mission is gone with the sortie")
+		}
+
+		fined, penalty := id("9d0"), id("9d1")
+		write(t, sortie(fined, run, shipLanternID), expense(penalty, fined, "penalty"))
+		refused(t, opPath(anvil, "sorties/"+fined), http.StatusBadRequest, "A penalty stays on the sortie's record and can't be deleted.",
+			[]takenRow{rowByID("Sorties", fined), rowByID("SortieExpenses", penalty)})
+	})
+
+	t.Run("a ship's refits and their tasks are asked about, then taken, and a sortie or a droid report refuses it", func(t *testing.T) {
+		hull, bay := id("7d0"), id("ad0")
+		write(t, ship(hull, hangarAnvilDockID), refit(bay, hull), task(bay, 1, ""))
+
+		ships, refits := countChangeEvents(ctx, t, db, "Ships"), countChangeEvents(ctx, t, db, "Refits")
+		askedThenTaken(t, batch, opPath(anvil, "ships/"+hull), "Delete this ship and everything under it: 1 refit, 1 refit task. This can't be undone.",
+			[]takenRow{rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
+		if got := countChangeEvents(ctx, t, db, "Ships") - ships; got != 1 {
+			t.Errorf("the ship's delete wrote %d change records for Ships, want 1", got)
+		}
+		if got := countChangeEvents(ctx, t, db, "Refits") - refits; got != 1 {
+			t.Errorf("the ship's delete wrote %d change records for Refits, want 1", got)
+		}
+
+		flown, run, flight := id("7d0"), id("8d0"), id("9d0")
+		write(t, ship(flown, hangarAnvilDockID), mission(run, ""), sortie(flight, run, flown))
+		refused(t, opPath(anvil, "ships/"+flown), http.StatusConflict, "This ship has 1 sortie, so it can't be deleted.",
+			[]takenRow{rowByID("Ships", flown), rowByID("Sorties", flight)})
+
+		read, report := id("7d0"), id("cd0")
+		write(t, ship(read, hangarAnvilDockID), droidReport(report, read))
+		refused(t, opPath(anvil, "ships/"+read), http.StatusConflict, "This ship has 1 droid report, so it can't be deleted.",
+			[]takenRow{rowByID("Ships", read), rowByID("DroidReports", report)})
+	})
+
+	t.Run("a hangar's pass and its ship, with the ship's refit and task, are asked about with every count, then taken", func(t *testing.T) {
+		dock, visit, hull, bay := id("6d0"), id("6d1"), id("7d0"), id("ad0")
+		write(t, hangar(dock), pass(visit, dock, "UserId", marshal), ship(hull, dock), refit(bay, hull), task(bay, 1, ""))
+
+		askedThenTaken(t, sectorPath(anvil, "hangars"), "/"+dock, "Delete this hangar and everything under it: 1 ship, 1 hangar pass, 1 refit, 1 refit task. This can't be undone.",
+			[]takenRow{rowByID("Hangars", dock), rowByID("HangarPasses", visit), rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
+		if !stands(t, rowByID("Ships", shipStubbornMuleID)) {
+			t.Error("a ship of Anvil Dock One is gone with another hangar")
+		}
+	})
+
+	t.Run("a squadron's membership and pass are asked about, then taken, and a mission assigned to it refuses it", func(t *testing.T) {
+		flight, visit := id("5d0"), id("6d1")
+		write(t, squadron(flight, wingForgeID), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
+
+		askedThenTaken(t, batch, opPath(anvil, "squadrons/"+flight), "Delete this squadron and everything under it: 1 squadron membership, 1 hangar pass. This can't be undone.",
+			[]takenRow{rowByID("Squadrons", flight), membershipRow(flight), rowByID("HangarPasses", visit)})
+
+		assigned, run := id("5d0"), id("8d0")
+		write(t, squadron(assigned, wingForgeID), membership(assigned), mission(run, assigned))
+		refused(t, opPath(anvil, "squadrons/"+assigned), http.StatusConflict, "This squadron has 1 mission, so it can't be deleted.",
+			[]takenRow{rowByID("Squadrons", assigned), membershipRow(assigned), rowByID("Missions", run)})
+	})
+
+	t.Run("a wing's squadron, with its membership and pass, is asked about, then taken", func(t *testing.T) {
+		forge, flight, visit := id("4d0"), id("5d0"), id("6d1")
+		write(t, wing(forge), squadron(flight, forge), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
+
+		askedThenTaken(t, batch, opPath(anvil, "wings/"+forge), "Delete this wing and everything under it: 1 squadron, 1 squadron membership, 1 hangar pass. This can't be undone.",
+			[]takenRow{rowByID("Wings", forge), rowByID("Squadrons", flight), membershipRow(flight), rowByID("HangarPasses", visit)})
 	})
 }
 

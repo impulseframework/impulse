@@ -84,11 +84,10 @@ type (
 	// order across sectors, storing the sector; MissionsBySectorIdDeadline stays the
 	// sector's own.
 	//
-	// A mission's sorties, their expenses and its documents go with it: each reaches its
-	// sector through the mission, and every link of a table's way to its sector carries
-	// the delete rule. Whoever may delete a mission deletes them too, past their own
-	// Delete grants and row conditions; a document's stored file is the orphaned-file
-	// cleanup's then (the generator's audit pass names the table).
+	// A mission's sorties, their expenses and its documents go with it, in code: the
+	// mission's delete takes each one through its own delete (@deleteCascade, below).
+	// Whoever deletes a mission must be allowed to delete them, each row's delete rule is
+	// asked, its change event is written, and a document's stored file is released.
 	//
 	// Demonstrates: list.across-tenants.
 	//

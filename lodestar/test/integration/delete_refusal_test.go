@@ -1,23 +1,23 @@
 // Demonstrates: delete.rows-under-refusal.
 package integration
 
-// This suite pins what a delete of a record with rows under it answers: a 409 before the
-// commit, in a sentence that names the record's kind and counts each kind in the way.
-// The kinds are the ones the generator found directly under the record on a reference
-// that says nothing of a delete, so the database removes none of them with it: a mission
-// names the squadron it is assigned to, a sortie the ship that flew it and a droid's
-// report the ship it read, and a mission and a consignment name their client. A kind
-// the record lists under refusedBy (@deleteCascade) answers first and keeps the record
-// from being deleted at all. A kind the record lists as going with it is not in the way:
-// a client's contacts are deleted with the client, which asks first (TestDeleteCascade).
-// The count is made for the person who asked: a kind they may not list is never named
-// or counted, and where they may list none of the kinds in the way the sentence says
-// only that there are records they can't see. A row the same request deletes is not
-// counted (TestCommitRefusal deletes a squadron and its mission in one request, in
-// either order), and neither is a row that goes with another record the request
-// deletes: a ship goes together with the mission its one sortie was flown on
-// (TestDeleteRefusal_leavesTheDatabaseWhatItRemoves). The count is the Spanner write
-// path's; PostgreSQL has no write path to refuse on.
+// This suite pins what a delete of a record with rows under it answers when those rows
+// keep it from being deleted: a 409 before the commit, in a sentence that names the
+// record's kind and counts each kind in the way. The kinds are the ones the record lists
+// under refusedBy (@deleteCascade), and they refuse the delete whatever the request says:
+// a mission assigned to a squadron refuses the squadron's delete, and the wing's that
+// would take the squadron; a sortie flown on a ship and a droid's report filed on it
+// refuse the ship's, and the hangar's that would take the ship; a mission and a
+// consignment refuse their client's. A kind the record lists as going with it is not in
+// the way: a client's contacts are deleted with the client, which asks first
+// (TestDeleteCascade). The count is made for the person who asked: a kind they may not
+// list is never named or counted, and where they may list none of the kinds in the way
+// the sentence says only that there are records they can't see. A row the same request
+// deleted first is not counted (TestCommitRefusal deletes a mission and then the squadron
+// it was assigned to, in one request), and neither is a row that went with another
+// record the request deleted first: a ship is deleted after the mission its one sortie
+// was flown on (TestDeleteRefusal_leavesOutWhatTheRequestTook). The count is the Spanner
+// write path's; PostgreSQL has no write path to refuse on.
 
 import (
 	"encoding/json"
@@ -62,14 +62,15 @@ func TestDeleteRefusal(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			// Hammer has eight missions assigned to it, and declares nothing of its delete. A
-			// mission's assigned squadron may be empty, so the missions can be moved.
-			name:        "a squadron with missions assigned to it says how many, and that they can be moved",
+			// Hammer has eight missions assigned to it. A mission's assigned squadron may be
+			// empty, so the missions can be moved, but a squadron lists a mission under
+			// refusedBy, and the sentence says only that they keep it.
+			name:        "a squadron with missions assigned to it says how many, and that they keep it from being deleted",
 			lists:       []accesstypes.Resource{missionsResource},
 			target:      batch,
 			ops:         "[" + remove(anvil, "squadrons/"+squadronHammerID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has 8 missions. Move or delete them first.",
+			wantMessage: "This squadron has 8 missions, so it can't be deleted.",
 		},
 		{
 			// Portcullis has the patrol alone.
@@ -78,18 +79,17 @@ func TestDeleteRefusal(t *testing.T) {
 			target:      batch,
 			ops:         "[" + remove(bastion, "squadrons/"+squadronPortcullisID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has 1 mission. Move or delete it first.",
+			wantMessage: "This squadron has 1 mission, so it can't be deleted.",
 		},
 		{
 			// The Stubborn Mule flew two sorties and nine droid reports read it. Ship is
-			// change-tracked, and the sentence names nothing of the change history. A sortie
-			// and a droid report always name a ship, so neither can be moved from under one.
+			// change-tracked, and the sentence names nothing of the change history.
 			name:        "a ship that has flown and been reported on counts each kind",
 			lists:       []accesstypes.Resource{"Sorties", "DroidReports"},
 			target:      batch,
 			ops:         "[" + remove(anvil, "ships/"+shipStubbornMuleID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This ship has 9 droid reports and 2 sorties. Delete them first.",
+			wantMessage: "This ship has 2 sorties and 9 droid reports, so it can't be deleted.",
 		},
 		{
 			name:        "a kind the person may not list is not counted for them",
@@ -97,7 +97,7 @@ func TestDeleteRefusal(t *testing.T) {
 			target:      batch,
 			ops:         "[" + remove(anvil, "ships/"+shipStubbornMuleID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This ship has 2 sorties. Delete them first.",
+			wantMessage: "This ship has 2 sorties, so it can't be deleted.",
 		},
 		{
 			name:        "a person who may list none of the kinds in the way is told only that there are some",
@@ -113,7 +113,28 @@ func TestDeleteRefusal(t *testing.T) {
 			target:      batch,
 			ops:         "[" + remove(anvil, "squadrons/"+squadronHammerID) + "," + remove(anvil, "ships/"+shipKingfisherID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has 8 missions. Move or delete them first.",
+			wantMessage: "This squadron has 8 missions, so it can't be deleted.",
+		},
+		{
+			// Anvil Dock One's ships have flown twelve sorties and been read by 68 droid
+			// reports. Hangar is excluded from consolidation, so the delete rides its
+			// standalone PATCH, and the sentence counts what is under the ships it would
+			// take, never the ships.
+			name:        "a hangar whose ships have flown or been reported on counts what is under them",
+			lists:       []accesstypes.Resource{"Ships", "Sorties", "DroidReports"},
+			target:      sectorPath(anvil, "hangars"),
+			ops:         fmt.Sprintf(`[{"op":"remove","path":"/%s","value":{"everythingUnder":true}}]`, hangarAnvilDockID),
+			wantStatus:  http.StatusConflict,
+			wantMessage: "This hangar has 12 sorties and 68 droid reports, so it can't be deleted.",
+		},
+		{
+			// Forge Wing's squadrons, Hammer and Tongs, have fourteen missions assigned.
+			name:        "a wing whose squadrons have missions assigned counts the missions",
+			lists:       []accesstypes.Resource{"Squadrons", missionsResource},
+			target:      batch,
+			ops:         fmt.Sprintf(`[{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, opPath(anvil, "wings/"+wingForgeID)),
+			wantStatus:  http.StatusConflict,
+			wantMessage: "This wing has 14 missions, so it can't be deleted.",
 		},
 		{
 			// Halvard Freight has ten missions and five consignments, the kinds a client
@@ -140,7 +161,7 @@ func TestDeleteRefusal(t *testing.T) {
 			t.Parallel()
 
 			h := newTestApp(db, grants{
-				accesstypes.Delete: {"Ships", "Squadrons", "Clients"},
+				accesstypes.Delete: {"Ships", "Squadrons", "Hangars", "Wings", "Clients"},
 				accesstypes.List:   tt.lists,
 			})
 			status, body := doRequest(t, h, http.MethodPatch, tt.target, tt.ops)
@@ -152,15 +173,14 @@ func TestDeleteRefusal(t *testing.T) {
 	}
 }
 
-// TestDeleteRefusal_leavesTheDatabaseWhatItRemoves pins that the count never refuses a
-// delete over a row that goes with another record of the same request. The Lantern,
-// which the seed never flew, is given one sortie on the stood-down bullion run. Deleted
-// alone the ship is refused over the sortie. Deleted in one request with the mission,
-// ahead of it, the ship goes: a sortie goes with its mission, so once the request
-// deletes a mission the sorties under the ship are left to the commit, which finds
-// none. The mission's delete says it takes what is under it, as a mission with a sortie
-// must (@deleteCascade).
-func TestDeleteRefusal_leavesTheDatabaseWhatItRemoves(t *testing.T) {
+// TestDeleteRefusal_leavesOutWhatTheRequestTook pins that the count never refuses a
+// delete over a row that went with another record the same request deleted first. The
+// Lantern, which the seed never flew, is given one sortie on the stood-down bullion run.
+// Deleted alone the ship is refused over the sortie, and so it is ahead of the mission in
+// one request, while the sortie still stands. Deleted after the mission, which takes its
+// sorties (@deleteCascade), the ship goes, and the refit it is in the bay for goes with
+// it: both deletes say they take what is under them.
+func TestDeleteRefusal_leavesOutWhatTheRequestTook(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -189,29 +209,34 @@ func TestDeleteRefusal_leavesTheDatabaseWhatItRemoves(t *testing.T) {
 			return false
 		}
 	}
-	remove := func(rest string) string {
-		return fmt.Sprintf(`{"op":"remove","path":%q}`, opPath(anvil, rest))
+	withAllUnder := func(rest string) string {
+		return fmt.Sprintf(`{"op":"remove","path":%q,"value":{"everythingUnder":true}}`, opPath(anvil, rest))
 	}
+	ship, mission := withAllUnder("ships/"+shipLanternID), withAllUnder("missions/"+missionBullionID)
 	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Ships", missionsResource, "Sorties"},
+		accesstypes.Delete: {"Ships", "Refits", missionsResource, "Sorties"},
 		accesstypes.List:   {"Sorties", "DroidReports"},
 	})
+	rows := map[string]string{"Ships": shipLanternID, "Refits": refitLanternID, "Missions": missionBullionID, "Sorties": sortieLanternID}
 
-	status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+remove("ships/"+shipLanternID)+"]")
-	assertStatus(t, status, http.StatusConflict, body)
-	if got, want := refusalMessage(t, body), "This ship has 1 sortie. Delete it first."; got != want {
-		t.Errorf("message = %q, want %q", got, want)
-	}
-	if !stands("Ships", shipLanternID) {
-		t.Fatal("the Lantern is gone after its refused delete")
+	for _, ops := range []string{"[" + ship + "]", "[" + ship + "," + mission + "]"} {
+		status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", ops)
+		assertStatus(t, status, http.StatusConflict, body)
+		if got, want := refusalMessage(t, body), "This ship has 1 sortie, so it can't be deleted."; got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+		for table, id := range rows {
+			if !stands(table, id) {
+				t.Fatalf("%s %s is gone after the refused delete %s", table, id, ops)
+			}
+		}
 	}
 
-	withItsSorties := fmt.Sprintf(`{"op":"remove","path":%q,"value":{"everythingUnder":true}}`, opPath(anvil, "missions/"+missionBullionID))
-	status, body = doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+remove("ships/"+shipLanternID)+","+withItsSorties+"]")
+	status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+mission+","+ship+"]")
 	assertStatus(t, status, http.StatusOK, body)
-	for table, id := range map[string]string{"Ships": shipLanternID, "Missions": missionBullionID, "Sorties": sortieLanternID} {
+	for table, id := range rows {
 		if stands(table, id) {
-			t.Errorf("%s %s stands after the ship and the mission were deleted together", table, id)
+			t.Errorf("%s %s stands after the mission and the ship were deleted together", table, id)
 		}
 	}
 }
