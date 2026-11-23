@@ -32,6 +32,7 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -912,7 +913,40 @@ func (p *{{ $field.Parent.Name }}DeletePatch) {{ $field.Name }}() {{ $field.Reso
 func (p *{{ .Resource.Name }}DeletePatch) Diff(got *{{ .Resource.Name }}DeletePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
 }
-{{ end }}`
+{{ end }}
+{{- if .Resource.SubjectGuarded }}
+{{- with .Resource }}
+{{- $subjectRecord := .SubjectRecordWords }}
+
+// RefuseImpersonatorAs{{ .Name }}Subject asks, of one write of a {{ $subjectRecord }}
+// record, what a record that decides what a person may do is asked in a session that
+// acts as someone else: nobody writes the row that decides it for themselves. op is the
+// write, key the row's key (empty for an add whose id is generated) and patchSet the
+// write's fields. The record's generated write calls it once the operation is decoded,
+// ahead of the create, the change and the delete, and the delete of a row taken with the
+// record it is under calls it as a removal (resource.NewTakenRows), so the two ask the
+// same. It answers nil outside such a session.
+func RefuseImpersonatorAs{{ .Name }}Subject(ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet, patchSet *resource.PatchSet[{{ .Name }}]) error {
+	{{- if .SubjectUserFields }}
+	if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op, key, patchSet, "{{ $subjectRecord }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+	}
+	{{- end }}
+	{{- range .SubjectSetTests }}
+	if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op, key, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Set }}"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+	}
+	{{- end }}
+	{{- range .SubjectReadThroughs }}
+	if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op, key, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Fact }}"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
+	}
+	{{- end }}
+
+	return nil
+}
+{{- end }}
+{{- end }}`
 )
 
 const (
@@ -1004,15 +1038,18 @@ const (
 	// subjectGuarded is spliced into the generated write of a record that decides what
 	// a person may do (resourceInfo.SubjectGuarded), once the operation is decoded and
 	// before its create, update or delete is built (op, patchSet and $subjectReq, the
-	// request that carries the row's key, which the splice's place sets). In a session
-	// that acts as someone else nobody is the subject of what they do, so the write is
-	// refused when the row gives something to the real person behind the session, by
-	// each road a row reaches a person. A row that names them
+	// request that carries the row's key, and $subjectPkg, the resources package as the
+	// handler names it, which the splice's place sets). In a session that acts as
+	// someone else nobody is the subject of what they do, so the write is refused when
+	// the row gives something to the real person behind the session, by each road a
+	// row reaches a person. The splice builds the row's key from the path and calls the
+	// record's function in the resources package (RefuseImpersonatorAs<Name>Subject,
+	// written by resourceFileTemplate), which asks the questions. A row that names them
 	// (identity.RefuseImpersonatorAsRowSubject, for resourceInfo.SubjectUserFields): the
 	// person the stored row names, read by the key the operation's path carries, and
 	// the person the write names, read from the decoded fields and the key. A row that
 	// names a set they are in (identity.RefuseImpersonatorAsSetSubject, once for each
-	// of resourceInfo.SubjectSetTests): the splice names the column and the set, and
+	// of resourceInfo.SubjectSetTests): the function names the column and the set, and
 	// the library asks the set by its own declaration. The row a fact of theirs is read
 	// through (identity.RefuseImpersonatorAsReadThroughSubject, once for each of
 	// resourceInfo.SubjectReadThroughs), asked only of a change that sets the column.
@@ -1022,8 +1059,8 @@ const (
 	//
 	// The generated comment says, where a reader of the handler meets the rule, which of
 	// the three questions the record is asked and that they hold whatever the session's
-	// mask keeps. It names the two limits that remain, a row removed with its parent and
-	// a column that records who made a row, and where each is described.
+	// mask keeps. It names the two limits that remain, a row that goes with its tenant
+	// and a column that records who made a row, and where each is described.
 	subjectGuarded = `// This record's rows decide what a person may do, so nobody writes the
 					// row that decides it for themselves while they act as someone else,
 					// whatever the session's mask keeps, an exception that keeps this
@@ -1048,10 +1085,12 @@ const (
 					// asks nothing.
 					{{- end }}
 					//
-					// A row removed with its parent, and a column that records who made a
-					// row, are the rule's stated limits:
-					// identity.RefuseImpersonatorAsRowSubject says what closes each.
-					{{- $subjectRecord := .SubjectRecordWords }}
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAs{{ .Name }}Subject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
 					subjectKey := resource.KeySet{}
 					{{- if .PrimaryKeyIsGeneratedUUID }}
 					if op.Type != resource.OperationCreate {
@@ -1064,21 +1103,9 @@ const (
 					{{- else }}
 					subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
 					{{- end }}
-					{{- if .SubjectUserFields }}
-					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
-					}
-					{{- end }}
-					{{- range .SubjectSetTests }}
-					if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Set }}"); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
-					}
-					{{- end }}
-					{{- range .SubjectReadThroughs }}
-					if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Fact }}"); err != nil {
-						return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
-					}
-					{{- end }}`
+					if err := {{ $subjectPkg }}.RefuseImpersonatorAs{{ .Name }}Subject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "{{ $subjectPkg }}.RefuseImpersonatorAs{{ .Name }}Subject()")
+					}`
 
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
@@ -3574,6 +3601,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 				tenantsWritten = true
 				{{- end }}
 				{{- if .Resource.SubjectGuarded }}
+				{{- $subjectPkg := .ResourcePackage }}
 				{{- with .Resource }}
 				{{- $subjectReq := "op.Req" }}
 
@@ -3879,6 +3907,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 						}
 						{{- if .SubjectGuarded }}
 						{{- $subjectReq := "req" }}
+						{{- $subjectPkg := .ResourcePackage }}
 
 						` + subjectGuarded + `
 						{{- end }}

@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -860,4 +861,26 @@ func (p *HangarPassDeletePatch) ID() impulse.UUID {
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *HangarPassDeletePatch) Diff(got *HangarPassDeletePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
+}
+
+// RefuseImpersonatorAsHangarPassSubject asks, of one write of a hangar pass
+// record, what a record that decides what a person may do is asked in a session that
+// acts as someone else: nobody writes the row that decides it for themselves. op is the
+// write, key the row's key (empty for an add whose id is generated) and patchSet the
+// write's fields. The record's generated write calls it once the operation is decoded,
+// ahead of the create, the change and the delete, and the delete of a row taken with the
+// record it is under calls it as a removal (resource.NewTakenRows), so the two ask the
+// same. It answers nil outside such a session.
+func RefuseImpersonatorAsHangarPassSubject(ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet, patchSet *resource.PatchSet[HangarPass]) error {
+	if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op, key, patchSet, "hangar pass", "UserID"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+	}
+	if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op, key, patchSet, "hangar pass", "SquadronID", "squadrons"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+	}
+	if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op, key, patchSet, "hangar pass", "GroupID", "crewGroups"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+	}
+
+	return nil
 }
