@@ -401,7 +401,7 @@ class SideBuilder {
       page: { label: 'Groups', icon: 'groups' },
       routeData: { route: this.route('groups', 'groups'), hasViewRoute: true },
       parentConfig: listViewConfig({
-        title: this.tenant ? 'Groups' : `${this.identity.label} groups`,
+        title: this.tenant ? 'Groups' : this.heading('Groups'),
         primaryResource: groups,
         showRowCount: true,
         // A group's page is headed by its name.
@@ -493,7 +493,7 @@ class SideBuilder {
       scope,
       page: page({ label: 'Groups', icon: 'groups', route: [path], permission: scope }),
       says: {
-        title: this.tenant ? 'Groups' : `${this.identity.label} groups`,
+        title: this.tenant ? 'Groups' : this.heading('Groups'),
         paragraphs: [
           `Here, ${directory} decides who holds which role, so the groups in ${directory} do the job that groups do in other applications.`,
           `To give several people a role at once, or take it away, change who is in the group in ${directory}. Each person's roles follow at their next sign-in.`,
@@ -548,7 +548,7 @@ class SideBuilder {
         hasViewRoute: false,
       },
       parentConfig: listViewConfig({
-        title: this.tenant ? 'Invitations' : `${this.identity.label} mailed links`,
+        title: this.tenant ? 'Invitations' : this.heading('Mailed links'),
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
@@ -703,7 +703,7 @@ class SideBuilder {
       page: { label: 'Sessions', icon: 'devices' },
       routeData: { route: this.route('sessions', 'sessions'), hasViewRoute: false },
       parentConfig: listViewConfig({
-        title: `${this.identity.label} sessions`,
+        title: this.heading('Sessions'),
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
@@ -725,7 +725,7 @@ class SideBuilder {
       page: { label: 'Failed sign-ins', icon: 'gpp_bad' },
       routeData: { route: this.route('signInAttempts', 'failed-sign-ins'), hasViewRoute: false },
       parentConfig: listViewConfig({
-        title: `${this.identity.label} failed sign-ins`,
+        title: this.heading('Failed sign-ins'),
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
@@ -1970,6 +1970,19 @@ class SideBuilder {
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
   private route(page: IdentityPage, lists: string): string {
     return this.options.routes?.[page] ?? `${this.base}-${lists}`;
+  }
+
+  /**
+   * The heading of a page of the whole application's side: what the page lists, with the
+   * Auth's label before it ("Crew sessions") only where the description carries the
+   * management of more than one Auth, since with one there is no other Auth's page to
+   * tell it from ("Sessions").
+   */
+  private heading(words: string): string {
+    if (this.descriptor.identity?.length === 1) {
+      return words;
+    }
+    return `${this.identity.label} ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
   }
 
   /** The API's tenant segment with the tenant parameter as the router names it (`sectors/:sectorID`). */

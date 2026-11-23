@@ -1582,6 +1582,42 @@ describe('identityRoutes', () => {
   });
 });
 
+// A page of the whole application's side is headed by what it lists, and by the Auth's
+// label before it only where the description manages more than one Auth: with one there is
+// no other Auth's page to tell it from.
+describe("identityPages, the headings of the whole application's pages", () => {
+  const titles = (on: ApiDescriptor): [string | undefined, string][] =>
+    identityPages(on, resourceMeta, { auth: 'Crew', scope: 'global' })
+      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins'].includes(config.page?.label ?? ''))
+      .map((config) => [config.page?.label, list(config).title]);
+
+  it('are the words alone where the application manages one auth', () => {
+    expect(titles({ ...descriptor, identity: [crew] } as ApiDescriptor)).toEqual([
+      ['Mailed links', 'Mailed links'],
+      ['Sessions', 'Sessions'],
+      ['Failed sign-ins', 'Failed sign-ins'],
+    ]);
+  });
+
+  it("keep the auth's label where the application manages several", () => {
+    expect(titles(descriptor)).toEqual([
+      ['Mailed links', 'Crew mailed links'],
+      ['Sessions', 'Crew sessions'],
+      ['Failed sign-ins', 'Crew failed sign-ins'],
+    ]);
+  });
+
+  it("leave a tenant's headings as they are", () => {
+    const tenant = identityPages({ ...descriptor, identity: [crew] } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'domain',
+    });
+    expect(tenant.map((config) => list(config).title)).toEqual(
+      identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' }).map((config) => list(config).title),
+    );
+  });
+});
+
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.
@@ -1692,6 +1728,12 @@ describe('identityPages, an Auth that keeps groups', () => {
       'Sign-in',
     ]);
     expect(children(without[0]).map((child) => child.title)).toEqual(['Roles held', 'Sign-in identities', 'Sessions']);
+  });
+
+  it('heads the Groups page by its words alone where the application manages one auth', () => {
+    const alone = { ...descriptor, identity: [grouped] } as ApiDescriptor;
+    expect(list(identityPages(alone, groupMeta, { auth: 'Crew', scope: 'global' })[1]).title).toBe('Groups');
+    expect(list(identityPages(alone, groupMeta, { auth: 'Crew', scope: 'domain' })[1]).title).toBe('Groups');
   });
 
   it("lists the whole application's groups with where each is kept, and offers the methods that run against a group", () => {

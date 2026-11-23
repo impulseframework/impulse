@@ -208,6 +208,8 @@ A list offers the methods that run against its rows, with nothing configured. A 
 
 The pages over an Auth's people are built by the library. Where the server's management of an Auth is generated (`GenerateIdentity`), the generated API description names its lists and methods by what each is (the `identity` block), and `identityRoutes` from `@impulseframework/resource-angular/identity-pages` turns that into routes of the library's own list and row pages:
 
+A page of the whole application's side is headed by what it lists ("Accounts", "Groups", "Mailed links", "Sessions", "Failed sign-ins", "Sign-in"), with the Auth's label before it ("Crew accounts") only where the description carries the management of more than one Auth.
+
 ```ts
 import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 
