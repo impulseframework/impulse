@@ -64,6 +64,20 @@ func (s *SubscriptionRequest) checked() accesstypes.Resource {
 	return res.ResourceWithTag(accesstypes.Tag(s.NameField))
 }
 
+// refuseDots refuses a subscription whose resource or name field holds a dot. A
+// subscription names a resource by its own name and a name field is one field's name,
+// and neither holds a dot, so the grants are never asked about such a name.
+func (s *SubscriptionRequest) refuseDots() error {
+	if strings.Contains(s.Resource, ".") {
+		return httpio.NewBadRequestMessagef("the %s subscription's resource holds a dot: a subscription names a resource by its own name, which holds none, and a list held for its names names the field in nameField", s.Resource)
+	}
+	if strings.Contains(s.NameField, ".") {
+		return httpio.NewBadRequestMessagef("the %s subscription's name field holds a dot: nameField is the name of one field of the resource, which holds none", s.Resource)
+	}
+
+	return nil
+}
+
 // narrowed is the page's filter on the tenant a renewal of a list across tenants
 // carries: nil for every tenant.
 func (s *SubscriptionRequest) narrowed() []accesstypes.Domain {
@@ -179,6 +193,9 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 		for _, sub := range req.Subscriptions {
 			if sub.Resource == "" {
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("a subscription names its resource"))
+			}
+			if err := sub.refuseDots(); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			if sub.AcrossTenants && (sub.Key != "" || sub.Domain != "") {
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("the %s subscription across tenants names a key or a domain: a list across tenants names neither, and narrows itself with domains", sub.Resource))

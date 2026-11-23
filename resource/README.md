@@ -2736,7 +2736,8 @@ subscription's tenant, the question the page's read asked, since a person may ho
 name's grant and not the list's, and keeps or drops it by that alone; the record keeps it
 as the resource's list, as any other, and the answer echoes `nameField` as sent. A
 renewal's subscription that carries `nameField` with a key, or as a list across tenants,
-is refused with 400. An answer carries no `X-Names` when the request registered nothing
+or whose `nameField` holds a dot, is refused with 400. An answer carries no `X-Names`
+when the request registered nothing
 beside its own subscription, and none when the record did not take them. Reading the lists
 is best effort: where it fails, the request's own subscription is registered alone and the
 failure is logged.
@@ -2824,7 +2825,9 @@ written or renewed. The renewal re-checks each subscription against the user's g
 `Read` on the resource for a row, `List` for a list, in the subscription's domain (the
 global scope when none is sent) — writes the kept ones with a fresh expiry in one batch,
 and echoes, in the order sent, which were kept and which dropped; a resource the grants
-do not know is dropped, never refused. A row subscription of a domain-scoped resource
+do not know is dropped, never refused, while a subscription whose `resource` holds a dot
+is refused with 400: a resource's own name holds none. A row subscription of a
+domain-scoped resource
 sends the domain the row was read in, or its re-check runs in the global scope, where a
 domain-scoped resource holds no grant, and the subscription is dropped. Revocation
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;

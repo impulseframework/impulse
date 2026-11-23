@@ -262,6 +262,18 @@ func TestRenewHandler_names(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantBody:   "the Hangars subscription across tenants names a name field: a page's names are read from the list of one tenant, or of none, never from a list across tenants",
 		},
+		{
+			name:       "a name field that holds a dot is refused",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons","domain":"anvil","nameField":"a.b"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Squadrons subscription's name field holds a dot: nameField is the name of one field of the resource, which holds none",
+		},
+		{
+			name:       "a resource that holds a dot is refused, though the grants know it as a field",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons.name","domain":"anvil"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Squadrons.name subscription's resource holds a dot: a subscription names a resource by its own name, which holds none, and a list held for its names names the field in nameField",
+		},
 	}
 
 	for _, tt := range tests {

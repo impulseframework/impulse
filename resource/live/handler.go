@@ -140,7 +140,7 @@ type Gate interface {
 // request registers with its own subscription. A decoded QuerySet is one.
 type Query interface {
 	Gate
-	nameSourcer
+	NameSources(ctx context.Context) ([]resource.NameSource, error)
 }
 
 // nameSourcer answers the lists a decoded request's names are read from: for each name
@@ -318,7 +318,7 @@ func requestOf(sub *Subscription) SubscriptionRequest {
 type AcrossTenantsList interface {
 	Resource() accesstypes.Resource
 	TenantsListed(ctx context.Context) (set, narrowed []accesstypes.Domain, err error)
-	nameSourcer
+	NameSources(ctx context.Context) ([]resource.NameSource, error)
 }
 
 // AcrossTenantsLiveness is what SubscribeAcrossTenants answers of a list across tenants:
