@@ -334,6 +334,11 @@ type SearchBranch struct {
 	Zone     string
 	// PII says the child field is PII, so the box posts.
 	PII bool
+	// Features are the feature flags the branch stands behind: the child resource's,
+	// then the child field's, then that of the child's foreign key the branch joins
+	// through, each only where it is declared and once; empty where none is gated.
+	// While any of them is off the branch is no part of a request's box.
+	Features []Feature
 }
 
 // spec is the branch's search fact as a spec.

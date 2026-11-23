@@ -62,9 +62,11 @@ type deleteTreer interface {
 	DeleteTree() *DeleteTree
 }
 
-// virtualQuerier is an interface for types that can provide a subquery with params.
-type virtualQuerier interface {
-	Subquery() (string, map[string]any)
+// View is a view (a @virtual resource): a query of the application's, not a database
+// object, with the parameters the query binds. Every statement over the view reads the
+// query in a table's place, and so does every name read from it (NameField.View).
+type View interface {
+	Subquery() (query string, params map[string]any)
 }
 
 // Set holds metadata about a resource, including its permissions and field-to-tag mappings.

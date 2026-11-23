@@ -42,8 +42,8 @@ const (
 // impersonationColumns are the record's columns after the SessionId marker, in
 // the order the session query selects and Session reads them.
 var impersonationColumns = []string{
-	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole",
-	"Mask", "Reason", "StartedAt", "ExpiresAt", endedAtColumn, endReasonColumn,
+	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalUsername",
+	"PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt", endedAtColumn, endReasonColumn,
 }
 
 // impersonationSelect renders the impersonation columns for the session query:
@@ -79,13 +79,13 @@ func readImpersonation(row *spanner.Row, idx int, sessionID impulse.UUID) (*dbty
 	}
 
 	var (
-		actorUserID, actorRealm, sourceSessionID, principalUser, principalRole, mask, reason, endReason spanner.NullString
-		endedAt                                                                                         spanner.NullTime
+		actorUserID, actorRealm, sourceSessionID, principalUser, principalUsername, principalRole, mask, reason, endReason spanner.NullString
+		endedAt                                                                                                            spanner.NullTime
 	)
 	imp := &dbtype.Impersonation{SessionID: sessionID}
 	dests := []any{
-		&imp.ActorUsername, &actorUserID, &actorRealm, &sourceSessionID, &imp.PrincipalKind, &principalUser, &principalRole,
-		&mask, &reason, &imp.StartedAt, &imp.ExpiresAt, &endedAt, &endReason,
+		&imp.ActorUsername, &actorUserID, &actorRealm, &sourceSessionID, &imp.PrincipalKind, &principalUser, &principalUsername,
+		&principalRole, &mask, &reason, &imp.StartedAt, &imp.ExpiresAt, &endedAt, &endReason,
 	}
 	for i, dest := range dests {
 		if err := row.Column(idx, dest); err != nil {
@@ -96,6 +96,7 @@ func readImpersonation(row *spanner.Row, idx int, sessionID impulse.UUID) (*dbty
 
 	imp.ActorRealm = nullStringPtr(actorRealm)
 	imp.PrincipalUserID = nullStringPtr(principalUser)
+	imp.PrincipalUsername = nullStringPtr(principalUsername)
 	imp.PrincipalRole = nullStringPtr(principalRole)
 	imp.Mask = nullStringPtr(mask)
 	imp.Reason = nullStringPtr(reason)
@@ -174,6 +175,7 @@ func impersonationRow(id impulse.UUID, imp *dbtype.InsertImpersonation) map[stri
 		"SourceSessionId":      sourceSessionID,
 		"PrincipalKind":        imp.PrincipalKind,
 		"PrincipalUserId":      nullString(imp.PrincipalUserID),
+		"PrincipalUsername":    nullString(imp.PrincipalUsername),
 		"PrincipalRole":        nullString(imp.PrincipalRole),
 		"Mask":                 nullString(imp.Mask),
 		"Reason":               nullString(imp.Reason),

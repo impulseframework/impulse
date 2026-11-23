@@ -16,15 +16,16 @@ type (
 	// CrewSessionImpersonations, keyed by the session and kept after it as evidence.
 	// The actor is who established it (ActorRealm is empty for a person of this auth,
 	// whose account ActorUserID names), and the principal the role it acts as or the user,
-	// named by the id of their account. Mask is what the session is held to, in words:
-	// the kinds of permission it keeps and what it refuses inside them, a class of
-	// actions, one action, or a record's writes ("everything", "reading only",
-	// "everything except credential actions"). The column holds the mask's text, NULL
-	// for the unrestricted mask, which the session library writes and reads the session
-	// by; the list says it as a person would (accesstypes.NullMaskWords), and nothing
-	// writes it through this record. The record is the authority on whether the session
-	// still stands: one that has ended (EndedAt) is refused whatever its session row
-	// says.
+	// named by the id of their account. PrincipalUsername is the username of the person
+	// the session is held as, as it was when the session began; empty for a session held
+	// as a role. Mask is what the session is held to, in words: the kinds of permission it
+	// keeps and what it refuses inside them, a class of actions, one action, or a record's
+	// writes ("everything", "reading only", "everything except credential actions"). The
+	// column holds the mask's text, NULL for the unrestricted mask, which the session
+	// library writes and reads the session by; the list says it as a person would
+	// (accesstypes.NullMaskWords), and nothing writes it through this record. The record
+	// is the authority on whether the session still stands: one that has ended (EndedAt)
+	// is refused whatever its session row says.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -33,13 +34,14 @@ type (
 	// @page(default: 25, max: 200)
 	// @rowWord(impersonation)
 	CrewSessionImpersonation struct {
-		SessionID       impulse.UUID  `spanner:"SessionId"`
-		ActorUsername   string        `spanner:"ActorUsername"`
-		ActorUserID     *impulse.UUID `spanner:"ActorUserId"`
-		ActorRealm      *string       `spanner:"ActorRealm"`
-		SourceSessionID *impulse.UUID `spanner:"SourceSessionId"`
-		PrincipalKind   string        `spanner:"PrincipalKind"`
-		PrincipalUserID *string       `spanner:"PrincipalUserId"`
+		SessionID         impulse.UUID  `spanner:"SessionId"`
+		ActorUsername     string        `spanner:"ActorUsername"`
+		ActorUserID       *impulse.UUID `spanner:"ActorUserId"`
+		ActorRealm        *string       `spanner:"ActorRealm"`
+		SourceSessionID   *impulse.UUID `spanner:"SourceSessionId"`
+		PrincipalKind     string        `spanner:"PrincipalKind"`
+		PrincipalUserID   *string       `spanner:"PrincipalUserId"`
+		PrincipalUsername *string       `spanner:"PrincipalUsername"`
 		// @roleOf(Crew)
 		PrincipalRole *string                   `spanner:"PrincipalRole"`
 		Mask          accesstypes.NullMaskWords `spanner:"Mask"`

@@ -77,6 +77,9 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 	if err := r.generateLiveDerivations(); err != nil {
 		return errors.Wrap(err, "generateLiveDerivations()")
 	}
+	if err := r.generateNameViews(); err != nil {
+		return errors.Wrap(err, "generateNameViews()")
+	}
 
 	if err := r.generateFeatures(); err != nil {
 		return errors.Wrap(err, "generateFeatures()")
@@ -260,6 +263,7 @@ func (r *resourceGenerator) generateHomeDecoders(home *handlerHome) error {
 		ReceiverName:            home.receiverName,
 		RPCPackage:              f.rpcPackage,
 		RouterPackage:           r.router.Package(),
+		NameViews:               r.nameViewsOf(home),
 		HasQueryDecoder:         f.hasQuery,
 		HasComputedQueryDecoder: f.hasComputed,
 		HasPatchDecoder:         f.hasPatch,
@@ -436,6 +440,42 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	// hold is the record of the instance's own published resources (a tenant's lists,
 	// the lists of how a person signs in), one of the values the application's assembly
 	// merges.
+	return nil
+}
+
+// generateNameViews writes the name views: one file per package holding views that
+// declare what their rows are known by (@name) with that package's NameViews, the
+// application's virtual resources package and the handlers package of each auth whose
+// generated management declares such views, and the handler package's merge of them,
+// nameViews, which the application's generated query decoders are handed. A package
+// with no such view gets no file, and the stale sweep removes one an earlier run wrote.
+func (r *resourceGenerator) generateNameViews() error {
+	begin := time.Now()
+	fileName := generatedGoFileName(nameViewsOutputName)
+	packages := r.nameViewsByPackage()
+	values := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		destinationFilePath := filepath.Join(pkg.dir.Dir(), fileName)
+		data := &nameViewsPackageData{Source: r.resource.Dir(), Package: pkg.dir.Package(), Views: pkg.Views}
+		if pkg.instance != nil {
+			data.Source = fmt.Sprintf("Auth(%q)", pkg.instance.importPath)
+		}
+		if err := r.writeFormattedGoFile(destinationFilePath, "nameViewsPackageTemplate", nameViewsPackageTemplate, data); err != nil {
+			return errors.Wrap(err, "writeFormattedGoFile()")
+		}
+		log.Printf("Generated name views file in %s: %s", time.Since(begin), destinationFilePath)
+		values = append(values, packageQualifier(r.handler, pkg.dir)+nameViewsValueName)
+	}
+	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
+	if err := r.writeFormattedGoFile(destinationFilePath, "nameViewsTemplate", nameViewsTemplate, &nameViewsAssemblyData{
+		Source:  r.resource.Dir(),
+		Package: r.handler.Package(),
+		Values:  values,
+	}); err != nil {
+		return errors.Wrap(err, "writeFormattedGoFile()")
+	}
+	log.Printf("Generated name views assembly in %s: %s", time.Since(begin), destinationFilePath)
+
 	return nil
 }
 
