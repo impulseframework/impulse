@@ -47,8 +47,9 @@ func (h *Handlers) CrewSectorGroupUsers() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := crewresources.NewCrewSectorGroupUserQueryFromQuerySet(querySet)
 
@@ -157,8 +158,9 @@ func (h *Handlers) CrewSectorGroupUser() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(groupID, userID)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(groupID, userID)))
 
 		res := crewresources.NewCrewSectorGroupUserQueryFromQuerySet(querySet).SetGroupID(groupID).SetUserID(userID)
 

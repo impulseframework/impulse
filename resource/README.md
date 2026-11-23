@@ -2708,6 +2708,44 @@ and fetches once when it is shown again. The two times are the client library's
 defaults, and an application sets its own where it creates its client. The server holds
 none of this: it publishes each write as it always did, once.
 
+**A page that shows names.** A live list or row that shows a name read from another
+resource (a name field, `@name` in section 1) is told when that name may have changed. With its
+own subscription, in the same write to the record, the request registers the list of each
+resource its names are read from: the names in play as its statement reads them (the
+columns it asks for, the names it sorts by or its declared order sorts by, the names its
+filter names, and every name it may be given where it named no columns), each whose own
+grant the person holds, outright or under a condition, and never an enumeration table's,
+whose words every page carries already. The list is the one in the request's tenant where
+the pointed-to resource belongs to a tenant, and the one of no tenant where it belongs to
+none. A write adds nothing for it: a write to the pointed-to resource tells that list's
+subscribers as it always did, and the page that shows its names is one of them, so the
+page refetches exactly when a page listing that resource in that tenant does, for any
+write to it, a rename or another field. A name read from the request's own list (a list of
+crew that shows each one's lead) adds nothing. The answer names what was registered in the
+response header `X-Names` (`live.Names`), as JSON, percent-encoded as `X-Changes` is: the
+request's own subscription as the record keeps it (`of`: a list by resource and domain, a
+row by resource and key, a list across tenants by resource, `acrossTenants` and the
+`domains` it was narrowed to), and the lists registered beside it, each with the
+pointed-to resource's name field as the grants name it (`nameField`, absent where the name
+is the resource's key); decoded, for a list of ships in the tenant `anvil` that shows each
+ship's squadron by name:
+
+```
+X-Names: {"of":{"resource":"Ships","domain":"anvil"},"names":[{"resource":"Squadrons","domain":"anvil","nameField":"name"}]}
+```
+
+The tab keeps those lists under the subscription and renews them with it, each carrying
+its `nameField`. The renewal re-checks such a list by `List` on that field in the
+subscription's tenant, the question the page's read asked, since a person may hold a
+name's grant and not the list's, and keeps or drops it by that alone; the record keeps it
+as the resource's list, as any other, and the answer echoes `nameField` as sent. A
+renewal's subscription that carries `nameField` with a key, or as a list across tenants,
+or whose `nameField` holds a dot, is refused with 400. An answer carries no `X-Names`
+when the request registered nothing
+beside its own subscription, and none when the record did not take them. Reading the lists
+is best effort: where it fails, the request's own subscription is registered alone and the
+failure is logged.
+
 **Derived resources.** A virtual or computed resource has no rows of its own, so a commit
 reaches it through the tables it reads, which the generator records next to the resource:
 each package holding published virtual or computed resources gets a generated
@@ -2791,7 +2829,9 @@ written or renewed. The renewal re-checks each subscription against the user's g
 `Read` on the resource for a row, `List` for a list, in the subscription's domain (the
 global scope when none is sent) — writes the kept ones with a fresh expiry in one batch,
 and echoes, in the order sent, which were kept and which dropped; a resource the grants
-do not know is dropped, never refused. A row subscription of a domain-scoped resource
+do not know is dropped, never refused, while a subscription whose `resource` holds a dot
+is refused with 400: a resource's own name holds none. A row subscription of a
+domain-scoped resource
 sends the domain the row was read in, or its re-check runs in the global scope, where a
 domain-scoped resource holds no grant, and the subscription is dropped. Revocation
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;
@@ -2908,10 +2948,11 @@ Lodestar's wiring is [pkg/config/data.go](../lodestar/pkg/config/data.go) and
 the routes `live/renew`, `live/unsubscribe` and `live/token` under the outlet's prefix,
 the renewal interval 120 s, the expiry 300 s, the cache header `Cache-Control: private,
 max-age=300`, the bulk threshold 100, the response header `X-Changes` and its JSON
-(`write`, `changes`, `all`), and the change document's shape (`kind` of `row`,
-`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`,
-`expires` and `write`). The generated descriptor names the routes per outlet:
-`live: { renewRoute, unsubscribeRoute, tokenRoute }`.
+(`write`, `changes`, `all`), the response header `X-Names` and its JSON (`of`, `names`,
+each entry a subscription), a subscription's `nameField`, and the change document's
+shape (`kind` of `row`, `list` or `resource`; `resource`; `key` and `deleted` on a row;
+`domain` on a list; `at`, `expires` and `write`). The generated descriptor names the
+routes per outlet: `live: { renewRoute, unsubscribeRoute, tokenRoute }`.
 
 ## 15. Feature flags
 
