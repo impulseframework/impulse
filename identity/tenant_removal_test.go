@@ -287,6 +287,79 @@ func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 	}
 }
 
+// TestManager_RemoveFromTenant_staysNow pins that a person stays one of the tenant's people
+// only by what reaches it now: a role of their own held in every tenant, a place in a
+// group kept for the whole application, or that group's role, whose period has not begun
+// keeps nobody among the tenant's people. The warning says the account stays and nothing
+// more, the person is mailed that they were removed, and the account stands, since what
+// has not begun is still held.
+func TestManager_RemoveFromTenant_staysNow(t *testing.T) {
+	t.Parallel()
+
+	upcoming := accesstypes.Period{Start: time.Now().Add(time.Hour)}
+	staffEveryRead := access.NewGroupRoleKey(GroupID(staffID), everyScope, "Reader")
+	for name, held := range map[string]func(store *fakeStore){
+		"a role of their own in every tenant that has not begun": func(store *fakeStore) {
+			store.memberships[danaEvery] = true
+			store.membershipPeriods[danaEvery] = upcoming
+		},
+		"a place that has not begun in a group kept for the whole application": func(store *fakeStore) {
+			store.groupMembers[memberKey(staffID, userID)] = true
+			store.placePeriods[memberKey(staffID, userID)] = upcoming
+			store.groupRoles[staffEveryRead] = true
+		},
+		"a place in a group kept for the whole application whose role in the tenant has not begun": func(store *fakeStore) {
+			store.groupMembers[memberKey(staffID, userID)] = true
+			store.groupRoles[staffAlphaRead] = true
+			store.rolePeriods[staffAlphaRead] = upcoming
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := removalStore()
+			store.memberships[danaAlphaReader] = true
+			held(store)
+			m, _, mail := removalManager(t, store, &fakeGrants{}, false)
+
+			judged, err := judgeDana(t, m, asErinIn, "alpha")
+			if err != nil {
+				t.Fatalf("JudgeTenantRemoval() error = %v", err)
+			}
+			if judged.Stays || judged.DeletesAccount {
+				t.Errorf("JudgeTenantRemoval() Stays = %v and DeletesAccount = %v, want neither", judged.Stays, judged.DeletesAccount)
+			}
+			var warning *resource.Warning
+			err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				ctx = asErin(ctx, managedAuth, true)
+
+				return runInTenant(ctx, m, func(tenant *Tenant) error {
+					var err error
+					warning, err = tenant.RemovalWarning(ctx, txn, userID)
+
+					return err
+				})
+			})
+			if err != nil {
+				t.Fatalf("RemovalWarning() error = %v", err)
+			}
+			if diff := cmp.Diff([]resource.WarningNote{{Says: removalKeepsSays, Names: nil}}, warning.Also); diff != "" {
+				t.Errorf("RemovalWarning() notes (-want +got):\n%s", diff)
+			}
+			deleted, err := removeDana(t, m, asErinIn, "alpha")
+			if err != nil {
+				t.Fatalf("RemoveFromTenant() error = %v", err)
+			}
+			if deleted {
+				t.Error("RemoveFromTenant() deleted = true, want the account kept by what has not begun")
+			}
+			if diff := cmp.Diff([]string{removalNotice("alpha", false)}, mail.asked); diff != "" {
+				t.Errorf("notices asked for (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestManager_RemoveFromTenant_refused pins the refusals of a removal, each writing,
 // mailing and telling nothing, and the judgment refusing each the same: nobody removes
 // themselves, the account they view as, or, in a session that acts as someone else, the

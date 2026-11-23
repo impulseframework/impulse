@@ -72,7 +72,7 @@ type TenantRemoval struct {
 	Roles          []string // the roles held in the tenant itself, in words, sorted, each once
 	InGroups       bool     // the person has a place in a group kept in the tenant
 	DeletesAccount bool     // the account goes with the removal
-	Stays          bool     // the person stays one of the tenant's people another way
+	Stays          bool     // the person is one of the tenant's people another way now: by something whose period has begun and has not ended
 }
 
 // JudgeTenantRemoval judges the person's removal from the tenant as RemoveFromTenant judges
@@ -328,12 +328,14 @@ func (m *Manager) refuseRemovingFromTenant(ctx context.Context, txn resource.Rea
 }
 
 // staysInTenant reports whether the person stays one of the tenant's people once what
-// they hold in the tenant itself is gone: among what they hold elsewhere that has not
-// ended, a membership of their own held in every tenant at once, or a place in a group
-// kept elsewhere that holds a role in every tenant at once or in the tenant itself.
+// they hold in the tenant itself is gone: among what they hold elsewhere whose period has
+// begun and has not ended, a membership of their own held in every tenant at once, or a
+// place in a group kept elsewhere that holds a role in every tenant at once or in the
+// tenant itself.
 func (m *Manager) staysInTenant(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (bool, error) {
 	for _, key := range holds.own {
-		if !heldIn(key.Kind, key.Axis, key.Domain, domain) && heldInEveryTenant(key.Kind, key.Axis, key.Domain) {
+		if !heldIn(key.Kind, key.Axis, key.Domain, domain) && heldInEveryTenant(key.Kind, key.Axis, key.Domain) &&
+			holds.rows.periods.Memberships[key].Contains(holds.now) {
 			return true, nil
 		}
 	}
@@ -341,11 +343,17 @@ func (m *Manager) staysInTenant(ctx context.Context, txn resource.ReadWriteTrans
 		if heldIn(place.Kind, place.Axis, place.Domain, domain) {
 			continue
 		}
+		if !holds.rows.periods.Places[access.GroupMemberKey{Group: GroupID(place.ID), User: User(holds.rows.userID)}].Contains(holds.now) {
+			continue
+		}
 		holding, err := m.groupHolding(ctx, txn, place.ID, holds.now)
 		if err != nil {
 			return false, err
 		}
 		for _, role := range holding.roles {
+			if !holding.periods.Roles[role].Contains(holds.now) {
+				continue
+			}
 			if heldInEveryTenant(role.Kind, role.Axis, role.Domain) || heldIn(role.Kind, role.Axis, role.Domain, domain) {
 				return true, nil
 			}
