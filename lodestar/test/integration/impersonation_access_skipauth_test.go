@@ -86,6 +86,10 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return []byte(`{"name":"password"}`)
 	case "SetSelfServiceReset":
 		return []byte(`{"on":true}`)
+	case "RequireSecondFactor", "StopRequiringSecondFactor":
+		return []byte(`{}`)
+	case "SetRememberedBrowsers":
+		return []byte(`{"length":"7 days"}`)
 	default:
 		t.Fatalf("the generated collection classes %s access and this suite has no body for its act %s: add one to accessBody, so the method is proven refused under a mask with the others", action, act)
 
