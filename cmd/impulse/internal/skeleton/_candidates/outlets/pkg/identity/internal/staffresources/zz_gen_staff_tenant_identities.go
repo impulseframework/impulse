@@ -26,19 +26,21 @@ func (StaffTenantIdentity) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffTenantIdentityReadSets holds one Set per read operation.
 type staffTenantIdentityRead struct {
-	ID            impulse.UUID `json:"id"            perm:"-"`
-	DomainID      string       `json:"domainId"`
-	UserID        impulse.UUID `json:"userId"`
-	Username      string       `json:"username"`
-	Method        string       `json:"method"`
-	Connection    string       `json:"connection"`
-	Subject       string       `json:"subject"`
-	Tenant        *string      `json:"tenant"`
-	EmailAtLink   *string      `json:"emailAtLink"`
-	CreatedAt     time.Time    `json:"createdAt"`
-	LastUsedAt    time.Time    `json:"lastUsedAt"`
-	HeldElsewhere bool         `json:"heldElsewhere"`
-	HeldGlobally  bool         `json:"heldGlobally"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	UserID                    impulse.UUID `json:"userId"`
+	Username                  string       `json:"username"`
+	Method                    string       `json:"method"`
+	Connection                string       `json:"connection"`
+	Subject                   string       `json:"subject"`
+	Tenant                    *string      `json:"tenant"`
+	EmailAtLink               *string      `json:"emailAtLink"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastUsedAt                time.Time    `json:"lastUsedAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 }
 
 var staffTenantIdentityReadSets resource.SetCache[StaffTenantIdentity, staffTenantIdentityRead]
@@ -160,6 +162,8 @@ func (c *StaffTenantIdentityColumns) All() *StaffTenantIdentityColumns {
 		"LastUsedAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 	}
 
 	return c
@@ -243,6 +247,18 @@ func (c *StaffTenantIdentityColumns) HeldGlobally() *StaffTenantIdentityColumns 
 	return c
 }
 
+func (c *StaffTenantIdentityColumns) ManagedHere() *StaffTenantIdentityColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *StaffTenantIdentityColumns) ManagedByAnotherDirectory() *StaffTenantIdentityColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 type StaffTenantIdentityQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -285,6 +301,14 @@ func (p StaffTenantIdentityQueryPartialClause) HeldElsewhere() StaffTenantIdenti
 
 func (p StaffTenantIdentityQueryPartialClause) HeldGlobally() StaffTenantIdentityQueryIdent[bool] {
 	return StaffTenantIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p StaffTenantIdentityQueryPartialClause) ManagedHere() StaffTenantIdentityQueryIdent[bool] {
+	return StaffTenantIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p StaffTenantIdentityQueryPartialClause) ManagedByAnotherDirectory() StaffTenantIdentityQueryIdent[bool] {
+	return StaffTenantIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 type StaffTenantIdentityQueryClause struct {
@@ -403,6 +427,14 @@ func (c *staffTenantIdentitySort) HeldElsewhere() *StaffTenantIdentitySort {
 
 func (c *staffTenantIdentitySort) HeldGlobally() *StaffTenantIdentitySort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *staffTenantIdentitySort) ManagedHere() *StaffTenantIdentitySort {
+	return c.addField("ManagedHere")
+}
+
+func (c *staffTenantIdentitySort) ManagedByAnotherDirectory() *StaffTenantIdentitySort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 type StaffTenantIdentitySort struct {

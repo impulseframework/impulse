@@ -828,9 +828,9 @@ The application still sends mail, though it invites nobody. Through Microsoft or
 identity provider, each person's first sign-in stops for a code mailed to the address
 they give, as [The email address on an account](#the-email-address-on-an-account) says.
 Through any directory, a sign-in that carries no second factor of the directory's own
-stops for a code mailed to the person's address. So each deployed environment needs its mailbox,
-although no release asks for one: without it the code is written to the server's log,
-and the person stays on the login page.
+stops for a code mailed to the person's address. So each deployed environment needs its mailbox:
+a deployed environment does not start without its mailbox (`APP_MAIL_MAILBOX`, with the
+secret `APP_MAIL_APP_PASSWORD`).
 
 Where the roles come from depends on the method.
 
@@ -1176,13 +1176,23 @@ The application's management of an auth's accounts has two sides.
   tenant's invitations, and changes them. The skeletons grant it to the
   `TenantAdministrator` role, held in a tenant.
 
-Each person in a tenant's list carries two facts that a grant's condition can test.
-`heldElsewhere` says the person also holds a role in every tenant, or holds a role or
-belongs to a group in another tenant. `heldGlobally` says the person holds a role for the
-whole application, or belongs to a group kept for the whole application. (The "globally"
-in that name is the role file's word for the whole application. It is not the "Global" of
-shapes 7 and 8, which is about being in several tenants.) With the skeletons' role file,
-a tenant's administrator can do this much:
+Each person in a tenant's list carries facts that a grant's condition can test.
+`managedHere` says this tenant manages the person's account: the person signs in through
+the tenant's directory, or signs in through no tenant's directory and holds something in
+this tenant and nothing anywhere else. `managedByAnotherDirectory` says the person signs
+in through another tenant's directory, and that tenant manages the account. An account no
+tenant manages is the application's own administrators' to manage. `heldElsewhere` says
+the person also holds a role in every tenant, or holds a role or belongs to a group in
+another tenant. `heldGlobally` says the person holds a role for the whole application, or
+belongs to a group kept for the whole application. (The "globally" in that name is the
+role file's word for the whole application. It is not the "Global" of shapes 7 and 8,
+which is about being in several tenants.) A tenant with a directory lists everyone who
+signs in through it, also a person who holds no role in the tenant, so the tenant that
+manages an account can disable or delete it. Removing a person from a tenant, or taking
+away the last thing they hold, deletes their account only where no other tenant manages
+it: the account of a person who signs in through another tenant's directory stays,
+holding nothing, in that tenant's list. With the skeletons' role file, a tenant's
+administrator can do this much:
 
 | A tenant's administrator can | For whom |
 | --- | --- |
@@ -1190,10 +1200,10 @@ a tenant's administrator can do this much:
 | Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited, with a role from the start. |
 | Take away a role held in the tenant | Anyone in the tenant. A role a person holds in every tenant is not one tenant's to take. |
 | Withdraw an invitation | An invitation of the tenant that still stands |
-| See the name a person signs in with and their name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
-| See a person's email address, and whether they must choose a new password | A person who holds no role in another tenant or in every tenant (`heldElsewhere = false`) |
-| Send a password reset link | Everyone in the tenant who has a password and a confirmed email address |
-| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
+| See the name a person signs in with, their name and email address, and whether the account is disabled | Everyone in the tenant's list |
+| See when the account was created and last signed in, whether the email address is confirmed, whether the person must choose a new password, and how the person signs in | A person whose account the tenant manages (`managedHere = true`) |
+| Send a password reset link | Everyone in the tenant's list who has a password and a confirmed email address, except a person another tenant's directory manages (`managedHere = true OR managedByAnotherDirectory = false`) |
+| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person whose account the tenant manages (`managedHere = true`) |
 
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.

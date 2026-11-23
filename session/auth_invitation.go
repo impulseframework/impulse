@@ -284,13 +284,16 @@ func (h *InvitationHandlers) Accept() http.HandlerFunc { return h.accept }
 // ({"mfaIsRequired": true}). Entering the code (Pending().VerifyCode()) makes the
 // account, with the invited address as its own, verified, signs the person in and
 // accepts the invitation. username is the address when the password method declares
-// the username as the email address, and chosen otherwise. A taken username or
-// address is 409, a password the judgment refuses 400, a chosen username with an @ in
-// it that is not the account's address 400, no password method or no live invitation
-// 404. An invitation that makes a tenant entered through its directory only is refused
-// as a sign-in is (organization_account_required). Route it beside the password login,
-// behind StartSession and ValidateXSRFToken, and route the pending handlers, which take
-// the code.
+// the username as the email address, and chosen otherwise. An address another account
+// uses is 409 here; a username another account has is 409 once the code is entered and
+// never before, since whoever holds the link may have been forwarded it and is told
+// nothing of which accounts exist until the invited address is proven; a password the
+// judgment refuses is 400, a chosen username with an @ in it that is not the account's
+// address 400, no password method or no live invitation 404. An invitation that makes a
+// tenant entered through its directory only is refused as a sign-in is
+// (organization_account_required). Route it beside the password login, behind
+// StartSession and ValidateXSRFToken, and route the pending handlers, which take the
+// code.
 func (h *InvitationHandlers) SignUp() http.HandlerFunc { return h.signUp }
 
 // Invitation returns the invitation handlers.
@@ -618,17 +621,17 @@ func signsUpInvited(p *pendingState) bool {
 // link only opened the invitation, and whoever holds it may have been forwarded it, so
 // nothing is made on its strength: no account, no address held as verified and no
 // acceptance. The sign-up is checked as the account's creation will be (the password's
-// strength, a username chosen, the address and the username free, 409 otherwise), so the
-// person is told before any code is mailed; the creation itself is held to the same
-// again. The wait names nobody, its code goes to the invited address alone
-// (codeDestination), and what the account is made from waits in the pending cookie
-// (heldSignUp).
+// strength, a username chosen, the address free, 409 otherwise), so the person is told
+// before any code is mailed. Whether another account has the username is not answered
+// here: the creation answers it, once the code has proven the invited address. The wait
+// names nobody, its code goes to the invited address alone (codeDestination), and what
+// the account is made from waits in the pending cookie (heldSignUp).
 func (a *Auth[S, U, Tx]) holdInvitedSignUp(ctx context.Context, w http.ResponseWriter, inv *sessioninfo.Invitation, username, password string) (*pendingState, error) {
 	insert, err := a.newAccount(inv.Email, username, password, inv.Name)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.accountFree(ctx, insert); err != nil {
+	if err := a.addressFree(ctx, insert); err != nil {
 		return nil, err
 	}
 	wait := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUID{}, Username: "", Tenant: "", Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}}
@@ -641,20 +644,15 @@ func (a *Auth[S, U, Tx]) holdInvitedSignUp(ctx context.Context, w http.ResponseW
 	}, wait)
 }
 
-// accountFree answers 409, in the words the account's creation would, where another
-// account holds the address or the username of insert.
-func (a *Auth[S, U, Tx]) accountFree(ctx context.Context, insert *sessionstorage.InsertSessionUser) error {
+// addressFree answers 409, in the words the account's creation would, where another
+// account holds the address of insert. It asks nothing of the username: the account's
+// creation answers that, once the code has proven the invited address.
+func (a *Auth[S, U, Tx]) addressFree(ctx context.Context, insert *sessionstorage.InsertSessionUser) error {
 	switch _, err := a.storage.UserByEmail(ctx, *insert.Email); {
 	case err == nil:
 		return httpio.NewConflictMessageWithError(errors.Newf("the email address %q is already in use", *insert.Email), dbtype.EmailInUseMessage)
 	case !httpio.HasNotFound(err):
 		return errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
-	}
-	switch _, err := a.storage.UserByUserName(ctx, insert.Username); {
-	case err == nil:
-		return httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", insert.Username), dbtype.UsernameTakenMessage)
-	case !httpio.HasNotFound(err):
-		return errors.Wrap(err, "sessionstorage.AuthStore.UserByUserName()")
 	}
 
 	return nil

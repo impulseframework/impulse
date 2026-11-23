@@ -40,6 +40,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// MembersSectorInvitations: the tables its query reads.

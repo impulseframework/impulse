@@ -571,11 +571,11 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the member's chart after a fresh sign-in with the password and the code = %v, want [%s]", domains, north)
 	}
 
-	// North's list of its people is made from who holds a role there, not from who can
-	// sign in: the support login stays in it, and while north is directory only their
-	// row says they cannot enter. The member's row, north's own administrator who has a
-	// password, the organizer's, who signed in through the directory, and the
-	// administrator's, a super administrator, say nothing.
+	// North's list of its people keeps everyone who holds a role there, whether or not
+	// they can sign in: the support login stays in it, and while north is directory
+	// only their row says they cannot enter. The member's row, north's own
+	// administrator who has a password, the organizer's, who signed in through the
+	// directory, and the administrator's, a super administrator, say nothing.
 	people := tenantRows(ctx, t, organizer, north, "staff-tenant-users")
 	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	if got, _ := people[supportID]["cannotEnter"].(string); got != keptOut {

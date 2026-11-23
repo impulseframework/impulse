@@ -338,9 +338,9 @@ or one per domain), loaded on demand and cached for the session.
   `defaultRole`, the role a person gets the first time they sign in through it, in words;
   `passwords`, whether the reader's auth has a password method; `signedIn`, a sentence
   that says how the reader signed in; `sessionDirectory`, the organization's directory the
-  reader is signed in through; and `people`, how many people hold a role in the tenant
-  (`seated`) and how many of them the switch keeps out (`outside`), counted as the warning
-  counts them. While the switch is off and the tenant has a directory, the read says what
+  reader is signed in through; and `people`, how many people the tenant's list holds
+  (`seated`: who holds a role in the tenant, and who signs in through its directory) and
+  how many of them the switch keeps out (`outside`), counted as the warning counts them. While the switch is off and the tenant has a directory, the read says what
   turning it on takes of the person asking (`conditions`): each in the sentence the
   server's refusal opens with (`sentence`), whether they meet it (`met`), and what they do
   where they do not (`toDo`). A page shows these and writes none of its own, so what it
@@ -845,8 +845,9 @@ confirmed the invited address or holds none, whose sentence says to sign in agai
 invitation's link, since a session cannot wait for a code. `signUpFromInvitation({ password, username? })` asks for the invited person's account with
 a password and answers the pending step that waits for the code; the code makes the account,
 its address verified, signs the person in and accepts the invitation. A link
-that has expired or was already used resolves `refused` with 404 and the server's words; a
-taken username or address 409. An invitation that makes a tenant names the tenant to be
+that has expired or was already used resolves `refused` with 404 and the server's words; an
+address another account uses 409, and a username another account has 409 once the code is
+entered. An invitation that makes a tenant names the tenant to be
 (`tenantName`) and has no `tenantId` yet. One whose tenant is entered through its directory
 only answers `signUp: false`, and the server refuses a password sign-in, a sign-up and an
 acceptance by hand for it with `organization_account_required`: it is accepted through an
@@ -929,7 +930,7 @@ answer say what the caller may do with it. A page that must work in every applic
 names from the block; an application's own code uses the handles by name.
 
 ```ts
-// The people who hold a role in the sector, each with the methods the caller may run on them.
+// The sector's people, each with the methods the caller may run on them.
 const people = await api.domain('anvil').crewSectorUsers.list({ capabilities: ['Execute'] });
 if (api.domain('anvil').assignCrewSectorRole.can()) {
   await api.domain('anvil').assignCrewSectorRole.execute({ userId: people[0].id, role: 'Harbormaster' });

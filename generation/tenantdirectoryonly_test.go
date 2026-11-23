@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1154,6 +1155,19 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				// The sentence speaks of the tenant's directory and never says its connection.
 				`'Has not signed in through this sector\'s directory, so cannot enter while this sector is directory only',`,
 				"NULL) AS CannotEnter",
+				// Who manages the account: the tenant whose directory the person signs in
+				// through, and else the one tenant the person holds something in alone. The
+				// two facts of whose directory are read over the select and are no columns.
+				"ManagedHere bool `spanner:\"ManagedHere\" index:\"true\"`",
+				"ManagedByAnotherDirectory bool `spanner:\"ManagedByAnotherDirectory\" index:\"true\"`",
+				"const crewSectorUserQuery = `\nSELECT\n  * EXCEPT (ThroughHere, ThroughAnother),\n  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,\n  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory\nFROM (\nSELECT\n",
+				"  EXISTS (\n    SELECT 1 FROM CrewSessionIdentities li\n    WHERE li.UserId = u.Id AND EXISTS (\n      SELECT 1 FROM SectorDirectories ld\n      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId = t.DomainId\n    )\n  ) AS ThroughHere,\n",
+				"  EXISTS (\n    SELECT 1 FROM CrewSessionIdentities li\n    WHERE li.UserId = u.Id AND EXISTS (\n      SELECT 1 FROM SectorDirectories ld\n      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId != t.DomainId\n    )\n  ) AS ThroughAnother,\n",
+				// A person who signs in through the tenant's directory is one of its people,
+				// whatever they hold. The directory's accounts are an array unnested beside
+				// its row, which Spanner counts as no join.
+				"  UNION DISTINCT\n  SELECT dr.SectorId AS DomainId, du AS UserId\n  FROM SectorDirectories dr, UNNEST(ARRAY(\n    SELECT dl.UserId FROM CrewSessionIdentities dl\n    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection\n  )) AS du\n) t\nJOIN CrewSessionUsers u ON u.Id = t.UserId\n",
+				"LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id\n) p\n`",
 			},
 			// A connection is a key, for a Microsoft Entra tenant an id: no sentence is made of it.
 			wantNotContains: []string{"CONCAT(", "through ', td.Connection"},
@@ -1163,8 +1177,11 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			data: data(directory, identityUsers, identityMemberships),
 			wantContains: []string{
 				"(td.SectorId IS NOT NULL AND NOT EXISTS (\n    SELECT 1 FROM CrewUserRoles sa",
+				// Nobody signs in through a directory: the tenant manages the account of the
+				// person it holds alone, and no directory manages anyone's.
+				"const crewSectorUserQuery = `\nSELECT\n  *,\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\n",
 			},
-			wantNotContains: []string{"CrewSessionIdentities di"},
+			wantNotContains: []string{"CrewSessionIdentities di", "ThroughHere", "ThroughAnother", "SectorDirectories dr"},
 		},
 		{
 			name: "an auth with no password method keeps nobody's way in: the list reads no password and no administrator",
@@ -1208,10 +1225,11 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		{
 			name:            "a tenant record that declares no switch",
 			data:            withPassword(data(nil, identityUsers, identityMemberships, identityIdentities)),
-			wantContains:    []string{"HeldGlobally bool ", "return crewSectorUserQuery, nil"},
-			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles", "AdministratorWithPassword"},
+			wantContains:    []string{"HeldGlobally bool ", "return crewSectorUserQuery, nil", "(HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\n"},
+			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles", "AdministratorWithPassword", "ThroughHere", "SectorDirectories"},
 		},
 	}
+	joinWord := regexp.MustCompile(`\bJOIN\b`)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -1225,6 +1243,24 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				t.Fatalf("the rendered list does not parse: %v\n%s", err, out)
 			}
 			assertContains(t, "the people's list", string(out), tt.wantContains, tt.wantNotContains)
+			// Spanner refuses a statement of more than twenty joins of tables. A page
+			// reads the list with capabilities=Execute, and for a session that does not
+			// enter some tenant the statement holds, beside the list's query, the query
+			// of the tenants a person administers (TenantsToEnter, in the users table's
+			// file): the two are counted together. The list that declares the switch, has
+			// the password method and keeps groups holds the most.
+			query := renderedConstant(t, string(out), "crewSectorUserQuery")
+			users, err := c.generateTemplateOutput("identityUsersTemplate", identityUsersTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityUsersTemplate) error = %v", err)
+			}
+			entering := 0
+			if strings.Contains(string(users), "const crewSessionUserAdministeredTenantsQuery = `") {
+				entering = len(joinWord.FindAllString(renderedConstant(t, string(users), "crewSessionUserAdministeredTenantsQuery"), -1))
+			}
+			if joins := len(joinWord.FindAllString(query, -1)); joins+entering > 20 {
+				t.Errorf("the people's list holds %d joins and the query of the tenants a person administers %d, more than the twenty Spanner allows a statement:\n%s", joins, entering, query)
+			}
 		})
 	}
 
@@ -1317,6 +1353,81 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			}
 			assertContains(t, "the client", string(out), tt.wantContains, tt.wantNotContains)
 		})
+	}
+}
+
+// Test_identityStoreTemplate_managingTenants pins where the store reads which tenants
+// manage an account (identity.Store.ManagingTenants): from the tenant's list of its
+// people, by the user's rows whose ManagedHere is true, where the tenant record declares
+// a directory and the auth keeps identities; every other store answers none and reads
+// nothing. And the four generated removals say an account another tenant's directory
+// signs in stays.
+func Test_identityStoreTemplate_managingTenants(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	data := func(tenant *identityTenant, tables ...identityTable) *identitySourceData {
+		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}}
+		for _, kind := range tables {
+			inst.tables[kind] = true
+		}
+
+		return &identitySourceData{
+			Source: "Auth", Package: "crewresources", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default",
+			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
+			Policy: access.Tables{UserRoles: "CrewUserRoles"},
+		}
+	}
+	sector := func(directory *identityTenantDirectory) *identityTenant {
+		return &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}
+	}
+	const (
+		signature = "func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {"
+		read      = "crewresources.NewCrewSectorUserQuery().\n\t\tAddColumns(crewresources.NewCrewSectorUserColumns().DomainID()).\n\t\tWhere(crewresources.NewCrewSectorUserQueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))"
+		none      = "func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.Domain, error) {\n\treturn nil, nil\n}"
+	)
+	for _, tt := range []struct {
+		name  string
+		data  *identitySourceData
+		reads bool
+	}{
+		{name: "a tenant record that declares a directory, an auth that keeps identities: the tenant's list is read", data: data(sector(directory), identityUsers, identityMemberships, identityIdentities), reads: true},
+		{name: "a tenant record that declares a directory, an auth that keeps no identities: none", data: data(sector(directory), identityUsers, identityMemberships)},
+		{name: "a tenant record that declares no directory: none", data: data(sector(nil), identityUsers, identityMemberships, identityIdentities)},
+		{name: "no tenant record: none", data: data(nil, identityUsers, identityMemberships, identityIdentities)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.data.ReadsManagingTenants(); got != tt.reads {
+				t.Errorf("ReadsManagingTenants() = %t, want %t", got, tt.reads)
+			}
+			c := &client{}
+			out, err := c.generateTemplateOutput("identityStoreTemplate", identityStoreTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityStoreTemplate) error = %v", err)
+			}
+			if tt.reads {
+				assertContains(t, "the store", string(out), []string{signature, read}, []string{none})
+			} else {
+				assertContains(t, "the store", string(out), []string{none}, []string{signature, "ManagedHere().Equal(true)"})
+			}
+		})
+	}
+
+	// The comments of the generated removals, each a template's, say the rule in one
+	// sentence.
+	const stays = "An account that signs in through a tenant's directory is that tenant's to delete: it goes this way only with the last thing it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's list of its people."
+	flat := regexp.MustCompile(`\n// ?`)
+	for name, template := range map[string]string{
+		"identityRemoveRoleTemplate":        identityRemoveRoleTemplate,
+		"identityTenantRemoveRoleTemplate":  identityTenantRemoveRoleTemplate,
+		"identityTenantRemoveUserTemplate":  identityTenantRemoveUserTemplate,
+		"identityRemoveGroupMemberTemplate": identityRemoveGroupMemberTemplate,
+	} {
+		if !strings.Contains(flat.ReplaceAllString(template, " "), stays) {
+			t.Errorf("%s does not say %q", name, stays)
+		}
 	}
 }
 
@@ -1423,4 +1534,22 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			t.Errorf("holdIdentityTenantDirectory() error = %v", err)
 		}
 	})
+}
+
+// renderedConstant is the text of the backquoted constant name in rendered Go source, from
+// its declaration to its closing quote, failing the test where it is not found.
+func renderedConstant(t *testing.T, rendered, name string) string {
+	t.Helper()
+
+	start := strings.Index(rendered, "const "+name+" = `")
+	if start < 0 {
+		t.Fatalf("the rendered file holds no %s:\n%s", name, rendered)
+	}
+	text := rendered[start:]
+	end := strings.Index(text, "\n`")
+	if end < 0 {
+		t.Fatalf("the rendered %s does not end:\n%s", name, text)
+	}
+
+	return text[:end]
 }

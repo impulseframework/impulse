@@ -35,27 +35,85 @@ const (
       AND {{ .Standing "g" }}
   )` + identityGroupPersonGlobally + ` AS HeldGlobally`
 
-	// identityTenantPersonHeldFacts are the two more facts about a person that a row of a
-	// tenant's list of people carries, after identityTenantPersonFacts, as
-	// identityTenantPersonFacts reads them: HeldHere, that the person holds something in
-	// the row's tenant itself, and HeldInEveryTenant, that the person holds a role in every
-	// tenant at once. Each check is an equality on the leading columns of the store's index
-	// by user. Where the auth keeps groups, a place in one of the tenant's own groups is
-	// something held in it, and a place in a group kept for the whole application that
-	// holds a role in every tenant is a role held in every tenant
-	// (identityGroupPersonHere, identityGroupPersonInEveryTenant). The list of a tenant's
-	// identities does not carry them.
-	identityTenantPersonHeldFacts = `,
+	// identityTenantPersonHeldHere and identityTenantPersonInEveryTenant are the two more
+	// facts about a person that a row of a tenant's list of people carries, after
+	// identityTenantPersonFacts, as identityTenantPersonFacts reads them: HeldHere, that
+	// the person holds something in the row's tenant itself, and HeldInEveryTenant, that
+	// the person holds a role in every tenant at once. Each check is an equality on the
+	// leading columns of the store's index by user. Where the auth keeps groups, a place
+	// in one of the tenant's own groups is something held in it, and a place in a group
+	// kept for the whole application that holds a role in every tenant is a role held in
+	// every tenant (identityGroupPersonHere, identityGroupPersonInEveryTenant). The list of
+	// a tenant's identities carries neither as a column of its own: it reads HeldHere for
+	// who manages the account (identityTenantManagedFacts).
+	identityTenantPersonHeldHere = `,
   (EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
       AND {{ .Standing "o" }}
-  )` + identityGroupPersonHere + `) AS HeldHere,
+  )` + identityGroupPersonHere + `) AS HeldHere`
+
+	identityTenantPersonInEveryTenant = `,
   (EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
       AND {{ .Standing "o" }}
   )` + identityGroupPersonInEveryTenant + `) AS HeldInEveryTenant`
+
+	// identityTenantThroughDirectory is the start of the fact that a person of a tenant's
+	// list signs in through a tenant's directory, where the tenant record declares a
+	// directory and the auth keeps identities: an identity linked to the account under
+	// the method and the connection of a row of the directories table, whose tenant the
+	// fact goes on to compare with the row's (identityTenantThroughFacts). The person's
+	// identities are read by the identities table's index on the user, which stores the
+	// method and the connection, and a directory by its table's index on the two. It is
+	// written with EXISTS alone and joins no table: Spanner refuses a statement of more
+	// than twenty joins of tables, and the list of a tenant's people holds eighteen where
+	// the record declares the directory-only switch and the auth has the password method
+	// and keeps groups (identityGroupPersonHere). A page reads the list with the methods
+	// each row offers, and for a session that does not enter some tenant the statement
+	// adds the query of the tenants a person administers (TenantsToEnter), two joins
+	// more where the auth keeps groups: twenty.
+	identityTenantThroughDirectory = `EXISTS (
+    SELECT 1 FROM {{ .Tables.Identities }} li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM {{ .TenantDirectory.Table }} ld
+      WHERE ld.{{ .TenantDirectory.MethodColumn }} = li.Method AND ld.{{ .TenantDirectory.ConnectionColumn }} = li.Connection AND ld.{{ .TenantDirectory.TenantColumn }} `
+
+	// identityTenantThroughFacts are the two facts of whose directory a person of a
+	// tenant's list signs in through, as the last columns of the select the list's facts
+	// of who manages the account are read over (identityTenantManagedFacts), where the
+	// tenant record declares a directory and the auth keeps identities: ThroughHere, the
+	// person signs in through the row's tenant's directory, and ThroughAnother, through
+	// another tenant's. They are no columns of the list itself.
+	identityTenantThroughFacts = `{{ if and .TenantDirectory .HasIdentities }},
+  ` + identityTenantThroughDirectory + `= t.DomainId
+    )
+  ) AS ThroughHere,
+  ` + identityTenantThroughDirectory + `!= t.DomainId
+    )
+  ) AS ThroughAnother{{ end }}`
+
+	// identityTenantManagedFacts are the two facts of who manages the account of a person
+	// of a tenant's list, ManagedHere and ManagedByAnotherDirectory, as the first columns
+	// after the others of the select they are read over: one party manages each account,
+	// the first that fits of the tenant whose directory the person signs in through, the
+	// one tenant the person holds something in and nothing anywhere else, and the
+	// application's own administrators. They read the columns of where the person holds
+	// roles (HeldHere, HeldElsewhere, HeldGlobally) and of whose directory they sign in
+	// through (identityTenantThroughFacts), so each of those checks is written once and
+	// read once for a row. Where the tenant record declares no directory, or the auth
+	// keeps no identities, nobody signs in through a tenant's directory: the tenant
+	// manages the account of the person it holds alone, and no other tenant's directory
+	// manages anyone's.
+	identityTenantManagedFacts = `{{ if and .TenantDirectory .HasIdentities }}(ThroughHere OR (NOT ThroughAnother AND ` + identityTenantHeldAlone + `)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory{{ else }}(` + identityTenantHeldAlone + `) AS ManagedHere,
+  FALSE AS ManagedByAnotherDirectory{{ end }}`
+
+	// identityTenantHeldAlone is the fact that a person of a tenant's list holds
+	// something in the tenant and nothing anywhere else, over the columns of where the
+	// person holds roles.
+	identityTenantHeldAlone = `HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally`
 
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
@@ -70,7 +128,10 @@ const (
 	//
 	// A person is one of a tenant's people by what they hold at the moment: a membership
 	// outside its period, ended or not yet begun, puts nobody in the list, whether or not
-	// its row still stands in the table (identitySourceData.Counting).
+	// its row still stands in the table (identitySourceData.Counting). Where the tenant
+	// record declares a directory and the auth keeps identities, a person who signs in
+	// through a tenant's directory is one of its people whatever they hold
+	// (identityTenantDirectoryPeople).
 	identityTenantPeopleFrom = `FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }} m
@@ -81,9 +142,29 @@ const (
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
   WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
-    AND {{ .Counting "m" }}` + identityTenantGroupPeople + `
+    AND {{ .Counting "m" }}` + identityTenantGroupPeople + identityTenantDirectoryPeople + `
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
+
+	// identityTenantDirectoryPeople are the people a tenant's list holds because they
+	// sign in through the tenant's directory, as a branch of the union the people are
+	// selected from (identityTenantPeopleFrom), after the group branches, where the
+	// tenant record declares a directory and the auth keeps identities: every account
+	// with an identity under the method and the connection of a row of the directories
+	// table, the directory's tenant as the row's tenant. The tenant that manages the
+	// account so finds it, whether or not the person holds anything there. The
+	// identities are read by the table's index on the method, the connection and the
+	// subject, as the array of a directory's accounts unnested beside the directory's
+	// row: Spanner counts that as no join, and a join here would bring the statement a
+	// page reads the list by past the twenty it allows (identityTenantThroughDirectory).
+	identityTenantDirectoryPeople = `{{- if and .TenantDirectory .HasIdentities }}
+  UNION DISTINCT
+  SELECT dr.{{ .TenantDirectory.TenantColumn }} AS DomainId, du AS UserId
+  FROM {{ .TenantDirectory.Table }} dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM {{ .Tables.Identities }} dl
+    WHERE dl.Method = dr.{{ .TenantDirectory.MethodColumn }} AND dl.Connection = dr.{{ .TenantDirectory.ConnectionColumn }}
+  )) AS du
+{{- end }}`
 
 	// identityTenantOutsideDirectory is the fact that a person of a tenant's list has no
 	// sign-in through the tenant's directory, as a condition of the list's select: ts is
@@ -202,7 +283,8 @@ import (
 
 type (
 	// {{ .TenantUser }} is one person of the {{ .Auth }} auth as one {{ .TenantName }} sees
-	// them: a row for each person who holds a role in the tenant or in every tenant, with
+	// them: a row for each person who holds a role in the tenant or in every tenant{{ if and .TenantDirectory .HasIdentities }},
+	// and for each person who signs in through the tenant's directory{{ end }}, with
 	// the columns of {{ .User }}. A person is one account for the whole application, so
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
@@ -211,7 +293,7 @@ type (
 	// ended, or has not begun, is not one of its people, whether or not the role's row
 	// still stands. {{ .TenantRole }} lists a role that has not begun, with its period.
 	//
-	// Four columns are facts about the person that no table holds, each under the name a
+	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
 	// (heldGlobally) says the person holds a role for the whole application. HeldHere
@@ -220,11 +302,17 @@ type (
 	// tenant, or through a group kept for the whole application, holds nothing here, and
 	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
 	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
-	// how the application's own staff come to be among each tenant's people. A role file
-	// uses them to say what a tenant may see and do of a person who is not the tenant's
-	// alone. The list filters and sorts by the username and by the four facts; the
-	// account's other columns are no filter keys, so a role file may grant any of them
-	// under a condition at no cost to a page.
+	// how the application's own staff come to be among each tenant's people.
+	// ManagedHere (managedHere) says this tenant manages the person's account: the
+	// person signs in through the tenant's directory, or signs in through no tenant's
+	// directory and holds something in this tenant and nothing anywhere else.
+	// ManagedByAnotherDirectory (managedByAnotherDirectory) says the person signs in
+	// through another tenant's directory, and that tenant manages the account. An account
+	// no tenant manages is the application's own administrators' to manage. A role file
+	// uses the facts to say what a tenant may see and do of a person whose account it
+	// does not manage. The list filters and sorts by the username and by the six facts;
+	// the account's other columns are no filter keys, so a role file may grant any of
+	// them under a condition at no cost to a page.
 	{{- if .TenantDirectory }}
 	//
 	// Two more columns say what the tenant's directory-only switch does to the person.
@@ -234,9 +322,11 @@ type (
 	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
 	// in through this {{ .TenantWord }}'s directory, so cannot enter while this {{ .TenantWord }} is
 	// directory only"), and nothing on every other row: the sentence never says the
-	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
-	// not from who can sign in, so a person the switch keeps out stays in it with their
-	// roles. A super administrator is outside no tenant's directory.
+	// directory's connection, which is a key and no name. A person the switch keeps out
+	// stays in the list with their roles, and a person who signs in through the tenant's
+	// directory is a row whether or not they hold anything in the tenant (HeldHere says
+	// which), so the tenant that manages the account finds it. A super administrator is
+	// outside no tenant's directory.
 	{{- if .AdministratorsEnter }} Neither is the
 	// {{ .TenantWord }}'s own administrator who has a password: a person who holds one of the roles
 	// the application names as a {{ .TenantWord }}'s administrator's in the {{ .TenantWord }} itself enters it
@@ -277,6 +367,10 @@ type (
 		HeldHere bool ` + "`spanner:\"HeldHere\" index:\"true\"`" + `
 		// @attribute(heldInEveryTenant)
 		HeldInEveryTenant bool ` + "`spanner:\"HeldInEveryTenant\" index:\"true\"`" + `
+		// @attribute(managedHere)
+		ManagedHere bool ` + "`spanner:\"ManagedHere\" index:\"true\"`" + `
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool ` + "`spanner:\"ManagedByAnotherDirectory\" index:\"true\"`" + `
 		{{- if .TenantDirectory }}
 		OutsideDirectory bool    ` + "`spanner:\"OutsideDirectory\" index:\"true\"`" + `
 		CannotEnter      *string ` + "`spanner:\"CannotEnter\"`" + `
@@ -289,9 +383,15 @@ type (
 
 // {{ GoCamel .TenantUser }}Query selects the people of every tenant: who holds a role in a
 // tenant ({{ .Policy.UserRoles }}, one tenant's memberships, and the memberships held in
-// every tenant once per row of {{ .TenantTable }}), joined to the account by the id a
-// membership names its person by.
+// every tenant once per row of {{ .TenantTable }}){{ if and .TenantDirectory .HasIdentities }}, and who signs in through a tenant's
+// directory ({{ .TenantDirectory.Table }} and {{ .Tables.Identities }}){{ end }}, joined to the account by the id a
+// membership names its person by. Who manages each account is read over the columns of
+// that select, so where the person holds roles is read once for a row.
 const {{ GoCamel .TenantUser }}Query = ` + "`" + `
+SELECT
+  *{{ if and .TenantDirectory .HasIdentities }} EXCEPT (ThroughHere, ThroughAnother){{ end }},
+  ` + identityTenantManagedFacts + `
+FROM (
 SELECT
   u.Id AS Id,
   t.DomainId AS DomainId,
@@ -303,8 +403,9 @@ SELECT
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
-` + identityTenantPersonFacts + identityTenantPersonHeldFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
+` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantPersonInEveryTenant + identityTenantThroughFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
+) p
 ` + "`" + `
 
 {{- if .AdministratorsEnter }}
@@ -553,17 +654,18 @@ import (
 
 type (
 	// {{ .TenantIdentity }} is one way a person of one {{ .TenantName }} signs in to the
-	// {{ .Auth }} auth through a directory: a row for each identity of a person who holds a
-	// role in the tenant or in every tenant, with the columns of {{ .Identity }} and the
+	// {{ .Auth }} auth through a directory: a row for each identity of a person of
+	// {{ .TenantUser }}, with the columns of {{ .Identity }} and the
 	// person's username. An account is one row for the whole application, so the identity
 	// of a person who holds a role in two tenants is a row in each: the identity's id is
 	// the key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	// Tenant is the link's own column, the organization its directory vouched for, and is
 	// not the row's tenant.
 	//
-	// HeldElsewhere and HeldGlobally are the two facts of the person's row in
-	// {{ .TenantUser }}, under the same names (heldElsewhere, heldGlobally): an identity is
-	// the account's, so what a tenant may see and do of one is what it may of the account.
+	// HeldElsewhere, HeldGlobally, ManagedHere and ManagedByAnotherDirectory are four
+	// facts of the person's row in {{ .TenantUser }}, under the same names (heldElsewhere,
+	// heldGlobally, managedHere, managedByAnotherDirectory): an identity is the account's,
+	// so what a tenant may see and do of one is what it may of the account.
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -589,14 +691,23 @@ type (
 		HeldElsewhere bool ` + "`spanner:\"HeldElsewhere\" index:\"true\"`" + `
 		// @attribute(heldGlobally)
 		HeldGlobally bool ` + "`spanner:\"HeldGlobally\" index:\"true\"`" + `
+		// @attribute(managedHere)
+		ManagedHere bool ` + "`spanner:\"ManagedHere\" index:\"true\"`" + `
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool ` + "`spanner:\"ManagedByAnotherDirectory\" index:\"true\"`" + `
 	}
 )
 
 // {{ GoCamel .TenantIdentity }}Query selects the identities of the people of every tenant:
 // the people as {{ .TenantUser }} selects them, each joined to the rows of
 // {{ .Tables.Identities }} that link to the account, through the table's index on the
-// user, which carries the columns the list shows.
+// user, which carries the columns the list shows. Who manages the account is read as
+// {{ .TenantUser }} reads it, over the columns of that select.
 const {{ GoCamel .TenantIdentity }}Query = ` + "`" + `
+SELECT
+  * EXCEPT (HeldHere{{ if and .TenantDirectory .HasIdentities }}, ThroughHere, ThroughAnother{{ end }}),
+  ` + identityTenantManagedFacts + `
+FROM (
 SELECT
   i.Id AS Id,
   t.DomainId AS DomainId,
@@ -609,9 +720,10 @@ SELECT
   i.EmailAtLink AS EmailAtLink,
   i.CreatedAt AS CreatedAt,
   i.LastUsedAt AS LastUsedAt,
-` + identityTenantPersonFacts + `
+` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantThroughFacts + `
 ` + identityTenantPeopleFrom + `
 JOIN {{ .Tables.Identities }} i ON i.UserId = u.Id
+) p
 ` + "`" + `
 
 // Subquery is the query the rows are read from.

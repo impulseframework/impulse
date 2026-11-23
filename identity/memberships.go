@@ -186,7 +186,10 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 // themselves in a tenant is held to the rule on the tenant's last administrator
 // (refuseLastAdministrator). And a person left with no role anywhere and no place in a
 // group is deleted with their identity links and sessions in the same transaction
-// (deleteWithLastRole), whoever removed the role. The Super Administrator role has its own: it is taken away
+// (deleteWithLastRole), whoever removed the role. An account that signs in through a
+// tenant's directory is that tenant's to delete: it goes this way only with the last
+// thing it holds in that tenant itself, and otherwise stays, holding nothing, in that
+// tenant's list of its people. The Super Administrator role has its own: it is taken away
 // by a caller who holds it, and never from the last holder who can sign in, whoever
 // asks (requireSuperAdministrator, refuseLastSuperAdministrator).
 // Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
@@ -233,12 +236,19 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	// A membership whose period is over gave the person nothing: its removal is no
 	// removal from a tenant.
 	if !removal.ended {
-		if err := m.noticeRemoval(ctx, txn, userID, &taken{own: key, group: impulse.NilUUID, groupRole: nil}, []access.MembershipKey{*key}, removal.last); err != nil {
+		if err := m.noticeRemoval(ctx, txn, userID, &taken{own: key, group: impulse.NilUUID, groupRole: nil}, []access.MembershipKey{*key}, removal.deletes); err != nil {
 			return err
 		}
 	}
-	if err := m.deleteWithLastRole(ctx, txn, userID, removal.kept, key); err != nil {
-		return err
+	switch {
+	case removal.deletes:
+		if err := m.deleteWithLastRole(ctx, txn, userID, removal.kept, key); err != nil {
+			return err
+		}
+	case removal.last:
+		if err := m.logManagedElsewhere(ctx, txn, userID, removal.managedBy); err != nil {
+			return err
+		}
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteMembership()")

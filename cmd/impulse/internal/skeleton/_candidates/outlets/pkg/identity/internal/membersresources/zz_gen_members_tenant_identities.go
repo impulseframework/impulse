@@ -26,19 +26,21 @@ func (MembersTenantIdentity) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersTenantIdentityReadSets holds one Set per read operation.
 type membersTenantIdentityRead struct {
-	ID            impulse.UUID `json:"id"            perm:"-"`
-	DomainID      string       `json:"domainId"`
-	UserID        impulse.UUID `json:"userId"`
-	Username      string       `json:"username"`
-	Method        string       `json:"method"`
-	Connection    string       `json:"connection"`
-	Subject       string       `json:"subject"`
-	Tenant        *string      `json:"tenant"`
-	EmailAtLink   *string      `json:"emailAtLink"`
-	CreatedAt     time.Time    `json:"createdAt"`
-	LastUsedAt    time.Time    `json:"lastUsedAt"`
-	HeldElsewhere bool         `json:"heldElsewhere"`
-	HeldGlobally  bool         `json:"heldGlobally"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	UserID                    impulse.UUID `json:"userId"`
+	Username                  string       `json:"username"`
+	Method                    string       `json:"method"`
+	Connection                string       `json:"connection"`
+	Subject                   string       `json:"subject"`
+	Tenant                    *string      `json:"tenant"`
+	EmailAtLink               *string      `json:"emailAtLink"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastUsedAt                time.Time    `json:"lastUsedAt"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 }
 
 var membersTenantIdentityReadSets resource.SetCache[MembersTenantIdentity, membersTenantIdentityRead]
@@ -160,6 +162,8 @@ func (c *MembersTenantIdentityColumns) All() *MembersTenantIdentityColumns {
 		"LastUsedAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 	}
 
 	return c
@@ -243,6 +247,18 @@ func (c *MembersTenantIdentityColumns) HeldGlobally() *MembersTenantIdentityColu
 	return c
 }
 
+func (c *MembersTenantIdentityColumns) ManagedHere() *MembersTenantIdentityColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *MembersTenantIdentityColumns) ManagedByAnotherDirectory() *MembersTenantIdentityColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 type MembersTenantIdentityQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -285,6 +301,14 @@ func (p MembersTenantIdentityQueryPartialClause) HeldElsewhere() MembersTenantId
 
 func (p MembersTenantIdentityQueryPartialClause) HeldGlobally() MembersTenantIdentityQueryIdent[bool] {
 	return MembersTenantIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p MembersTenantIdentityQueryPartialClause) ManagedHere() MembersTenantIdentityQueryIdent[bool] {
+	return MembersTenantIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p MembersTenantIdentityQueryPartialClause) ManagedByAnotherDirectory() MembersTenantIdentityQueryIdent[bool] {
+	return MembersTenantIdentityQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 type MembersTenantIdentityQueryClause struct {
@@ -403,6 +427,14 @@ func (c *membersTenantIdentitySort) HeldElsewhere() *MembersTenantIdentitySort {
 
 func (c *membersTenantIdentitySort) HeldGlobally() *MembersTenantIdentitySort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *membersTenantIdentitySort) ManagedHere() *MembersTenantIdentitySort {
+	return c.addField("ManagedHere")
+}
+
+func (c *membersTenantIdentitySort) ManagedByAnotherDirectory() *MembersTenantIdentitySort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 type MembersTenantIdentitySort struct {

@@ -200,6 +200,8 @@ export interface CrewSectorIdentities {
   lastUsedAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface CrewSectorInvitations {
@@ -230,6 +232,8 @@ export interface CrewSectorUsers {
   heldGlobally?: boolean;
   heldHere?: boolean;
   heldInEveryTenant?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
   administratorWithPassword?: boolean;
@@ -515,6 +519,8 @@ export interface MembersSectorIdentities {
   lastUsedAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface MembersSectorInvitations {
@@ -545,6 +551,8 @@ export interface MembersSectorUsers {
   heldGlobally?: boolean;
   heldHere?: boolean;
   heldInEveryTenant?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
 }
@@ -925,6 +933,8 @@ export interface CrewSectorSignInWays {
   through?: string;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface CrewSignInMethods {
@@ -1373,6 +1383,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.CrewSectorInvitations]: {
@@ -1411,6 +1423,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'administratorWithPassword', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
@@ -1831,6 +1845,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.MembersSectorInvitations]: {
@@ -1869,6 +1885,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
@@ -2488,6 +2506,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'managedHere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSignInMethods]: {

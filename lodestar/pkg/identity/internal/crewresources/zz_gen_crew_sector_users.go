@@ -40,6 +40,8 @@ type crewSectorUserRead struct {
 	HeldGlobally              bool         `json:"heldGlobally"`
 	HeldHere                  bool         `json:"heldHere"`
 	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 	OutsideDirectory          bool         `json:"outsideDirectory"`
 	CannotEnter               *string      `json:"cannotEnter"`
 	AdministratorWithPassword bool         `json:"administratorWithPassword"`
@@ -165,6 +167,8 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"HeldGlobally",
 		"HeldHere",
 		"HeldInEveryTenant",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 		"OutsideDirectory",
 		"CannotEnter",
 		"AdministratorWithPassword",
@@ -257,6 +261,18 @@ func (c *CrewSectorUserColumns) HeldInEveryTenant() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) ManagedHere() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) ManagedByAnotherDirectory() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 func (c *CrewSectorUserColumns) OutsideDirectory() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -313,6 +329,14 @@ func (p CrewSectorUserQueryPartialClause) HeldHere() CrewSectorUserQueryIdent[bo
 
 func (p CrewSectorUserQueryPartialClause) HeldInEveryTenant() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) ManagedHere() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) ManagedByAnotherDirectory() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 func (p CrewSectorUserQueryPartialClause) OutsideDirectory() CrewSectorUserQueryIdent[bool] {
@@ -443,6 +467,14 @@ func (c *crewSectorUserSort) HeldHere() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) HeldInEveryTenant() *CrewSectorUserSort {
 	return c.addField("HeldInEveryTenant")
+}
+
+func (c *crewSectorUserSort) ManagedHere() *CrewSectorUserSort {
+	return c.addField("ManagedHere")
+}
+
+func (c *crewSectorUserSort) ManagedByAnotherDirectory() *CrewSectorUserSort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 func (c *crewSectorUserSort) OutsideDirectory() *CrewSectorUserSort {

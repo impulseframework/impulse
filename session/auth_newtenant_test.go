@@ -329,7 +329,7 @@ func authNewTenantSignUp(t *testing.T) {
 	_, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"})
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	// The store makes the account with the acceptance: the mocked store expects no
@@ -354,7 +354,7 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 	_, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
-	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"}, "patl")
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse battery staple", "username": "patl"})
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	// The application's hook refuses to make the tenant: the sign-in's first transaction

@@ -333,13 +333,14 @@ class SideBuilder {
             ['cannotEnter', 'Cannot enter'],
           ]),
           // Read with each row and not drawn: what the State column says besides Disabled,
-          // and on a tenant's side whether the person holds something in the tenant itself.
+          // and on a tenant's side whether the person holds something in the tenant itself
+          // and whether the tenant manages the account.
           ...[
             ...this.known(
               users,
               this.stateLines().filter(([name]) => name !== 'disabled'),
             ).map(([name]) => name),
-            ...this.heldHere(users),
+            ...this.tenantFacts(users),
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
@@ -1143,7 +1144,7 @@ class SideBuilder {
       // Held by the form for the words above and for the methods offered, and not drawn.
       ...[
         ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) => name),
-        ...this.heldHere(users),
+        ...this.tenantFacts(users),
       ].map((name) => field({ name: name as FieldName, cols: 4, shouldRender: false })),
     ];
   }
@@ -1667,21 +1668,24 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // On a tenant's side that has the removal from the tenant, the page does not draw
-      // Delete on a row whose answer lists the removal: on this side the removal stands in
-      // Delete's place. Where such a row says the person holds nothing in the tenant itself
-      // the page draws neither, since there is nothing of the tenant's to take. A row whose
-      // answer does not list the removal keeps Delete.
+      // On a tenant's side that has the removal from the tenant, the removal stands in
+      // Delete's place on a row whose answer lists it: taking a person the tenant holds
+      // alone out of it takes the account. Delete is drawn beside it, or alone, where the
+      // row says the tenant manages the account through its directory (managedHere) and the
+      // removal would leave the account standing: a person of the directory who holds
+      // nothing in the tenant itself, or who holds roles elsewhere too. A row whose answer
+      // does not list the removal keeps Delete.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           group: 'account',
-          confirm: (row) => `Delete ${named(row)}? The account, its sign-ins and its sessions are removed.`,
-          ...(removal === undefined
-            ? {}
-            : { when: (row: RecordData) => !(rowCapabilities(row)?.Execute ?? []).includes(removal) }),
+          confirm: (row) =>
+            this.identity.tenant
+              ? `Delete ${named(row)}? The account is removed from every ${this.tenantWord}, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.`
+              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`,
+          ...(removal === undefined ? {} : { when: (row: RecordData) => deleteBesideRemoval(row, removal) }),
         },
       ],
     ]);
@@ -2060,12 +2064,14 @@ class SideBuilder {
   }
 
   /**
-   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * The fields a tenant's side reads with a person and does not draw besides the State's:
    * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered. Only where the list has it.
+   * the tenant is offered, and whether the tenant manages the account (managedHere), by
+   * which Delete is drawn beside the removal (deleteBesideRemoval). Each only where the
+   * list has it.
    */
-  private heldHere(resource: Resource): string[] {
-    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
+  private tenantFacts(resource: Resource): string[] {
+    return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -2182,6 +2188,26 @@ const doneWords: Partial<Record<MethodKind, string>> = {
  */
 function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
+}
+
+/**
+ * Whether a tenant's people page draws Delete on a person's row, where the tenant's side
+ * has the removal from the tenant (removal, its method). A row whose answer does not list
+ * the removal keeps Delete. A row whose answer lists it draws Delete only where the row
+ * says the tenant manages the account (managedHere) and the removal would leave the
+ * account standing: the person holds nothing in the tenant itself, or holds a role in
+ * another tenant or for the whole application too. A row that carries no managedHere is
+ * read as one the tenant does not manage. Whether Delete is offered at all is still the
+ * server's answer for the row.
+ */
+function deleteBesideRemoval(row: RecordData, removal: string): boolean {
+  if (!(rowCapabilities(row)?.Execute ?? []).includes(removal)) {
+    return true;
+  }
+  if (row['managedHere'] !== true) {
+    return false;
+  }
+  return row['heldHere'] === false || row['heldElsewhere'] === true || row['heldGlobally'] === true;
 }
 
 /** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */

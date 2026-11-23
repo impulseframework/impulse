@@ -8,16 +8,15 @@ package integration
 // It follows the unlink's rule from the other side: an identity is not unlinked when it
 // is the last way in of a person with no password, and a password is not removed from a
 // person who holds no identity that can sign them in. The Sector Marshal's grant reaches
-// a person the sector holds alone (heldElsewhere = false AND heldGlobally = false), as
-// the unlink's does.
+// a person whose account the sector manages (managedHere = true), as the unlink's does.
 //
 // Beside it is the list the removal is offered from: how a person of the sector signs
 // in (CrewSectorSignInWays), the password they hold and the identities that count,
 // which a page reads to offer the removal only where it would go through. The Marshal's
-// grant lists the identities of every person of the sector and the password only of a
-// person no other sector holds (password = false OR heldElsewhere = false): whether a
-// person another sector holds too has a password is no more the sector's to learn than
-// whether they must change it, and the removal is not the sector's to offer.
+// grant lists how a person signs in only where the sector manages the account
+// (managedHere = true): how a person another party manages signs in, and whether they
+// have a password, is no more the sector's to learn than whether they must change it,
+// and the removal is not the sector's to offer.
 //
 // The people are the ones of the lists' suite (generated_identity_lists_test).
 
@@ -39,26 +38,25 @@ import (
 // TestGeneratedIdentitySectorRemovePassword holds the removal of a password at a sector:
 // refused while the person holds no identity, or none that can sign them in, since
 // nothing else signs them in; the
-// Marshal's for a person the sector holds alone, said by the row's Execute answer before
-// anything is asked; refused for a person who holds a role outside the sector and for a
+// Marshal's for a person the sector manages, said by the row's Execute answer before
+// anything is asked; refused for a person the sector does not manage and for a
 // caller with no grant, and not found for a person of another sector. The removal takes
 // the password and the requirement to change it, clears the count of failed sign-ins
 // kept under the person's name, and leaves the identity, which is then the person's
 // last way in, whatever identity that signs nobody in stands beside it. The list of how
 // a person signs in says the same before anything is asked: the password a person holds
-// and the identities that count, for the sector's people alone, with the facts of each
-// person's row, and without the password of a person another sector holds too.
+// and the identities that count, for the people the sector manages, with the facts of
+// each person's row, and nothing of a person the sector does not manage.
 func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
 	ctx := t.Context()
 
 	// The grant this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RemoveCrewSectorPassword", "heldElsewhere = false AND heldGlobally = false")
-	// The Marshal reads the identities that sign a person in for every person of the
-	// sector, and the password where they read that the person must change it: for a
-	// person no other sector holds.
-	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorSignInWays", "password = false OR heldElsewhere = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RemoveCrewSectorPassword", "managedHere = true")
+	// The Marshal reads how a person signs in where they read that the person must change
+	// their password: for a person whose account the sector manages.
+	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorSignInWays", "managedHere = true")
 
 	// The passwords, written as the session library writes one: ada, bo, di and fay each
 	// hold one they are still to change, and two failed sign-ins are counted under ada's
@@ -88,10 +86,10 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 
 	// way is what a row of the list says: the key of the way among the person's, whether
 	// it is the password, the method and the connection, the words of the sign-in it
-	// comes through, and the two facts of the person's row.
+	// comes through, and three facts of the person's row.
 	type way struct {
-		Way, Method, Connection, Through      string
-		Password, HeldElsewhere, HeldGlobally bool
+		Way, Method, Connection, Through                   string
+		Password, HeldElsewhere, HeldGlobally, ManagedHere bool
 	}
 	listWays := func(user accesstypes.User, sector, filter string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, "crew-sector-sign-in-ways"+filter), "")
@@ -110,12 +108,13 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 				Way: cell[string](t, row, "way"), Method: cell[string](t, row, "method"), Connection: cell[string](t, row, "connection"),
 				Through: cell[string](t, row, "through"), Password: cell[bool](t, row, "password"),
 				HeldElsewhere: cell[bool](t, row, "heldElsewhere"), HeldGlobally: cell[bool](t, row, "heldGlobally"),
+				ManagedHere: cell[bool](t, row, "managedHere"),
 			})
 		}
 
 		return ways
 	}
-	password := way{Way: "password", Method: "password", Through: "Password", Password: true}
+	password := way{Way: "password", Method: "password", Through: "Password", Password: true, ManagedHere: true}
 
 	t.Run("a person with a password alone signs in with it and nothing else", func(t *testing.T) {
 		if got, want := waysOf(anvil, "ada"), []way{password}; !slices.Equal(got, want) {
@@ -180,21 +179,18 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	// through is the identity a person's directory sign-in linked, as the list names it:
 	// by the words the login page's button carries for the fleet's Google sign-in.
 	through := func(name string) way {
-		return way{Way: links[name], Method: "google", Connection: "fleet", Through: "Lodestar"}
+		return way{Way: links[name], Method: "google", Connection: "fleet", Through: "Lodestar", ManagedHere: true}
 	}
 	t.Run("the list says how each of the sector's people signs in: the password first, then the identities that count", func(t *testing.T) {
-		// ada is Anvil's alone: her password and the directory's identity, and nothing of
-		// the retired sign-in's.
+		// ada is Anvil's alone, so Anvil manages the account: her password and the
+		// directory's identity, and nothing of the retired sign-in's.
 		if got, want := waysOf(anvil, "ada"), []way{password, through("ada")}; !slices.Equal(got, want) {
 			t.Errorf("how ada signs in = %+v, want %+v", got, want)
 		}
-		// bo holds a role at Bastion too. Each row carries the fact, which the grant's
-		// condition reads: the identity is listed, as bo's identities are, and the
-		// password is not, so Anvil does not learn that bo holds one.
-		boIdentity := through("bo")
-		boIdentity.HeldElsewhere = true
-		if got, want := waysOf(anvil, "bo"), []way{boIdentity}; !slices.Equal(got, want) {
-			t.Errorf("how bo signs in, as Anvil reads it = %+v, want %+v: the identity, and nothing of the password", got, want)
+		// bo holds a role at Bastion too, so Anvil does not manage the account: neither the
+		// identity nor the password is listed, and Anvil does not learn how bo signs in.
+		if got := waysOf(anvil, "bo"); len(got) != 0 {
+			t.Errorf("how bo signs in, as Anvil reads it = %+v, want nothing", got)
 		}
 		// The password is there, and the whole application's administrator reads it in the
 		// whole application's list, where its removal is theirs.
@@ -207,13 +203,10 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 		if want := []string{"password", links["bo"]}; !slices.Equal(whole, want) {
 			t.Errorf("how bo signs in, as the whole application's administrator reads it = %v, want %v", whole, want)
 		}
-		// fay holds a role for the whole application and none in another sector: the
-		// condition reads the other sectors alone, as the one on whether a person must
-		// change their password does, so her password is listed with her identity.
-		fayPassword, fayIdentity := password, through("fay")
-		fayPassword.HeldGlobally, fayIdentity.HeldGlobally = true, true
-		if got, want := waysOf(anvil, "fay"), []way{fayPassword, fayIdentity}; !slices.Equal(got, want) {
-			t.Errorf("how fay signs in, as Anvil reads it = %+v, want %+v", got, want)
+		// fay holds a role for the whole application, so the application's administrators
+		// manage the account and Anvil is answered nothing of how she signs in.
+		if got := waysOf(anvil, "fay"); len(got) != 0 {
+			t.Errorf("how fay signs in, as Anvil reads it = %+v, want nothing", got)
 		}
 		// di is Bastion's: Anvil is answered nothing of her.
 		if got := waysOf(anvil, "di"); len(got) != 0 {
@@ -250,7 +243,7 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 			}
 		}
 	})
-	t.Run("the removal is refused or not found where the person is not the sector's alone", func(t *testing.T) {
+	t.Run("the removal is refused or not found where the sector does not manage the person", func(t *testing.T) {
 		// bo holds a role at Bastion too, and fay one for the whole application.
 		for _, name := range []string{"bo", "fay"} {
 			status, body := remove("marshal", anvil, name)
@@ -270,7 +263,7 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 			}
 		}
 	})
-	t.Run("the Marshal removes the password of a person the sector holds alone", func(t *testing.T) {
+	t.Run("the Marshal removes the password of a person the sector manages", func(t *testing.T) {
 		status, body := remove("marshal", anvil, "ada")
 		assertStatus(t, status, http.StatusNoContent, body)
 		if got := hash("ada"); got.Valid {
