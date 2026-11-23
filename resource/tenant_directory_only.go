@@ -400,7 +400,8 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	count, counted, administratorsEnter := 0, false, false
 	var named []DirectoryOutsider
 	var wayIn directoryWayIn
-	for _, auth := range r.people {
+	for i := range r.people {
+		auth := &r.people[i]
 		enter := auth.AdministratorsEnter != nil && auth.AdministratorsEnter()
 		administratorsEnter = administratorsEnter || enter
 		var outsiders []DirectoryOutsider
@@ -412,7 +413,7 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 			}
 			count += len(outsiders)
 		}
-		administrators, invitations, err := readWayIn(ctx, txn, tenant, &auth, enter)
+		administrators, invitations, err := readWayIn(ctx, txn, tenant, auth, enter)
 		if err != nil {
 			return nil, err
 		}
@@ -933,7 +934,8 @@ func (r *TenantDirectoryRules) count(ctx context.Context, txn ReadWriteTransacti
 		return nil, nil
 	}
 	count := &DirectoryOnlyCount{}
-	for _, auth := range r.people {
+	for i := range r.people {
+		auth := &r.people[i]
 		share := DirectoryOnlyShare{Label: auth.Label, People: auth.List}
 		if auth.Seated != nil {
 			seated, err := auth.Seated(ctx, txn, tenant)
