@@ -602,7 +602,7 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 		t.Parallel()
 
 		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
-		own := "it('names the pages', () => {\n  expect(pages()).toEqual(['Accounts', 'Break glass', 'Feature flags']);\n});\n"
+		own := "it('names the pages', () => {\n  expect(pages()).toEqual(['Accounts', 'Sign-in', 'Break glass', 'Feature flags']);\n});\n"
 		a, ch := startedOver(t, &start, func(a *app.App) {
 			if err := os.WriteFile(a.Abs(menuSpec), []byte(own), 0o644); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
