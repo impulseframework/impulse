@@ -24,6 +24,9 @@ func Test_identityOn(t *testing.T) {
 		tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
 		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", invitation: &identityTenantInvitation{}},
 	}
+	// The auth of an application whose tenants have a directory, a row of the record the
+	// package declares for it.
+	directed := &identityInstance{auth: "Crew", outlets: []string{"console"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", directories: "SectorDirectory"}}
 
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
 		for _, name := range names {
@@ -147,6 +150,62 @@ func Test_identityOn(t *testing.T) {
 						Methods: []identityPart{part("inviteTenant", "InviteCrewSector"), part("withdrawInvitedTenant", "WithdrawCrewInvitedSector")},
 					},
 					// A tenant's own side carries none of it: no tenant brings another in.
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
+				},
+			}},
+		},
+		{
+			name:      "a tenant's side names the directories record and the four methods that set how its people enter, and the whole application's side none",
+			outlet:    "console",
+			instances: []*identityInstance{directed},
+			served: []string{
+				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
+				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+			},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}},
+					{
+						Scope: accesstypes.DomainPermissionScope,
+						Lists: []identityPart{part("users", "CrewSectorUsers"), part("directories", "SectorDirectories")},
+						Methods: []identityPart{
+							part("openToDirectory", "OpenSectorToDirectory"), part("makeDirectoryInviteOnly", "MakeSectorInviteOnly"),
+							part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly"),
+						},
+					},
+				},
+			}},
+		},
+		{
+			name:      "a tenant's side names only the methods that set how its people enter that the outlet serves",
+			outlet:    "console",
+			instances: []*identityInstance{directed},
+			served:    []string{"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}},
+					{
+						Scope:   accesstypes.DomainPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSectorUsers"), part("directories", "SectorDirectories")},
+						Methods: []identityPart{part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly")},
+					},
+				},
+			}},
+		},
+		{
+			name:      "an application whose tenants have no directories names neither the record nor the methods",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served: []string{
+				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
+				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+			},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}},
 					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
 				},
 			}},

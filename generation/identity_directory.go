@@ -183,19 +183,21 @@ func fieldAnnotation(keyword string) *regexp.Regexp {
 // packages are loaded, with the struct's place, and holdIdentityTenantDirectory holds
 // this reading to the loaded one. Only the syntax is read, as tenantRecordIn reads it.
 //
-// seat is the directories record's default seat column (@directoryDefaultSeat), ""
-// where the package declares no directories record or the record no such column. It is
-// read whether the tenant record declares the switch or not: the role a tenant is
-// opened to its directory's people with is judged by the role file's grants, which the
-// sources written before the load must carry (seatsDirectory). outlets are the outlets
-// the directories record is served on, as its @outlet names them, nil where the package
-// declares no directories record: the two methods that say how a tenant admits its
-// directory's people are served there, and the list their role is picked from is
-// written for the auth those outlets sign people in through (identityOpensToDirectory).
-func tenantDirectoryIn(dir, record string, pluralize func(string) string) (directory *identityTenantDirectory, seat string, outlets []string, err error) {
+// record is the directories record's struct name, "" where the package declares none,
+// read whether the tenant record declares the switch or not. seat is the directories
+// record's default seat column (@directoryDefaultSeat), "" where the package declares
+// no directories record or the record no such column. It is read whether the tenant
+// record declares the switch or not: the role a tenant is opened to its directory's
+// people with is judged by the role file's grants, which the sources written before the
+// load must carry (seatsDirectory). outlets are the outlets the directories record is
+// served on, as its @outlet names them, nil where the package declares no directories
+// record: the two methods that say how a tenant admits its directory's people are
+// served there, and the list their role is picked from is written for the auth those
+// outlets sign people in through (identityOpensToDirectory).
+func tenantDirectoryIn(dir, tenant string, pluralize func(string) string) (directory *identityTenantDirectory, record, seat string, outlets []string, err error) {
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
-		return nil, "", nil, errors.Wrap(err, "build.ImportDir()")
+		return nil, "", "", nil, errors.Wrap(err, "build.ImportDir()")
 	}
 
 	out := &identityTenantDirectory{}
@@ -203,7 +205,7 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (direc
 	for _, name := range pkg.GoFiles {
 		file, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.ParseComments|goparser.SkipObjectResolution)
 		if err != nil {
-			return nil, "", nil, errors.Wrap(err, "parser.ParseFile()")
+			return nil, "", "", nil, errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -220,9 +222,10 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (direc
 					continue
 				}
 				switch {
-				case typeSpec.Name.Name == record:
+				case typeSpec.Name.Name == tenant:
 					out.OnlyColumn = annotatedColumn(structType, fieldDirectoryOnly)
 				case structCommentHas(gen, typeSpec, tenantDirectoryKeyword):
+					record = typeSpec.Name.Name
 					out.Table = pluralize(typeSpec.Name.Name)
 					out.TenantColumn = annotatedColumn(structType, fieldBareDomain)
 					out.MethodColumn = annotatedColumn(structType, fieldDirectoryMethod)
@@ -234,10 +237,10 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (direc
 		}
 	}
 	if out.OnlyColumn == "" || out.Table == "" || out.TenantColumn == "" || out.MethodColumn == "" || out.ConnectionColumn == "" {
-		return nil, seat, outlets, nil
+		return nil, record, seat, outlets, nil
 	}
 
-	return out, seat, outlets, nil
+	return out, record, seat, outlets, nil
 }
 
 // seatsDirectory reports whether the instance's client judges the role a tenant is

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/ettle/strcase"
@@ -78,7 +79,7 @@ func (tn Tenancy) browserSource(a *app.App, g *app.Generator, ch *Change) (sourc
 	rel := strings.TrimPrefix(strings.TrimPrefix(target.Dir, w.Dir), "/")
 	project, found := app.ProjectFor(projects, rel)
 	if !found || project.SourceRoot == "" {
-		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (%sthe All %s page's configuration and the dialog a person who signed up creates their own %s through), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.signInPageNamed(), tn.manyLower(), tn.oneLower())
+		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (the All %s page's configuration and the dialog a person who signed up creates their own %s through), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.manyLower(), tn.oneLower())
 
 		return "", false, nil
 	}
@@ -116,25 +117,10 @@ func forAuth(text, auth string) string {
 	return names.Rename(text, skeleton.PlaceholderAuth, auth)
 }
 
-// tenantSignInDir is where the reference keeps the tenant's sign-in page, relative to
-// the project's source root, and tenantsConfigPath the configuration of the All tenants
-// page, which every application the tenant pages were laid into has.
-const (
-	tenantSignInDir   = "app/components/ui/sign-in/"
-	tenantsConfigPath = "app/configs/tenants.config.ts"
-)
-
-// signInPageNamed names the tenant's sign-in page in a list of the tenant pages, with
-// the comma after it, or nothing where no tenant has a directory: the page is where a
-// tenant's directory is set and what it is the only way in of, so an application whose
-// tenants have none has no such page.
-func (tn Tenancy) signInPageNamed() string {
-	if tn.NoDirectories {
-		return ""
-	}
-
-	return "the tenant's sign-in page, "
-}
+// tenantsConfigPath is the configuration of the All tenants page, relative to the
+// project's source root, which every application the tenant pages were laid into has: an
+// application that has it has the tenant pages already.
+const tenantsConfigPath = "app/configs/tenants.config.ts"
 
 // withoutDirectory is one stretch of a reference browser file that speaks of a tenant's
 // directory, and what stands in its place in an application whose tenants have none.
@@ -145,16 +131,16 @@ type withoutDirectory struct {
 // withoutDirectories are the stretches of the reference's browser files that an
 // application whose tenants have no directories is written without: the All tenants
 // page's directory-only column and field (the record carries no such field there), the
-// menu that places the tenant's sign-in page, and that page's route, each with its
-// import.
+// menu that places the tenant's Sign-in settings page, and that page's route, each with
+// its name in the import of the library's identity pages.
 var withoutDirectories = []withoutDirectory{
 	{tenantsConfigPath, "changes\n// its name and whether its people enter through its directories only. A tenant's key is an\n// id the server generates, which nobody types: the list leaves it out, and the row page\n// shows it read only, for whoever supports the application.", "changes\n// its name. A tenant's key is an id the server generates, which nobody types: the list\n// leaves it out, and the row page shows it read only, for whoever supports the\n// application."},
 	{tenantsConfigPath, "listColumns: [{ id: Tenants.fieldName.name }, { id: Tenants.fieldName.directoryOnly, header: 'Directory only' }],", "listColumns: [{ id: Tenants.fieldName.name }],"},
 	{tenantsConfigPath, "          field({ name: Tenants.fieldName.directoryOnly, label: 'Directory only', cols: 4 }),\n", ""},
-	{appMenusFile, "import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';\n", ""},
-	{appMenusFile, "    {\n      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage] }],\n    },\n", ""},
-	{appRoutesFile, "import { tenantSignInRoute } from '@components/ui/sign-in/sign-in.routes';\n", ""},
-	{appRoutesFile, "          // Who may enter the tenant: its declared directories and its directory-only flag.\n          tenantSignInRoute(),\n", ""},
+	{appMenusFile, "import { identityMenuPages, tenantSignInPage } from '@impulseframework/resource-angular/identity-pages';\n", "import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';\n"},
+	{appMenusFile, "    {\n      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'Staff' })] }],\n    },\n", ""},
+	{appRoutesFile, "import { identityRoutes, tenantSignInRoute } from '@impulseframework/resource-angular/identity-pages';\n", "import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';\n"},
+	{appRoutesFile, "          // Who may enter the tenant: its declared directories and its directory-only flag.\n          tenantSignInRoute(apiDescriptor, { auth: 'Staff' }),\n", ""},
 }
 
 // forTenants is a reference browser file's text as the transition writes it: as it is
@@ -179,23 +165,17 @@ func (tn Tenancy) forTenants(rel, text string) (string, error) {
 }
 
 // copyTenantPages lays the tenant pages (tenantWebFiles) into the browser project, for
-// the auth and in the record's words: all of them where a tenant can have a directory,
-// and all but the tenant's sign-in page where no tenant has one.
+// the auth and in the record's words. The tenant's Sign-in settings page is none of
+// them: the library draws it where a tenant can have a directory, and the routes and the
+// menu file place it.
 func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) error {
-	marker := tenantSignInRoutesPath
-	if tn.NoDirectories {
-		marker = tenantsConfigPath
-	}
-	dst := path.Join(source, marker)
+	dst := path.Join(source, tenantsConfigPath)
 	if _, err := os.Stat(a.Abs(dst)); err == nil {
 		ch.skipf("%s already exists and was left alone", dst)
 
 		return nil
 	}
 	for _, f := range tenantWebFiles {
-		if tn.NoDirectories && strings.HasPrefix(f.rel, tenantSignInDir) {
-			continue
-		}
 		reference, err := skeleton.FS(f.candidate)
 		if err != nil {
 			return err
@@ -217,13 +197,13 @@ func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) e
 		renamed = fmt.Sprintf(", with every name and word of the reference's Tenant record the %s record's", tn.Record())
 	}
 	if tn.NoDirectories {
-		ch.didf("%s and %s: the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s, without the directory-only column and field, which the record does not carry; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher. No %s sign-in page was written: that page is where a %s's directory is set and what it is made the only way in of, and no %s has one",
-			path.Join(source, "app/components/ui/new-tenant")+"/", path.Join(source, tenantsConfigPath), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.oneLower())
+		ch.didf("%s and %s: the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s, without the directory-only column and field, which the record does not carry; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher. No Sign-in settings page is placed: that page is where a %s's directory is set and what it is made the only way in of, and no %s has one",
+			path.Join(source, "app/components/ui/new-tenant")+"/", path.Join(source, tenantsConfigPath), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower(), tn.oneLower(), tn.oneLower())
 
 		return nil
 	}
-	ch.didf("%s, components/ui/new-tenant/ and configs/tenants.config.ts: the %s's sign-in page (who may enter the %s: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher",
-		path.Dir(dst)+"/", tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower())
+	ch.didf("%s and %s: the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher, and the library draws the %s's Sign-in settings page, which the routes and the menu file place",
+		path.Join(source, "app/components/ui/new-tenant")+"/", path.Join(source, tenantsConfigPath), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower(), tn.oneLower())
 
 	return nil
 }
@@ -730,13 +710,22 @@ func tenantMenus(reference string) (string, error) {
 	return reference[ret[1]:system], nil
 }
 
-// addImports adds each import statement the file lacks after its last one.
+// addImports adds each import statement the file lacks. One that imports names from a
+// module the file imports names from already adds the names it lacks to that statement,
+// so the file keeps one import statement a module; any other goes after the file's last
+// import statement.
 func addImports(text string, imports []string) string {
 	var missing strings.Builder
 	for _, statement := range imports {
-		if !strings.Contains(text, statement) {
-			missing.WriteString(statement)
+		if strings.Contains(text, statement) {
+			continue
 		}
+		if merged, ok := mergeImport(text, statement); ok {
+			text = merged
+
+			continue
+		}
+		missing.WriteString(statement)
 	}
 	if missing.Len() == 0 {
 		return text
@@ -748,6 +737,62 @@ func addImports(text string, imports []string) string {
 	end := all[len(all)-1][1]
 
 	return text[:end] + missing.String() + text[end:]
+}
+
+// namedImportRE reads an import statement of names, on one line or a name a line: the
+// names between its braces and the module they come from.
+var namedImportRE = regexp.MustCompile(`^import \{([^}]*)\} from '([^']+)';\n$`)
+
+// skeletonPrintWidth is the line width the skeletons' prettier configuration sets.
+const skeletonPrintWidth = 120
+
+// mergeImport adds the names statement imports to the file's import statement of the
+// same module, after the names it holds; false where the file imports no names from
+// that module.
+func mergeImport(text, statement string) (string, bool) {
+	adding := namedImportRE.FindStringSubmatch(statement)
+	if adding == nil {
+		return text, false
+	}
+	for _, at := range importStatement.FindAllStringIndex(text, -1) {
+		held := namedImportRE.FindStringSubmatch(text[at[0]:at[1]])
+		if len(held) < 3 || held[2] != adding[2] {
+			continue
+		}
+		joined := importNames(held[1])
+		for _, name := range importNames(adding[1]) {
+			if !slices.Contains(joined, name) {
+				joined = append(joined, name)
+			}
+		}
+
+		return text[:at[0]] + importOf(joined, adding[2]) + text[at[1]:], true
+	}
+
+	return text, false
+}
+
+// importNames are the names of an import statement's braces, in order.
+func importNames(list string) []string {
+	var found []string
+	for _, name := range strings.Split(list, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			found = append(found, name)
+		}
+	}
+
+	return found
+}
+
+// importOf is the import statement of the names from the module as prettier writes it
+// at the skeletons' width: on one line where it fits, else a name a line.
+func importOf(imported []string, module string) string {
+	line := fmt.Sprintf("import { %s } from '%s';", strings.Join(imported, ", "), module)
+	if len(line) <= skeletonPrintWidth {
+		return line + "\n"
+	}
+
+	return fmt.Sprintf("import {\n  %s,\n} from '%s';\n", strings.Join(imported, ",\n  "), module)
 }
 
 // The frame's configuration as an untenanted skeleton renders it: one place, so no

@@ -434,8 +434,12 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 // (namedDirectoryRules), told what each of the program's auths says of the caller's
 // password (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the
 // generated identity client of every auth whose management the program generates, in
-// declaration order. The switch is turned on by a person who has a password, where
-// their auth has passwords; a program that generates no auth's management asks nothing.
+// declaration order, and given the counters of every auth whose client answers who the
+// switch keeps out (resource.TenantDirectoryRules.CountedBy, directoryOnlyPeople), in
+// the same order, so the read of the switch says how many people it keeps out as the
+// warning counts them. The switch is turned on by a person who has a password, where
+// their auth has passwords; a program that generates no auth's management asks nothing
+// and counts nobody.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {
@@ -445,8 +449,18 @@ func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	for _, inst := range r.identity {
 		readers = append(readers, fmt.Sprintf("%s.%s().CallerPassword", r.receiverName, inst.accessor()))
 	}
+	rules += ".PasswordsBy(" + strings.Join(readers, ", ") + ")"
+	people := r.directoryOnlyPeople()
+	if len(people) == 0 {
+		return rules
+	}
+	counters := make([]string, 0, len(people))
+	for _, auth := range people {
+		client := fmt.Sprintf("%s.%s()", r.receiverName, auth.Accessor)
+		counters = append(counters, fmt.Sprintf("resource.DirectoryCounter{Seated: %[1]s.SeatedCount, Outsiders: %[1]s.DirectoryOutsiders}", client))
+	}
 
-	return rules + ".PasswordsBy(" + strings.Join(readers, ", ") + ")"
+	return rules + ".CountedBy(" + strings.Join(counters, ", ") + ")"
 }
 
 // DirectoryRules is the expression of the rules of a tenant's directory the

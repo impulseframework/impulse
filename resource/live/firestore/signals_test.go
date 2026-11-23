@@ -1243,7 +1243,10 @@ type timed struct {
 }
 
 // timedSignal makes a signal of the features kind on a goroutine of its own and returns
-// where its answer arrives, with how long the call took.
+// where its answer arrives, with how long the call took. Its asked and took count from
+// when that goroutine runs, which on a loaded runner may be some time after timedSignal
+// returns: a time counted from before the call, such as the caller's own deadline, is
+// held against when the call returned (asked plus took), not against took.
 func timedSignal(ctx context.Context, svc *livefirestore.Service) <-chan timed {
 	answer := make(chan timed, 1)
 	go func() {
@@ -1319,6 +1322,9 @@ func TestService_Signal_limit(t *testing.T) {
 
 		const own = 100 * time.Millisecond
 		svc, _ := hungService(t)
+		// The caller's time counts from when its context is made, as its deadline does,
+		// and not from the signal's asked (see timedSignal).
+		made := time.Now()
 		ctx, cancel := context.WithTimeout(t.Context(), own)
 		defer cancel()
 		got := atTheLimit(t, "the signal", timedSignal(ctx, svc))
@@ -1326,8 +1332,8 @@ func TestService_Signal_limit(t *testing.T) {
 		if !errors.Is(got.err, context.DeadlineExceeded) || errors.Is(got.err, livefirestore.ErrSignalLimit) {
 			t.Errorf("Signal() error = %v, want the caller's own deadline's and not the limit's", got.err)
 		}
-		if got.took < own-10*time.Millisecond || got.took >= live.SignalTimeout {
-			t.Errorf("Signal() took %s, want the caller's own %s, well short of the limit of %s", got.took, own, live.SignalTimeout)
+		if took := got.asked.Add(got.took).Sub(made); took < own-10*time.Millisecond || took >= live.SignalTimeout {
+			t.Errorf("Signal() returned %s after the caller made its context, want the caller's own %s, well short of the limit of %s", took, own, live.SignalTimeout)
 		}
 	})
 

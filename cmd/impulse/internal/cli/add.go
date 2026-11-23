@@ -931,10 +931,11 @@ signal and started where the configuration is built (a new file plus a field and
 start in DataConfiguration), so a tenant made on any instance is usable at once,
 without a restart; the app exposes the roster to the generated code as TenantRoster()
 and hands its Domains to the session permissions (a new file plus the Configurer, App
-and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page
-where a tenant can have a directory, All tenants and the dialog a person who signed up
-creates their own tenant through) are copied into the browser app, whose frame carries
-the tenant the URL names, the guard and the place switcher.
+and UserPermissions edits); and the reference's tenant pages (All tenants and the dialog
+a person who signed up creates their own tenant through) are copied into the browser app,
+whose frame carries the tenant the URL names, the guard and the place switcher, and whose
+routes and menu file place the library's Sign-in settings page where a tenant can have a
+directory.
 
 Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
 an organization in by inviting one person, and that person's first sign-in makes the
