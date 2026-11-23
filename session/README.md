@@ -927,14 +927,14 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   name never read each other's state, and a callback completes only the login its own
   registration began.
 - **A method named after a step the library runs**: a registration whose `Method` is
-  `email-code`, `trusted-device`, `attested-by-evidence` or `attested-by-declaration`.
-  A sign-in's first auth event carries its method's name, and the library's rules read
-  those events as its own proof, so a method of the application's own takes a name of
-  its own (`"partner"`). A registration also has one method name: one whose `Method` is
-  not the `Name` of the method it builds is refused. The identities a method verifies
-  are held to that name at every sign-in: one under another method's name, or under
-  one of those four, is refused as the server's error (`internal_error`), and nothing
-  is linked or held.
+  `email-code`, `trusted-device`, `attested-by-evidence`, `attested-by-declaration` or
+  `vouched-by-tenant`. A sign-in's first auth event carries its method's name, and the
+  library's rules read those events as its own proof, so a method of the application's
+  own takes a name of its own (`"partner"`). A registration also has one method name:
+  one whose `Method` is not the `Name` of the method it builds is refused. The
+  identities a method verifies are held to that name at every sign-in: one under
+  another method's name, or under one of those five, is refused as the server's error
+  (`internal_error`), and nothing is linked or held.
 - **A method registered once the `Auth` is in use**: after it has served a request
   through any of its handlers or middleware, or read its methods to check or hash a
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
@@ -1323,8 +1323,19 @@ own: a super administrator is always asked, except at a sign-in through a method
 directory writes the roles, where the setting asks of them what it asks of anyone, and
 so is a tenant's administrator who signs in with a password to reach a directory-only
 tenant. The library satisfies a hold one of three ways, in this order, before it holds
-the sign-in. What a connection can vouch for is the registration's, below, since it is a
-property of the sign-in method, not of the tenant the person reaches.
+the sign-in. What a connection can vouch for is the registration's, below.
+
+A tenant can vouch for its own directory. In an application whose tenants have
+directories, the reader the Auth is given with `SetDirectoryAdmission` says, for the
+directory a sign-in came through, whether its tenant has said the directory asks its
+people for a second factor of its own (`signin.DeclaredDirectory.SecondFactor`). The
+library reads it in the sign-in's own transaction, and only where the setting would
+hold the sign-in: the sign-in then goes ahead and its session records a
+`vouched-by-tenant` event, under the sign-in's connection. It is decided by the
+directory the person signed in through, before any tenant comes into it, so it holds in
+every tenant that gave the person a role. It is the tenant's word and the library cannot
+check it, so it stands in for the setting alone: a hold the policy answers stands, a
+super administrator's among them, and so does the code that confirms a person's address.
 
 1. **The connection attests.** A sign-in's connection says what it can about a second
    factor (`sessioninfo.Identity.Attestation`), and the Auth records it as the
@@ -1544,9 +1555,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   user was found. A pending identity has no session row, so it has no custom data.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
   method (with its connection and the IdP's `amr`), the attestation its connection
-  makes (`attested-by-evidence`, `attested-by-declaration`), then any
-  `link-confirmation`, `trusted-device` and MFA steps (`email-code`, or the
-  application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
+  makes (`attested-by-evidence`, `attested-by-declaration`) or its tenant's word
+  (`vouched-by-tenant`), then any `link-confirmation`, `trusted-device` and MFA steps
+  (`email-code`, or the application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
   application authenticated itself, recording its events, which name steps of its own
   (an event under `email-code`, `trusted-device` or an attestation's method, which the
   library records itself, is refused, and so is one under the name of a sign-in the

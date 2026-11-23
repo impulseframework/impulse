@@ -53,8 +53,9 @@ type Registration[Tx any] struct {
 	// identity the method verifies: the core refuses a registration whose two names
 	// differ, and a sign-in whose identity is under another. It is never the name of a
 	// step the core records itself (sessioninfo.MethodEmailCode, MethodTrustedDevice,
-	// an attestation's), which the core refuses at registration: a method of an
-	// application's own takes a name of its own, such as "partner".
+	// an attestation's, a tenant's word (sessioninfo.MethodVouchedByTenant)), which the
+	// core refuses at registration: a method of an application's own takes a name of
+	// its own, such as "partner".
 	Method sessioninfo.AuthMethod
 	// AccountRule is the application's own rule for an identity of the method that is
 	// not linked to any user yet, nil for none, which leaves every such identity to the

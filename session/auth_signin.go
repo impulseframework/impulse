@@ -1221,13 +1221,14 @@ func validateEvents(events []sessioninfo.AuthEvent) error {
 }
 
 // recordsTheLibrarysStep reports whether an event under method records a step the
-// library runs itself: the mailed code, a remembered browser standing in for it, or the
-// attestation of the sign-in's connection. The library's rules read those events as
-// its own proof: the mailed code's event stands behind the link of a first sign-in made
+// library runs itself: the mailed code, a remembered browser standing in for it, the
+// attestation of the sign-in's connection, or a tenant's word for its directory's
+// second factor. The library's rules read those events as its own proof: the mailed code's event stands behind the link of a first sign-in made
 // on a name alone, with the address or the invitation the code was mailed for, and each
 // of them answers a sign-in policy's second factor. Only the library records them.
 func recordsTheLibrarysStep(method sessioninfo.AuthMethod) bool {
-	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests()
+	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests() ||
+		method == sessioninfo.MethodVouchedByTenant
 }
 
 // reportsNoSignIn refuses an auth event an application reports under the name of a

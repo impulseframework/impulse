@@ -24,10 +24,16 @@ type Directory struct {
 // DeclaredDirectory is one tenant's declaration of a directory, as a DirectoryReader
 // answers it for a stranger's first sign-in: the tenant, and the default seat the
 // tenant gives a person its directory vouched for, the role the sign-in seats them
-// with in the tenant, or "" when the tenant admits its people by invitation only.
+// with in the tenant, or "" when the tenant admits its people by invitation only, and
+// whether the tenant says the directory asks for a second factor of its own.
 type DeclaredDirectory struct {
 	Tenant      accesstypes.Domain
 	DefaultSeat accesstypes.Role
+	// SecondFactor says the tenant has said its directory asks its people for a second
+	// factor of its own. A sign-in through the directory is then not held for the
+	// mailed code the Auth's sign-in settings ask of everyone, wherever the person
+	// works; a hold a sign-in policy answers stands.
+	SecondFactor bool
 }
 
 // DirectoryReader reads every tenant's declaration of a directory for a stranger's

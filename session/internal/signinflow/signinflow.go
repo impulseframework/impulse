@@ -2743,7 +2743,7 @@ func decideAndInsert[Tx any](
 				return policy(ctx, tx, req)
 			}
 		}
-		v, err = decideSignIn(ctx, req, user, decide, settings.SecondFactorRequired(), trusted)
+		v, err = decideSignIn(ctx, req, user, decide, tenantVouches(tx, req.Identity, rules.Directories), settings.SecondFactorRequired(), trusted)
 		if err != nil {
 			return err
 		}
@@ -2843,12 +2843,14 @@ func (v verdict) err() error {
 // non-nil, an allow where the Auth has no rule, and a nil decision denies. While the
 // Auth's sign-in settings ask everyone for a second factor (required), an allow of a
 // sign-in that carries none (carriesSecondFactor) is held for the library's mailed
-// code, as signin.RequireMFA(sessioninfo.MethodEmailCode) holds it; an allow of a
-// sign-in that already carries one stands, and a refusal and a hold are left as they
-// are, so a hold of the rule's own waits for the factors it names. A sign-in the policy
-// does not apply to goes ahead. The verdict is a refusal, an MFA wait or the go-ahead;
-// the transaction commits on each. err is the policy's error, which rolls the
-// transaction back.
+// code, as signin.RequireMFA(sessioninfo.MethodEmailCode) holds it, unless the tenant
+// whose directory the sign-in came through vouches for the directory's own second
+// factor (vouched), in which case the sign-in goes ahead and records a
+// vouched-by-tenant event; an allow of a sign-in that already carries one stands, and
+// a refusal and a hold are left as they are, so a hold of the rule's own waits for the
+// factors it names. A sign-in the policy does not apply to goes ahead. The verdict is a
+// refusal, an MFA wait or the go-ahead; the transaction commits on each. err is the
+// policy's error, which rolls the transaction back.
 //
 // A RequireMFA answer is satisfied without a wait by a second factor the sign-in
 // already carries: at an MFA completion, the step's events (completionSatisfies); at
@@ -2859,7 +2861,8 @@ func (v verdict) err() error {
 // transaction), which records a trusted-device event on the session in the step's
 // place. Otherwise the sign-in waits for the factor.
 func decideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, user *dbtype.User, decide func(ctx context.Context) (*signin.Decision, error), required, trusted bool,
+	ctx context.Context, req *sessioninfo.NewSessionRequest, user *dbtype.User, decide func(ctx context.Context) (*signin.Decision, error),
+	vouched func(ctx context.Context) (bool, error), required, trusted bool,
 ) (verdict, error) {
 	if user.Disabled {
 		return verdict{stop: Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")}, nil
@@ -2881,7 +2884,18 @@ func decideSignIn(
 		}
 	}
 	if required && decision.Outcome() == signin.AllowSignIn && !carriesSecondFactor(req.AuthEvents) {
-		decision = signin.RequireMFA(sessioninfo.MethodEmailCode)
+		vouches := false
+		if vouched != nil {
+			var err error
+			if vouches, err = vouched(ctx); err != nil {
+				return verdict{}, errors.Wrap(err, "vouched()")
+			}
+		}
+		if vouches {
+			req.AuthEvents = append(dbtype.InitialAuthEvents(req, nil), sessioninfo.AuthEvent{Method: sessioninfo.MethodVouchedByTenant, Connection: req.Identity.Connection})
+		} else {
+			decision = signin.RequireMFA(sessioninfo.MethodEmailCode)
+		}
 	}
 
 	switch decision.Outcome() {
@@ -3065,6 +3079,27 @@ func carriesSecondFactor(events []sessioninfo.AuthEvent) bool {
 	}
 
 	return slices.ContainsFunc(events[1:], func(e sessioninfo.AuthEvent) bool { return e.Method.SecondFactor() })
+}
+
+// tenantVouches returns what decideSignIn asks, in tx, whether the tenant whose
+// directory identity came through says the directory asks its people for a second
+// factor of its own (signin.DeclaredDirectory.SecondFactor), read through the
+// application's reader at the moment it is asked. It answers false, reading nothing,
+// for a sign-in with no identity, and declaredDirectory reads nothing for an identity
+// that came through no organization's directory (a password, a personal account, a
+// session the application starts) or where the Auth holds no reader.
+func tenantVouches[Tx any](tx Tx, identity *sessioninfo.Identity, read signin.DirectoryReader[Tx]) func(ctx context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		if identity == nil {
+			return false, nil
+		}
+		declared, err := declaredDirectory(ctx, tx, identity, read)
+		if err != nil {
+			return false, err
+		}
+
+		return slices.ContainsFunc(declared, func(d signin.DeclaredDirectory) bool { return d.SecondFactor }), nil
+	}
 }
 
 // admitsTrustedDevice reports whether a RequireMFA answer naming factors is satisfied
