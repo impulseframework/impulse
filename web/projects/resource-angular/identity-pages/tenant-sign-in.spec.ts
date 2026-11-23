@@ -4,6 +4,7 @@ import {
   TenantSignIn,
   tenantSignInKey,
   tenantPeopleLine,
+  tenantShareLine,
   tenantSignInPage,
   tenantSignInRoute,
   tenantStandsLine,
@@ -191,5 +192,24 @@ describe('tenantPeopleLine', () => {
     expect(tenantPeopleLine({ seated: 4, outside: 3 }, true)).toBe(
       '3 of 4 people here have never signed in through the directory and are kept out.',
     );
+  });
+});
+
+describe('tenantShareLine', () => {
+  it("says one auth's share of the people kept out, by the words the read gives its people", () => {
+    expect(tenantShareLine({ label: 'Crew', people: 'CrewSectorUsers', seated: 8, outside: 1 })).toBe(
+      'Crew: 1 of them',
+    );
+    expect(tenantShareLine({ label: 'Crew', people: 'CrewSectorUsers', seated: 8, outside: 3 })).toBe(
+      'Crew: 3 of them',
+    );
+  });
+
+  it('says each share in its own words, for several', () => {
+    const shares = [
+      { label: 'Staff', people: 'StaffTeamUsers', seated: 8, outside: 3 },
+      { label: 'Night crew', people: 'NightCrewTeamUsers', seated: 4, outside: 5 },
+    ];
+    expect(shares.map(tenantShareLine)).toEqual(['Staff: 3 of them', 'Night crew: 5 of them']);
   });
 });

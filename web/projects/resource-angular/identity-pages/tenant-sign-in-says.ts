@@ -1,4 +1,10 @@
-import { DirectoryOnlyCount, Method, Resource, TenantSignInSettings } from '@impulseframework/resource';
+import {
+  DirectoryOnlyCount,
+  DirectoryOnlyShare,
+  Method,
+  Resource,
+  TenantSignInSettings,
+} from '@impulseframework/resource';
 
 // What a tenant's Sign-in settings page reads from its route, and the two things it says
 // from the read of the tenant's sign-in settings: the one line on how the tenant
@@ -94,4 +100,13 @@ export function tenantPeopleLine(people: DirectoryOnlyCount, on: boolean): strin
     return `1 of ${seated} people here has never signed in through the directory ${one}`;
   }
   return `${outside} of ${seated} people here have never signed in through the directory ${on ? 'and are kept out.' : 'and would be kept out.'}`;
+}
+
+/**
+ * One auth's share of the people the directory-only switch keeps out, on a line of its own
+ * under the people line: the words a page calls the auth's people by and how many of them
+ * are kept out ("Crew: 3 of them").
+ */
+export function tenantShareLine(share: DirectoryOnlyShare): string {
+  return `${share.label}: ${share.outside} of them`;
 }

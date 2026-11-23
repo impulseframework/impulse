@@ -126,17 +126,7 @@
           <p class="impulse-tenant-sign-in-directory-only">
             On: only people who sign in through this {{ word }}'s directory enter it.
           </p>
-          @if (peopleLine()) {
-            <p class="impulse-tenant-sign-in-people">
-              @if (peopleLink(); as link) {
-                <a class="impulse-tenant-sign-in-people-link" [routerLink]="link" [queryParams]="keptOutFilter">{{
-                  peopleLine()
-                }}</a>
-              } @else {
-                {{ peopleLine() }}
-              }
-            </p>
-          }
+          <ng-container [ngTemplateOutlet]="peopleSaid" />
           <div class="impulse-tenant-sign-in-action">
             @if (canEndOnly()) {
               <button
@@ -160,17 +150,7 @@
               it.
             </p>
           } @else {
-            @if (peopleLine()) {
-              <p class="impulse-tenant-sign-in-people">
-                @if (peopleLink(); as link) {
-                  <a class="impulse-tenant-sign-in-people-link" [routerLink]="link" [queryParams]="keptOutFilter">{{
-                    peopleLine()
-                  }}</a>
-                } @else {
-                  {{ peopleLine() }}
-                }
-              </p>
-            }
+            <ng-container [ngTemplateOutlet]="peopleSaid" />
             @if (canMakeOnly()) {
               @for (condition of unmet(); track condition.sentence) {
                 <p class="impulse-tenant-sign-in-condition">
@@ -198,3 +178,29 @@
     }
   }
 </section>
+
+<!-- The people line and each auth's share of it, drawn alike in both states of the switch. -->
+<ng-template #peopleSaid>
+  @if (peopleLine()) {
+    <p class="impulse-tenant-sign-in-people">
+      @if (peopleLink(); as link) {
+        <a class="impulse-tenant-sign-in-people-link" [routerLink]="link" [queryParams]="keptOutFilter">{{
+          peopleLine()
+        }}</a>
+      } @else {
+        {{ peopleLine() }}
+      }
+    </p>
+    @for (share of shareLines(); track $index) {
+      <p class="impulse-tenant-sign-in-share">
+        @if (share.link; as link) {
+          <a class="impulse-tenant-sign-in-share-link" [routerLink]="link" [queryParams]="keptOutFilter">{{
+            share.text
+          }}</a>
+        } @else {
+          {{ share.text }}
+        }
+      </p>
+    }
+  }
+</ng-template>

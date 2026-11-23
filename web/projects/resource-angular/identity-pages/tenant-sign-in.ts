@@ -4,7 +4,7 @@ import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-f
 import { ListPermission, nameInLowerWords } from '@impulseframework/resource-angular/types';
 import { TenantSignIn, tenantSignInKey } from './tenant-sign-in-says';
 
-export { tenantSignInKey, tenantStandsLine, tenantPeopleLine } from './tenant-sign-in-says';
+export { tenantSignInKey, tenantStandsLine, tenantPeopleLine, tenantShareLine } from './tenant-sign-in-says';
 export type { TenantSignIn, TenantStands } from './tenant-sign-in-says';
 
 // A tenant's Sign-in settings page, built from the API's own description.

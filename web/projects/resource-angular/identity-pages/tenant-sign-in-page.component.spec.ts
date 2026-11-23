@@ -8,6 +8,7 @@ import {
   ApiDescriptor,
   ClientBase,
   createClient,
+  DirectoryOnlyCount,
   DirectorySecondFactor,
   Domain,
   Method,
@@ -1111,6 +1112,13 @@ describe('TenantSignInPageComponent', () => {
     const unmounted = 'StaffTeamGuests' as Resource;
     registerResourcePage(people, 'teams/:teamID/people');
     const listsPeople: PermissionDigest = { ...administrator, StaffTeamUsers: { List: 'granted' } };
+    /** The count with one share, the page's own people's, which is the whole of it. */
+    const own = (record: Resource, seated: number, outside: number): DirectoryOnlyCount => ({
+      seated,
+      outside,
+      shares: [{ label: 'Staff', people: record, seated, outside }],
+    });
+    const counted: TenantSignInSettings = { ...withDirectory, people: own(people, 4, 2) };
     const link = (): HTMLAnchorElement | null =>
       element().querySelector<HTMLAnchorElement>('.impulse-tenant-sign-in-people a.impulse-tenant-sign-in-people-link');
     /** The link's path and its filters, as the router reads its address. */
@@ -1123,7 +1131,7 @@ describe('TenantSignInPageComponent', () => {
     };
 
     it('with the switch off, the sentence is the link, and the words are the same', async () => {
-      await pageFor({ digest: listsPeople, state: withDirectory, directories: [workspace] });
+      await pageFor({ digest: listsPeople, state: counted, directories: [workspace] });
 
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([
         '2 of 4 people here have never signed in through the directory and would be kept out.',
@@ -1132,12 +1140,14 @@ describe('TenantSignInPageComponent', () => {
         '2 of 4 people here have never signed in through the directory and would be kept out.',
       );
       expect(opens()).toEqual({ path: `/teams/${team}/people`, filters: ['outsideDirectory:eq:true'] });
+      // The page's own people are everyone kept out: no share has a line of its own.
+      expect(element().querySelector('.impulse-tenant-sign-in-share')).toBeNull();
     });
 
     it('with the switch on, the sentence is the link, and the words are the same', async () => {
       await pageFor({
         digest: listsPeople,
-        state: { directoryOnly: true, directory, passwords: true, people: { seated: 4, outside: 1 } },
+        state: { directoryOnly: true, directory, passwords: true, people: own(people, 4, 1) },
         directories: [workspace],
       });
 
@@ -1153,7 +1163,7 @@ describe('TenantSignInPageComponent', () => {
     it('where nobody is kept out, the sentence links nowhere', async () => {
       await pageFor({
         digest: listsPeople,
-        state: { ...withDirectory, people: { seated: 4, outside: 0 } },
+        state: { ...withDirectory, people: own(people, 4, 0) },
         directories: [workspace],
       });
 
@@ -1164,7 +1174,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the application mounts no page of its people, the sentence links nowhere', async () => {
       await pageFor({
         digest: { ...administrator, StaffTeamGuests: { List: 'granted' } },
-        state: withDirectory,
+        state: { ...withDirectory, people: own(unmounted, 4, 2) },
         directories: [workspace],
         route: { ...signIn, people: unmounted },
       });
@@ -1176,7 +1186,7 @@ describe('TenantSignInPageComponent', () => {
     });
 
     it('where the reader may not list the people, the sentence links nowhere', async () => {
-      await pageFor({ digest: administrator, state: withDirectory, directories: [workspace] });
+      await pageFor({ digest: administrator, state: counted, directories: [workspace] });
 
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([
         '2 of 4 people here have never signed in through the directory and would be kept out.',
@@ -1197,7 +1207,7 @@ describe('TenantSignInPageComponent', () => {
     const sentence = '2 of 4 people here have never signed in through the directory and would be kept out.';
 
     it('where the List on the people names no field, the sentence is the link', async () => {
-      await pageFor({ digest: listing({}), state: withDirectory, directories: [workspace] });
+      await pageFor({ digest: listing({}), state: counted, directories: [workspace] });
 
       expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
     });
@@ -1205,7 +1215,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as granted, the sentence is the link', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'granted' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
@@ -1216,7 +1226,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as conditional on time, the sentence is the link', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'conditionalOnTime' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
@@ -1226,7 +1236,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names other fields and not the mark, the sentence links nowhere', async () => {
       await pageFor({
         digest: listing({ username: 'granted', cannotEnter: 'granted' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
@@ -1237,12 +1247,115 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as conditional, the sentence links nowhere', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'conditional' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([sentence]);
       expect(link()).toBeNull();
+    });
+
+    // Where another auth's people are among those kept out, the sentence opens no page: a
+    // link never says more people than it opens. Each auth's share has a line of its own,
+    // a link to that auth's people on the same four conditions.
+    const members = 'MembersTeamUsers' as Resource;
+    registerResourcePage(members, 'teams/:teamID/members');
+    const shared = (mine: number, theirs: number, record: Resource = members): TenantSignInSettings => ({
+      ...withDirectory,
+      people: {
+        seated: 12,
+        outside: mine + theirs,
+        shares: [
+          { label: 'Staff', people, seated: 8, outside: mine },
+          { label: 'Members', people: record, seated: 4, outside: theirs },
+        ],
+      },
+    });
+    const shareLink = (index: number): string =>
+      element()
+        .querySelectorAll('.impulse-tenant-sign-in-share')
+        [index]?.querySelector('a.impulse-tenant-sign-in-share-link')
+        ?.getAttribute('href') ?? '';
+    const withMembers: PermissionDigest = { ...listsPeople, MembersTeamUsers: { List: 'granted' } };
+
+    it("where another auth's people are among those kept out, the sentence is plain, and each share is a line that opens its own people", async () => {
+      await pageFor({ digest: withMembers, state: shared(3, 5), directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '8 of 12 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link()).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      const router = TestBed.inject(Router);
+      expect(shareLink(0).replace(/\?.*$/, '')).toBe(`/teams/${team}/people`);
+      expect(router.parseUrl(shareLink(0)).queryParamMap.getAll('filter')).toEqual(['outsideDirectory:eq:true']);
+      expect(shareLink(1).replace(/\?.*$/, '')).toBe(`/teams/${team}/members`);
+      expect(router.parseUrl(shareLink(1)).queryParamMap.getAll('filter')).toEqual(['outsideDirectory:eq:true']);
+    });
+
+    it("a share's line is plain where no page of its people is mounted", async () => {
+      await pageFor({
+        digest: { ...listsPeople, StaffTeamGuests: { List: 'granted' } },
+        state: shared(3, 5, unmounted),
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(0)).not.toBe('');
+      expect(shareLink(1)).toBe('');
+    });
+
+    it("a share's line is plain where the reader may not list its people", async () => {
+      await pageFor({ digest: listsPeople, state: shared(3, 5), directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(0)).not.toBe('');
+      expect(shareLink(1)).toBe('');
+    });
+
+    it("a share's line is plain where the List on its people names fields and not the mark", async () => {
+      await pageFor({
+        digest: { ...withMembers, [`${members}.username`]: { List: 'granted' } },
+        state: shared(3, 5),
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(0)).not.toBe('');
+      expect(shareLink(1)).toBe('');
+    });
+
+    it("where another auth's people are everyone kept out, the sentence is plain and only their share has a line", async () => {
+      await pageFor({ digest: withMembers, state: shared(0, 5), directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '5 of 12 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link()).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Members: 5 of them']);
+    });
+
+    it('a count that says no shares is the link, as it always was', async () => {
+      await pageFor({ digest: listsPeople, state: withDirectory, directories: [workspace] });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+      expect(element().querySelector('.impulse-tenant-sign-in-share')).toBeNull();
+    });
+
+    it('both states of the switch draw the same lines', async () => {
+      const on = shared(3, 5);
+      await pageFor({
+        digest: withMembers,
+        state: { ...on, directoryOnly: true, conditions: undefined },
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '8 of 12 people here have never signed in through the directory and are kept out.',
+      ]);
+      expect(link()).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(1).replace(/\?.*$/, '')).toBe(`/teams/${team}/members`);
     });
   });
 

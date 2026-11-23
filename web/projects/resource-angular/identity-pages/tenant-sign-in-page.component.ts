@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, resource, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
@@ -26,7 +27,13 @@ import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular
 import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
-import { TenantSignIn, tenantSignInKey, tenantPeopleLine, tenantStandsLine } from './tenant-sign-in-says';
+import {
+  TenantSignIn,
+  tenantSignInKey,
+  tenantPeopleLine,
+  tenantShareLine,
+  tenantStandsLine,
+} from './tenant-sign-in-says';
 
 /** What each of the tenant's methods on the page is, by its name in the route's list. */
 type SignInMethod = keyof TenantSignIn['methods'];
@@ -59,7 +66,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
 @Component({
   selector: 'impulse-tenant-sign-in-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatButtonModule, RouterLink],
+  imports: [MatButtonModule, NgTemplateOutlet, RouterLink],
   templateUrl: './tenant-sign-in-page.component.html',
   styleUrl: './tenant-sign-in-page.component.scss',
 })
@@ -255,20 +262,53 @@ export class TenantSignInPageComponent {
    * The address of the tenant's People page, which the people line opens, or undefined: it
    * is drawn only where the read counts somebody directory only keeps out, the application
    * mounts a page of the tenant's people, the digest grants List on them in the tenant, and
-   * the list will filter by the mark the link opens it at: the List names no field (nothing
-   * narrows the list) or names the mark as granted or conditional on time. A link is drawn
-   * only where it will open what it says.
+   * the list will filter by the mark the link opens it at (the List names no field, so
+   * nothing narrows the list, or names the mark as granted or conditional on time), and the
+   * page's own people are everyone the read counts as kept out: where another auth's people
+   * are among them, each auth's share has a line and a link of its own (shareLines). A link
+   * is drawn only where it will open what it says.
    */
   readonly peopleLink = computed((): string | undefined => {
     const people = this.signIn.people;
-    if (!people || !this.facts()?.people?.outside) {
+    if (!people || !this.facts()?.people?.outside || !this.ownShareIsAll()) {
       return undefined;
     }
-    const route = resourcePageRoute(people);
-    if (route === undefined || !this.allows(ListPermission, people) || !this.filtersByMark(people)) {
-      return undefined;
+    return this.keptOutPage(people);
+  });
+
+  /**
+   * Whether the people line may be the link to the page's own people: the read says no
+   * share of its count, or the share of the page's own people is everyone it counts as kept
+   * out.
+   */
+  readonly ownShareIsAll = computed(() => {
+    const people = this.facts()?.people;
+    if (!people?.shares || people.shares.length === 0) {
+      return true;
     }
-    return '/' + this.resolvePage(route);
+    const mine = people.shares.find((share) => share.people === this.signIn.people);
+    return mine !== undefined && mine.outside === people.outside;
+  });
+
+  /**
+   * A line for each auth's share of the people directory only keeps out, in the read's
+   * order, where the people line is not the whole of the page's own people
+   * (ownShareIsAll); none otherwise. A share with nobody kept out has no line. Each line is
+   * a link to that auth's people where the people line's link would be for them: the
+   * application mounts a page of the share's record, the digest grants List on it in the
+   * tenant, and the list will filter by the mark.
+   */
+  readonly shareLines = computed((): { text: string; link?: string }[] => {
+    const people = this.facts()?.people;
+    if (!people?.outside || this.ownShareIsAll()) {
+      return [];
+    }
+    return (people.shares ?? [])
+      .filter((share) => share.outside > 0)
+      .map((share) => {
+        const link = this.keptOutPage(share.people as Resource);
+        return link ? { text: tenantShareLine(share), link } : { text: tenantShareLine(share) };
+      });
   });
 
   /** The People page's filter the people line opens it at: the people directory only keeps out. */
@@ -446,6 +486,19 @@ export class TenantSignInPageComponent {
   /** A handle on the tenant's directories, bound to the tenant. */
   private directories(tenant: Domain): AnyResourceHandle {
     return this.client.define(this.client.descriptor.resources[this.signIn.directories], tenant);
+  }
+
+  /**
+   * The address of a page of the tenant's people that the kept-out filter opens, or
+   * undefined: the application mounts a page of the record, the digest grants List on it in
+   * the tenant, and the reader's list of it filters by the mark.
+   */
+  private keptOutPage(people: Resource): string | undefined {
+    const route = resourcePageRoute(people);
+    if (route === undefined || !this.allows(ListPermission, people) || !this.filtersByMark(people)) {
+      return undefined;
+    }
+    return '/' + this.resolvePage(route);
   }
 
   /** Whether the digest grants the permission in the tenant, asked again when a digest loads. */
