@@ -628,9 +628,11 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   (`signin.Directory`: a method and the connection its identities carry, which is the
   Entra tenant id, the name the registration gives a Google Workspace, or a WorkOS
   connection id) and whether its people come through those **only**
-  (`DirectoryOnly`). A declaration restricts that tenant's own door and nobody else's:
-  a tenant that is not directory only, and a tenant that declares nothing (a nil
-  declaration), admits everyone it seats, however they signed in.
+  (`DirectoryOnly`). A tenant's declaration restricts that tenant's door, and a
+  directory-only tenant also keeps the accounts that sign in through its directory to
+  that directory (rule 2 below); beyond those accounts, a tenant that is not directory
+  only, and a tenant that declares nothing (a nil declaration), admits everyone it
+  seats, however they signed in.
 - **A first sign-in through a directory by a person no user was created for** is
   decided before the policy, by the account rules, and in a tenanted application by
   the tenants' declarations first, through
@@ -667,7 +669,7 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   `signin.GoogleAnyAccountConnection`, and Microsoft's personal accounts,
   `signin.MicrosoftPersonalAccountsConnection`), is no tenant's directory: no
   declaration is read for it, and it falls to the registration's account rule. A
-  default seat admits and seats a stranger, so rule 5 below then finds the
+  default seat admits and seats a stranger, so rule 6 below then finds the
   membership. A stranger who
   carries an invitation into the tenant that names the default seat's role is given
   it once, by the invitation hook: the two hooks write in one transaction and neither
@@ -677,7 +679,8 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   created, unless the sign-in carries an invitation. A directory no tenant declares
   falls to what an administrator chose for the method. Without the three, a stranger
   is that choice's alone, and a method opened to sign-up gives them an account holding
-  what its row names: the default role, or nothing.
+  what its row names: the default role, or nothing. The same reader tells the tenant
+  policy which tenant's directory an account signs in through (rule 2 below).
 
 The rules, in order, once the user is known:
 
@@ -692,7 +695,21 @@ The rules, in order, once the user is known:
    roles and the synchronization, which runs once the session stands, refuses a person
    with none. The application's own directories are admitted by the registration's
    organization slot already.
-2. A tenant's own administrators keep a way into their tenant. A person who signs in
+2. A tenant that is directory only keeps the accounts that sign in through its directory
+   to that directory. An account that holds an identity link through the directory of a
+   directory-only tenant (`sessioninfo.SignInUser.Directories`, which the session
+   library reads with the reader set with `session.Auth.SetDirectoryAdmission`) is
+   refused every sign-in that tenant's declaration does not admit, whichever tenants the
+   person holds roles in, a role outside any one tenant included: a password, a personal
+   account, a session the application starts itself and a sign-in through another
+   organization's directory, each with the code rule 7 gives it. The tenant's own
+   administrators are the exception: a person who administers that tenant and signs in
+   with a password is held for the mailed code, as in rule 3; an administrator of
+   another tenant is not. Nothing is taken from the account: with the tenant's directory
+   only turned off, the password signs the person in again. An `Auth` that sets no
+   directory admission hands the policy no directories, and this rule then refuses
+   nobody.
+3. A tenant's own administrators keep a way into their tenant. A person who signs in
    with a password and administers a tenant that is directory only is not refused, and
    the sign-in is held for the library's second factor, the code it mails
    (`RequireMFA` with `sessioninfo.MethodEmailCode`), whatever else would have admitted
@@ -702,21 +719,21 @@ The rules, in order, once the user is known:
    "A tenant's administrators and a directory-only tenant" below for who that is.
    Nobody but a super administrator and a tenant's own administrators, in their own
    tenant, enters a directory-only tenant another way than through its directory.
-3. A person holding a role outside any one tenant is admitted: in the global partition,
+4. A person holding a role outside any one tenant is admitted: in the global partition,
    which is no tenant's and which no declaration governs, or in every tenant domain,
    whose tenants the policy has no list of. It is no exemption: the session then
    reaches a tenant only where the tenant's declaration admits it, as anyone's does.
-4. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
+5. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
    was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
    application needs: a stranger signs in, then creates their organization and its
    first membership, and until then the session reaches no tenant.
-5. The sign-in is admitted when one of the person's tenants admits it
+6. The sign-in is admitted when one of the person's tenants admits it
    (`signin.TenantDeclaration.Admits`). A tenant that is not directory only admits
    every sign-in: a password, a personal account, a session the application starts for
    a user it authenticated itself, and a sign-in through any organization's directory,
    the tenant's own or another's. A tenant that is directory only admits a sign-in
    through its own directory and nothing else.
-6. Otherwise every tenant of the person is directory only and none has the way they
+7. Otherwise every tenant of the person is directory only and none has the way they
    signed in as its directory: nothing would be reachable, and the sign-in is refused.
    A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
    is refused with `connection_not_in_tenant`. A sign-in with a personal account
@@ -740,10 +757,10 @@ signing in with a password) is still refused by the rule that refuses them: its
 refusal stands, a hold of its own stands (the application names its factor, as it does
 for a super administrator), and when it allows, the tenant policy's hold is the answer.
 
-**A tenant's administrators and a directory-only tenant.** The exemption of rule 2 is
-narrow on every side, and one function decides it for the sign-in and for the session's
-reach alike (`signin.TenantDeclaration.AdmitsAdministrator(method, secondFactor,
-administers)`):
+**A tenant's administrators and a directory-only tenant.** The exemption of rules 2 and 3
+is narrow on every side, and one function decides it for the sign-in and for the
+session's reach alike (`signin.TenantDeclaration.AdmitsAdministrator(method,
+secondFactor, administers)`):
 
 - **Who.** The person holds, in that tenant itself and inside its period, one of the
   roles the application names as a tenant's administrator's
@@ -812,13 +829,15 @@ set from a sign-in").
 **Asked outside a sign-in.** A page that offers a person a password needs to know whether
 one would sign them in. `signin.PasswordsDisabledByTenants(roles, declarations)` is the
 tenant policy's own answer for one person: true where the policy would refuse their sign-in
-with a password as `directory_only`, so where every tenant that seats them is directory only
-and they are neither a super administrator, nor an administrator of one of those tenants,
-nor the holder of a role outside any one tenant. It is the policy's decision, not a second
-statement of its rules. It takes the role store and a reader of a tenant's declaration that
-needs no transaction; on Spanner `resource.OutsideSignIn(db, reader)` makes one of the
-sign-in's own reader, each read in a transaction of its own. Set it on the `Auth` before
-serving:
+with a password as `directory_only`, so where a directory-only tenant's directory signs
+their account in and they do not administer that tenant (rule 2), or where every tenant
+that seats them is directory only and they are neither an administrator of one of those
+tenants nor the holder of a role outside any one tenant (rule 7); never for a super
+administrator. It is the policy's decision, not a second statement of its rules. It takes
+the role store and a reader of a tenant's declaration that needs no transaction; on Spanner
+`resource.OutsideSignIn(db, reader)` makes one of the sign-in's own reader, each read in a
+transaction of its own. The `Auth` hands the check the account's directories, read as at a
+sign-in. Set it on the `Auth` before serving:
 
 ```go
 auth.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(userManager, resource.OutsideSignIn(db, tenantDeclaration)))
@@ -827,7 +846,7 @@ auth.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(userManager, res
 The `Auth` then says so in what a person signs in with (`SignInMeans`, `passwordDisabled`),
 where the account page draws no Password line, and refuses that person a first password
 (403). Nothing is taken from the account: a password it holds stays, and signs the person
-in again once a tenant that seats them is no longer directory only. The check answers for
+in again once the tenants' sign-in settings no longer refuse it. The check answers for
 the tenant policy alone: a rule chained after it (`Then`) is not asked. Without a check, or
 on an `Auth` with no password method, nobody's password is disabled.
 
@@ -1770,7 +1789,7 @@ What is refused, and how:
 | --- | --- |
 | The account holds a password | 409: it is changed with the old one (`PasswordMethod.ChangeUserPassword`). The store writes a first password only while the row holds none, decided by the write itself (`AuthStore.SetFirstUserPassword`, `sessionstorage.ErrPasswordHeld` otherwise), so of two asked at once one lands. |
 | The `Auth` has no password method | 409: nobody signs in to the application with a password, so there is none to choose. |
-| The tenants' sign-in settings disable the person's password | 403, on both routes, before a code is mailed: every tenant that seats the person is directory only and they administer none of them, so a password would not sign them in (`SetPasswordDisabledCheck`, "The tenant policy"). |
+| The tenants' sign-in settings disable the person's password | 403, on both routes, before a code is mailed: the tenant policy would refuse the person a sign-in with a password as `directory_only` (a directory-only tenant's directory signs their account in, or every tenant that seats them is directory only), so a password would not sign them in (`SetPasswordDisabledCheck`, "The tenant policy"). |
 | The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's Google directory vouches for a person under their login name, so a person signed in through it adds their address first. |
 | The session views as someone else | 403, on both routes: an impersonated session changes nothing of the account it looks at, as on every own-account route. |
 | A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |
@@ -3326,9 +3345,9 @@ table is the wire contract:
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or the standard account rule found no sign-in name to use as the username. |
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: an administrator required a new password of the signed-in user; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
-| `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
-| `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
+| `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), and either a directory-only tenant's directory signs the account in and this is not that directory, or every tenant that seats the person is directory only and none of them has that directory as its own. |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
+| `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
