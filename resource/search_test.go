@@ -842,6 +842,175 @@ func TestQueryDecoder_Search(t *testing.T) {
 	})
 }
 
+// gatedSearchRow and gatedSearchRequest are a box whose one sensitive field is behind
+// the feature flag emails; twoSensitiveSearchRequest adds a second sensitive box field
+// that no flag hides.
+type gatedSearchRow struct {
+	ID    impulse.UUID `spanner:"Id"`
+	Name  string       `spanner:"Name"`
+	Email string       `spanner:"Email"`
+	Phone string       `spanner:"Phone"`
+}
+
+func (gatedSearchRow) Resource() accesstypes.Resource { return "gatedSearchRows" }
+
+func (gatedSearchRow) DefaultConfig() Config { return Config{} }
+
+type gatedSearchRequest struct {
+	ID    impulse.UUID `json:"id"    index:"true"                                                      perm:"-"`
+	Name  string       `json:"name"  index:"true"                                                      search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	Email string       `json:"email" feature:"emails"                       pii:"true"                 search:"token=Email_Search;index=RowsSearch;role=text;contains"`
+}
+
+type twoSensitiveSearchRequest struct {
+	ID    impulse.UUID `json:"id"    index:"true"                                                      perm:"-"`
+	Name  string       `json:"name"  index:"true"                                                      search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	Email string       `json:"email" feature:"emails"                       pii:"true"                 search:"token=Email_Search;index=RowsSearch;role=text;contains"`
+	Phone string       `json:"phone" pii:"true"                                                        search:"token=Phone_Search;index=RowsSearch;role=digits;contains"`
+}
+
+// TestQueryDecoder_searchBoxBehindFlag pins the URL rule of the search box against
+// the box as the request searches it: a sensitive box field a feature flag hides is
+// not searched, so it neither refuses a box in the URL nor is asked about; a
+// sensitive box field the request does search refuses it, flag off or on.
+func TestQueryDecoder_searchBoxBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	boxInURL := func(t *testing.T) *http.Request {
+		t.Helper()
+
+		return httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/rows?"+url.Values{"filter": {`*:search:"ann"`}}.Encode(), http.NoBody)
+	}
+	holdsEvery := func() *fakeUserPermissions {
+		return &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {
+			"gatedSearchRows", "gatedSearchRows.id", "gatedSearchRows.name", "gatedSearchRows.email", "gatedSearchRows.phone",
+		}}}
+	}
+	off := featureSetOf(map[Feature]bool{"emails": false})
+	on := featureSetOf(map[Feature]bool{"emails": true})
+
+	t.Run("flag off: the box in the URL is taken and searches without the hidden field", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := gatedSearchDecoder[gatedSearchRequest](t, off)
+		qSet, err := decoder.DecodeWithoutPermissions(boxInURL(t))
+		if err != nil {
+			t.Fatalf("DecodeWithoutPermissions() error = %v, want the box taken: the box does not search the hidden email", err)
+		}
+		if diff := cmp.Diff([]accesstypes.Field{"Name"}, qSet.searchFields); diff != "" {
+			t.Errorf("DecodeWithoutPermissions() searchFields mismatch (-want +got):\n%s", diff)
+		}
+
+		perms := holdsEvery()
+		qSet, err = decoder.Decode(boxInURL(t), perms, testScope)
+		if err != nil {
+			t.Fatalf("Decode() error = %v, want the box taken: the box does not search the hidden email", err)
+		}
+		if diff := cmp.Diff([]accesstypes.Field{"Name"}, qSet.searchFields); diff != "" {
+			t.Errorf("Decode() searchFields mismatch (-want +got):\n%s", diff)
+		}
+		if perms.checkCalls != 0 {
+			t.Errorf("Check() called %d times at decode, want none: the box searches no sensitive field (asked %v)", perms.checkCalls, perms.gotResources)
+		}
+	})
+
+	t.Run("flag on: the box in the URL is refused by both decodes", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := gatedSearchDecoder[gatedSearchRequest](t, on)
+		if _, err := decoder.DecodeWithoutPermissions(boxInURL(t)); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+			t.Errorf("DecodeWithoutPermissions() error = %v, want the body placement refusal", err)
+		}
+		if _, err := decoder.Decode(boxInURL(t), holdsEvery(), testScope); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+			t.Errorf("Decode() error = %v, want the body placement refusal", err)
+		}
+	})
+
+	for name, features := range map[string]*FeatureSet{"flag off": off, "flag on": on} {
+		t.Run(name+": a second sensitive box field no flag hides refuses the box in the URL", func(t *testing.T) {
+			t.Parallel()
+
+			decoder := gatedSearchDecoder[twoSensitiveSearchRequest](t, features)
+			if _, err := decoder.DecodeWithoutPermissions(boxInURL(t)); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+				t.Errorf("DecodeWithoutPermissions() error = %v, want the body placement refusal", err)
+			}
+			if _, err := decoder.Decode(boxInURL(t), holdsEvery(), testScope); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+				t.Errorf("Decode() error = %v, want the body placement refusal", err)
+			}
+		})
+	}
+}
+
+// gatedOwnerCrateRequest is the crates' list shape with the owner, sensitive, in the
+// box behind the feature flag owners.
+type gatedOwnerCrateRequest struct {
+	ID    string `json:"id"    index:"true"                                                              perm:"-"`
+	Yard  string `json:"-"`
+	Label string `json:"label" index:"true"                                                              search:"token=Label_Search;index=CratesSearch;role=text;contains"`
+	Owner string `json:"owner" feature:"owners"                         pii:"true"                       search:"token=Owner_Search;index=CratesSearch;role=text;contains"`
+}
+
+// TestDecodeAcrossTenants_searchBoxBehindFlag pins the same URL rule on a list across
+// tenants: the sensitive owner behind a flag that is off is not searched, so the box
+// stays in the URL and no tenant is asked about it; with the flag on, a tenant whose
+// grants let the person search the owner refuses it.
+func TestDecodeAcrossTenants_searchBoxBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	target := "/crates?" + url.Values{"filter": {`*:search:"ap"`}}.Encode()
+	for name, tt := range map[string]struct {
+		features *FeatureSet
+		wantErr  bool
+	}{
+		"flag off": {features: featureSetOf(map[Feature]bool{"owners": false})},
+		"flag on":  {features: featureSetOf(map[Feature]bool{"owners": true}), wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			decoder := acrossDecoder[acrossCrate, gatedOwnerCrateRequest](t, Paging{Order: []SortField{{Field: "Label", Direction: SortAscending}}}).WithFeatures(tt.features)
+			perms := &acrossPermissions{
+				reach:  []accesstypes.Domain{"north", "south"},
+				grants: map[accesstypes.Domain]accesstypes.Decisions{"north": everyGrant(), "south": everyGrant()},
+			}
+			qSet, err := decoder.DecodeAcrossTenants(acrossRequest(t, target), perms)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+					t.Errorf("DecodeAcrossTenants() error = %v, want the body placement refusal", err)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecodeAcrossTenants() error = %v, want the box taken: the box does not search the hidden owner", err)
+			}
+			if diff := cmp.Diff([]accesstypes.Field{"Label"}, qSet.searchFields); diff != "" {
+				t.Errorf("searchFields mismatch (-want +got):\n%s", diff)
+			}
+			if len(perms.asked) != 0 {
+				t.Errorf("tenants asked at decode = %v, want none: the box searches no sensitive field", perms.asked)
+			}
+		})
+	}
+}
+
+// gatedSearchDecoder builds a list decoder for gatedSearchRow over the request type
+// Request, reading the flags from features.
+func gatedSearchDecoder[Request any](t *testing.T, features *FeatureSet) *QueryDecoder[gatedSearchRow, Request] {
+	t.Helper()
+
+	resSet, err := NewSet[gatedSearchRow, Request](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedSearchRow, Request](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+
+	return decoder.WithPaging(Paging{Order: []SortField{{Field: "Name", Direction: SortAscending}}}).WithFeatures(features)
+}
+
 func mustFilterAst[Resource Resourcer](t *testing.T, qSet *QuerySet[Resource], dbType DBType) ExpressionNode {
 	t.Helper()
 
