@@ -1164,8 +1164,9 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"  EXISTS (\n    SELECT 1 FROM CrewSessionIdentities li\n    WHERE li.UserId = u.Id AND EXISTS (\n      SELECT 1 FROM SectorDirectories ld\n      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId = t.DomainId\n    )\n  ) AS ThroughHere,\n",
 				"  EXISTS (\n    SELECT 1 FROM CrewSessionIdentities li\n    WHERE li.UserId = u.Id AND EXISTS (\n      SELECT 1 FROM SectorDirectories ld\n      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId != t.DomainId\n    )\n  ) AS ThroughAnother,\n",
 				// A person who signs in through the tenant's directory is one of its people,
-				// whatever they hold.
-				"  UNION DISTINCT\n  SELECT dr.SectorId AS DomainId, dl.UserId AS UserId\n  FROM SectorDirectories dr\n  JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection\n) t\nJOIN CrewSessionUsers u ON u.Id = t.UserId\n",
+				// whatever they hold. The directory's accounts are an array unnested beside
+				// its row, which Spanner counts as no join.
+				"  UNION DISTINCT\n  SELECT dr.SectorId AS DomainId, du AS UserId\n  FROM SectorDirectories dr, UNNEST(ARRAY(\n    SELECT dl.UserId FROM CrewSessionIdentities dl\n    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection\n  )) AS du\n) t\nJOIN CrewSessionUsers u ON u.Id = t.UserId\n",
 				"LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id\n) p\n`",
 			},
 			// A connection is a key, for a Microsoft Entra tenant an id: no sentence is made of it.
@@ -1242,21 +1243,23 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				t.Fatalf("the rendered list does not parse: %v\n%s", err, out)
 			}
 			assertContains(t, "the people's list", string(out), tt.wantContains, tt.wantNotContains)
-			// Spanner refuses a query of more than twenty joins. The list that declares
-			// the switch, has the password method and keeps groups holds the most.
-			rendered := string(out)
-			start := strings.Index(rendered, "const crewSectorUserQuery = `")
-			if start < 0 {
-				t.Fatalf("the rendered list holds no query:\n%s", rendered)
+			// Spanner refuses a statement of more than twenty joins of tables. A page
+			// reads the list with capabilities=Execute, and for a session that does not
+			// enter some tenant the statement holds, beside the list's query, the query
+			// of the tenants a person administers (TenantsToEnter, in the users table's
+			// file): the two are counted together. The list that declares the switch, has
+			// the password method and keeps groups holds the most.
+			query := renderedConstant(t, string(out), "crewSectorUserQuery")
+			users, err := c.generateTemplateOutput("identityUsersTemplate", identityUsersTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityUsersTemplate) error = %v", err)
 			}
-			query := rendered[start:]
-			end := strings.Index(query, "\n`")
-			if end < 0 {
-				t.Fatalf("the rendered query does not end:\n%s", query)
+			entering := 0
+			if strings.Contains(string(users), "const crewSessionUserAdministeredTenantsQuery = `") {
+				entering = len(joinWord.FindAllString(renderedConstant(t, string(users), "crewSessionUserAdministeredTenantsQuery"), -1))
 			}
-			query = query[:end]
-			if joins := len(joinWord.FindAllString(query, -1)); joins > 20 {
-				t.Errorf("the people's list holds %d joins, more than the twenty Spanner allows:\n%s", joins, query)
+			if joins := len(joinWord.FindAllString(query, -1)); joins+entering > 20 {
+				t.Errorf("the people's list holds %d joins and the query of the tenants a person administers %d, more than the twenty Spanner allows a statement:\n%s", joins, entering, query)
 			}
 		})
 	}
@@ -1456,4 +1459,22 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			t.Errorf("holdIdentityTenantDirectory() error = %v", err)
 		}
 	})
+}
+
+// renderedConstant is the text of the backquoted constant name in rendered Go source, from
+// its declaration to its closing quote, failing the test where it is not found.
+func renderedConstant(t *testing.T, rendered, name string) string {
+	t.Helper()
+
+	start := strings.Index(rendered, "const "+name+" = `")
+	if start < 0 {
+		t.Fatalf("the rendered file holds no %s:\n%s", name, rendered)
+	}
+	text := rendered[start:]
+	end := strings.Index(text, "\n`")
+	if end < 0 {
+		t.Fatalf("the rendered %s does not end:\n%s", name, text)
+	}
+
+	return text[:end]
 }

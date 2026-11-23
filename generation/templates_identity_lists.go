@@ -67,11 +67,13 @@ const (
 	// fact goes on to compare with the row's (identityTenantThroughFacts). The person's
 	// identities are read by the identities table's index on the user, which stores the
 	// method and the connection, and a directory by its table's index on the two. It is
-	// written with EXISTS alone and joins no table: Spanner refuses a query of more than
-	// twenty joins, and the list of a tenant's people holds nineteen, the directory's
-	// branch of its people among them, where the record declares the directory-only
-	// switch and the auth has the password method and keeps groups
-	// (identityGroupPersonHere).
+	// written with EXISTS alone and joins no table: Spanner refuses a statement of more
+	// than twenty joins of tables, and the list of a tenant's people holds eighteen where
+	// the record declares the directory-only switch and the auth has the password method
+	// and keeps groups (identityGroupPersonHere). A page reads the list with the methods
+	// each row offers, and for a session that does not enter some tenant the statement
+	// adds the query of the tenants a person administers (TenantsToEnter), two joins
+	// more where the auth keeps groups: twenty.
 	identityTenantThroughDirectory = `EXISTS (
     SELECT 1 FROM {{ .Tables.Identities }} li
     WHERE li.UserId = u.Id AND EXISTS (
@@ -152,12 +154,16 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 	// table, the directory's tenant as the row's tenant. The tenant that manages the
 	// account so finds it, whether or not the person holds anything there. The
 	// identities are read by the table's index on the method, the connection and the
-	// subject.
+	// subject, as the array of a directory's accounts unnested beside the directory's
+	// row: Spanner counts that as no join, and a join here would bring the statement a
+	// page reads the list by past the twenty it allows (identityTenantThroughDirectory).
 	identityTenantDirectoryPeople = `{{- if and .TenantDirectory .HasIdentities }}
   UNION DISTINCT
-  SELECT dr.{{ .TenantDirectory.TenantColumn }} AS DomainId, dl.UserId AS UserId
-  FROM {{ .TenantDirectory.Table }} dr
-  JOIN {{ .Tables.Identities }} dl ON dl.Method = dr.{{ .TenantDirectory.MethodColumn }} AND dl.Connection = dr.{{ .TenantDirectory.ConnectionColumn }}
+  SELECT dr.{{ .TenantDirectory.TenantColumn }} AS DomainId, du AS UserId
+  FROM {{ .TenantDirectory.Table }} dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM {{ .Tables.Identities }} dl
+    WHERE dl.Method = dr.{{ .TenantDirectory.MethodColumn }} AND dl.Connection = dr.{{ .TenantDirectory.ConnectionColumn }}
+  )) AS du
 {{- end }}`
 
 	// identityTenantOutsideDirectory is the fact that a person of a tenant's list has no

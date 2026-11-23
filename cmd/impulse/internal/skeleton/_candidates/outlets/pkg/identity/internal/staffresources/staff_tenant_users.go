@@ -291,9 +291,11 @@ FROM (
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
-  SELECT dr.TenantId AS DomainId, dl.UserId AS UserId
-  FROM TenantDirectories dr
-  JOIN StaffSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection
+  SELECT dr.TenantId AS DomainId, du AS UserId
+  FROM TenantDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM StaffSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
 ) t
 JOIN StaffSessionUsers u ON u.Id = t.UserId
 LEFT JOIN Tenants ts ON ts.Id = t.DomainId

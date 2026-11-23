@@ -162,9 +162,11 @@ FROM (
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
-  SELECT dr.SectorId AS DomainId, dl.UserId AS UserId
-  FROM SectorDirectories dr
-  JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection
+  SELECT dr.SectorId AS DomainId, du AS UserId
+  FROM SectorDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM CrewSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
 ) t
 JOIN CrewSessionUsers u ON u.Id = t.UserId
 JOIN CrewSessionIdentities i ON i.UserId = u.Id
