@@ -3229,8 +3229,9 @@ import (
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(), {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(), {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}))
 
 		res := {{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.New{{ .Resource.Name }}QueryFromQuerySet(querySet)
 
@@ -3332,8 +3333,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		// lands during the query is not missed: one subscription over the tenants the
 		// list reads for the person, and none of a tenant it does not. A set of more
 		// tenants than one subscription holds registers nothing, and the list is
-		// served plain.
-		liveness := live.SubscribeAcrossTenants(ctx, r, {{ .ReceiverName }}.LiveService(), querySet)
+		// served plain. With it the request registers the lists the names it shows
+		// are read from.
+		liveness := live.SubscribeAcrossTenants(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet)
 
 		res := {{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.New{{ .Resource.Name }}QueryFromQuerySet(querySet)
 
@@ -3426,8 +3428,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))
 
 	{{ if .Resource.HasCompoundPrimaryKey }}
 		res := {{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.New{{ .Resource.Name }}QueryFromQuerySet(querySet){{ range $_, $field := .Resource.PrimaryKeys }}.Set{{ $field.Name }}({{ GoCamel $field.Name }}){{ end }}
@@ -6644,8 +6647,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(), {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(), {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}))
 
 		// The handler judges the rows the List function yields by the caller's
 		// grants, where one carries a condition that reads the row, and applies
@@ -6736,8 +6740,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Resource.Name }}() http.H
 		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))
 
 		{{ if .Resource.HasCompoundPrimaryKey }}
 		row, err := {{ .ComputedPackage }}.Read{{ .Resource.Name }}(ctx, {{ range $i, $field := .Resource.PrimaryKeys }}{{ if $i }}, {{ end }}{{ GoCamel $field.Name }}{{ end }}, querySet, {{ .ReceiverName }}.ResourceClient(), {{ .ReceiverName }}.ComputedClient())

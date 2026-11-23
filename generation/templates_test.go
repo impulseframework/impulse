@@ -983,7 +983,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "list",
 			template: listTemplate,
 			want: []string{
-				"live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(),",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(),",
 				"live.SetCacheControl(w, r)",
 			},
 		},
@@ -991,7 +991,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "read",
 			template: readTemplate,
 			want: []string{
-				"live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))",
 				"live.SetCacheControl(w, r)",
 			},
 		},
@@ -999,8 +999,8 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "computed",
 			template: computedResourceHandlerTemplate,
 			want: []string{
-				"live.ListSubscription(querySet.Resource(),",
-				"live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }}))",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(),",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))",
 				"live.SetCacheControl(w, r)",
 			},
 		},

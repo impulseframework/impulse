@@ -182,7 +182,7 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	// to this caller in every tenant the list may read (Decode).
 	if d.boxPII && qSet.searchBox && request.URL.Query().Get(filterParam) != "" {
 		for _, domain := range qSet.across.candidates {
-			reaches, err := qSet.inTenant(domain).searchBoxReachesPII(request.Context(), d.boxPIIFields)
+			reaches, err := qSet.inTenant(domain).searchBoxReachesPII(request.Context(), d.sensitiveBoxFields(qSet.searchFields))
 			if err != nil {
 				return nil, err
 			}
