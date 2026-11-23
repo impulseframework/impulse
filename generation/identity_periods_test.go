@@ -114,8 +114,16 @@ func Test_prepareIdentity_periods(t *testing.T) {
 			"if len(places) != 0 {\n\t\treturn errNoGroups\n\t}",
 		},
 	})
-	if client := readTreeFile(t, "membersidentity/client.go"); strings.Contains(client, "SignedIn") {
-		t.Errorf("membersidentity/client.go answers a hook that clears ended roles, and a directory writes the auth's roles:\n%s", client)
+	// Its client still answers the hook for a sign-in that stands, which announces the
+	// sign-in and finds no ended row to remove, and no hook that gives a role.
+	client := readTreeFile(t, "membersidentity/client.go")
+	if !strings.Contains(client, "func (c *Client) SignedIn(db resource.Client) session.SignedInHook {\n\treturn c.manager.SignedIn(\"Members\", db)\n}") {
+		t.Errorf("membersidentity/client.go answers no hook for a sign-in that stands, which announces the sign-in:\n%s", client)
+	}
+	for _, hook := range []string{"func (c *Client) InvitationAccepted(", "func (c *Client) DirectorySeated(", "func (c *Client) OwnTenants("} {
+		if strings.Contains(client, hook) {
+			t.Errorf("membersidentity/client.go declares %s..., and a directory writes the auth's roles", hook)
+		}
 	}
 	for _, file := range identityTreeFiles(t, "pkg/identity") {
 		if strings.HasPrefix(file, "membersidentity/") && file != "membersidentity/store.go" && strings.Contains(readTreeFile(t, file), "StartsAt") {

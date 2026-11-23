@@ -479,10 +479,11 @@ type SpannerReadWriteTransaction struct {
 // spanner.ReadWriteTransaction. A transaction an application wraps itself and commits
 // outside ExecuteFunc has no executor to delete the file objects its patches released:
 // read them off the wrapper with Released after the commit and delete them from the
-// store yourself. It also has no executor to hand the rows it wrote to the request's
-// collector, so nothing it writes reaches the live pages, and none to run what its
-// writes registered for after the commit (AfterCommit): call Committed once the commit
-// has landed. It has no executor to count the rows under a record it deletes either: a
+// store yourself. It also has no executor to hand the rows it wrote to the collector its
+// context carries, nor to run what its writes registered for after the commit
+// (AfterCommit): call Committed once the commit has landed, under a context that carries
+// the collector (CollectTouchedRows) when the rows are to reach the live pages. It has
+// no executor to count the rows under a record it deletes either: a
 // delete the database refuses over them is answered by whoever translates the commit's
 // error. And it has no client to take the application's secret keys from: a
 // transaction whose patches set a secret field is given them with WithSecretKeys.
@@ -534,11 +535,13 @@ func (c *SpannerReadWriteTransaction) recordAfterCommit(key any, f func(ctx cont
 	c.committed.record(key, f)
 }
 
-// Committed runs what the transaction's writes registered for after the commit
-// (AfterCommit), for a transaction committed outside ExecuteFunc, whose executor makes
-// the calls itself. Call it once, after the commit has landed, and never for a
+// Committed hands the rows the transaction's patches wrote to the collector ctx carries
+// (CollectTouchedRows), then runs what the transaction's writes registered for after the
+// commit (AfterCommit), for a transaction committed outside ExecuteFunc, whose executor
+// makes the calls itself. Call it once, after the commit has landed, and never for a
 // transaction that did not commit.
 func (c *SpannerReadWriteTransaction) Committed(ctx context.Context) {
+	collectTouched(ctx, c.touched())
 	c.committed.run(ctx)
 }
 

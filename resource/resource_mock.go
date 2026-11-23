@@ -101,7 +101,6 @@ func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context
 	}
 
 	releaseFiles(ctx, c.stores, txn.Released())
-	collectTouched(ctx, txn.touched())
 	txn.Committed(ctx)
 
 	return nil
@@ -170,11 +169,13 @@ func (c *MockReadWriteTransaction) recordAfterCommit(key any, f func(ctx context
 	c.committed.record(key, f)
 }
 
-// Committed runs what the transaction's writes registered for after the commit
-// (AfterCommit), as SpannerReadWriteTransaction.Committed does: for a transaction a test
-// builds itself (NewMockReadWriteTransaction); the Mock client's ExecuteFunc makes the
-// calls once the function returns nil.
+// Committed hands the rows the transaction's patches wrote to the collector ctx carries
+// (CollectTouchedRows), then runs what the transaction's writes registered for after the
+// commit (AfterCommit), as SpannerReadWriteTransaction.Committed does: for a transaction a
+// test builds itself (NewMockReadWriteTransaction); the Mock client's ExecuteFunc makes
+// the call once the function returns nil.
 func (c *MockReadWriteTransaction) Committed(ctx context.Context) {
+	collectTouched(ctx, c.touched())
 	c.committed.run(ctx)
 }
 

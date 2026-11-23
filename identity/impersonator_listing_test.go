@@ -134,6 +134,9 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.OwnTenants": {
 		none: "it builds the session library's hook of a person's own tenants and changes nothing itself: the hook's Leave hands the person to LeaveTenant, which asks, and its List reads (PersonTenants)",
 	},
+	"Manager.AnnounceWith": {
+		none: "it hands the manager the function its sign-in hooks announce what they wrote through, once, where the application is wired, and names no person",
+	},
 
 	"Manager.Tenant":                          {none: reads},
 	"Manager.TenantRoles":                     {none: reads},
