@@ -819,8 +819,9 @@ confirmed the invited address or holds none, whose sentence says to sign in agai
 invitation's link, since a session cannot wait for a code. `signUpFromInvitation({ password, username? })` asks for the invited person's account with
 a password and answers the pending step that waits for the code; the code makes the account,
 its address verified, signs the person in and accepts the invitation. A link
-that has expired or was already used resolves `refused` with 404 and the server's words; a
-taken username or address 409. An invitation that makes a tenant names the tenant to be
+that has expired or was already used resolves `refused` with 404 and the server's words; an
+address another account uses 409, and a username another account has 409 once the code is
+entered. An invitation that makes a tenant names the tenant to be
 (`tenantName`) and has no `tenantId` yet. One whose tenant is entered through its directory
 only answers `signUp: false`, and the server refuses a password sign-in, a sign-up and an
 acceptance by hand for it with `organization_account_required`: it is accepted through an

@@ -740,7 +740,7 @@ const linkRefusals: readonly number[] = [400, 404];
 const resetRefusals: readonly number[] = [...linkRefusals, 409];
 /** An acceptance by a signed-in person: 404 when the browser carries no live invitation. */
 const acceptRefusals: readonly number[] = [401, 403, 404, 409];
-/** An account created from a link: the sign-in's refusals, 400 for a password the judgment refuses or no username, 404 for a dead link, 409 for a taken name or address. */
+/** An account created from a link: the sign-in's refusals, 400 for a password the judgment refuses or no username, 404 for a dead link, 409 for a taken address, and for a taken name once the code is entered. */
 const accountRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 /** A request for a mailed link: 400 for what is not an address, 404 where the step is not offered, 429 for a mailbox sent too many. */
 const mailRefusals: readonly number[] = [400, 404, 429];
@@ -1677,10 +1677,11 @@ export class AuthClient {
    * (`sendCode`, `verifyCode`), and the code creates the account, signs the person in and
    * accepts the invitation. The account's address is the one the invitation was sent to,
    * verified by the code; its username is that address when the list says `usernameIsEmail`
-   * (none is posted), and the one given otherwise. A refusal is a taken username or address
-   * (409), a password the judgment refuses or no username (400), or no live invitation
-   * (404). A server whose list names no sign-up route for invitations offers no password
-   * method, and the call throws saying so.
+   * (none is posted), and the one given otherwise. A refusal is an address another account
+   * uses (409), a password the judgment refuses or no username (400), or no live
+   * invitation (404); a username another account has is refused once the code is entered
+   * (`verifyCode`, 409), and never before. A server whose list names no sign-up route for
+   * invitations offers no password method, and the call throws saying so.
    */
   async signUpFromInvitation(account: NewAccount): Promise<SignInResult> {
     const routes = await this.invitationRoutes();
