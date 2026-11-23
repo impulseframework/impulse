@@ -56,8 +56,9 @@ func watching(ctx context.Context, t *testing.T, s *served, subs ...live.Subscri
 // under the key: the row's key for a row's change, "" for a list's or the whole
 // resource's.
 func toldOf(fake *live.Fake, principal string, res accesstypes.Resource, key string) bool {
-	for _, change := range fake.Changes(principal) {
-		if change.Resource == res && change.Key == key {
+	changes := fake.Changes(principal)
+	for i := range changes {
+		if changes[i].Resource == res && changes[i].Key == key {
 			return true
 		}
 	}

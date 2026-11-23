@@ -449,10 +449,13 @@ type AccountTables struct {
 
 // WithAccountTables names the auth's tables a sign-in writes, which the manager announces
 // to the open pages once it is handed a function to announce through (AnnounceWith). The
-// generated client passes them. A table left empty is not announced.
-func WithAccountTables(tables AccountTables) Option {
+// generated client passes them. A table left empty is not announced, and nil names none;
+// the manager keeps a copy, so a later change to tables is not seen.
+func WithAccountTables(tables *AccountTables) Option {
 	return func(m *Manager) {
-		m.tables = tables
+		if tables != nil {
+			m.tables = *tables
+		}
 	}
 }
 
@@ -479,7 +482,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
 		administrators: nil, firstAdministrator: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil,
-		tables: AccountTables{}, announcer: atomic.Pointer[announceFunc]{}, now: time.Now,
+		tables: AccountTables{Users: "", Sessions: "", Identities: "", Memberships: "", MailLinks: ""}, announcer: atomic.Pointer[announceFunc]{}, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -573,7 +576,7 @@ func (a *signInAnnouncement) row(table accesstypes.Resource, id impulse.UUID) *s
 // unnamed is skipped.
 func (a *signInAnnouncement) whole(tables ...accesstypes.Resource) *signInAnnouncement {
 	if a == nil {
-		return a
+		return nil
 	}
 	for _, table := range tables {
 		if table != "" {

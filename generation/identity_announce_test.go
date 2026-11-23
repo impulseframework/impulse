@@ -23,7 +23,7 @@ func TestIdentityAnnounce_client(t *testing.T) {
 	announce := "func (c *Client) AnnounceThrough(svc live.Service, derivations *live.Derivations) {"
 	signedIn := "func (c *Client) SignedIn(db resource.Client) session.SignedInHook {"
 	tables := func(fields ...string) string {
-		return "opts = append(opts, identity.WithAccountTables(identity.AccountTables{ " + strings.Join(fields, " ") + " }))"
+		return "opts = append(opts, identity.WithAccountTables(&identity.AccountTables{ " + strings.Join(fields, " ") + " }))"
 	}
 	users := "Users: crewresources.CrewSessionUser{}.Resource(),"
 	sessions := "Sessions: crewresources.CrewSession{}.Resource(),"

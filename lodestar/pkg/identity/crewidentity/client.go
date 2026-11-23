@@ -78,7 +78,7 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
 	// What a sign-in writes is announced by the auth's tables as the generated types over
 	// them name them (AnnounceThrough).
-	opts = append(opts, identity.WithAccountTables(identity.AccountTables{
+	opts = append(opts, identity.WithAccountTables(&identity.AccountTables{
 		Users:       crewresources.CrewSessionUser{}.Resource(),
 		Sessions:    crewresources.CrewSession{}.Resource(),
 		Identities:  crewresources.CrewSessionIdentity{}.Resource(),

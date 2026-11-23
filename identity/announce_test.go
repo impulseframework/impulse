@@ -63,10 +63,10 @@ func key(id impulse.UUID) resource.RowChange {
 
 // announcingManager builds a manager over store that names the test's tables and has
 // been handed a recorder to announce through.
-func announcingManager(t *testing.T, store Store, roles map[accesstypes.PolicyScope][]accesstypes.Role, opts ...Option) (*Manager, *announcements) {
+func announcingManager(t *testing.T, store Store, roles map[accesstypes.PolicyScope][]accesstypes.Role) (*Manager, *announcements) {
 	t.Helper()
 
-	m, _ := newManager(t, store, roles, append([]Option{WithAccountTables(announceTables)}, opts...)...)
+	m, _ := newManager(t, store, roles, WithAccountTables(&announceTables))
 	recorder := &announcements{}
 	m.AnnounceWith(recorder.publish)
 
@@ -159,7 +159,7 @@ func TestManager_committedHooks_announce(t *testing.T) {
 			name: "an accepted invitation that makes a tenant",
 			build: func(t *testing.T) (*announcements, func(ctx context.Context) (func(ctx context.Context), error)) {
 				t.Helper()
-				m := newTenantInviter(t, freshStore(), &fakeMaker{seats: true}, &fakeMail{}, &fakeGrants{}, WithAccountTables(announceTables))
+				m := newTenantInviter(t, freshStore(), &fakeMaker{seats: true}, &fakeMail{}, &fakeGrants{}, WithAccountTables(&announceTables))
 				recorder := &announcements{}
 				m.AnnounceWith(recorder.publish)
 				hook := m.InvitationAccepted("Staff")
@@ -267,7 +267,7 @@ func TestManager_OwnTenants_Leave_announces(t *testing.T) {
 	build := func(t *testing.T, store Store) (*Manager, *announcements) {
 		t.Helper()
 		m, err := New(managedAuth, store, &fakeEngine{roles: tenantRoles}, fakeSessions{mail: &fakeMail{}},
-			WithTenantWord("sector"), WithAdministratorRoles([]accesstypes.Role{"Warden"}), WithAccountTables(announceTables))
+			WithTenantWord("sector"), WithAdministratorRoles([]accesstypes.Role{"Warden"}), WithAccountTables(&announceTables))
 		if err != nil {
 			t.Fatalf("New() error = %v", err)
 		}
@@ -316,7 +316,7 @@ func TestManager_AnnounceWith(t *testing.T) {
 	t.Run("no function handed over: the hook answers as today", func(t *testing.T) {
 		t.Parallel()
 
-		m, _ := newManager(t, groupStore(), engineRoles, WithAccountTables(announceTables))
+		m, _ := newManager(t, groupStore(), engineRoles, WithAccountTables(&announceTables))
 		if err := m.SignedIn(managedAuth, resource.NewMockClient(stubTxn{}, nil, nil))(t.Context(), signedIn); err != nil {
 			t.Errorf("the hook's error = %v, want nil", err)
 		}
@@ -325,7 +325,7 @@ func TestManager_AnnounceWith(t *testing.T) {
 	t.Run("the first function is kept", func(t *testing.T) {
 		t.Parallel()
 
-		m, _ := newManager(t, groupStore(), engineRoles, WithAccountTables(announceTables))
+		m, _ := newManager(t, groupStore(), engineRoles, WithAccountTables(&announceTables))
 		first, second := &announcements{}, &announcements{}
 		m.AnnounceWith(nil)
 		m.AnnounceWith(first.publish)
@@ -345,7 +345,7 @@ func TestManager_AnnounceWith(t *testing.T) {
 	t.Run("a table the auth did not name is left out", func(t *testing.T) {
 		t.Parallel()
 
-		m, _ := newManager(t, groupStore(), engineRoles, WithAccountTables(AccountTables{Sessions: "Sessions", Memberships: "Memberships"}))
+		m, _ := newManager(t, groupStore(), engineRoles, WithAccountTables(&AccountTables{Sessions: "Sessions", Memberships: "Memberships"}))
 		recorder := &announcements{}
 		m.AnnounceWith(recorder.publish)
 		if err := m.SignedIn(managedAuth, resource.NewMockClient(stubTxn{}, nil, nil))(t.Context(), signedIn); err != nil {
