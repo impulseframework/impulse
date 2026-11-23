@@ -42,6 +42,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
 
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -779,6 +780,22 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 	h := newTestApp(db, grants{
 		accesstypes.Delete: {"DistressCalls", "DistressRelays"},
 		accesstypes.List:   {"DistressRelays"},
+	})
+
+	t.Run("a trusted delete of a call that is not there does nothing", func(t *testing.T) {
+		missing := impulse.Must(impulse.UUIDFromString("dc000000-0000-4000-8000-0000000c0009"))
+		client := resource.NewSpannerClient(db.Client)
+		for name, patch := range map[string]*resources.DistressCallDeletePatch{
+			"plain":                    resources.NewDistressCallDeletePatch(missing),
+			"with everything under it": resources.NewDistressCallDeletePatch(missing).WithEverythingUnder(),
+		} {
+			if err := patch.Apply(ctx, client); err != nil {
+				t.Errorf("the delete %s: DistressCallDeletePatch.Apply() error = %v, want none", name, err)
+			}
+		}
+		if got := relaysStanding(t); len(got) != 7 || !stands(t, "DistressCalls", firstCall) || !stands(t, "DistressCalls", secondCall) {
+			t.Errorf("after the deletes %d of the 7 relays stand, the first call stands: %v, the second: %v; want everything", len(got), stands(t, "DistressCalls", firstCall), stands(t, "DistressCalls", secondCall))
+		}
 	})
 
 	t.Run("a call's question counts its relays by the case number and the answers under them", func(t *testing.T) {

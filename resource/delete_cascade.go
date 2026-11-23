@@ -413,11 +413,12 @@ type takenReader struct {
 }
 
 // recordRow is the record's row as the walk starts from it: its key, and any other
-// column a taken kind's rows are found by, read from the row.
-func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (map[string]any, error) {
+// column a taken kind's rows are found by, read from the row. there is false where the
+// row was read and is not stored: nothing is under a row that is not there.
+func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (row map[string]any, there bool, err error) {
 	columns := r.tree.reads(r.tree.Record, r.tree.Key)
 	if len(columns) == len(r.tree.Key) {
-		return key, nil
+		return key, true, nil
 	}
 
 	writer := &rowsUnderWriter{dbType: SpannerDBType}
@@ -427,14 +428,13 @@ func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (map[st
 	}
 	rows, err := r.txn.readColumns(ctx, rowsStatement(writer, r.tree.Record, columns, strings.Join(equal, " AND ")), columns, r.columns[r.tree.Record], 1)
 	if err != nil {
-		return nil, errors.Wrapf(err, "reading the %s", r.tree.Words.One)
+		return nil, false, errors.Wrapf(err, "reading the %s", r.tree.Words.One)
 	}
 	if len(rows) == 0 {
-		// The row is not there: its own delete answers for that.
-		return key, nil
+		return nil, false, nil
 	}
 
-	return rows[0], nil
+	return rows[0], true, nil
 }
 
 // under reads the kind's rows that one link puts under any of the rows above, and no
@@ -643,9 +643,12 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		deleted: spannerTxn.deleted.deletedRow,
 		changed: spannerTxn.deleted.changedRow,
 	}
-	recordRow, err := reader.recordRow(ctx, key)
+	recordRow, there, err := reader.recordRow(ctx, key)
 	if err != nil {
 		return false, err
+	}
+	if !there {
+		return true, nil
 	}
 	found, err := walk.find(ctx, recordRow)
 	if err != nil {
