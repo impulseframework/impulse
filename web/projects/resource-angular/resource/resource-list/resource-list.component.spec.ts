@@ -415,6 +415,71 @@ describe('ResourceListComponent', () => {
       expect(transport.requests.length).toBe(before);
       expect(fixture.componentInstance.store.sorts()).toEqual([]);
     });
+
+    describe('asks a computed resource for no configured sort by a field the digest lists as conditional', () => {
+      // The server orders a computed resource by its real values and refuses the whole
+      // list for a sort by a field the caller holds as conditional: the name here, beside
+      // the notes held outright. A table sorts over what the caller may see.
+      const digest: PermissionDigest = {
+        [clients]: { List: 'granted' },
+        [`${clients}.id`]: { List: 'granted' },
+        [`${clients}.name`]: { List: 'conditional' },
+        [`${clients}.notes`]: { List: 'granted' },
+      };
+      /** The sort of the page's first request for the clients, with the name and the notes configured. */
+      const firstSort = async (computedClients: boolean): Promise<string | null> => {
+        const config = listViewConfig({
+          elements: [],
+          primaryResource: clients,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'notes' as FieldName }],
+          sorts: [
+            { field: 'name' as FieldName, direction: 'asc' },
+            { field: 'notes' as FieldName, direction: 'desc' },
+          ],
+        });
+        transport = scriptedTransport((request: TransportRequest): TransportResponse =>
+          request.url.startsWith('/api/permission-digest')
+            ? { status: 200, body: digest }
+            : { status: 200, body: [], headers: { 'total-count': '0' } },
+        );
+        await TestBed.configureTestingModule({
+          imports: [ResourceListComponent],
+          providers: [
+            provideResourceTesting({
+              transport,
+              client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+            }),
+            {
+              provide: RESOURCE_META,
+              useValue: (resource: Resource): ResourceMeta =>
+                computedClients && resource === clients ? { ...metas[clients], computed: true } : metas[resource],
+            },
+            {
+              provide: ActivatedRoute,
+              useValue: {
+                snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+              },
+            },
+          ],
+        }).compileComponents();
+        await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+        fixture = TestBed.createComponent(ResourceListComponent);
+        fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+        fixture.componentRef.setInput('resourceConfig', config);
+        fixture.detectChanges();
+        await settle();
+        const first = transport.requests.find((request) => request.url.split('?')[0] === '/api/clients');
+        return first ? new URL(first.url, 'http://list.test').searchParams.get('sort') : null;
+      };
+
+      it('over a computed resource, the sort by the granted field alone', async () => {
+        expect(await firstSort(true)).toBe('notes:desc');
+      });
+
+      it('over a table, both sorts', async () => {
+        expect(await firstSort(false)).toBe('name:asc,notes:desc');
+      });
+    });
   });
 
   describe('draws its heading once it knows what the heading says', () => {

@@ -103,6 +103,7 @@ import {
   searchRefusedNotice,
 } from '../search-box/search-fields';
 import {
+  answeredSorts,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
@@ -1533,7 +1534,7 @@ export class ResourceListComponent implements OnInit {
       this.store.pageCapabilities.set(
         this.rowMethodNames().length > 0 || this.offeredMethodNames().length > 0 ? ['Execute'] : [],
       );
-      this.store.sorts.set(this.config().sorts || []);
+      this.store.sorts.set(answeredSorts(this.config().sorts || [], this.meta(), this.listStates()));
       this.store.pageSize.set(this.config().pageSize);
     }
 

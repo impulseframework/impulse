@@ -145,6 +145,22 @@ export function queryableMeta(
 }
 
 /**
+ * The sorts the server answers this caller: on a computed resource, the sorts less each
+ * by a field the digest lists as conditional, which the server refuses as it refuses a
+ * filter by it (queryableMeta); on a table or a view, every sort as given.
+ */
+export function answeredSorts<S extends { readonly field: string }>(
+  sorts: readonly S[],
+  meta: ResourceMeta | undefined,
+  listStates: Readonly<Record<string, PermissionDigestState>>,
+): S[] {
+  if (meta?.computed !== true) {
+    return [...sorts];
+  }
+  return sorts.filter((sort) => listStates[sort.field] !== 'conditional');
+}
+
+/**
  * Which text matches each of the table's columns answers: the generated metadata's
  * `search` for the field each column shows, keyed by column id. A column whose field
  * lists none, or whose id is not a field of the listed resource, is absent.

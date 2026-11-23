@@ -36,7 +36,7 @@ import {
 import { PermissionDigestState, pickerSort, readMode } from '@impulseframework/resource';
 import { concatFunctions, hyphenConcat } from '../../../concat-fns';
 import { PagedListRequest } from '../../../paged-list';
-import { pageLabel, queryableMeta } from '../../../resource-list/list-request';
+import { answeredSorts, pageLabel, queryableMeta } from '../../../resource-list/list-request';
 import { SearchBoxComponent } from '../../../search-box/search-box.component';
 import {
   filterReachesPII,
@@ -296,7 +296,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   });
 
   sorts = computed(() => {
-    return this.picker().sorts;
+    return answeredSorts(this.picker().sorts, this.sourceMeta(), this.sourceListStates());
   });
 
   /**
@@ -501,7 +501,9 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /**
    * The paged source's request while the picker is open for editing: the page the panel
    * shows, in the picker's sort. Nothing in view mode, where the chosen row is read by
-   * key, and nothing of a source closed to the person.
+   * key, and nothing of a source closed to the person. Over a computed source whose
+   * display column the digest lists as conditional the picker pages by the key, which
+   * takes no grant.
    */
   private pageRequest = computed((): PagedListRequest | undefined => {
     const descriptor = this.descriptor();
@@ -514,14 +516,20 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     ) {
       return undefined;
     }
-    const config = this.picker();
-    const configured = config.sorts.map((sort) => ({ field: sort.field as string, direction: sort.direction }));
+    const configured = this.sorts().map((sort) => ({ field: sort.field as string, direction: sort.direction }));
+    const display = this.displayColumn();
+    const sortColumn =
+      this.sourceMeta()?.computed === true &&
+      display !== undefined &&
+      this.sourceListStates()[display] === 'conditional'
+        ? this.keyField()
+        : display;
     return {
       route: this.resourceMeta(this.resource() as Resource).route,
-      filter: narrowedFilter(this.optionFilter(), this.narrowing(), this.displayColumn(), this.query()),
+      filter: narrowedFilter(this.optionFilter(), this.narrowing(), display, this.query()),
       sensitive: this.sensitive(),
       columns: this.columns(),
-      sorts: pickerSort<Record<string, unknown>>(descriptor, configured, this.displayColumn()),
+      sorts: pickerSort<Record<string, unknown>>(descriptor, configured, sortColumn),
     };
   });
 

@@ -5,6 +5,7 @@ import {
   ClientBase,
   createClient,
   PermissionDigest,
+  PermissionDigestState,
   Resource,
   TransportRequest,
   TransportResponse,
@@ -18,6 +19,7 @@ import {
   field,
   FieldMeta,
   FieldName,
+  FieldSort,
   RESOURCE_META,
   ResourceMeta,
   RPCFieldMeta,
@@ -1312,11 +1314,14 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
 // real values and refuses both by a field the digest lists as conditional (seen on some
 // rows only), so the picker asks neither by such a field, and the request carries the
 // configured filter alone. A field listed as conditionalOnTime narrows as one granted:
-// the server settles that grant from the time of the request.
+// the server settles that grant from the time of the request. The picker sorts by the
+// same rule: no configured sort by a conditional field, and over a source with no
+// declared order whose display column is conditional, the key.
 describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
   const missions = 'Missions' as Resource;
   const manifests = 'Manifests' as Resource;
   const boards = 'Boards' as Resource;
+  const ledgers = 'Ledgers' as Resource;
   const paged = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
     resource,
     property: route,
@@ -1333,7 +1338,12 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
     userDomainsRoute: 'user-domains',
     features: { route: 'features' },
     methods: {},
-    resources: { [manifests]: paged(manifests, 'manifests'), [boards]: paged(boards, 'boards') },
+    resources: {
+      [manifests]: paged(manifests, 'manifests'),
+      [boards]: paged(boards, 'boards'),
+      // No declared order: the picker states the sort of each page.
+      [ledgers]: { ...paged(ledgers, 'ledgers'), order: undefined },
+    },
   };
   const id: FieldMeta = { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true };
   const metas: Record<string, ResourceMeta> = {
@@ -1354,6 +1364,16 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
         { fieldName: 'shipName', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
       ],
     },
+    // No search fields: shown by its title and narrowed by a prefix on it; also sorted by its sorties.
+    [ledgers]: {
+      route: 'ledgers',
+      computed: true,
+      fields: [
+        id,
+        { fieldName: 'title', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
+        { fieldName: 'sorties', displayType: 'number', required: true, isIndex: false },
+      ],
+    },
   };
   const configured = 'sorties:gte:1';
 
@@ -1368,16 +1388,20 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
     fixture.detectChanges();
   };
 
-  /** Draws the picker over the source as the digest lists its display field, then types a word. */
+  /**
+   * Draws the picker over the source, shown by its display field and ordered by the
+   * configured sorts, as the digest lists each field in states, then types a word.
+   */
   const typeOver = async (
     source: Resource,
     display: string,
-    state: 'conditional' | 'conditionalOnTime',
+    states: Record<string, PermissionDigestState>,
+    sorts: FieldSort[] = [],
   ): Promise<EnumeratedFieldComponent> => {
-    const digest: PermissionDigest = {
-      [source]: { List: 'granted', Read: 'granted' },
-      [`${source}.${display}`]: { List: state, Read: state },
-    };
+    const digest: PermissionDigest = { [source]: { List: 'granted', Read: 'granted' } };
+    for (const [name, state] of Object.entries(states)) {
+      digest[`${source}.${name}`] = { List: state, Read: state };
+    }
     transport = scriptedTransport((request: TransportRequest): TransportResponse =>
       request.url.startsWith('/api/permission-digest')
         ? { status: 200, body: digest }
@@ -1414,6 +1438,7 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
           viewDisplay: [display as FieldName],
           searchable: true,
           filter: () => configured,
+          sorts,
         }),
       }),
     );
@@ -1433,8 +1458,14 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
       .filter((request) => request.url.split('?')[0] === `/api/${source}`)
       .map((request) => new URL(request.url, 'http://picker.test').searchParams.get('filter'));
 
+  /** The sort of each request for the source's rows, as the server reads it. */
+  const sortsOf = (source: string): (string | null)[] =>
+    transport.requests
+      .filter((request) => request.url.split('?')[0] === `/api/${source}`)
+      .map((request) => new URL(request.url, 'http://picker.test').searchParams.get('sort'));
+
   it('a search field listed as conditional: no box, and the request carries the configured filter alone', async () => {
-    const component = await typeOver(manifests, 'title', 'conditional');
+    const component = await typeOver(manifests, 'title', { title: 'conditional' });
 
     expect(component.sourceSearchFields()).toEqual([]);
     expect(component.narrowing()).toBeUndefined();
@@ -1443,14 +1474,14 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
   });
 
   it('a search field listed as conditionalOnTime: the request carries the box beside the configured filter', async () => {
-    const component = await typeOver(manifests, 'title', 'conditionalOnTime');
+    const component = await typeOver(manifests, 'title', { title: 'conditionalOnTime' });
 
     expect(component.narrowing()).toBe('box');
     expect(filters('manifests').at(-1)).toBe(`(${configured}),*:search:"lan"`);
   });
 
   it('a display field that answers startswith listed as conditional: no startswith clause', async () => {
-    const component = await typeOver(boards, 'shipName', 'conditional');
+    const component = await typeOver(boards, 'shipName', { shipName: 'conditional' });
 
     expect(component.narrowing()).toBeUndefined();
     expect(filters('boards').length).toBeGreaterThan(0);
@@ -1458,9 +1489,33 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
   });
 
   it('the same display field listed as conditionalOnTime: the prefix match', async () => {
-    const component = await typeOver(boards, 'shipName', 'conditionalOnTime');
+    const component = await typeOver(boards, 'shipName', { shipName: 'conditionalOnTime' });
 
     expect(component.narrowing()).toBe('prefix');
     expect(filters('boards').at(-1)).toBe(`(${configured}),shipName:startswith:lan`);
+  });
+
+  it('a source with no declared order whose display column is listed as conditional: the picker pages by the key', async () => {
+    await typeOver(ledgers, 'title', { title: 'conditional', sorties: 'granted' });
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['id:asc']));
+  });
+
+  it('the same display column listed as conditionalOnTime: the picker pages by the display column', async () => {
+    await typeOver(ledgers, 'title', { title: 'conditionalOnTime', sorties: 'granted' });
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
+  });
+
+  it('a configured sort by a field listed as conditional is not sent, and one by a granted field is', async () => {
+    await typeOver(ledgers, 'title', { title: 'granted', sorties: 'conditional' }, [
+      { field: 'sorties' as FieldName, direction: 'desc' },
+      { field: 'title' as FieldName, direction: 'desc' },
+    ]);
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:desc']));
   });
 });

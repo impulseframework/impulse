@@ -2,6 +2,7 @@ import { ApiError, FieldMeta, PermissionDigestState, Resource, ResourceMeta } fr
 import { PageTurn } from '@impulseframework/resource-angular/grid';
 import { ColumnConfig } from '@impulseframework/resource-angular/types';
 import {
+  answeredSorts,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
@@ -93,22 +94,24 @@ describe('unorderedFields', () => {
   }
 });
 
+// A computed resource, and the same fields over a table: what queryableMeta and
+// answeredSorts read the digest's List states against.
+const passes: ResourceMeta = {
+  route: 'hangar-passes',
+  computed: true,
+  createDisabled: true,
+  fields: [
+    field('id', { primaryKey: { ordinalPosition: 0 } }),
+    field('holder', { filterable: 'always', search: ['contains', 'startswith'] }),
+    field('budget', { displayType: 'number', filterable: 'always' }),
+    field('bay', { filterable: 'always' }),
+  ],
+  searchFields: ['holder'],
+};
+const table: ResourceMeta = { ...passes };
+delete table.computed;
+
 describe('queryableMeta', () => {
-  const passes: ResourceMeta = {
-    route: 'hangar-passes',
-    computed: true,
-    createDisabled: true,
-    fields: [
-      field('id', { primaryKey: { ordinalPosition: 0 } }),
-      field('holder', { filterable: 'always', search: ['contains', 'startswith'] }),
-      field('budget', { displayType: 'number', filterable: 'always' }),
-      field('bay', { filterable: 'always' }),
-    ],
-    searchFields: ['holder'],
-  };
-  // The same fields over a table: no `computed`.
-  const table: ResourceMeta = { ...passes };
-  delete table.computed;
   const granted: Record<string, PermissionDigestState> = { holder: 'granted', budget: 'granted', bay: 'granted' };
   const underCondition: Record<string, PermissionDigestState> = {
     holder: 'conditional',
@@ -158,6 +161,44 @@ describe('queryableMeta', () => {
     expect(narrowed).not.toBe(passes);
     expect(narrowed?.fields[1]).toEqual(field('holder', { sortable: false }));
     expect(narrowed?.fields[3]).toBe(passes.fields[3]);
+  });
+});
+
+describe('answeredSorts', () => {
+  // The holder conditional, the budget granted, the bay conditionalOnTime; the digest
+  // lists neither the issue date nor the key, which takes no grant.
+  const states: Record<string, PermissionDigestState> = {
+    holder: 'conditional',
+    budget: 'granted',
+    bay: 'conditionalOnTime',
+  };
+  const sorts = [
+    { field: 'holder', direction: 'asc' as const },
+    { field: 'budget', direction: 'desc' as const },
+    { field: 'bay', direction: 'asc' as const },
+    { field: 'issuedOn', direction: 'desc' as const },
+    { field: 'id', direction: 'asc' as const },
+  ];
+
+  it('a computed resource drops a sort by a field listed as conditional and keeps the rest in their order', () => {
+    expect(answeredSorts(sorts, passes, states)).toEqual([sorts[1], sorts[2], sorts[3], sorts[4]]);
+  });
+
+  it('a table keeps every sort', () => {
+    expect(answeredSorts(sorts, table, states)).toEqual(sorts);
+  });
+
+  it('with no metadata, every sort is kept', () => {
+    expect(answeredSorts(sorts, undefined, states)).toEqual(sorts);
+  });
+
+  it('the sorts handed in are not changed, and a new array comes back', () => {
+    const handed = [...sorts];
+    const got = answeredSorts(handed, passes, states);
+
+    expect(handed).toEqual(sorts);
+    expect(got).not.toBe(handed);
+    expect(answeredSorts(handed, table, states)).not.toBe(handed);
   });
 });
 
