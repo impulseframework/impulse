@@ -495,27 +495,45 @@ func heldWhere(kind, domain string) string {
 // opens no transaction. A person whose every assignment has ended is refused at the
 // sign-in as one who holds nothing, so nothing is cleared for them: the rows do nothing
 // and go with the account.
+//
+// Where the manager was handed a function to announce through (AnnounceWith), the hook
+// then announces the sign-in on every return, a failed removal's included: the session
+// and the account by their ids, the identities and the memberships whole.
 func (m *Manager) SignedIn(auth string, client resource.Client) session.SignedInHook {
 	return func(ctx context.Context, signedIn *session.SignedIn) error {
-		memberships, places, err := m.store.EndedAssignments(ctx, client, signedIn.UserID)
-		if err != nil {
-			return errors.Wrapf(err, "%s: reading the assignments of %q that have ended", auth, signedIn.Username)
-		}
-		if len(memberships)+len(places) == 0 {
-			return nil
-		}
-		var cleared int
-		err = client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			var err error
-			cleared, err = m.ClearEnded(ctx, txn, signedIn.UserID)
+		ctx, announcement := m.announcing(ctx)
+		err := m.clearEndedAtSignIn(ctx, auth, client, signedIn)
+		announcement.
+			row(m.tables.Sessions, signedIn.SessionID).
+			row(m.tables.Users, signedIn.UserID).
+			whole(m.tables.Identities, m.tables.Memberships).
+			announce(ctx)
 
-			return err
-		})
-		if err != nil {
-			return errors.Wrapf(err, "%s: removing the assignments of %q that have ended", auth, signedIn.Username)
-		}
-		logger.FromCtx(ctx).Infof("%s: %d assignment(s) of %q had ended and went at their sign-in", auth, cleared, signedIn.Username)
+		return err
+	}
+}
 
+// clearEndedAtSignIn removes the signed-in person's assignments whose period has ended,
+// in a transaction of its own on client, which it opens only when the read finds one.
+func (m *Manager) clearEndedAtSignIn(ctx context.Context, auth string, client resource.Client, signedIn *session.SignedIn) error {
+	memberships, places, err := m.store.EndedAssignments(ctx, client, signedIn.UserID)
+	if err != nil {
+		return errors.Wrapf(err, "%s: reading the assignments of %q that have ended", auth, signedIn.Username)
+	}
+	if len(memberships)+len(places) == 0 {
 		return nil
 	}
+	var cleared int
+	err = client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		var err error
+		cleared, err = m.ClearEnded(ctx, txn, signedIn.UserID)
+
+		return err
+	})
+	if err != nil {
+		return errors.Wrapf(err, "%s: removing the assignments of %q that have ended", auth, signedIn.Username)
+	}
+	logger.FromCtx(ctx).Infof("%s: %d assignment(s) of %q had ended and went at their sign-in", auth, cleared, signedIn.Username)
+
+	return nil
 }

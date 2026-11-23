@@ -31,6 +31,7 @@ package identity
 import (
 	"context"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -342,6 +343,12 @@ type Manager struct {
 	// tenants makes a tenant from an accepted invitation (WithTenantMaker); nil where
 	// the auth's people create none that way.
 	tenants TenantMaker
+	// tables are the names of the auth's tables a sign-in writes, as the live pages know
+	// them (WithAccountTables); a table left unnamed is not announced.
+	tables AccountTables
+	// announcer is the function that publishes what a sign-in wrote to the open pages
+	// (AnnounceWith), nil until one is handed over.
+	announcer atomic.Pointer[announceFunc]
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -433,6 +440,22 @@ func WithTenantWord(word string) Option {
 	}
 }
 
+// AccountTables names the tables of an auth whose rows a sign-in writes, as the live
+// pages know them (the Resource of the generated type over each): its accounts, its
+// sessions, its sign-in identities, its role memberships and its mail links.
+type AccountTables struct {
+	Users, Sessions, Identities, Memberships, MailLinks accesstypes.Resource
+}
+
+// WithAccountTables names the auth's tables a sign-in writes, which the manager announces
+// to the open pages once it is handed a function to announce through (AnnounceWith). The
+// generated client passes them. A table left empty is not announced.
+func WithAccountTables(tables AccountTables) Option {
+	return func(m *Manager) {
+		m.tables = tables
+	}
+}
+
 // New returns the manager of one auth. auth is the auth's name, the one its outlets'
 // generated routes bind to a request (the auth package's Name): the rules that keep a
 // person from acting on themselves take a caller for a person of this auth only when the
@@ -455,7 +478,8 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	}
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
-		administrators: nil, firstAdministrator: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
+		administrators: nil, firstAdministrator: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil,
+		tables: AccountTables{}, announcer: atomic.Pointer[announceFunc]{}, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -494,4 +518,76 @@ func (m *Manager) requireSuperAdministratorMethods() error {
 	}
 
 	return nil
+}
+
+// announceFunc publishes a collector's rows and tables to the open pages.
+type announceFunc = func(ctx context.Context, touched *resource.TouchedRows)
+
+// AnnounceWith hands the manager the function that publishes what a sign-in wrote to the
+// open pages. The session library writes a sign-in in its own store, where no generated
+// handler publishes it, so the manager announces it from the hooks it answers: the
+// session and the account by their ids, the identities and the memberships as whole
+// tables, since a hook is not told which of their rows a sign-in wrote.
+//
+// The first function handed over is kept; nil and a later one are ignored, and a sign-in
+// on another goroutine reads it safely. Until one is handed over nothing is announced.
+func (m *Manager) AnnounceWith(publish func(ctx context.Context, touched *resource.TouchedRows)) {
+	if publish == nil {
+		return
+	}
+	m.announcer.CompareAndSwap(nil, &publish)
+}
+
+// signInAnnouncement is what one moment of a sign-in announces: the rows its own
+// transaction handed the collector, and the rows and tables the moment names.
+type signInAnnouncement struct {
+	publish announceFunc
+	touched *resource.TouchedRows
+}
+
+// announcing starts a moment's announcement: ctx carrying a fresh collector, which the
+// moment's own transaction hands its rows to, and the announcement. Where no function was
+// handed over (AnnounceWith) ctx is answered as it is, with a nil announcement that
+// records and publishes nothing.
+func (m *Manager) announcing(ctx context.Context) (context.Context, *signInAnnouncement) {
+	publish := m.announcer.Load()
+	if publish == nil {
+		return ctx, nil
+	}
+	ctx, touched := resource.CollectTouchedRows(ctx)
+
+	return ctx, &signInAnnouncement{publish: *publish, touched: touched}
+}
+
+// row names one row of table by its id; a table the auth left unnamed is skipped.
+func (a *signInAnnouncement) row(table accesstypes.Resource, id impulse.UUID) *signInAnnouncement {
+	if a == nil || table == "" {
+		return a
+	}
+	a.touched.Touch(table, resource.RowChange{Key: resource.RowKey(id), Deleted: false})
+
+	return a
+}
+
+// whole names tables changed in rows the moment cannot name; a table the auth left
+// unnamed is skipped.
+func (a *signInAnnouncement) whole(tables ...accesstypes.Resource) *signInAnnouncement {
+	if a == nil {
+		return a
+	}
+	for _, table := range tables {
+		if table != "" {
+			a.touched.TouchTable(table)
+		}
+	}
+
+	return a
+}
+
+// announce publishes what the moment collected.
+func (a *signInAnnouncement) announce(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	a.publish(ctx, a.touched)
 }

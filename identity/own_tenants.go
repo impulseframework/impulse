@@ -243,6 +243,7 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 			return tenants, nil
 		},
 		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain, deletesAccount bool) (bool, error) {
+			ctx, announcement := m.announcing(ctx)
 			var deleted bool
 			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				var err error
@@ -253,6 +254,7 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 			if err != nil {
 				return false, errors.Wrapf(err, "%s: %s leaving the %s %q", auth, User(userID), m.tenantWord, domain)
 			}
+			announcement.announce(ctx)
 
 			return deleted, nil
 		},
