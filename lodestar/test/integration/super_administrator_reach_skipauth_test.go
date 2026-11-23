@@ -119,7 +119,7 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	}
 	toCadet := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "cadet"))
 	status, body := acting.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toCadet))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "Only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), "Only a super administrator gives the Super administrator role, and you are not one.") {
 		t.Errorf("the marshal, acting as the Headquarters role, giving the cadet the role: status %d, want 403 naming the rule: %s", status, body)
 	}
 	toMarshal := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "marshal"))

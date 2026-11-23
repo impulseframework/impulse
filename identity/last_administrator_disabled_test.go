@@ -24,8 +24,8 @@ func TestManager_lastAdministrator_accountsThatSignIn(t *testing.T) {
 	t.Parallel()
 
 	const (
-		removing = "you are the last administrator of this tenant: give another person the role before you remove your own"
-		leaving  = "you are the last administrator of this tenant: give another person the role before you leave the group that gives you yours"
+		removing = "You are the last administrator of this tenant. Give another person the role before you remove your own."
+		leaving  = "You are the last administrator of this tenant. Give another person the role before you leave the group that gives you yours."
 	)
 	own := access.NewMembershipKey(alphaScope, dana, "Reader")
 	others := access.NewMembershipKey(alphaScope, erin, "Reader")

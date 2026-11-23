@@ -157,7 +157,7 @@ func (m *Manager) couldGiveIn(
 		if !scope.IsGlobal() {
 			return false, nil
 		}
-		err := m.requireSuperAdministrator(ctx, txn, "gives the Super Administrator role")
+		err := m.requireSuperAdministrator(ctx, txn, "gives the Super administrator role")
 		switch {
 		case httpio.HasForbidden(err):
 			return false, nil

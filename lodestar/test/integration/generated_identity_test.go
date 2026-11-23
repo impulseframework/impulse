@@ -613,7 +613,7 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	}
 	governor := account(t, "governor")
 	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", superAdministrator(governor))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "You are the last super administrator who can sign in") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), "You are the last super administrator who can sign in. Give another person the Super administrator role before you remove your own.") {
 		t.Errorf("the governor giving up the last Super Administrator role: status %d, want 403 naming the last super administrator: %s", status, body)
 	}
 	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("SuperAdministrator", governor), "UserId"); got != string(governor) {
@@ -650,7 +650,7 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(hanaUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this sector: give another person the role before you remove your own") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), "You are the last administrator of this sector. Give another person the role before you remove your own.") {
 		t.Errorf("hana giving up the sector's last marshal role while the governor is marshal of every sector: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", heldKey, "UserId"); got != string(hanaUser) {

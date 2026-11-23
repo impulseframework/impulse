@@ -35,7 +35,7 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	s := newServed(ctx, t)
 	admin := signedIn(ctx, t, s, adminUser)
 	adminID := staffUserID(ctx, t, admin, adminUser)
-	const lastSuperAdministrator = "You are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own"
+	const lastSuperAdministrator = "You are the last super administrator who can sign in. Give another person the Super administrator role before you remove your own."
 
 	// The last holder of the Super Administrator role is refused, in the rule's words.
 	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "SuperAdministrator", false))
@@ -84,7 +84,7 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
 	founderID := staffUserID(ctx, t, admin, "founder")
 	westRole := "/api/tenants/" + west + "/remove-staff-tenant-role"
-	const lastAdministrator = "you are the last administrator of this tenant: give another person the role before you remove your own"
+	const lastAdministrator = "You are the last administrator of this tenant. Give another person the role before you remove your own."
 	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
 	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
 		t.Fatalf("the founder giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
@@ -135,7 +135,7 @@ func TestLastOwner_theLastAdministratorsOwnPeriod(t *testing.T) {
 	adminID := staffUserID(ctx, t, admin, adminUser)
 	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
 	founderID := staffUserID(ctx, t, admin, "founder")
-	const lastAdministrator = "you are the last administrator of this tenant: give another person the role before you remove your own"
+	const lastAdministrator = "You are the last administrator of this tenant. Give another person the role before you remove your own."
 
 	// The last administrator gives their own role a start a year ahead, which takes it
 	// away today, and then an end an hour ahead, which takes it away then.
@@ -208,7 +208,7 @@ func TestLastOwner_aDisabledAdministratorDoesNotCount(t *testing.T) {
 	quay, founder := makeTenant(ctx, t, s, admin, "Quay", "quayfounder")
 	founderID := staffUserID(ctx, t, admin, "quayfounder")
 	secondID := staffAccount(ctx, t, s, "quaysecond", "The second of Quay")
-	const lastAdministrator = "you are the last administrator of this tenant: give another person the role before you remove your own"
+	const lastAdministrator = "You are the last administrator of this tenant. Give another person the role before you remove your own."
 
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+secondID+`","role":"TenantAdministrator","domain":"`+quay+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving the second person the role in Quay: status %d: %s", status, body)
