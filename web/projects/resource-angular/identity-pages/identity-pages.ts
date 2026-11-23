@@ -322,9 +322,12 @@ class SideBuilder {
             : []),
           ...this.columns(users, [
             ['lastSignInAt', 'Last sign-in'],
-            // Only a tenant's list of its people carries it, and only where the tenant
-            // record has a directory-only switch: the server's sentence for a person the
-            // switch keeps out, empty for everyone else.
+            // Only a tenant's list of its people carries these, and only where the tenant
+            // record has a directory-only switch. The first is a mark on each person the
+            // switch keeps out while it is on and would keep out while it is off, which the
+            // list filters by and the Sign-in settings page links to; the second is the
+            // server's sentence for a person the switch keeps out, empty for everyone else.
+            ['outsideDirectory', 'Kept out by directory only'],
             ['cannotEnter', 'Cannot enter'],
           ]),
           // Read with each row and not drawn: what the State column says besides Disabled.
