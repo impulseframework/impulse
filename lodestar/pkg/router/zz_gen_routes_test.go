@@ -3258,6 +3258,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters: map[string]string{},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/vouch-for-sector-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "VouchForSectorDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-sector-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "StopVouchingForSectorDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
 			url: "/console/api/resources", method: http.MethodPatch,
 			handlerFunc: "PatchResources",
 		},
@@ -3740,6 +3750,14 @@ func (s *generatedHandlersStub) OpenSectorToDirectory() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MakeSectorInviteOnly() http.HandlerFunc {
 	return s.record("MakeSectorInviteOnly")
+}
+
+func (s *generatedHandlersStub) VouchForSectorDirectorySecondFactor() http.HandlerFunc {
+	return s.record("VouchForSectorDirectorySecondFactor")
+}
+
+func (s *generatedHandlersStub) StopVouchingForSectorDirectorySecondFactor() http.HandlerFunc {
+	return s.record("StopVouchingForSectorDirectorySecondFactor")
 }
 
 func (s *generatedHandlersStub) DisableCrewSectorUser() http.HandlerFunc {

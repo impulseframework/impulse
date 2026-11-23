@@ -731,10 +731,10 @@ func TestAuthoredApplication(t *testing.T) {
 			words []string
 		}{
 			{under: "schema/", words: []string{"TenantDirector", "DirectoryOnly"}},
-			{under: "pkg/resources/", words: []string{"TenantDirector", "DirectoryOnly", "@tenantDirectory", "@directoryOnly"}},
+			{under: "pkg/resources/", words: []string{"TenantDirector", "DirectoryOnly", "@tenantDirectory", "@directoryOnly", "@directorySecondFactor"}},
 			{under: "pkg/auth/", words: []string{"TenantDirectories", "SetDirectoryAdmission", "DirectoryReader"}},
 			{under: "pkg/config/", words: []string{"TenantDirectories", "DirectoryReader"}},
-			{under: "pkg/router/", words: []string{"TenantDirector", "tenant-director", "DirectoryOnly", "directory-only", "to-directory"}},
+			{under: "pkg/router/", words: []string{"TenantDirector", "tenant-director", "DirectoryOnly", "directory-only", "to-directory", "vouch-for"}},
 			{under: "web/", words: []string{"TenantDirector", "tenantDirector", "tenant-director", "directoryOnly", "DirectoryOnly", "tenantSignInPage", "tenantSignInRoute", "sign-in.routes"}},
 		}
 		err = fs.WalkDir(tree.FS(), ".", func(p string, d fs.DirEntry, err error) error {

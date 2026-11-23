@@ -697,6 +697,12 @@
             },
             {
               "resource": "MakeTenantInviteOnly"
+            },
+            {
+              "resource": "VouchForTenantDirectorySecondFactor"
+            },
+            {
+              "resource": "StopVouchingForTenantDirectorySecondFactor"
             }
           ],
           "List": [

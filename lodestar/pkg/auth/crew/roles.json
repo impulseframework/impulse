@@ -2412,6 +2412,12 @@
             },
             {
               "resource": "MakeSectorInviteOnly"
+            },
+            {
+              "resource": "VouchForSectorDirectorySecondFactor"
+            },
+            {
+              "resource": "StopVouchingForSectorDirectorySecondFactor"
             }
           ]
         }

@@ -130,6 +130,8 @@ export const Methods = {
   MakeTenantInviteOnly: 'MakeTenantInviteOnly' as Method,
   OpenTenantToDirectory: 'OpenTenantToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
+  StopVouchingForTenantDirectorySecondFactor: 'StopVouchingForTenantDirectorySecondFactor' as Method,
+  VouchForTenantDirectorySecondFactor: 'VouchForTenantDirectorySecondFactor' as Method,
 };
 
 export namespace Announcements {

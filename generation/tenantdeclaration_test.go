@@ -48,8 +48,10 @@ func Test_namedDirectoryRules(t *testing.T) {
 		wantNamers []string
 		wantRules  string
 		// wantSwitch is the expression of the rules the directory-only switch's frame
-		// asks: the named rules, told what each auth says of the caller's password, and
-		// given the people of each auth whose client answers who the switch keeps out.
+		// asks: the named rules, told what each auth says of the caller's password,
+		// given the people of each auth whose client answers who the switch keeps out,
+		// and, where the directories record carries the second-factor column, told what
+		// each auth's sign-in settings ask.
 		wantSwitch string
 		wantClosed string
 		// counting are the auths among auths whose client answers who the switch keeps
@@ -63,7 +65,8 @@ func Test_namedDirectoryRules(t *testing.T) {
 			name: "two auths name the rules and the tenant list, in declaration order", auths: []string{"Staff", "Members"}, structs: []string{"Harbor", "HarborDirectory"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.MembersIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)",
-			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)" +
+				".SecondFactorsBy(a.StaffIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
 		},
 		{
@@ -74,7 +77,8 @@ func Test_namedDirectoryRules(t *testing.T) {
 			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)" +
 				".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword, a.GuestsIdentity().CallerPassword)" +
 				`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword}, ` +
-				`resource.DirectoryPeople{Label: "Guests", List: "GuestsHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword})`,
+				`resource.DirectoryPeople{Label: "Guests", List: "GuestsHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword})` +
+				".SecondFactorsBy(a.StaffIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor, a.GuestsIdentity().AuthSecondFactor)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName",
 		},
 		{
@@ -86,11 +90,19 @@ func Test_namedDirectoryRules(t *testing.T) {
 				".PasswordsBy(a.StaffIdentity().CallerPassword, a.GuestsIdentity().CallerPassword)" +
 				`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword, ` +
 				`Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffHarborInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations}, ` +
-				`resource.DirectoryPeople{Label: "Guests", List: "GuestsHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword})`,
+				`resource.DirectoryPeople{Label: "Guests", List: "GuestsHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword})` +
+				".SecondFactorsBy(a.StaffIdentity().AuthSecondFactor, a.GuestsIdentity().AuthSecondFactor)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.GuestsIdentity().DirectoryName",
 		},
 		{
 			name: "one auth", auths: []string{"Staff"}, structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
+			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).SecondFactorsBy(a.StaffIdentity().AuthSecondFactor)",
+			wantClosed: "a.StaffIdentity().DirectoryName",
+		},
+		{
+			name: "a directories record with no second-factor column asks no auth what its sign-in settings ask", auths: []string{"Staff"}, structs: []string{"Harbor", "Breakwater"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
 			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword)",

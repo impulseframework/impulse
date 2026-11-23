@@ -182,11 +182,13 @@ func (r *resourceGenerator) directoryOnlyRoutes(record *resourceInfo, prefix str
 
 // accumulateDirectoryOnlyRoute adds the switch's routes to every session outlet the
 // tenant record is served on, for a record that declares the switch, and the routes of
-// the methods that say how the tenant admits its directory's people to every outlet
-// that serves them (directoryRoleOutlets). The routes join the dispatch test.
+// the methods that say how the tenant admits its directory's people (directoryRole) and
+// of the methods of its word for its directory's second factor (directoryFactor) to
+// every outlet that serves them. The routes join the dispatch test.
 func (r *resourceGenerator) accumulateDirectoryOnlyRoute(outlets []*routerOutlet, outletRoutes []*outletRouteData) (routerTestRoutes []*generatedRoute) {
 	served := r.directoryOnlyOutlets()
 	role := r.directoryRole()
+	factor := r.directoryFactor()
 	for i, outlet := range outlets {
 		var routes []*generatedRoute
 		if slices.ContainsFunc(served, func(on *routerOutlet) bool { return on.name == outlet.name }) {
@@ -194,6 +196,9 @@ func (r *resourceGenerator) accumulateDirectoryOnlyRoute(outlets []*routerOutlet
 		}
 		if role.servedOn(outlet.name) {
 			routes = append(routes, r.tenantOwnRoutes(outlet.prefix, role.methods())...)
+		}
+		if factor.servedOn(outlet.name) {
+			routes = append(routes, r.tenantOwnRoutes(outlet.prefix, factor.methods())...)
 		}
 		if len(routes) == 0 {
 			continue
@@ -205,11 +210,12 @@ func (r *resourceGenerator) accumulateDirectoryOnlyRoute(outlets []*routerOutlet
 	return routerTestRoutes
 }
 
-// directoryOnlyAuthzCases are the matrix's cases for the switch's routes and for the
-// routes of the methods that say how the tenant admits its directory's people: each
-// refuses a caller who holds no Execute grant on the method in the tenant, a method on
-// a dry run and on a request for its warning too. The granted halves need a tenant with
-// a directory and a session that came through it, which the application's own served
+// directoryOnlyAuthzCases are the matrix's cases for the switch's routes, for the
+// routes of the methods that say how the tenant admits its directory's people, and for
+// those of the methods of its word for its directory's second factor: each refuses a
+// caller who holds no Execute grant on the method in the tenant, a method on a dry run
+// and on a request for its warning too. The granted halves need a tenant with a
+// directory and a session that came through it, which the application's own served
 // tests set up.
 func (r *resourceGenerator) directoryOnlyAuthzCases() []authzCase {
 	var cases []authzCase
@@ -240,15 +246,22 @@ func (r *resourceGenerator) directoryOnlyAuthzCases() []authzCase {
 			deny(outlet, r.tenantOwnRoutes(outlet.prefix, role.methods()))
 		}
 	}
+	factor := r.directoryFactor()
+	for _, outlet := range r.allOutlets() {
+		if factor.servedOn(outlet.name) {
+			deny(outlet, r.tenantOwnRoutes(outlet.prefix, factor.methods()))
+		}
+	}
 
 	return cases
 }
 
-// collectDirectoryOnlyRegistrations registers the switch's methods, and the methods
-// that say how the tenant admits its directory's people, into the collection, each with
-// Execute in the tenant's scope, where the application serves them. The names are the
-// generator's: a method or a manual registration the application declares under one is
-// refused, naming the record.
+// collectDirectoryOnlyRegistrations registers the switch's methods, the methods that
+// say how the tenant admits its directory's people, and the methods of its word for its
+// directory's second factor into the collection, each with Execute in the tenant's
+// scope, where the application serves them. The names are the generator's: a method or
+// a manual registration the application declares under one is refused, naming the
+// record.
 func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.CollectionBuilder) error {
 	if !r.genRoutes {
 		return nil
@@ -275,6 +288,11 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 	}
 	if role := r.directoryRole(); role != nil {
 		if err := register(role.methods(), fmt.Sprintf("the %s record's default role (@%s)", role.directories.Name(), directoryDefaultSeatKeyword)); err != nil {
+			return err
+		}
+	}
+	if factor := r.directoryFactor(); factor != nil {
+		if err := register(factor.methods(), fmt.Sprintf("the %s record's word for its directory's second factor (@%s)", factor.directories.Name(), directorySecondFactorKeyword)); err != nil {
 			return err
 		}
 	}
@@ -479,6 +497,18 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 				own.Fields = []tsTenantOwnField{{Name: directoryRoleBodyField, Enumerated: t.directoryRolePicker}}
 			}
 			methods = append(methods, own)
+		}
+	}
+	if directories != nil && directories.DirectorySecondFactorField != nil && directories.OnOutlet(t.targetOutlet()) {
+		for _, method := range directoryFactorMethodsOf(record.Name()) {
+			if !served(method.Name) {
+				continue
+			}
+			doc := fmt.Sprintf("takes back the %s's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in", word)
+			if method.Typed != "" {
+				doc = fmt.Sprintf("says the %s's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; the person calling is signed in through that directory, and the method warns first", word)
+			}
+			methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 		}
 	}
 

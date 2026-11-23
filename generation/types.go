@@ -250,6 +250,10 @@ const (
 	// record's create-your-tenant handler (Create<Record>), written where the record's
 	// creation shape admits self-service; a singular stem like the roster's.
 	tenantCreationOutputName = "tenant_creation"
+	// tenantDirectoryFactorOutputName names the handler package's file carrying the two
+	// methods of a tenant's word for its directory's second factor, written where the
+	// directories record carries the column; a singular stem like the roster's.
+	tenantDirectoryFactorOutputName = "tenant_directory_factor"
 	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
 	// tenant record's directory-only switch: the method that turns it and its two
 	// reads, written where the record declares the switch; a singular stem like the
@@ -302,22 +306,23 @@ type reservedOutput struct {
 // resource or computed resource whose plural file stem is one of them is refused at
 // capture (rejectReservedStem), naming the generator's file and what it carries.
 var reservedOutputStems = map[string]reservedOutput{
-	resourceInterfaceOutputName:   {file: generatedGoFileName(resourceInterfaceOutputName), carries: "the resource interfaces"},
-	resourceEnumsFileName:         {file: generatedGoFileName(resourceEnumsFileName), carries: "the enumerations"},
-	domainGuardOutputName:         {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
-	tenantRosterOutputName:        {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
-	tenantCreationOutputName:      {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
-	tenantDirectoryOnlyOutputName: {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
-	tenantDirectoryRoleOutputName: {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
-	permissionsOutputName:         {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
-	liveOutputName:                {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
-	decodersOutputName:            {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
-	appContractOutputName:         {file: generatedGoFileName(appContractOutputName), carries: "the application contract"},
-	consolidatedHandlerOutputName: {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
-	featuresOutputName:            {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
-	fileHoldersOutputName:         {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
-	secretHoldersOutputName:       {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
-	releaseOutputName:             {file: resource.ReleaseFileName, carries: "the release file"},
+	resourceInterfaceOutputName:     {file: generatedGoFileName(resourceInterfaceOutputName), carries: "the resource interfaces"},
+	resourceEnumsFileName:           {file: generatedGoFileName(resourceEnumsFileName), carries: "the enumerations"},
+	domainGuardOutputName:           {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
+	tenantRosterOutputName:          {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
+	tenantCreationOutputName:        {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
+	tenantDirectoryOnlyOutputName:   {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
+	tenantDirectoryRoleOutputName:   {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
+	tenantDirectoryFactorOutputName: {file: generatedGoFileName(tenantDirectoryFactorOutputName), carries: "the handlers of a tenant's word for its directory's second factor"},
+	permissionsOutputName:           {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
+	liveOutputName:                  {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
+	decodersOutputName:              {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
+	appContractOutputName:           {file: generatedGoFileName(appContractOutputName), carries: "the application contract"},
+	consolidatedHandlerOutputName:   {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
+	featuresOutputName:              {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
+	fileHoldersOutputName:           {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
+	secretHoldersOutputName:         {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
+	releaseOutputName:               {file: resource.ReleaseFileName, carries: "the release file"},
 }
 
 type informationSchemaResult struct {

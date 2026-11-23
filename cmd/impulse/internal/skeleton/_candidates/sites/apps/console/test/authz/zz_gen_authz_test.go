@@ -2087,6 +2087,52 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusNotFound},
 		},
+		{
+			name:         "VouchForTenantDirectorySecondFactor denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/vouch-for-tenant-directory-second-factor",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "VouchForTenantDirectorySecondFactor dry run denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/vouch-for-tenant-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "VouchForTenantDirectorySecondFactor warning denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/vouch-for-tenant-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StopVouchingForTenantDirectorySecondFactor denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-tenant-directory-second-factor",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StopVouchingForTenantDirectorySecondFactor dry run denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-tenant-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StopVouchingForTenantDirectorySecondFactor warning denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-tenant-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
 	}
 
 	db, err := prepareDatabase(t.Context(), t)

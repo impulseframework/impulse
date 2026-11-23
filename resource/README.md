@@ -3639,8 +3639,26 @@ people who sign in through that directory for its mailed code. The sign-in reads
 column in its own transaction, for the directory the person signed in through, so it
 holds in every tenant that gave the person a role and a word taken back holds from the
 next sign-in. It is the tenant's word and nothing checks it: a super administrator, and
-a sign-in an application's own rule holds, are asked as before. A record with no such
-column has no such word.
+a sign-in an application's own rule holds, are asked as before. The generator writes two
+methods in the tenant's scope for a record that carries the column, served on every
+session outlet that serves the directories record:
+`VouchFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/vouch-for-<record>-directory-second-factor` with
+`{}`, and `StopVouchingFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/stop-vouching-for-<record>-directory-second-factor`
+with `{}`. A role file grants Execute on each to the role that manages the tenant's
+sign-in settings. Vouching declares a warning (section 7), which a person confirms by
+typing `vouch` (`resource.VouchForDirectoryWord`): "You are saying that acme.example
+asks its people for a second factor when they sign in. This application will stop
+asking them for a code.", under the button "Stop asking people who sign in through
+acme.example for a code". It is refused (409) for a tenant with no directory, for a
+caller who is not signed in through that directory, and while the application asks
+nobody for a second factor; the warning is refused in the same words, and for a tenant
+that says so already. Taking the word back is plain, asks nothing of how the caller
+signed in, and holds from the next sign-in. Each writes the column through the
+directories record's update patch, so the record's change events say who said it and
+when, and each carries the class `access`. A record with no such column has no such
+word and no such methods.
 
 **The default seat.** What a person gets at their first sign-in through a tenant's
 directory is the directory row's to say, before the method's account rule is reached.

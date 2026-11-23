@@ -178,12 +178,13 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
-			name:      "a tenant's side names the directories record and the four methods that set how its people enter, and the whole application's side none",
+			name:      "a tenant's side names the directories record, the four methods that set how its people enter and the two of its word for its directory's second factor, and the whole application's side none",
 			outlet:    "console",
 			instances: []*identityInstance{directed},
 			served: []string{
 				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
 				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector",
@@ -195,6 +196,8 @@ func Test_identityOn(t *testing.T) {
 						Methods: []identityPart{
 							part("openToDirectory", "OpenSectorToDirectory"), part("makeDirectoryInviteOnly", "MakeSectorInviteOnly"),
 							part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly"),
+							part("vouchForDirectorySecondFactor", "VouchForSectorDirectorySecondFactor"),
+							part("stopVouchingForDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor"),
 						},
 					},
 				},
@@ -224,6 +227,7 @@ func Test_identityOn(t *testing.T) {
 			served: []string{
 				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
 				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector",

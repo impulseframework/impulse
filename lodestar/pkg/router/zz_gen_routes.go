@@ -310,6 +310,8 @@ type GeneratedHandlers interface {
 	EndSectorDirectoryOnly() http.HandlerFunc
 	OpenSectorToDirectory() http.HandlerFunc
 	MakeSectorInviteOnly() http.HandlerFunc
+	VouchForSectorDirectorySecondFactor() http.HandlerFunc
+	StopVouchingForSectorDirectorySecondFactor() http.HandlerFunc
 
 	DisableCrewSectorUser() http.HandlerFunc
 
@@ -1001,6 +1003,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/open-sector-to-directory", domainGuard(h.OpenSectorToDirectory()))
 
 	asked.Post("/console/api/sectors/{sectorID}/make-sector-invite-only", domainGuard(h.MakeSectorInviteOnly()))
+
+	asked.Post("/console/api/sectors/{sectorID}/vouch-for-sector-directory-second-factor", domainGuard(h.VouchForSectorDirectorySecondFactor()))
+
+	asked.Post("/console/api/sectors/{sectorID}/stop-vouching-for-sector-directory-second-factor", domainGuard(h.StopVouchingForSectorDirectorySecondFactor()))
 
 	asked.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
 

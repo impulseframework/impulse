@@ -1322,6 +1322,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "Refits",
 			},
 			{
+				Name:        "StopVouchingForSectorDirectorySecondFactor",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "TakeCrewSectorGroupRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1343,6 +1349,12 @@ func Collection() *resource.GeneratedCollection {
 				Classes:      []accesstypes.ActionClass{ClassCredential},
 				Target:       "MembersSectorIdentities",
 				CallerEnters: true,
+			},
+			{
+				Name:        "VouchForSectorDirectorySecondFactor",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "Wings",

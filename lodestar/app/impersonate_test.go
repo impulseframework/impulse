@@ -50,11 +50,12 @@ var credentialActions = []accesstypes.Resource{
 // application and for a sector; the
 // setting that lets people ask for a reset link at the sign-in page; the three that
 // require a second factor at sign-in, stop requiring it and set how long a browser is
-// remembered, for the crew and for the members; the four methods
+// remembered, for the crew and for the members; the six methods
 // the generator writes for the sector record's directory, which open it to the
-// directory's people with a role and make it invite only again, and which make the
-// sector sign in with its directory alone and end that; CreateSector, the action of the
-// generated route by which a person creates a sector of their own; and the one action
+// directory's people with a role and make it invite only again, which make the
+// sector sign in with its directory alone and end that, and which say, and take back,
+// that the directory asks its people for a second factor of its own; CreateSector, the
+// action of the generated route by which a person creates a sector of their own; and the one action
 // of Lodestar's own that does, SetSectorPilotClearance, which rates a pilot. The
 // generated collection classes each access, which the kind that acts as a person
 // refuses beside credential. An account disabled, enabled or deleted is not among them:
@@ -94,9 +95,11 @@ var accessActions = []accesstypes.Resource{
 	"SetSectorPilotClearance",
 	"StopRequiringCrewSecondFactor",
 	"StopRequiringMembersSecondFactor",
+	"StopVouchingForSectorDirectorySecondFactor",
 	"TakeCrewGroupRole",
 	"TakeCrewRole",
 	"TakeCrewSectorGroupRole",
+	"VouchForSectorDirectorySecondFactor",
 	"WithdrawCrewInvitation",
 	"WithdrawCrewInvitedSector",
 	"WithdrawCrewSectorInvitation",

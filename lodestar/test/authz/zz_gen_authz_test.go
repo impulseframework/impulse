@@ -5609,6 +5609,52 @@ Content-Type: application/json
 			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusNotFound},
 		},
+		{
+			name:         "VouchForSectorDirectorySecondFactor denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/vouch-for-sector-directory-second-factor",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "VouchForSectorDirectorySecondFactor dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/vouch-for-sector-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "VouchForSectorDirectorySecondFactor warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/vouch-for-sector-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StopVouchingForSectorDirectorySecondFactor denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-sector-directory-second-factor",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StopVouchingForSectorDirectorySecondFactor dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-sector-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StopVouchingForSectorDirectorySecondFactor warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-sector-directory-second-factor",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
 	}
 
 	db, err := prepareDatabase(t.Context(), t)

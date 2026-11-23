@@ -59,6 +59,10 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 		return errors.Wrap(err, "generateDirectoryRole()")
 	}
 
+	if err := r.generateDirectoryFactor(); err != nil {
+		return errors.Wrap(err, "generateDirectoryFactor()")
+	}
+
 	if err := r.generateDecoders(); err != nil {
 		return errors.Wrap(err, "generateDecoders()")
 	}

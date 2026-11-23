@@ -377,12 +377,16 @@ export interface IdentityMethods {
    * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
    * person gets the first time they sign in through the tenant's directory,
    * `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and `endDirectoryOnly`
-   * turn the directory-only switch. None names a row.
+   * turn the directory-only switch, and `vouchForDirectorySecondFactor` and
+   * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
+   * directory asks its people for a second factor of its own. None names a row.
    */
   readonly openToDirectory?: string;
   readonly makeDirectoryInviteOnly?: string;
   readonly makeDirectoryOnly?: string;
   readonly endDirectoryOnly?: string;
+  readonly vouchForDirectorySecondFactor?: string;
+  readonly stopVouchingForDirectorySecondFactor?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

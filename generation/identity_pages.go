@@ -160,7 +160,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 // application's alone, and the one that removes a person from a tenant is a tenant's
 // alone. A tenant's side of an application that declares a directories
 // record also names the tenant record's methods that set how the tenant's people enter
-// (tenantdirectoryrole.go, tenantdirectoryonly.go).
+// (tenantdirectoryrole.go, tenantdirectoryonly.go, tenantdirectoryfactor.go).
 func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	subject := i.subject(tenant)
 	parts := []identityPart{
@@ -217,6 +217,8 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"makeDirectoryInviteOnly", makeInviteOnlyMethodName(i.tenant.name)},
 			identityPart{"makeDirectoryOnly", makeDirectoryOnlyMethodName(i.tenant.name)},
 			identityPart{"endDirectoryOnly", endDirectoryOnlyMethodName(i.tenant.name)},
+			identityPart{"vouchForDirectorySecondFactor", vouchForDirectoryMethodName(i.tenant.name)},
+			identityPart{"stopVouchingForDirectorySecondFactor", stopVouchingForDirectoryMethodName(i.tenant.name)},
 		)
 	}
 

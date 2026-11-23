@@ -471,8 +471,12 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 // them the switch keeps out, and who keeps the administrators' way in. The read of the
 // switch counts them and the warning reads them from the same entries, so the two say
 // the same number. The switch is turned on by a person who has a password, where their
-// auth has passwords; a program that generates no auth's management asks nothing and
-// counts nobody.
+// auth has passwords. Where the directories record carries the second-factor column
+// (@directorySecondFactor), the rules are last told what each auth's sign-in settings
+// ask (resource.TenantDirectoryRules.SecondFactorsBy), the AuthSecondFactor of every
+// generated identity client, in declaration order: a tenant vouches for its directory's
+// own second factor only where the application asks somebody for one. A program that
+// generates no auth's management asks nothing and counts nobody.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {
@@ -483,9 +487,25 @@ func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 		readers = append(readers, fmt.Sprintf("%s.%s().CallerPassword", r.receiverName, inst.accessor()))
 	}
 	rules += ".PasswordsBy(" + strings.Join(readers, ", ") + ")"
+	rules += r.directoryOnlyCounted()
+	if !record.HasDeclaration() || record.declaration.Directories.DirectorySecondFactorField == nil {
+		return rules
+	}
+	factors := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		factors = append(factors, fmt.Sprintf("%s.%s().AuthSecondFactor", r.receiverName, inst.accessor()))
+	}
+
+	return rules + ".SecondFactorsBy(" + strings.Join(factors, ", ") + ")"
+}
+
+// directoryOnlyCounted is the call that gives the switch's rules the people of every
+// auth whose client answers who the switch keeps out (directoryOnlyPeople), empty where
+// none does.
+func (r *resourceGenerator) directoryOnlyCounted() string {
 	people := r.directoryOnlyPeople()
 	if len(people) == 0 {
-		return rules
+		return ""
 	}
 	entries := make([]string, 0, len(people))
 	for _, auth := range people {
@@ -501,7 +521,7 @@ func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 		entries = append(entries, entry+"}")
 	}
 
-	return rules + ".CountedBy(" + strings.Join(entries, ", ") + ")"
+	return ".CountedBy(" + strings.Join(entries, ", ") + ")"
 }
 
 // tagsLiteral is fields as a Go literal of the fields a grant names,

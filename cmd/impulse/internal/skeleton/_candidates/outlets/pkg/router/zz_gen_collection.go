@@ -878,6 +878,12 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"domainId", "username", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "outsideDirectory", "administratorWithPassword"},
 			},
 			{
+				Name:        "StopVouchingForTenantDirectorySecondFactor",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "TakeMembersTenantGroupRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -922,6 +928,12 @@ func Collection() *resource.GeneratedCollection {
 				Classes:      []accesstypes.ActionClass{ClassCredential},
 				Target:       "StaffTenantIdentities",
 				CallerEnters: true,
+			},
+			{
+				Name:        "VouchForTenantDirectorySecondFactor",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "WithdrawMembersTenantInvitation",

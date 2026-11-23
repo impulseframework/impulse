@@ -231,7 +231,9 @@ export const Methods = {
   MakeSectorInviteOnly: 'MakeSectorInviteOnly' as Method,
   OpenSectorToDirectory: 'OpenSectorToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
+  StopVouchingForSectorDirectorySecondFactor: 'StopVouchingForSectorDirectorySecondFactor' as Method,
   ViewAsUser: 'ViewAsUser' as Method,
+  VouchForSectorDirectorySecondFactor: 'VouchForSectorDirectorySecondFactor' as Method,
 };
 
 export namespace BriefingTemplates {

@@ -373,11 +373,13 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 // on no API-key outlet. The two methods that say how the tenant admits its directory's
 // people are served where the session outlets that serve the directories record are
 // all of one Auth whose management the program generates and whose roles are given by
-// hand, and nowhere otherwise. Each route has a denied case in the authorization
-// matrix, a method's dry run and its request for a warning included; each method is in
-// the collection with Execute in the tenant's scope; and a record that declares neither
-// registers nothing. An application's own method or registration under a method's name
-// is refused.
+// hand, and nowhere otherwise. The two methods of the tenant's word for its directory's
+// second factor are served on every session outlet that serves a directories record
+// that carries the column, whatever the auths, and nowhere where it carries none. Each
+// route has a denied case in the authorization matrix, a method's dry run and its
+// request for a warning included; each method is in the collection with Execute in the
+// tenant's scope; and a record that declares neither registers nothing. An
+// application's own method or registration under a method's name is refused.
 func Test_directoryOnlyRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -439,6 +441,12 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			post(prefix, "MakeHarborInviteOnly", "make-harbor-invite-only"),
 		}
 	}
+	factorUnder := func(prefix string) []*generatedRoute {
+		return []*generatedRoute{
+			post(prefix, "VouchForHarborDirectorySecondFactor", "vouch-for-harbor-directory-second-factor"),
+			post(prefix, "StopVouchingForHarborDirectorySecondFactor", "stop-vouching-for-harbor-directory-second-factor"),
+		}
+	}
 	methodCases := func(prefix string, segments ...string) []string {
 		var cases []string
 		for _, segment := range segments {
@@ -454,9 +462,30 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 	roleCases := func(prefix string) []string {
 		return methodCases(prefix, "open-harbor-to-directory", "make-harbor-invite-only")
 	}
+	factorCases := func(prefix string) []string {
+		return methodCases(prefix, "vouch-for-harbor-directory-second-factor", "stop-vouching-for-harbor-directory-second-factor")
+	}
+	// The fixture's HarborDirectory record carries the second-factor column, so every
+	// case on it serves the two methods of the word after the switch's and the role's.
+	switchAndFactor := func() map[string][]*generatedRoute {
+		return map[string][]*generatedRoute{
+			defaultOutletName: slices.Concat(switchUnder("api"), factorUnder("api")),
+			"members":         slices.Concat(switchUnder("members"), factorUnder("members")),
+		}
+	}
+	switchAndFactorCases := slices.Concat(switchCases("api"), switchCases("members"), factorCases("api"), factorCases("members"))
+	handlers := func(routes []*generatedRoute) []string {
+		var names []string
+		for _, route := range routes {
+			names = append(names, route.HandlerFunc)
+		}
+
+		return names
+	}
 	// The two methods of the default role give and take away what a directory's people
-	// may do, and the two of the switch decide who may sign in to the tenant at all, so
-	// the action of each carries the class access.
+	// may do, the two of the switch decide who may sign in to the tenant at all, and the
+	// two of the word for the directory's second factor change what a sign-in asks of
+	// them, so the action of each carries the class access.
 	execute := func(names ...string) []resource.CollectionResource {
 		var out []resource.CollectionResource
 		for _, name := range names {
@@ -478,11 +507,11 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		wantMethods []resource.CollectionResource
 	}{
 		{
-			name:        "a record that declares the switch, on every session outlet it is on; no outlet auth, so no method of the default role",
+			name:        "a record that declares the switch, on every session outlet it is on; no outlet auth, so no method of the default role, and the word for the second factor all the same",
 			structs:     []string{"Harbor", "HarborDirectory"},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+			wantRoutes:  switchAndFactor(),
+			wantCases:   switchAndFactorCases,
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:     "session outlets of one auth whose management the program generates serve the default role's methods too",
@@ -490,19 +519,22 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			auths:    []string{staffAuth},
 			identity: []*identityInstance{staff(false)},
 			wantRoutes: map[string][]*generatedRoute{
-				defaultOutletName: slices.Concat(switchUnder("api"), roleUnder("api")),
-				"members":         slices.Concat(switchUnder("members"), roleUnder("members")),
+				defaultOutletName: slices.Concat(switchUnder("api"), roleUnder("api"), factorUnder("api")),
+				"members":         slices.Concat(switchUnder("members"), roleUnder("members"), factorUnder("members")),
 			},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members"), roleCases("api"), roleCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "MakeHarborInviteOnly", "OpenHarborToDirectory"),
+			wantCases: slices.Concat(switchCases("api"), switchCases("members"), roleCases("api"), roleCases("members"), factorCases("api"), factorCases("members")),
+			wantMethods: execute(
+				"EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "MakeHarborInviteOnly", "OpenHarborToDirectory",
+				"StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor",
+			),
 		},
 		{
-			name:        "a record with a directories record and no switch serves the default role's methods alone",
+			name:        "a record with a directories record and no switch serves the default role's methods and the word for the second factor alone",
 			structs:     []string{"Sector", "HarborDirectory"},
 			auths:       []string{staffAuth},
 			identity:    []*identityInstance{{importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directorySeat: "DefaultSeat"}, tables: map[identityTable]bool{identityUsers: true, identityMemberships: true}}},
 			wantRoutes:  map[string][]*generatedRoute{},
-			wantMethods: execute("MakeSectorInviteOnly", "OpenSectorToDirectory"),
+			wantMethods: execute("MakeSectorInviteOnly", "OpenSectorToDirectory", "StopVouchingForSectorDirectorySecondFactor", "VouchForSectorDirectorySecondFactor"),
 		},
 		{
 			name:    "session outlets of two auths serve no method of the default role: one identity client judges the role",
@@ -512,17 +544,17 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				importPath: "example.com/app/pkg/auth/members", auth: "Members", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directorySeat: "DefaultSeat"},
 				tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
 			}},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+			wantRoutes:  switchAndFactor(),
+			wantCases:   switchAndFactorCases,
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:        "an auth whose management the program does not generate serves none",
 			structs:     []string{"Harbor", "HarborDirectory"},
 			auths:       []string{staffAuth},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+			wantRoutes:  switchAndFactor(),
+			wantCases:   switchAndFactorCases,
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:    "an auth whose own reading of the directories record carries no default seat serves none: its management judges no such role",
@@ -532,21 +564,21 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
 				tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
 			}},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+			wantRoutes:  switchAndFactor(),
+			wantCases:   switchAndFactorCases,
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:        "an auth whose roles a directory writes serves none: nobody gives a role by hand",
 			structs:     []string{"Harbor", "HarborDirectory"},
 			auths:       []string{staffAuth},
 			identity:    []*identityInstance{staff(true)},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
-			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+			wantRoutes:  switchAndFactor(),
+			wantCases:   switchAndFactorCases,
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
-			name:        "a directories record with no default seat has no role to set",
+			name:        "a directories record with no default seat and no second-factor column has no role to set and no word to say",
 			structs:     []string{"Harbor", "Breakwater"},
 			auths:       []string{staffAuth},
 			identity:    []*identityInstance{staff(false)},
@@ -569,7 +601,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 					if prefix == "api" {
 						name = defaultOutletName
 					}
-					routes := roleUnder(prefix)
+					routes := slices.Concat(roleUnder(prefix), factorUnder(prefix))
 					for _, route := range routes {
 						route.HandlerFunc = strings.Replace(route.HandlerFunc, "Harbor", "Sector", 1)
 						route.Path = strings.NewReplacer("harbors/{harborID}", r.domainRouteSegment+"/{"+r.domainRouteParam+"}", "-harbor-", "-sector-").Replace(route.Path)
@@ -597,8 +629,10 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				if diff := cmp.Diff(tt.wantRoutes, gotRoutes, cmp.AllowUnexported(generatedRoute{})); diff != "" {
 					t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
 				}
-			} else if len(gotRoutes) != 2 || len(gotRoutes[defaultOutletName]) != 2 || gotRoutes[defaultOutletName][0].HandlerFunc != "OpenSectorToDirectory" || gotRoutes[defaultOutletName][1].HandlerFunc != "MakeSectorInviteOnly" {
-				t.Errorf("registered routes = %+v, want the two methods of the default role on both session outlets and nothing of a switch", gotRoutes)
+			} else if got := handlers(gotRoutes[defaultOutletName]); len(gotRoutes) != 2 || !slices.Equal(got, []string{
+				"OpenSectorToDirectory", "MakeSectorInviteOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
+			}) {
+				t.Errorf("registered routes = %v, want the two methods of the default role and the two of the word for the second factor on both session outlets and nothing of a switch", got)
 			}
 			if got := len(testRoutes); got != registered {
 				t.Errorf("the dispatch test takes %d routes, want every registered one, %d", got, registered)
@@ -623,8 +657,8 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				if diff := cmp.Diff(tt.wantCases, gotCases); diff != "" {
 					t.Errorf("the matrix's cases mismatch (-want +got):\n%s", diff)
 				}
-			} else if len(gotCases) != 12 {
-				t.Errorf("the matrix carries %d cases, want 12: each of the two methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
+			} else if len(gotCases) != 24 {
+				t.Errorf("the matrix carries %d cases, want 24: each of the four methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
 			}
 
 			b := resource.NewCollectionBuilder()
@@ -648,6 +682,8 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		for name, want := range map[string]string{
 			"EndHarborDirectoryOnly": "EndHarborDirectoryOnly is a method of the Harbor record's directory-only switch (@directoryOnly), which the generator writes",
 			"OpenHarborToDirectory":  "OpenHarborToDirectory is a method of the HarborDirectory record's default role (@directoryDefaultSeat), which the generator writes",
+			"VouchForHarborDirectorySecondFactor": "VouchForHarborDirectorySecondFactor is a method of the HarborDirectory record's word for its directory's second factor (@directorySecondFactor), " +
+				"which the generator writes",
 		} {
 			r := generator(t, []string{staffAuth}, []*identityInstance{staff(false)}, "Harbor", "HarborDirectory")
 			r.manualRegistrations = []ManualRegistration{{Resource: accesstypes.Resource(name), Permission: accesstypes.Execute}}
@@ -774,9 +810,10 @@ func Test_directoryDefaultSeat_isOutputOnly(t *testing.T) {
 // them, so it finds each method by the record's own fields and by the collection the
 // handler generator computed: on the client of an outlet that serves the record, in the
 // tenant's scope, the methods that warn with the word a person types and the one that
-// opens the tenant with its role, picked from the list the handler generator chose; on
-// no client where the application serves no such method, and left out of the constants
-// of an outlet the record is not on.
+// opens the tenant with its role, picked from the list the handler generator chose, and
+// the two of the tenant's word for its directory's second factor where the directories
+// record carries the column; on no client where the application serves no such method,
+// and left out of the constants of an outlet the record is not on.
 func Test_directoryOnlyClient(t *testing.T) {
 	t.Parallel()
 
@@ -821,6 +858,9 @@ func Test_directoryOnlyClient(t *testing.T) {
 		endDoc    = "turns the harbor's directory-only switch off: every sign-in is admitted again"
 		openDoc   = "opens the harbor to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation"
 		inviteDoc = "makes the harbor invite only for its directory's people: a person from the directory enters once they are invited"
+		vouchDoc  = "says the harbor's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; " +
+			"the person calling is signed in through that directory, and the method warns first"
+		stopDoc = "takes back the harbor's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in"
 	)
 	all := func(picker string) []*tsTenantOwnMethod {
 		return []*tsTenantOwnMethod{
@@ -828,6 +868,8 @@ func Test_directoryOnlyClient(t *testing.T) {
 			{Name: "EndHarborDirectoryOnly", Doc: endDoc},
 			{Name: "OpenHarborToDirectory", Typed: "open", Doc: openDoc, Fields: []tsTenantOwnField{{Name: "role", Enumerated: picker}}},
 			{Name: "MakeHarborInviteOnly", Doc: inviteDoc},
+			{Name: "VouchForHarborDirectorySecondFactor", Typed: "vouch", Doc: vouchDoc},
+			{Name: "StopVouchingForHarborDirectorySecondFactor", Doc: stopDoc},
 		}
 	}
 	tests := []struct {
@@ -850,6 +892,10 @@ func Test_directoryOnlyClient(t *testing.T) {
 				"[Methods.EndHarborDirectoryOnly]: {\n    route: 'end-harbor-directory-only',\n    dryRun: true,\n    fields: [],\n  },",
 				"[Methods.OpenHarborToDirectory]: {\n    route: 'open-harbor-to-directory',\n    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [\n      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffHarborDirectoryRoles, required: true },\n    ],\n  },",
 				"[Methods.MakeHarborInviteOnly]: {\n    route: 'make-harbor-invite-only',\n    dryRun: true,\n    fields: [],\n  },",
+				"export interface VouchForHarborDirectorySecondFactorConfig {}\nexport interface VouchForHarborDirectorySecondFactor {}",
+				"export interface StopVouchingForHarborDirectorySecondFactorConfig {}\nexport interface StopVouchingForHarborDirectorySecondFactor {}",
+				"[Methods.VouchForHarborDirectorySecondFactor]: {\n    route: 'vouch-for-harbor-directory-second-factor',\n    dryRun: true,\n    warning: { typed: 'vouch' },\n    fields: [],\n  },",
+				"[Methods.StopVouchingForHarborDirectorySecondFactor]: {\n    route: 'stop-vouching-for-harbor-directory-second-factor',\n    dryRun: true,\n    fields: [],\n  },",
 				"import { Methods, Resources } from './zz_gen_constants';",
 			},
 		},
@@ -879,7 +925,10 @@ func Test_directoryOnlyClient(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Fatalf("tenantOwnClientData() mismatch (-want +got):\n%s", diff)
 			}
-			for _, method := range []string{"MakeHarborDirectoryOnly", "EndHarborDirectoryOnly", "OpenHarborToDirectory", "MakeHarborInviteOnly"} {
+			for _, method := range []string{
+				"MakeHarborDirectoryOnly", "EndHarborDirectoryOnly", "OpenHarborToDirectory", "MakeHarborInviteOnly",
+				"VouchForHarborDirectorySecondFactor", "StopVouchingForHarborDirectorySecondFactor",
+			} {
 				excluded := slices.Contains(gen.outletExcluded, accesstypes.Resource(method))
 				if wantExcluded := tt.outlet != ""; excluded != wantExcluded {
 					t.Errorf("%s is left out of the outlet's constants = %t, want %t", method, excluded, wantExcluded)
@@ -1264,8 +1313,10 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		}
 	}
 
-	// The client hands the list the engine's roles where the list reads them, and
-	// answers the two questions the frame of the switch asks every auth's client.
+	// The client hands the list the engine's roles where the list reads them, answers
+	// the two questions the frame of the switch asks every auth's client, and answers
+	// what the auth's sign-in settings ask of a second factor, which the rules of the
+	// tenant's word for its directory's second factor ask.
 	for _, tt := range []struct {
 		name            string
 		data            *identitySourceData
@@ -1280,6 +1331,8 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())",
 				"func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {",
 				"func (c *Client) AdministratorsEnterWithPassword() bool {",
+				"func (c *Client) AuthSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) (required, applies bool, err error) {",
+				"required, applies, err = c.manager.AuthSecondFactor(ctx, txn)",
 			},
 		},
 		{
@@ -1291,6 +1344,8 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())",
 				"func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {",
 				"func (c *Client) AdministratorsEnterWithPassword() bool {",
+				"func (c *Client) AuthSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) (required, applies bool, err error) {",
+				"required, applies, err = c.manager.AuthSecondFactor(ctx, txn)",
 			},
 			wantNotContains: []string{"SetCrewSectorUserAdministratorRoles(manager"},
 		},
