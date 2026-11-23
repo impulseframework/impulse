@@ -244,14 +244,14 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
 	marshalID := crewAccountID(ctx, t, hq, "marshal")
-	signsInWith(marshal, "a password alone", `{"password":true,"directories":[],"directoryAddress":false}`)
+	signsInWith(marshal, "a password alone", `{"password":true,"directories":[],"directoryAddress":false,"passwordDisabled":false}`)
 	status, body = own(marshal, personaPassword)
 	assertStatus(t, status, http.StatusConflict, body)
 	if !strings.Contains(string(body), "Your password is your only way to sign in") {
 		t.Errorf("the marshal's own removal with no identity = %s, want it to say the password is the only way in", body)
 	}
 	linkThroughDirectory("marshal")
-	signsInWith(marshal, "a password and the directory", `{"password":true,"directories":`+throughGoogle+`,"directoryAddress":true}`)
+	signsInWith(marshal, "a password and the directory", `{"password":true,"directories":`+throughGoogle+`,"directoryAddress":true,"passwordDisabled":false}`)
 	if status, body := own(marshal, "not the password"); status != http.StatusBadRequest {
 		t.Errorf("the marshal's own removal with a wrong password: status %d, want 400: %s", status, body)
 	}
@@ -266,7 +266,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	if sess := marshal.session(ctx); sess["authenticated"] != true || sess["username"] != "marshal" {
 		t.Errorf("the marshal's session after their own removal = %v, want it to stand", sess)
 	}
-	signsInWith(marshal, "the directory alone", `{"password":false,"directories":`+throughGoogle+`,"directoryAddress":true}`)
+	signsInWith(marshal, "the directory alone", `{"password":false,"directories":`+throughGoogle+`,"directoryAddress":true,"passwordDisabled":false}`)
 	if status, body := stranger.login(ctx, "marshal", personaPassword); status != wrongStatus || !bytes.Equal(body, wrongBody) {
 		t.Errorf("the marshal's password after the removal: status %d %s, want what a wrong password gets: %d %s", status, body, wrongStatus, wrongBody)
 	}

@@ -849,6 +849,28 @@ an application offers a tenant's administrator to make the tenant's directory, w
 set from the sign-in and never typed (the resource package's reference, "One directory,
 set from a sign-in").
 
+**Asked outside a sign-in.** A page that offers a person a password needs to know whether
+one would sign them in. `signin.PasswordsDisabledByTenants(roles, declarations)` is the
+tenant policy's own answer for one person: true where the policy would refuse their sign-in
+with a password as `directory_only`, so where every tenant that seats them is directory only
+and they are neither a super administrator, nor an administrator of one of those tenants,
+nor the holder of a role outside any one tenant. It is the policy's decision, not a second
+statement of its rules. It takes the role store and a reader of a tenant's declaration that
+needs no transaction; on Spanner `resource.OutsideSignIn(db, reader)` makes one of the
+sign-in's own reader, each read in a transaction of its own. Set it on the `Auth` before
+serving:
+
+```go
+auth.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(userManager, resource.OutsideSignIn(db, tenantDeclaration)))
+```
+
+The `Auth` then says so in what a person signs in with (`SignInMeans`, `passwordDisabled`),
+where the account page draws no Password line, and refuses that person a first password
+(403). Nothing is taken from the account: a password it holds stays, and signs the person
+in again once a tenant that seats them is no longer directory only. The check answers for
+the tenant policy alone: a rule chained after it (`Then`) is not asked. Without a check, or
+on an `Auth` with no password method, nobody's password is disabled.
+
 ### Registering sign-in methods
 
 A sign-in method is registered on the `Auth`, and its registration returns the method's
@@ -1073,10 +1095,11 @@ the password method is listed.
 - `signInMeans` is the path of the `SignInMeans` handler, present when the list names it
   (`MethodList.SignInMeans`): where a signed-in person's account page reads what they
   sign in with, `{"password": true, "directories": [{"name": "google", "label": "Fleet
-  Google"}]}`. The page hides the change and the removal of a password from a person
-  who holds none, offers the removal only where a directory sign-in can sign them in,
-  and says what the removal leaves by the label of the button the person signs in
-  through, as this list words it.
+  Google"}], "directoryAddress": true, "passwordDisabled": false}`. The page hides the
+  change and the removal of a password from a person who holds none, offers the removal
+  only where a directory sign-in can sign them in, and says what the removal leaves by
+  the label of the button the person signs in through, as this list words it. Where the
+  answer says `passwordDisabled`, the page shows no password at all.
 - `forgetBrowser`, `changeName` and `changeLook` are the paths of the `ForgetBrowser`,
   `ChangeName` and `ChangeLook` handlers, each present when the list names it
   (`MethodList.ForgetBrowser`, `MethodList.ChangeName`, `MethodList.ChangeLook`): where
@@ -1549,7 +1572,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. The store's own `DeactivateUser`, `ActivateUser` and `DeleteUser` beneath them are the bare writes and are not held to it: they are handed no session to read, so a route calls the session API's three, never the store's. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
 
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking the last link that can sign in a user with no password is refused (Conflict, `sessionstorage.ErrLastSignInMethod`): another link must be one a sign-in is still possible through (`SignsInThrough`), whatever links that sign nobody in remain. A user who holds a password may lose every link. |
-| `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
+| `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, whether the tenants' sign-in settings disable it (`PasswordDisabled`, "The tenant policy"), and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
 | `DirectoryName(method, connection)` | What the Auth's sign-in registrations call the directory an identity of this method and connection came through, for a sentence that names it to a person: the name a registration that takes the connection gives it (`signin.Method.ConnectionName`: a tenant listed with `azure.NamedTenant`, a Google Workspace's name or the domain of one admitted as any Workspace, an OpenID Connect provider's name or its issuer's host), and the label of the button of the first registration of the login page that takes the connection; each is empty where the registrations have none. A tenant listed by its id alone (`azure.Tenant`), one admitted as any tenant, and a method that names no connection have no name, so a sentence says such a directory by the label ("your organization's Microsoft directory") and never by the connection, which for an Entra tenant is an id. It reads nothing. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
@@ -1647,9 +1670,11 @@ a 400, and a last means of sign-in a 409. A page is told enough not to offer wha
 be refused. The person's account page reads `SignInMeans()` (the methods list's
 `signInMeans`): it shows the change and the removal only to a person who holds a
 password, the removal only where a directory sign-in can sign them in, and its question
-names what is left ("You will sign in through Fleet Google only."). A page whose read
-fails offers no removal: it does not fall back to naming every method the login page
-lists. The generated router mounts the read at `/user/sign-in-means` and names it in
+names what is left ("You will sign in through Fleet Google only."). Where the read says
+`passwordDisabled`, the page draws no Password line at all, for a person who holds a
+password and for one who holds none, and its Sign-in line says the directory is their
+only way in. A page whose read fails offers no removal: it does not fall back to naming
+every method the login page lists. The generated router mounts the read at `/user/sign-in-means` and names it in
 the methods list (`MethodList.SignInMeans`). The read answers in the words of the list
 that names the path it is served at, so an Auth served on two outlets, each with its
 own list and its own labels, tells each outlet's page what that outlet's login page
@@ -1785,6 +1810,7 @@ What is refused, and how:
 | --- | --- |
 | The account holds a password | 409: it is changed with the old one (`PasswordMethod.ChangeUserPassword`). The store writes a first password only while the row holds none, decided by the write itself (`AuthStore.SetFirstUserPassword`, `sessionstorage.ErrPasswordHeld` otherwise), so of two asked at once one lands. |
 | The `Auth` has no password method | 409: nobody signs in to the application with a password, so there is none to choose. |
+| The tenants' sign-in settings disable the person's password | 403, on both routes, before a code is mailed: every tenant that seats the person is directory only and they administer none of them, so a password would not sign them in (`SetPasswordDisabledCheck`, "The tenant policy"). |
 | The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's Google directory vouches for a person under their login name, so a person signed in through it adds their address first. |
 | The session views as someone else | 403, on both routes: an impersonated session changes nothing of the account it looks at, as on every own-account route. |
 | A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |

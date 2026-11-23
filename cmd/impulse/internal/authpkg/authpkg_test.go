@@ -534,6 +534,87 @@ func TestFiles_signedInHook(t *testing.T) {
 	}
 }
 
+// TestFiles_passwordDisabledCheck holds that an auth package sets the check that says
+// whose password the tenants' sign-in settings disable wherever it sets the tenant
+// policy, directly after the policy and over the same reader, with and without tenant
+// directories and with and without AdmitWithoutTenant, and sets none where its sign-in
+// rule is the second factor alone: an application without tenants has no tenant to
+// disable a password.
+func TestFiles_passwordDisabledCheck(t *testing.T) {
+	t.Parallel()
+	const policy = "\tauthSession.SetSignInPolicy(signin.TenantPolicy("
+	const check = "\n\n" +
+		"\t// The same rule, asked outside a sign-in, says whose password is disabled: a person\n" +
+		"\t// every one of whose tenants is directory only, who administers none of them and\n" +
+		"\t// holds no role outside them. Their account page draws no Password line and they\n" +
+		"\t// are refused a first password (SetPasswordDisabledCheck). The declarations are read\n" +
+		"\t// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).\n" +
+		"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n"
+	tenants := func(directories, admitWithoutTenant bool) *Spec {
+		return &Spec{
+			Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity",
+			Methods: []Method{
+				{Kind: app.MethodPassword},
+				{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+			},
+			TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: directories, AdmitWithoutTenant: admitWithoutTenant},
+		}
+	}
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{name: "tenant directories, a person who holds no tenant admitted", spec: tenants(true, true), want: true},
+		{name: "tenant directories, a person who holds no tenant refused", spec: tenants(true, false), want: true},
+		{name: "no tenant directories, a person who holds no tenant admitted", spec: tenants(false, true), want: true},
+		{name: "no tenant directories, a person who holds no tenant refused", spec: tenants(false, false), want: true},
+		{
+			name: "an application without tenants, whose rule is the second factor alone",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			rendered := string(files[tt.spec.Name+".go"])
+			at := strings.Index(rendered, policy)
+			if got := at >= 0; got != tt.want {
+				t.Fatalf("%s.go sets the tenant policy = %v, want %v", tt.spec.Name, got, tt.want)
+			}
+			wantChecks := 0
+			if tt.want {
+				wantChecks = 1
+			}
+			if got := strings.Count(rendered, ".SetPasswordDisabledCheck("); got != wantChecks {
+				t.Errorf("%s.go sets the password-disabled check %d time(s), want %d", tt.spec.Name, got, wantChecks)
+			}
+			if !tt.want {
+				return
+			}
+			line := strings.Index(rendered[at:], "\n")
+			if after := rendered[at+line:]; !strings.HasPrefix(after, check) {
+				t.Errorf("%s.go does not set the check directly after the tenant policy; after the policy it holds:\n%s", tt.spec.Name, after[:min(len(after), len(check))])
+			}
+		})
+	}
+	// Every smoke package agrees: the check is set exactly where the tenant policy is.
+	for _, spec := range smokeSpecs() {
+		files, err := Files(spec)
+		if err != nil {
+			t.Fatalf("Files(%s) error = %v", spec.Name, err)
+		}
+		rendered := string(files[spec.Name+".go"])
+		if policies, checks := strings.Count(rendered, policy), strings.Count(rendered, ".SetPasswordDisabledCheck("); policies != checks {
+			t.Errorf("%s.go sets the tenant policy %d time(s) and the password-disabled check %d time(s), want as many", spec.Name, policies, checks)
+		}
+	}
+}
+
 // TestFiles_passwordConfirmation pins that an auth package hands the router the password
 // confirmation of a waiting sign-in exactly where the auth has the password method. The
 // generated router asks its session surface for PendingConfirmWithPassword only there,
@@ -693,6 +774,7 @@ func TestFiles_tenantDirectories(t *testing.T) {
 		"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
 		"\tif settings.TenantDeclarations == nil {\n",
 		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
+		"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n",
 		"\tTenantMaker identity.TenantMaker\n",
 		"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
 	}

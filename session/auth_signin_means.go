@@ -31,6 +31,12 @@ type SignInMeans struct {
 	// directory, so their address is the directory's and is not changed here: the
 	// judgment a change of the address is refused by (directoryPerson).
 	DirectoryAddress bool `json:"directoryAddress"`
+	// PasswordDisabled reports that a password does not sign the user in, whether or not
+	// they hold one, because the tenants' sign-in settings refuse it: the Auth's check
+	// (SetPasswordDisabledCheck) says every tenant that seats them is directory only. A
+	// page then draws no Password line, and the first password is refused. It is false
+	// on an Auth with no check or no password method.
+	PasswordDisabled bool `json:"passwordDisabled"`
 }
 
 // LinkedDirectory is a sign-in method of the login page that an identity linked to a
@@ -188,8 +194,28 @@ func (a *Auth[S, U, Tx]) signInMeans(ctx context.Context, userID impulse.UUID, l
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
+	means := a.signInMeansOf(user, links, labels)
+	if means.PasswordDisabled, err = a.passwordDisabled(ctx, userID); err != nil {
+		return nil, err
+	}
 
-	return a.signInMeansOf(user, links, labels), nil
+	return means, nil
+}
+
+// passwordDisabled answers whether the tenants' sign-in settings disable userID's
+// password: the Auth's check (SetPasswordDisabledCheck), and false, with nothing asked,
+// on an Auth that holds no check or registers no password method. The read of what a
+// person signs in with and the first password ask it.
+func (a *Auth[S, U, Tx]) passwordDisabled(ctx context.Context, userID impulse.UUID) (bool, error) {
+	if a.passwordDisabledCheck == nil || !a.registered().passwordRegistered() {
+		return false, nil
+	}
+	disabled, err := a.passwordDisabledCheck(ctx, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "signin.PasswordDisabledCheck()")
+	}
+
+	return disabled, nil
 }
 
 // signInMeansOf is what user signs in with, given the identities linked to them: the
@@ -214,12 +240,12 @@ func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links [
 }
 
 // SignInMeans is the handler a signed-in person's account page reads what they sign in
-// with from: {"password", "directories": [{"name", "label"}], "directoryAddress"} (see
-// SignInMeans the type), for the session's user and nobody else. The page hides the
-// change and the removal of a password from a person who holds none, offers the removal
-// only where a directory sign-in can sign the person in, names what the removal leaves
-// by its label, and offers no change of an address that is a directory's. The server's
-// own refusals stand whatever the page shows.
+// with from: {"password", "directories": [{"name", "label"}], "directoryAddress",
+// "passwordDisabled"} (see SignInMeans the type), for the session's user and nobody
+// else. The page hides the change and the removal of a password from a person who holds
+// none, offers the removal only where a directory sign-in can sign the person in, names
+// what the removal leaves by its label, and offers no change of an address that is a
+// directory's. The server's own refusals stand whatever the page shows.
 //
 // The handler validates the session itself, as the name change does, so it is routed
 // beside it, outside ValidateSession, and its path is named to the page as the methods

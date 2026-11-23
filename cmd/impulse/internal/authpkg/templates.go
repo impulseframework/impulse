@@ -613,6 +613,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// the rule admits then carries a second factor (requireSecondFactor).
 {{- end}}
 	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations{{if .TenantPolicy.AdmitWithoutTenant}}, signin.AdmitWithoutTenant(){{end}}).Then(requireSecondFactor))
+
+	// The same rule, asked outside a sign-in, says whose password is disabled: a person
+	// every one of whose tenants is directory only, who administers none of them and
+	// holds no role outside them. Their account page draws no Password line and they
+	// are refused a first password (SetPasswordDisabledCheck). The declarations are read
+	// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).
+	authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 {{- else}}
 
 	// The sign-in rule: every session carries a second factor (requireSecondFactor).
