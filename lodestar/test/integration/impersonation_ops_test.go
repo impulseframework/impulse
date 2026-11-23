@@ -111,6 +111,30 @@ func TestImpersonationOperator(t *testing.T) {
 		}
 	})
 
+	t.Run("the desk filters by the username of the person a session is held as", func(t *testing.T) {
+		// The cadet's username finds the session; the marshal's does not, since the
+		// marshal established it and nobody holds a session as the marshal.
+		for _, tt := range []struct {
+			username string
+			want     bool
+		}{
+			{username: "cadet", want: true},
+			{username: "marshal", want: false},
+		} {
+			status, body := greer.do(ctx, http.MethodGet, watchDeskList+"?filter=principalUsername:eq:"+tt.username+"&limit=200", nil)
+			assertStatus(t, status, http.StatusOK, body)
+			held := false
+			for _, row := range decodeRows(t, body) {
+				if cell[string](t, row, "sessionId") == minted {
+					held = true
+				}
+			}
+			if held != tt.want {
+				t.Errorf("the desk filtered by principalUsername %q holds the session: %v, want %v: %s", tt.username, held, tt.want, body)
+			}
+		}
+	})
+
 	t.Run("a forged write on the read-only session is stopped by the middleware", func(t *testing.T) {
 		status, body := maren.do(ctx, http.MethodPost, sectorPath(anvil, "claim-mission"), fmt.Appendf(nil, `{"missionId":%q,"squadronId":%q}`, missionHaulerID, squadronTongsID))
 		assertStatus(t, status, http.StatusForbidden, body)

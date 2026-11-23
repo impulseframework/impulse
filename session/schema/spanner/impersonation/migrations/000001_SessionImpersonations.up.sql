@@ -25,3 +25,9 @@ CREATE INDEX SessionImpersonations_ActorUsername_idx
 CREATE INDEX SessionImpersonations_PrincipalUserId_idx
     ON SessionImpersonations
     (PrincipalUserId, StartedAt DESC);
+
+-- Nothing in the session library reads this index. It is what lets a list of the records
+-- be filtered by the username of the person a session is held as.
+CREATE INDEX SessionImpersonations_PrincipalUsername_idx
+    ON SessionImpersonations
+    (PrincipalUsername, StartedAt DESC);
