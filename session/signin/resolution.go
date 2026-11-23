@@ -77,8 +77,9 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // and a sign-in where the Auth has no policy, is held for the library's mailed code; a
 // Deny and a RequireMFA stand as they are. It runs in the transaction that inserts the
 // session; the user resolution has committed by then, so the policy can read the user
-// and the rows the account rule wrote, and req.User says how the user was found. The transaction commits unless an error is
-// returned, so a DenySignIn or RequireMFA answer keeps the policy's own writes.
+// and the rows the account rule wrote, and req.User says how the user was found. The
+// transaction commits unless an error is returned, so a DenySignIn or RequireMFA answer
+// keeps the policy's own writes.
 type Policy[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error)
 
 // Then returns the policy that asks p and, unless p refuses the sign-in, asks next:

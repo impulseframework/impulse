@@ -1075,8 +1075,9 @@ func (h *PendingHandlers) SendCode() http.HandlerFunc {
 // when code is the one sent: the session starts under a new ID, recording the
 // sign-in's events and an email-code event, and the address the code went to is
 // written on the user verified when it was not. With rememberDevice the browser is
-// remembered as a trusted device of the user for the trusted device period, so its
-// next sign-ins skip the factor. It answers as the password login does:
+// remembered as a trusted device of the user for the days the sign-in settings say
+// (AuthAPI.SetRememberedBrowserDays), so its next sign-ins skip the factor; while they
+// say 0, it is not remembered. It answers as the password login does:
 // {"mfaIsRequired": false}, or the policy's next wait. A wrong code is 401 with
 // {"code": "invalid_code"} and the code stands with one fewer attempt; a code entered
 // while none stands, because none was sent or the one sent expired, was used, took its
