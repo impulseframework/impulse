@@ -672,6 +672,12 @@ func TestDeleteCascade_fourRecords(t *testing.T) {
 
 		askedThenTaken(t, sectorPath(anvil, "hangars"), "/"+dock, "Delete this hangar and everything under it: 1 ship, 1 hangar pass, 1 refit, 1 refit task. This can't be undone.",
 			[]takenRow{rowByID("Hangars", dock), rowByID("HangarPasses", visit), rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
+		if got := changes(t, "Ships", hull); got != 1 {
+			t.Errorf("the hangar's delete wrote %d change records for the ship it took, want 1", got)
+		}
+		if got := changes(t, "Refits", bay); got != 1 {
+			t.Errorf("the hangar's delete wrote %d change records for the refit it took, want 1", got)
+		}
 		if !stands(t, rowByID("Ships", shipStubbornMuleID)) {
 			t.Error("a ship of Anvil Dock One is gone with another hangar")
 		}

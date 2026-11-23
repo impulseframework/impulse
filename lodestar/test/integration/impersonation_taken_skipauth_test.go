@@ -33,7 +33,10 @@ import (
 // person's rows are asked the question and then go, with every row under them. The
 // governor, acting as Headquarters, is refused the delete of a client whose contact he
 // is; his session ended, the same delete goes through, because the rule is for a session
-// that acts as someone else.
+// that acts as someone else. The mask is asked of a taken row as well: the cadet,
+// standing in for the governor (the kind whose mask refuses the class access), is
+// refused the delete of a client whose contact names the yeoman, as the contact's own
+// delete would be refused, and the client and the contact stand.
 func TestImpersonation_ownRecordTakenWithARecord(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +213,25 @@ func TestImpersonation_ownRecordTakenWithARecord(t *testing.T) {
 	for _, row := range governorRows {
 		if stands(row) {
 			t.Errorf("%s %v stands after the governor deleted its client with everything under it in his own session", row.table, row.key)
+		}
+	}
+
+	// The cadet, given the grant to act as a person, stands in for the governor. The
+	// kind's mask refuses the class access, which the contact's delete carries, so the
+	// client is refused whoever its contact names.
+	giveCrewRole(ctx, t, s, "StandIn", "cadet")
+	cadetAsGovernor := actingBrowser(ctx, t, s, "cadet", actAs(t, "governor", "standing in for the governor", ""))
+	maskedClient, maskedContact := id("a90"), id("b90")
+	write(client(maskedClient), contact(maskedContact, maskedClient, yeoman))
+	for _, everythingUnder := range []bool{false, true} {
+		status, body := cadetAsGovernor.do(ctx, http.MethodPatch, clients, remove("/"+maskedClient, everythingUnder))
+		if want := "This client has client contacts that you can't delete, so it can't be deleted."; status != http.StatusForbidden || refusalMessage(t, body) != want {
+			t.Errorf("the cadet as the governor, a client whose contact is the yeoman (everythingUnder %v): status %d, want 403 saying %q: %s", everythingUnder, status, want, body)
+		}
+	}
+	for _, row := range []takenRow{rowByID("Clients", maskedClient), rowByID("ClientContacts", maskedContact)} {
+		if !stands(row) {
+			t.Errorf("the cadet as the governor: %s %v is gone, though the delete was refused", row.table, row.key)
 		}
 	}
 }
