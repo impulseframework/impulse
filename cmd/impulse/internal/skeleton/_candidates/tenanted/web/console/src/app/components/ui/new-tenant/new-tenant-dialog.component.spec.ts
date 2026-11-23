@@ -137,13 +137,14 @@ describe('NewTenantDialogComponent', () => {
     fixture.componentInstance.form.setValue({ name: 'West' });
     const pending = fixture.componentInstance.create();
 
-    // The server answers 409 in the words of its tables; the dialog says what the person can act on.
-    http
-      .expectOne(`${environment.apiUrl}/${createTenantRoute}`)
-      .flush(
-        { message: 'Tenants, StaffUserRoles: a record with this key or a unique value already exists.' },
-        { status: 409, statusText: 'Conflict' },
-      );
+    // The server answers 409 in its own words; the dialog says what the person can act on.
+    http.expectOne(`${environment.apiUrl}/${createTenantRoute}`).flush(
+      {
+        message:
+          'One of the tenants or staff user roles this request adds or changes already exists, or it has a value that must be unique and another record already has it.',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
     await pending;
     fixture.detectChanges();
 

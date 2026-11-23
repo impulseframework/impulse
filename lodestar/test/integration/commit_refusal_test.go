@@ -2,8 +2,8 @@
 package integration
 
 // This suite pins what a commit Spanner refuses answers: a 4xx with a message the resource
-// library composes from the resources the transaction buffered, decided on the gRPC code
-// alone. A sector's rows go with it, so every link of a table's way to its sector
+// library composes from the records the transaction buffered, said in words, decided on the
+// gRPC code alone. A sector's rows go with it, so every link of a table's way to its sector
 // carries the delete rule: a hangar takes its ships, a ship its refits, a mission its
 // sorties and documents, a sortie its expenses, a wing its squadrons, whether the sector
 // is deleted or the row alone (TestDeleteAlone_takesTheRowsOnItsWay). The referential
@@ -86,35 +86,35 @@ func TestCommitRefusal(t *testing.T) {
 			// PATCH surface. Anvil Dock One's ships would go with it, by the delete rule on
 			// a ship's way to its sector, and several of them have flown and been reported
 			// on: a sortie and a droid's report each name their ship from outside their own
-			// way, so the commit is refused, and the message names the hangar, never the
+			// way, so the commit is refused, and the message says the hangar, never the
 			// ships it would have taken, the sorties or the reports.
-			name:        "a delete of a hangar whose ships have flown or been reported on answers 409 naming Hangars",
+			name:        "a delete of a hangar whose ships have flown or been reported on answers 409 saying the hangar",
 			target:      sectorPath(anvil, "hangars"),
 			ops:         fmt.Sprintf(`[{"op":"remove","path":"/%s"}]`, hangarAnvilDockID),
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Hangars: this record cannot be deleted while other records still reference it.",
+			wantMessage: "This hangar cannot be deleted while other records still refer to it.",
 		},
 		{
 			// Forge Wing's squadrons would go with it, by the delete rule on a squadron's
 			// way to its sector, and missions are assigned to both of them: a mission
 			// names its squadron from outside its own way, so the commit is refused, and
-			// the message names the wing, never the squadrons or the missions.
-			name:        "a delete of a wing whose squadrons have missions assigned answers 409 naming Wings",
+			// the message says the wing, never the squadrons or the missions.
+			name:        "a delete of a wing whose squadrons have missions assigned answers 409 saying the wing",
 			target:      "/console/api/resources",
 			ops:         "[" + remove("wings/"+wingForgeID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Wings: this record cannot be deleted while other records still reference it.",
+			wantMessage: "This wing cannot be deleted while other records still refer to it.",
 		},
 		{
 			// Mission is change-tracked: its delete buffers a DataChangeEvents row beside
 			// it, which the message must not name. The stood-down bullion run has nothing
 			// under it and is assigned to no squadron; the wing beside it is what the
 			// commit refuses.
-			name:        "deletes on two resources in a refused commit list both in buffering order",
+			name:        "deletes on two resources in a refused commit say both kinds in words in buffering order",
 			target:      "/console/api/resources",
 			ops:         "[" + remove("wings/"+wingForgeID) + "," + remove("missions/"+missionBullionID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Wings, Missions: a record cannot be deleted while other records still reference it.",
+			wantMessage: "One of the wings or missions this request deletes cannot be deleted while other records still refer to it.",
 		},
 		{
 			// Mission is change-tracked too; its client is not its tenancy hop, so the
@@ -123,7 +123,7 @@ func TestCommitRefusal(t *testing.T) {
 			target:      "/console/api/resources",
 			ops:         "[" + mission(missingClientID, "Booked for nobody", 1) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Missions: a referenced record does not exist, or a value is too long for its field.",
+			wantMessage: "This mission refers to a record that does not exist, or holds a value that is too long for its field.",
 		},
 		{
 			name:        "a batch mixing a write and a delete answers the sentence covering both causes",
@@ -152,11 +152,11 @@ func TestCommitRefusal(t *testing.T) {
 		{
 			// The Good Samaritan's refit already has task 2: the client-supplied compound
 			// key is taken, and the commit refuses it with AlreadyExists.
-			name:        "a create under a task number the refit already holds answers 409 naming the key",
+			name:        "a create under a task number the refit already holds answers 409 saying the refit task already exists",
 			target:      "/console/api/resources",
 			ops:         fmt.Sprintf(`[{"op":"add","path":%q,"value":{"instructions":"Recertify hull seals again","done":false}}]`, opPath(anvil, "refit-tasks/"+refitSamaritanID+"/2")),
 			wantStatus:  http.StatusConflict,
-			wantMessage: "RefitTasks: a record with this key or a unique value already exists.",
+			wantMessage: "This refit task already exists, or it has a value that must be unique and another record already has it.",
 		},
 		{
 			// LS-101 is the Kingfisher's registry; Ship is tracked, so the change event is
@@ -165,7 +165,7 @@ func TestCommitRefusal(t *testing.T) {
 			target:      "/console/api/resources",
 			ops:         fmt.Sprintf(`[{"op":"add","path":%q,"value":{"hangarId":%q,"classId":%q,"registry":"LS-101","name":"Kingfisher's Shadow"}}]`, opPath(anvil, "ships"), hangarAnvilDockID, shipClassKestrelID),
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Ships: a record with this key or a unique value already exists.",
+			wantMessage: "This ship already exists, or it has a value that must be unique and another record already has it.",
 		},
 		{
 			// Client is excluded from consolidation and global: its standalone PATCH
@@ -174,7 +174,7 @@ func TestCommitRefusal(t *testing.T) {
 			target:      "/console/api/clients",
 			ops:         fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"name":"Halvard Freight"}}]`, clientMeridianID),
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Clients: a unique value already exists on another record.",
+			wantMessage: "This client has a value that must be unique, and another record already has it.",
 		},
 		{
 			name:        "a client updated under an id that does not exist answers 404",
@@ -185,12 +185,12 @@ func TestCommitRefusal(t *testing.T) {
 		},
 		{
 			// The update path has no validator: the schema's CK_Missions_Hazard refuses
-			// hazard 9 at commit, and the library answers it in the resource's name.
+			// hazard 9 at commit, and the library answers it saying the mission in words.
 			name:        "a mission's hazard updated to 9 answers 400 from the CHECK constraint",
 			target:      "/console/api/resources",
 			ops:         fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"hazard":9}}]`, opPath(anvil, "missions/"+missionHaulerID)),
 			wantStatus:  http.StatusBadRequest,
-			wantMessage: "Missions: a value is outside the range the record allows.",
+			wantMessage: "This mission has a value that is outside the range allowed.",
 		},
 		{
 			// The same rule on a create is the validator's, answered naming the field
