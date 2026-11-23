@@ -871,8 +871,13 @@ for a grant warning, the disclosure a Forbidden answer makes); and the question 
 leaves to judgment (whether the field's rank is sensitive and the table will page at
 volume, whether the list pages at volume, whether the table will grow and the tenant
 column is worth adding while it is cheap, whether the table is really an enumeration,
-whether lingering objects are acceptable, whether the disclosure is intended). impulse
-reads no test file itself; the agent does.
+whether lingering objects are acceptable, whether the disclosure is intended). The brief
+also lists what no tool judges, which the agent reviews in the migrations and the resource
+structs whether or not anything was raised: today, how the records of a tenant link to one
+another. A foreign key that holds the tenant and one on the other row's id alone are both
+the schema's to choose, link by link, and a record that can link a row of one tenant to a
+row of another is a design fault (the resource package's README, section 10, "A link
+between two records of a tenant"). impulse reads no test file itself; the agent does.
 
 ```sh
 impulse advise                      # write the brief and print the command to run the agent
@@ -888,10 +893,11 @@ are an answer and no edit: per warning and finding, in prose, which branch of th
 holds for this application, the answer to the question from what the code tells, and the
 edit recommended (`masking:"positional"`, the index migration, the tenant column, the
 runtime resource, the Read grant, or the accepted pin and where it goes), with the
-questions the code cannot answer stated for the developer; nothing is run that writes.
-There is no verify step, since nothing was to be changed. A program that fails, or does
-not take `-audit`, is an error with `impulse audit`'s message: the brief would miss its
-input.
+questions the code cannot answer stated for the developer; for what no tool judges, which
+design each link is, whether it fits how the code uses the record, and every design fault
+found; nothing is run that writes. There is no verify step, since nothing was to be
+changed. A program that fails, or does not take `-audit`, is an error with
+`impulse audit`'s message: the brief would miss its input.
 
 ## impulse render
 
