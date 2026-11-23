@@ -341,6 +341,24 @@ type AuthStore[Tx any] interface {
 	// back, so a choice made for the method at the same moment (opened to sign-up, made
 	// invite only) is not undone. A method with no row gets one that is invite only.
 	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	// SetSignInSettingsTableName sets the name of the sign-in settings table. (default: SessionSignInSettings)
+	SetSignInSettingsTableName(name string) error
+	// SignInSettings reads the Auth's row of the sign-in settings table: what an
+	// administrator chose for the whole Auth. It answers nil when there is none, which
+	// requires the second factor and remembers a browser for the default period. A read
+	// that fails, as it does when the table is missing, is an error, never "no row".
+	SignInSettings(ctx context.Context) (*SignInSettings, error)
+	// SetRequireSecondFactor writes whether everyone is asked for a second factor when they
+	// sign in, and leaves how long a browser is remembered as it stands. The one field is
+	// written, never the row read and written back. With no row, the row is made with the
+	// default period.
+	SetRequireSecondFactor(ctx context.Context, on bool) error
+	// SetRememberBrowserDays writes for how many days a browser a person asked to be
+	// remembered skips the code, 0 for browsers that are not remembered, and leaves
+	// whether a second factor is required as it stands. The one field is written, never
+	// the row read and written back. With no row, the row is made with the second factor
+	// required. It holds no rule: the days' bounds are the caller's to keep.
+	SetRememberBrowserDays(ctx context.Context, days int64) error
 	// SignUp makes the account of a person who signs up with a password through the
 	// method registered under method, in one transaction, and returns its id: the method
 	// must be open to sign-up for audience, whom its registration admits
@@ -527,6 +545,11 @@ const (
 // one sign-in method, whether it is open to sign-up and the role a person who signs up
 // through it is given.
 type SignInMethod = dbtype.SignInMethod
+
+// SignInSettings is the row of the sign-in settings table: what an administrator chose
+// for the whole Auth, whether everyone is asked for a second factor and how long a
+// remembered browser skips the code. A nil row answers the defaults.
+type SignInSettings = dbtype.SignInSettings
 
 // SignInAttempts is the sign-in attempts record of a name: the failed password
 // attempts in its window and the lock they earned.
@@ -809,6 +832,52 @@ func (a *Auth[Tx]) SetSelfServiceReset(ctx context.Context, method string, on bo
 
 	if err := a.db.SetSelfServiceReset(ctx, method, on); err != nil {
 		return errors.Wrap(err, "db.SetSelfServiceReset()")
+	}
+
+	return nil
+}
+
+// SetSignInSettingsTableName implements AuthStore.
+func (a *Auth[Tx]) SetSignInSettingsTableName(name string) error {
+	if err := a.db.SetSignInSettingsTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetSignInSettingsTableName()")
+	}
+
+	return nil
+}
+
+// SignInSettings implements AuthStore.
+func (a *Auth[Tx]) SignInSettings(ctx context.Context) (*SignInSettings, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	settings, err := a.db.SignInSettings(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.SignInSettings()")
+	}
+
+	return settings, nil
+}
+
+// SetRequireSecondFactor implements AuthStore.
+func (a *Auth[Tx]) SetRequireSecondFactor(ctx context.Context, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetRequireSecondFactor(ctx, on); err != nil {
+		return errors.Wrap(err, "db.SetRequireSecondFactor()")
+	}
+
+	return nil
+}
+
+// SetRememberBrowserDays implements AuthStore.
+func (a *Auth[Tx]) SetRememberBrowserDays(ctx context.Context, days int64) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetRememberBrowserDays(ctx, days); err != nil {
+		return errors.Wrap(err, "db.SetRememberBrowserDays()")
 	}
 
 	return nil

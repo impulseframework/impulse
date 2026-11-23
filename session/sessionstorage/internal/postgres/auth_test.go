@@ -93,6 +93,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		Addresses:     drivertest.NewAddresses(d),
 
 		ConfirmAddressByLink: drivertest.NewConfirmAddressByLink(d),
+		SignInSettingsIn:     drivertest.NewSignInSettingsIn(d, d.SignInSettingsIn),
 	}
 }
 

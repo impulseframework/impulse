@@ -55,6 +55,12 @@ type AuthDriver interface {
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
 	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
 	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	// SetSignInSettingsTableName renames the sign-in settings table; the suite points it
+	// at a table that is not there.
+	SetSignInSettingsTableName(name string) error
+	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
+	SetRequireSecondFactor(ctx context.Context, on bool) error
+	SetRememberBrowserDays(ctx context.Context, days int64) error
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
@@ -349,6 +355,10 @@ type AuthInstance struct {
 	// person's own link or an administrator's link is followed: the flow's one
 	// transaction over the driver. The harness builds it with NewConfirmAddressByLink.
 	ConfirmAddressByLink func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error)
+	// SignInSettingsIn reads the sign-in settings row as a sign-in's transaction reads
+	// it, in a transaction of the driver's. The harness builds it with
+	// NewSignInSettingsIn.
+	SignInSettingsIn func(ctx context.Context) (*dbtype.SignInSettings, error)
 }
 
 // NewConfirmAddressByLink returns an instance's ConfirmAddressByLink over d: the flow's
@@ -619,6 +629,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the code mailed to an invited address proves that invitation's acceptance and nothing else: with the invitation dead nothing is made, linked or confirmed, and a registration that mails no code has none to accept on", run: testInvitationByCodeAlone},
 		{name: "an invitation accepted through a directory that asserts an address it did not verify waits for the code as one that asserts none: the claim makes no account, spends no invitation and makes no linked account the one invited", run: testInvitationUnverifiedAddress},
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
+		{name: "the sign-in settings are one row for the whole Auth, absent until a setting is written: each write sets its one field and leaves the other as it stands, a write with no row makes it with the other field at its default, and a sign-in's transaction reads what a plain read does", run: testSignInSettingsOneField},
+		{name: "a driver whose sign-in settings table is not there says so: both reads fail with an error naming the table, never a row read as absent", run: testSignInSettingsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person whose account was created ahead is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
 		{name: "a row opens its method for the audience it was opened for alone: a registration widened or narrowed in code since refuses a stranger and writes nothing, at a sign-in and at a password sign-up, and a row that names no audience opens nothing", run: testOpenRowOfAnotherAudience},

@@ -239,6 +239,16 @@ type db interface {
 	// link on the row of the sign-in method registered under method, and leaves what else
 	// the row says as it stands.
 	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	// SetSignInSettingsTableName sets the name of the sign-in settings table.
+	SetSignInSettingsTableName(name string) error
+	// SignInSettings reads the Auth's row of the sign-in settings table, or nil when there is none.
+	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
+	// SetRequireSecondFactor writes whether everyone is asked for a second factor, and leaves
+	// how long a browser is remembered as it stands.
+	SetRequireSecondFactor(ctx context.Context, on bool) error
+	// SetRememberBrowserDays writes for how many days a remembered browser skips the code, and
+	// leaves whether a second factor is required as it stands.
+	SetRememberBrowserDays(ctx context.Context, days int64) error
 	// InsertMailLink inserts a mail link.
 	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
 	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.

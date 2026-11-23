@@ -1162,6 +1162,34 @@ func (mr *MockdbMockRecorder) SetPendingSignInsTableName(name any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPendingSignInsTableName", reflect.TypeOf((*Mockdb)(nil).SetPendingSignInsTableName), name)
 }
 
+// SetRememberBrowserDays mocks base method.
+func (m *Mockdb) SetRememberBrowserDays(ctx context.Context, days int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRememberBrowserDays", ctx, days)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRememberBrowserDays indicates an expected call of SetRememberBrowserDays.
+func (mr *MockdbMockRecorder) SetRememberBrowserDays(ctx, days any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRememberBrowserDays", reflect.TypeOf((*Mockdb)(nil).SetRememberBrowserDays), ctx, days)
+}
+
+// SetRequireSecondFactor mocks base method.
+func (m *Mockdb) SetRequireSecondFactor(ctx context.Context, on bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRequireSecondFactor", ctx, on)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRequireSecondFactor indicates an expected call of SetRequireSecondFactor.
+func (mr *MockdbMockRecorder) SetRequireSecondFactor(ctx, on any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRequireSecondFactor", reflect.TypeOf((*Mockdb)(nil).SetRequireSecondFactor), ctx, on)
+}
+
 // SetSelfServiceReset mocks base method.
 func (m *Mockdb) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
 	m.ctrl.T.Helper()
@@ -1230,6 +1258,20 @@ func (m *Mockdb) SetSignInMethodsTableName(name string) error {
 func (mr *MockdbMockRecorder) SetSignInMethodsTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInMethodsTableName", reflect.TypeOf((*Mockdb)(nil).SetSignInMethodsTableName), name)
+}
+
+// SetSignInSettingsTableName mocks base method.
+func (m *Mockdb) SetSignInSettingsTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSignInSettingsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSignInSettingsTableName indicates an expected call of SetSignInSettingsTableName.
+func (mr *MockdbMockRecorder) SetSignInSettingsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInSettingsTableName", reflect.TypeOf((*Mockdb)(nil).SetSignInSettingsTableName), name)
 }
 
 // SetTokensTableName mocks base method.
@@ -1370,6 +1412,21 @@ func (m *Mockdb) SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, err
 func (mr *MockdbMockRecorder) SignInMethods(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInMethods", reflect.TypeOf((*Mockdb)(nil).SignInMethods), ctx)
+}
+
+// SignInSettings mocks base method.
+func (m *Mockdb) SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignInSettings", ctx)
+	ret0, _ := ret[0].(*dbtype.SignInSettings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignInSettings indicates an expected call of SignInSettings.
+func (mr *MockdbMockRecorder) SignInSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInSettings", reflect.TypeOf((*Mockdb)(nil).SignInSettings), ctx)
 }
 
 // TokenByHash mocks base method.
