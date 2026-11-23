@@ -172,7 +172,7 @@ func firstPasswordCase2(t *testing.T) {
 		return f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
 	}
 
-	if rr := set("123456"); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "Ask for a new one") {
+	if rr := set("123456"); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "That code has expired or was already used. Ask for a new one.") {
 		t.Errorf("Set() with no code sent = %d %s, want 409 saying to ask for one", rr.Code, rr.Body.String())
 	}
 	if rr := set(""); rr.Code != http.StatusConflict {

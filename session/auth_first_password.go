@@ -203,7 +203,7 @@ func errTooManyFirstPasswordCodes(wait time.Duration) error {
 
 // errFirstPasswordCodeDead is the refusal of a code entered when none stands.
 func errFirstPasswordCodeDead() error {
-	return httpio.NewConflictMessage("That code has expired or was already used. Ask for a new one")
+	return httpio.NewConflictMessage("That code has expired or was already used. Ask for a new one.")
 }
 
 // firstPasswordUser reads the account a first password is asked for and refuses the
