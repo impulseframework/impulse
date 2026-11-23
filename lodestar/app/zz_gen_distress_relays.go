@@ -27,7 +27,7 @@ func (a *App) DistressRelays() http.HandlerFunc {
 		Message        string           `json:"message"`
 		RelayedByName  string           `json:"relayedByName"`
 		RelayedAt      time.Time        `json:"relayedAt"      index:"true"`
-		SectorName     *string          `json:"sectorName"     nameof:"SectorID"`
+		SectorName     *string          `json:"sectorName"     nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any

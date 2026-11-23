@@ -31,9 +31,13 @@ type QuerySet[Resource Resourcer] struct {
 	// id a request that named no columns returns. nameGrants are the decisions on
 	// the grant each name in play takes beside its id's (checkNameGrants), by name
 	// field; nil until they are asked. closedNames are the names of the declared
-	// order whose id the person may not read (closeDeclaredOrder).
+	// order whose id the person may not read (closeDeclaredOrder). filterNames are
+	// the names the request's filter names, each once, in first appearance: the
+	// statement tests each through the pointed-to table (name_filter.go), and
+	// each takes its grants as a name the request sorts by does.
 	names       []requestName
 	shownNames  []accesstypes.Field
+	filterNames []accesstypes.Field
 	nameGrants  map[accesstypes.Field]accesstypes.Decision
 	closedNames map[accesstypes.Field]struct{}
 	// closedOrder are the fields of the declared order in force that the person
@@ -383,7 +387,7 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 		if err := q.checkQueryFieldsReadable(ctx, q.resourceSet, q.userPermissions); err != nil {
 			return err
 		}
-		if err := q.refuseSortedName(refusedHere); err != nil {
+		if err := q.refuseQueriedName(refusedHere); err != nil {
 			return err
 		}
 		if err := q.checkSearchFieldsReadable(ctx); err != nil {
@@ -1205,6 +1209,11 @@ func (q *QuerySet[Resource]) astWhereClause(dbType DBType, filterAst ExpressionN
 	}
 	gen.setSearchGrants(string(q.Resource()), fieldGrants, branchGrants)
 	gen.acrossTenants = q.severalTenants() != nil
+	nameFilters, err := q.nameFilters(dbType, filterAst, rendered, registry)
+	if err != nil {
+		return nil, "", err
+	}
+	gen.setNameFilters(nameFilters)
 
 	params := make(map[string]any)
 	residual := filterAst

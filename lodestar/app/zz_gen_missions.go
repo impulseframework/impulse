@@ -38,10 +38,10 @@ func (a *App) Missions() http.HandlerFunc {
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
-		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
-		KindName           *string               `json:"kindName"           nameof:"KindID"`
-		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
-		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"                                                   index:"true"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"                                                     index:"true"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"                                             index:"true"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"                                                   index:"true"`
 	}
 
 	type response []map[string]any
@@ -340,10 +340,10 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
-		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
-		KindName           *string               `json:"kindName"           nameof:"KindID"`
-		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
-		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"                                                   index:"true"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"                                                     index:"true"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"                                             index:"true"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"                                                   index:"true"`
 	}
 
 	type response []map[string]any

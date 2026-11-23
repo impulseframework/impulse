@@ -73,6 +73,81 @@ func (n *nameField) StructTag() string {
 	return fmt.Sprintf("%s:%q %s:%q", jsonTagKey, n.WireName(), nameOfTagKey, n.key.Name())
 }
 
+// ListStructTag is the tag a list's request types carry on the name field: StructTag,
+// then what a filter may do with the name. index:"true" where the id and the pointed-to
+// name are both indexed, allow_filter:"true" where both are filterable otherwise, and
+// nothing more where either is not; then pii:"true" where the pointed-to name is PII,
+// and the pointed-to name's search tag where the id is indexed, since a match on the
+// name stands alone. The read's request type carries StructTag: a read filters nothing.
+func (n *nameField) ListStructTag() string {
+	indexed, filterable := n.filterability()
+	if !filterable {
+		return n.StructTag()
+	}
+	parts := []string{n.StructTag(), allowFilterTagKey + `:"true"`}
+	if indexed {
+		parts[1] = indexTrue
+	}
+	if n.IsPII() {
+		parts = append(parts, n.source.PIITag())
+	}
+	if n.answersMatches() {
+		parts = append(parts, n.source.SearchTag())
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// TypescriptFilterable is the filterable value the TypeScript metadata's name field
+// entry carries, in a field's own words: 'always' where the id and the pointed-to name
+// are both indexed, 'withIndexed' where they are filterable otherwise, "" where a filter
+// may not name the name.
+func (n *nameField) TypescriptFilterable() string {
+	indexed, filterable := n.filterability()
+	switch {
+	case !filterable:
+		return ""
+	case indexed:
+		return tsFilterableAlways
+	default:
+		return tsFilterableWithIndexed
+	}
+}
+
+// TypescriptSearch renders the matches the name answers for the TypeScript metadata, as
+// a quoted list: the pointed-to name's, where the id is indexed; "" where it answers none.
+func (n *nameField) TypescriptSearch() string {
+	if !n.answersMatches() {
+		return ""
+	}
+
+	return n.source.TypescriptSearch()
+}
+
+// filterability says whether a filter may name the name, and whether it counts as the
+// filter's indexed field. A filter may name it where the id is filterable (indexed,
+// allow_filter or a search fact) and the name is filterable where it lives (the
+// pointed-to name field is, and an enumeration table's Description always is, the table
+// being read whole); it counts as indexed where the id is indexed and the pointed-to
+// name is.
+func (n *nameField) filterability() (indexed, filterable bool) {
+	keyIndexed := n.key.IndexTag() != ""
+	keyFilterable := keyIndexed || n.key.AllowFilterTag() != "" || n.key.SearchTag() != ""
+	sourceIndexed := n.source == nil || n.source.IndexTag() != ""
+	sourceFilterable := sourceIndexed || n.source.AllowFilterTag() != "" || n.source.SearchTag() != ""
+	if !keyFilterable || !sourceFilterable {
+		return false, false
+	}
+
+	return keyIndexed && sourceIndexed, true
+}
+
+// answersMatches reports whether the name answers the text matches: the id is indexed
+// and the pointed-to name carries a search fact.
+func (n *nameField) answersMatches() bool {
+	return n.key.IndexTag() != "" && n.source != nil && n.source.SearchTag() != ""
+}
+
 // declareRowName records the field a resource's rows are known by (@name) on a
 // table-backed or virtual struct. The tenant record declares its name with @tenantName,
 // which names its rows everywhere @name would, and an enumeration table's rows are

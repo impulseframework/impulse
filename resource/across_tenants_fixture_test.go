@@ -153,13 +153,13 @@ func (gradedCrate) NameFields() []NameField {
 
 // gradedCrateRequest is gradedCrate's list request type as the generator writes it.
 type gradedCrateRequest struct {
-	ID        string  `json:"id"        index:"true"     perm:"-"`
+	ID        string  `json:"id"        index:"true" perm:"-"`
 	Yard      string  `json:"-"`
 	Label     string  `json:"label"     index:"true"`
 	GradeID   string  `json:"gradeId"   index:"true"`
-	GradeName *string `json:"gradeName" nameof:"GradeID"`
+	GradeName *string `json:"gradeName" index:"true" nameof:"GradeID"`
 	MakerID   string  `json:"makerId"   index:"true"`
-	MakerName *string `json:"makerName" nameof:"MakerID"`
+	MakerName *string `json:"makerName" index:"true" nameof:"MakerID"`
 }
 
 // acrossCollection declares the fixture's vocabulary: the crates' attributes
