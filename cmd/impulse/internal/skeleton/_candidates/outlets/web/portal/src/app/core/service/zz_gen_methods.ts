@@ -897,6 +897,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },
@@ -920,6 +921,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersTenantGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },

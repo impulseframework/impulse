@@ -425,9 +425,12 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 	}
 	personNote := "// A row offers it only to a caller whose session enters every citadel the person\n// administers (@callerEnters); the method refuses anyone else.\n//\n// @rpc"
 	groupNote := "// Where the group is kept in a citadel and holds one of that citadel's\n// administrator roles there, a row offers it only to a caller whose session enters the\n// citadel (@callerEnters); the method refuses anyone else.\n//\n// @rpc"
+	// The removal's comment goes on to say that it asks first.
+	groupRemovalNote := "// Where the group is kept in a citadel and holds one of that citadel's\n// administrator roles there, a row offers it only to a caller whose session enters the\n// citadel (@callerEnters); the method refuses anyone else.\n//\n" +
+		"// The method declares a warning with no word to type: asked first, the server says who\n// leaves which group, and, where the place is the last thing the person holds, that the\n// account is deleted with it.\n//\n// @rpc"
 	notes := map[string]string{
 		"membersidentity/add_members_group_member.go":    groupNote,
-		"membersidentity/remove_members_group_member.go": groupNote,
+		"membersidentity/remove_members_group_member.go": groupRemovalNote,
 	}
 	files := identityTreeFiles(t, "pkg/identity")
 	var marked []string
