@@ -1853,6 +1853,92 @@ describe("identityPages, the people lists lead with the person's name", () => {
   });
 });
 
+// Where the server says which sessions are live (the sessions list has `live`), a person's
+// page lists the live ones and links under them to all of the person's sessions on the
+// Sessions page, which says each session's state in one column. A list from before the
+// server said so is drawn as it was.
+describe('identityPages, the sessions where the server says which are live', () => {
+  const liveMetas: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewSessions: fields('id', 'userId', 'username', 'expired', 'live', 'authenticatedAt', 'updatedAt'),
+  };
+  const liveMeta = (resource: Resource): ResourceMeta => liveMetas[resource];
+  // A description of its own: the pages are made once for each description.
+  const liveDescriptor = { ...descriptor } as ApiDescriptor;
+  const [people, , sessions] = identityPages(liveDescriptor, liveMeta, { auth: 'Crew', scope: 'global' });
+  const liveOf = (): ListViewConfig => children(people)[2];
+
+  it('lists under a person the live sessions, when each signed in and was last active, and says when there is none', () => {
+    const live = liveOf();
+    expect([live.title, live.primaryResource, live.parentRelation]).toEqual([
+      'Live sessions',
+      'CrewSessions',
+      { parentKey: 'id', childKey: 'userId' },
+    ]);
+    // The list's own filter, sent beside the one by the person's id.
+    expect(live.filter({ id: 'u-1', username: 'ada' })).toBe('live:eq:true');
+    expect(columns(live)).toEqual([
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+    ]);
+    expect(live.emptyMessage).toBe('This person is not signed in anywhere.');
+    expect(methodsOf(live.rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it("links under a person's live sessions to every session of theirs, on the Sessions page filtered by their username", () => {
+    const live = liveOf();
+    expect(live.more?.({ id: 'u-1', username: 'ada' })).toEqual({
+      label: "All of ada's sessions",
+      route: sessions.routeData.route,
+      queryParams: { filter: ['username:eq:ada'] },
+    });
+    expect(sessions.routeData.route).toBe('crew-sessions');
+    // A row with no username has no filter to open the page at.
+    expect(live.more?.({ id: 'u-1' })).toBeUndefined();
+    expect(live.more?.({ id: 'u-1', username: '' })).toBeUndefined();
+  });
+
+  it("says on the Sessions page each session's state in one column, from what the server says of it", () => {
+    expect(visibleColumns(list(sessions))).toEqual([
+      ['username', 'Username'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['live', 'State'],
+    ]);
+    expect(hiddenColumns(list(sessions))).toEqual(['expired']);
+    const state = columnOf(list(sessions), 'live');
+    expect([state.sortable, state.filterable]).toEqual([false, false]);
+    const said = state.valueGetter as (row: RecordData) => string;
+    expect([
+      said({ live: true, expired: false }),
+      said({ live: false, expired: false }),
+      said({ live: false, expired: true }),
+      said({}),
+    ]).toEqual(['Live', 'Timed out', 'Ended', '']);
+    expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it('draws both lists as it did where the server does not say which sessions are live', () => {
+    const [before, , every] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    const of = children(before)[2];
+    expect(of.title).toBe('Sessions');
+    expect(columns(of)).toEqual([
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['expired', 'Expired'],
+    ]);
+    expect(of.filter({ id: 'u-1', username: 'ada' })).toBe('');
+    expect(of.more).toBeUndefined();
+    expect(of.emptyMessage).toBe('This person has no session.');
+    expect(columns(list(every))).toEqual([
+      ['username', 'Username'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['expired', 'Expired'],
+    ]);
+  });
+});
+
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.
@@ -1960,7 +2046,7 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['Roles held', 'This person holds no role.'],
       ['Roles held through a group', 'No role comes to this person through a group.'],
       ['Sign-in identities', 'No directory sign-in is linked.'],
-      ['Sessions', undefined],
+      ['Sessions', 'This person has no session.'],
     ]);
     // A tenant's side says what is shown: a role file may keep a shared person's
     // identities from a tenant's reader, so an empty list there does not say there are none.
