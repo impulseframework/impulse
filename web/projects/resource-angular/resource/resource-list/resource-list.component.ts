@@ -690,7 +690,7 @@ export class ResourceListComponent implements OnInit {
     (): FieldSort[] => {
       const resource = this.config().primaryResource;
       const descriptor = resource ? this.store.client.descriptor.resources[resource] : undefined;
-      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor);
+      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor, this.listableFields());
     },
     { equal: sameSorts },
   );

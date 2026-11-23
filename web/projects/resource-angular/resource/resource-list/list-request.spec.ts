@@ -200,6 +200,19 @@ describe('answeredSorts', () => {
     expect(answeredSorts(sorts, undefined, states)).toEqual(sorts);
   });
 
+  it("on a table, a sort by a field the role's List does not name is dropped, and a key field is kept, named or not", () => {
+    const listable = new Set(['holder', 'budget', 'bay']);
+
+    expect(answeredSorts(sorts, table, states, listable)).toEqual([sorts[0], sorts[1], sorts[2], sorts[4]]);
+    expect(answeredSorts([sorts[4]], table, states, new Set())).toEqual([sorts[4]]);
+  });
+
+  it("on a computed resource, a sort by a field the role's List does not name is dropped beside one by a field listed as conditional", () => {
+    const listable = new Set(['holder', 'budget']);
+
+    expect(answeredSorts(sorts, passes, states, listable)).toEqual([sorts[1], sorts[4]]);
+  });
+
   it('the sorts handed in are not changed, and a new array comes back', () => {
     const handed = [...sorts];
     const got = answeredSorts(handed, passes, states);
@@ -251,6 +264,16 @@ describe('listSorts', () => {
 
   it('over a table every sort comes back', () => {
     expect(listSorts([byHolder, byBudget], table, states, unordered)).toEqual([byHolder, byBudget]);
+  });
+
+  it("over a table with no declared order, whose one sort is by a field the role's List does not name, the key ascending", () => {
+    expect(listSorts([byBudget], table, states, unordered, new Set(['holder']))).toEqual([
+      { field: 'id', direction: 'asc' },
+    ]);
+  });
+
+  it("over a table with a declared order, whose one sort is by a field the role's List does not name, no sort", () => {
+    expect(listSorts([byBudget], table, states, ordered, new Set(['holder']))).toEqual([]);
   });
 });
 

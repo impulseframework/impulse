@@ -543,6 +543,45 @@ describe('ResourceListComponent', () => {
         expect(fixture.componentInstance.store.sorts()).toBe(asked);
       });
     });
+
+    it("asks for no configured sort by a field the role's List does not name: one request, by the key, and its rows drawn", async () => {
+      // The digest names the clients' name and not their notes, and the server refuses the
+      // whole list for a sort by a field the caller may not list, a table's as a computed
+      // resource's.
+      const digest: PermissionDigest = {
+        [clients]: { List: 'granted' },
+        [`${clients}.id`]: { List: 'granted' },
+        [`${clients}.name`]: { List: 'granted' },
+      };
+      const rows = [
+        { id: 'c-1', name: 'Meridian' },
+        { id: 'c-2', name: 'Halyard' },
+      ];
+      await create(
+        {
+          primaryResource: clients,
+          listColumns: [{ id: 'name' as FieldName }],
+          sorts: [{ field: 'notes' as FieldName, direction: 'desc' }],
+        },
+        [],
+        (request) =>
+          request.url.startsWith('/api/permission-digest')
+            ? { status: 200, body: digest }
+            : { status: 200, body: rows, headers: { 'total-count': '2' } },
+      );
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+      fixture.detectChanges();
+      await settle();
+
+      const asked = transport.requests
+        .filter((request) => request.url.split('?')[0] === '/api/clients')
+        .map((request) => new URL(request.url, 'http://list.test').searchParams.get('sort'));
+      expect(asked).toEqual(['id:asc']);
+      const cells = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
+      ).map((cell) => cell.textContent?.trim());
+      expect(cells).toEqual(['Meridian', 'Halyard']);
+    });
   });
 
   describe('draws its heading once it knows what the heading says', () => {
