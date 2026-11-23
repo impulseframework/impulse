@@ -13,11 +13,12 @@ import (
 // NewQueryDecoder builds a query decoder for a generated resource and request pair,
 // wired to the generated collection so conditional grants render into the query, to
 // the application's cursor key so its lists page, and to its feature set so a field
-// gated behind a flag that is off is unknown to the request. The Resourcer union keeps
-// construction inside the generated universe: a decoder over any other struct is a
-// compile error.
+// gated behind a flag that is off is unknown to the request, and to the application's
+// name views so a name that points into a view is read from the view's query. The
+// Resourcer union keeps construction inside the generated universe: a decoder over any
+// other struct is a compile error.
 func NewQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions ...accesstypes.Permission) *resource.QueryDecoder[Resource, Request] {
-	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet())
+	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithNameViews(nil)
 }
 
 // NewComputedQueryDecoder builds a query decoder for a generated computed resource

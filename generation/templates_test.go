@@ -98,6 +98,24 @@ func Test_decodersTemplate_gating(t *testing.T) {
 			wantNotContains: []string{"NewQueryDecoder", "NewDecoder[", "NewRPCDecoder"},
 		},
 		{
+			// A name read from a view is read from the view's query, which the decoder
+			// holds: the application's handlers hand theirs the merged name views, an
+			// auth's their package's, or nil.
+			name: "a query decoder is handed the home's name views",
+			data: decodersFileData{
+				Package:         "app",
+				ApplicationName: "App",
+				ReceiverName:    "a",
+				RouterPackage:   "router",
+				HasQueryDecoder: true,
+				NameViews:       "nameViews",
+			},
+			wantContains: []string{
+				"resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(a.CursorKey()).WithFeatures(a.FeatureSet()).WithNameViews(nameViews)",
+				"so a field\n// gated behind a flag that is off is unknown to the request, and to the application's\n// name views so a name that points into a view is read from the view's query.",
+			},
+		},
+		{
 			name: "query-only emits no computed, patch, or RPC constructor",
 			data: decodersFileData{
 				Package:         "app",
