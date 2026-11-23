@@ -113,19 +113,24 @@ ALTER TABLE SessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, IN
 ALTER TABLE SessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 ```
 
-PostgreSQL has no such policy, so the store removes the rows as it writes: a sign-in
-removes the sessions that are due, a failed attempt removes the sign-in attempts rows
-that are due, and a link's insert removes the mail links that are due. Each write
+PostgreSQL has no such policy, so the `Auth` store removes the rows as it writes: a
+sign-in removes the sessions that are due, a failed attempt removes the sign-in attempts
+rows that are due, and a link's insert removes the mail links that are due. Each write
 removes at most 100 rows, oldest first, and skips a row another transaction holds, so
-no write waits on the removal and nothing sweeps the tables. A session a `Preauth`
-store makes, and one the application starts, remove nothing.
+the removal waits on nobody and nothing sweeps the tables. The removal is never the
+write's failure: one that fails is logged as an error, and the sign-in, the recorded
+failure or the link stands. Only a sign-in removes sessions. A session a `Preauth` store
+makes, one the application starts and an impersonated session remove nothing, so on
+PostgreSQL an application that only ever makes such sessions keeps every session row.
 
-The shipped sets carry all of this (`SessionRowRemoval`, in the base set and in the auth
-set). A table named per group, or kept in the application's own migrations, needs the
-same statements under its name. On PostgreSQL the store reads `EndsAt`, so a sign-in
-attempts table without the column fails every recorded failure. A table of the
-application's that references the sessions table needs `ON DELETE CASCADE` on that
-foreign key, as the custom session data table has.
+The shipped sets carry all of this (`SessionRowRemoval`: on Spanner in the base set and
+in the auth set, on PostgreSQL in the auth set). A table named per group, or kept in the
+application's own migrations, needs the same statements under its name. On PostgreSQL
+the store reads `EndsAt`: without the column it removes no sign-in attempts row and logs
+an error at each recorded failure. A table of the application's that references the
+sessions table needs `ON DELETE CASCADE` on that foreign key, as the custom session data
+table has: on PostgreSQL a foreign key without it stops the removal of sessions while a
+row it holds is due, logged at each sign-in.
 
 ## Auth sessions (multiple sign-in methods)
 
@@ -197,9 +202,9 @@ first link written or read.
 The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
 null only for a role-principal impersonation), and deleting a user deletes its
 sessions, their auth events and its identity links; your custom data tables cascade
-from the session and user rows likewise. Sessions are marked expired, never deleted, by
-the library: retention is the application's policy, and auth events last exactly as
-long as their session rows.
+from the session and user rows likewise. A session that ends is marked expired, and its
+row stays until it has been idle 30 days (see "Rows that are over are removed" under
+"Schema"); auth events last exactly as long as their session rows.
 
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
