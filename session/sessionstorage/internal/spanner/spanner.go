@@ -118,11 +118,11 @@ func (s *SessionStorageDriver) usernameIndex() string {
 // column's source or a parameter), which every lookup by username compares the column
 // with. A username with an @ in it reads as an email address and is folded as an
 // address is (addressFold): its ASCII capital letters lowercased and every other
-// character as written. Any other username is put in Unicode's normalization and case
-// folding. The key a name's failed sign-ins are counted under is the same form
-// (attempts.Normalize).
+// character as written. Any other username is normalized, put in Unicode's case folding
+// and normalized again (attempts.FoldWide says why). The key a name's failed sign-ins are
+// counted under is the same form (attempts.Normalize).
 func usernameFold(operand string) string {
-	return fmt.Sprintf(`IF(STRPOS(%[1]s, '@') > 0, %[2]s, NORMALIZE_AND_CASEFOLD(%[1]s))`, operand, addressFold(operand))
+	return fmt.Sprintf(`IF(STRPOS(%[1]s, '@') > 0, %[2]s, NORMALIZE(NORMALIZE_AND_CASEFOLD(%[1]s)))`, operand, addressFold(operand))
 }
 
 // exactUsernameIndex is the unique index on the user table's username as written, named

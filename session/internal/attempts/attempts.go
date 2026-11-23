@@ -114,15 +114,20 @@ func (l *Limiter) SetClock(now func() time.Time) {
 	l.now = now
 }
 
-// FoldWide returns text in Unicode NFC and in Unicode's full case folding: the form the
-// users table matches a username with no @ in it by, and the wide reading of an address
-// that the counts of its mail are kept under, which takes some addresses that only read
-// alike for one. cases.Fold gives a Cherokee letter in its other case, where Unicode's
-// case folding, which the stores apply, gives the capital for a capital and a small
-// letter alike; the small letters are put back to their capitals (cherokeeCapital), so
-// the form is the stores' and folding it again changes nothing.
+// FoldWide returns text normalized (Unicode NFC), in Unicode's full case folding and
+// normalized again: the form the users table matches a username with no @ in it by, and
+// the wide reading of an address that the counts of its mail are kept under, which takes
+// some addresses that only read alike for one. The folding of a normalized text is not
+// always normalized: a capital iota with dialytika followed by a combining acute accent
+// (U+03AA U+0301) folds to two code points that compose to the small letter in one
+// (U+0390). Without the second normalization the capital so written and its small letter
+// would be two names, and a key folded again would be another key. cases.Fold gives a
+// Cherokee letter in its other case, where Unicode's case folding, which the stores
+// apply, gives the capital for a capital and a small letter alike; the small letters are
+// put back to their capitals (cherokeeCapital), so the form is the stores' and folding it
+// again changes nothing.
 func FoldWide(text string) string {
-	return strings.Map(cherokeeCapital, cases.Fold().String(norm.NFC.String(text)))
+	return norm.NFC.String(strings.Map(cherokeeCapital, cases.Fold().String(norm.NFC.String(text))))
 }
 
 // cherokeeCapital is r as its capital when r is a small Cherokee letter, and r otherwise.

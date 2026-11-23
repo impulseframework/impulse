@@ -5,8 +5,11 @@ CREATE TABLE SessionUsers (
   -- as an email address and is matched as the library compares two addresses: its ASCII
   -- capital letters lowercased and every other character as written (LOWER over BYTES
   -- treats its argument as ASCII), so two addresses the library tells apart are two
-  -- usernames. Any other username is matched in Unicode's normalization and case folding.
-  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE_AND_CASEFOLD(Username))) STORED,
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
   -- An administrator required a new password of the user: they choose it before

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
@@ -194,6 +195,7 @@ func TestNormalize(t *testing.T) {
 		{name: "a name with no @ in it in a Cherokee capital of the later block stays a capital", in: "\u13F0", want: "\u13F0"},
 		{name: "a name with no @ in it in a Cherokee small letter of the later block is folded to its capital", in: "\u13F8", want: "\u13F0"},
 		{name: "an address keeps Cherokee small letters", in: "\uAB70\uAB71@lakeside.edu", want: "\uAB70\uAB71@lakeside.edu"},
+		{name: "a name with no @ in it in a capital written in two code points is its small letter in one", in: "\u03AA\u0301", want: "\u0390"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,8 +208,11 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
-// TestFoldWide pins the wide reading of an address that the counts of its mail are kept
-// under: Unicode NFC and case-folded, so some addresses that only read alike are one.
+// TestFoldWide pins the form a username with no @ in it is matched in, which is also the
+// wide reading of an address that the counts of its mail are kept under: normalized
+// (Unicode NFC), case-folded and normalized again, so some addresses that only read alike
+// are one. The letters from outside ASCII are written as escapes so that each is the code
+// point it is named for.
 func TestFoldWide(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +234,9 @@ func TestFoldWide(t *testing.T) {
 		{name: "a Cherokee capital of the later block stays a capital", in: "\u13F0", want: "\u13F0"},
 		{name: "a Cherokee small letter of the later block folds to its capital", in: "\u13F8", want: "\u13F0"},
 		{name: "an address in Cherokee small letters folds to the capitals", in: "\uAB70\uAB71@lakeside.edu", want: "\u13A0\u13A1@lakeside.edu"},
+		{name: "a capital written in two code points folds to its small letter in one", in: "\u03AA\u0301", want: "\u0390"},
+		{name: "a small letter whose folding is three code points is composed again", in: "\u0390", want: "\u0390"},
+		{name: "the sharp s before an accent is composed with it after the folding", in: "\u00DF\u0301", want: "s\u015B"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -242,18 +250,29 @@ func TestFoldWide(t *testing.T) {
 }
 
 // TestFoldWide_foldedAgain pins that the form FoldWide gives is the same when it is folded
-// again, for every code point: SignInAttemptKey folds a listed name, which is already a
-// key, again, and has to name the row the list shows.
+// again, for every code point alone and for every cased letter followed by each combining
+// mark from U+0300 to U+036F, which is where the folding of a normalized text is not
+// normalized: SignInAttemptKey folds a listed name, which is already a key, again, and has
+// to name the row the list shows.
 func TestFoldWide_foldedAgain(t *testing.T) {
 	t.Parallel()
 
+	check := func(text string) {
+		once := FoldWide(text)
+		if twice := FoldWide(once); twice != once {
+			t.Errorf("FoldWide(%+q) = %+q, and folded again %+q", text, once, twice)
+		}
+	}
 	for r := rune(0); r <= utf8.MaxRune; r++ {
 		if !utf8.ValidRune(r) {
 			continue
 		}
-		once := FoldWide(string(r))
-		if twice := FoldWide(once); twice != once {
-			t.Errorf("FoldWide(%+q) = %+q, and folded again %+q", string(r), once, twice)
+		check(string(r))
+		if !unicode.IsUpper(r) && !unicode.IsLower(r) && !unicode.IsTitle(r) {
+			continue
+		}
+		for mark := rune(0x0300); mark <= 0x036F; mark++ {
+			check(string(r) + string(mark))
 		}
 	}
 }

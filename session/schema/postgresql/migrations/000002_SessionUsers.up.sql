@@ -12,10 +12,12 @@ CREATE TABLE "SessionUsers" (
   -- capital letters lowercased and every other character as written, so two addresses
   -- the library tells apart are two usernames. translate() changes those 26 letters and
   -- nothing else. Any other username is matched in Unicode's normalization and full case
-  -- folding. The column names its collation, so the folding is the same whatever
-  -- collation the database was created with, and a lookup that compares under the same
-  -- collation uses the unique index.
-  "NormalizedUsername" character varying COLLATE "pg_unicode_fast" GENERATED ALWAYS AS (CASE WHEN strpos("Username", '@') > 0 THEN translate("Username", 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ELSE casefold(normalize("Username") COLLATE "pg_unicode_fast") END) STORED,
+  -- folding, and normalized once more after the folding: the folding of a normalized name
+  -- is not always normalized, and without that a capital written in two code points and
+  -- its small letter in one would be two names. The column names its collation, so the
+  -- folding is the same whatever collation the database was created with, and a lookup
+  -- that compares under the same collation uses the unique index.
+  "NormalizedUsername" character varying COLLATE "pg_unicode_fast" GENERATED ALWAYS AS (CASE WHEN strpos("Username", '@') > 0 THEN translate("Username", 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ELSE normalize(casefold(normalize("Username") COLLATE "pg_unicode_fast")) END) STORED,
   "PasswordHash"  character varying,
   "Disabled"      BOOL NOT NULL DEFAULT (FALSE),
   -- An administrator required a new password of the user: they choose it before

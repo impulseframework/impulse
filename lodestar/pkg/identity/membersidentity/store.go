@@ -211,7 +211,7 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 	// folds it: one with an @ in it as an address is, any other in Unicode's
 	// normalization and case folding.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE_AND_CASEFOLD(@username))",
+		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))",
 		Params: map[string]any{"username": username},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
