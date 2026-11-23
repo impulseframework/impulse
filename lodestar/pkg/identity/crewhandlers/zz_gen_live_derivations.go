@@ -122,6 +122,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 			{Name: resources.SectorDirectory{}.Resource()},

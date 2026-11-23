@@ -761,7 +761,9 @@
                 "managedHere",
                 "managedByAnotherDirectory",
                 "outsideDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -932,7 +934,9 @@
                 "heldInEveryTenant",
                 "managedHere",
                 "managedByAnotherDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {

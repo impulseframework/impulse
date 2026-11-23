@@ -947,11 +947,13 @@ export namespace CrewSectorUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -968,11 +970,13 @@ export namespace CrewSectorUsers {
     heldInEveryTenant: 'CrewSectorUsers.heldInEveryTenant' as Resource,
     id: 'CrewSectorUsers.id' as Resource,
     lastSignInAt: 'CrewSectorUsers.lastSignInAt' as Resource,
+    lockedUntil: 'CrewSectorUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'CrewSectorUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'CrewSectorUsers.managedHere' as Resource,
     name: 'CrewSectorUsers.name' as Resource,
     outsideDirectory: 'CrewSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'CrewSectorUsers.passwordChangeRequired' as Resource,
+    roles: 'CrewSectorUsers.roles' as Resource,
     username: 'CrewSectorUsers.username' as Resource,
   };
 }
@@ -1765,11 +1769,13 @@ export namespace MembersSectorUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -1785,11 +1791,13 @@ export namespace MembersSectorUsers {
     heldInEveryTenant: 'MembersSectorUsers.heldInEveryTenant' as Resource,
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
+    lockedUntil: 'MembersSectorUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'MembersSectorUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'MembersSectorUsers.managedHere' as Resource,
     name: 'MembersSectorUsers.name' as Resource,
     outsideDirectory: 'MembersSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersSectorUsers.passwordChangeRequired' as Resource,
+    roles: 'MembersSectorUsers.roles' as Resource,
     username: 'MembersSectorUsers.username' as Resource,
   };
 }

@@ -1060,11 +1060,13 @@ export namespace StaffTenantUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -1081,11 +1083,13 @@ export namespace StaffTenantUsers {
     heldInEveryTenant: 'StaffTenantUsers.heldInEveryTenant' as Resource,
     id: 'StaffTenantUsers.id' as Resource,
     lastSignInAt: 'StaffTenantUsers.lastSignInAt' as Resource,
+    lockedUntil: 'StaffTenantUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'StaffTenantUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'StaffTenantUsers.managedHere' as Resource,
     name: 'StaffTenantUsers.name' as Resource,
     outsideDirectory: 'StaffTenantUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'StaffTenantUsers.passwordChangeRequired' as Resource,
+    roles: 'StaffTenantUsers.roles' as Resource,
     username: 'StaffTenantUsers.username' as Resource,
   };
 }

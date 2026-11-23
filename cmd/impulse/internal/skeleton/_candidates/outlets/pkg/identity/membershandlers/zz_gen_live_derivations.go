@@ -117,6 +117,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 			{Name: resources.TenantDirectory{}.Resource()},

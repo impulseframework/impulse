@@ -944,11 +944,13 @@ export namespace MembersTenantUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -964,11 +966,13 @@ export namespace MembersTenantUsers {
     heldInEveryTenant: 'MembersTenantUsers.heldInEveryTenant' as Resource,
     id: 'MembersTenantUsers.id' as Resource,
     lastSignInAt: 'MembersTenantUsers.lastSignInAt' as Resource,
+    lockedUntil: 'MembersTenantUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'MembersTenantUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'MembersTenantUsers.managedHere' as Resource,
     name: 'MembersTenantUsers.name' as Resource,
     outsideDirectory: 'MembersTenantUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersTenantUsers.passwordChangeRequired' as Resource,
+    roles: 'MembersTenantUsers.roles' as Resource,
     username: 'MembersTenantUsers.username' as Resource,
   };
 }
