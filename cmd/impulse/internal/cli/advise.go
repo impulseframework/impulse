@@ -24,9 +24,10 @@ func newAdvise() *cobra.Command {
 		Long: `advise runs every generator program of the application with -audit and writes a brief for
 an agent to ` + advise.File + ` at the application root: the warnings and findings each
 program raised, where the accepted schema and role warnings are pinned, impulse's own
-reading of each kind, and the question each kind leaves to judgment. The agent answers
-in prose, names the edit it recommends, and edits nothing; the tool reads no test file
-itself.
+reading of each kind, the question each kind leaves to judgment, and the schema design no
+tool judges, which the agent reviews whether or not anything was raised. The agent
+answers in prose, names the edit it recommends, and edits nothing; the tool reads no test
+file itself.
 
 With --agent it launches Claude Code on the brief with the read-only tools, prints the
 answer, and removes the brief; without it the brief stays and the command to run the
