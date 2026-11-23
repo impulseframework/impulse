@@ -201,6 +201,14 @@ func testInvitedSignUp(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Error("the acceptor's committed function ran for a dead invitation, want nothing given")
 	}
 
+	invitedSignUpTaken(ctx, t, h, in, rec)
+}
+
+// invitedSignUpTaken is testInvitedSignUp's cases of an address or a username another
+// account holds by the time the code is entered.
+func invitedSignUpTaken(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, rec *countedAcceptances) {
+	t.Helper()
+
 	// Another account holds the invited address, confirmed or not: a Conflict in the
 	// words the sign-up is answered with before its code, and nothing is made or given.
 	for _, confirmed := range []bool{true, false} {
@@ -208,8 +216,8 @@ func testInvitedSignUp(ctx context.Context, t *testing.T, h *AuthHarness) {
 		what := map[bool]string{true: "an address held confirmed", false: "an address held unconfirmed"}[confirmed]
 		holder := userHolding(ctx, t, in.Driver, "holder-"+email, email, confirmed)
 		heldLink := insertInvitation(ctx, t, in.Driver, email, "lakeside", []string{"Teacher"}, tokenHash(map[bool]byte{true: 3, false: 4}[confirmed]))
-		req, account, proof = invitedSignUp(t, heldLink, "new-"+email)
-		_, err = signUpInvited(ctx, in, req, account, proof)
+		req, account, proof := invitedSignUp(t, heldLink, "new-"+email)
+		_, err := signUpInvited(ctx, in, req, account, proof)
 		assertConflictSays(t, what, err, "the email address \""+email+"\" is already in use")
 		if user, err := in.Driver.User(ctx, account.ID.UUID); !httpio.HasNotFound(err) {
 			t.Errorf("%s: User() of the sign-up's id = %+v, %v; want NotFound", what, user, err)
@@ -225,8 +233,8 @@ func testInvitedSignUp(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// account under it.
 	kim := createUser(ctx, t, in.Driver, "kim")
 	kimLink := insertInvitation(ctx, t, in.Driver, "kim@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(5))
-	req, account, proof = invitedSignUp(t, kimLink, "kim")
-	_, err = signUpInvited(ctx, in, req, account, proof)
+	req, account, proof := invitedSignUp(t, kimLink, "kim")
+	_, err := signUpInvited(ctx, in, req, account, proof)
 	assertConflictSays(t, "a username taken", err, `username "kim" already exists`)
 	if user, err := in.Driver.UserByUserName(ctx, "kim"); err != nil || user.ID != kim.ID {
 		t.Errorf("UserByUserName(kim) = %+v, %v; want the account that held the username", user, err)
