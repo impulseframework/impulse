@@ -87,15 +87,16 @@ const (
 	// each session records, the pending sign-ins that wait for a confirmation, the
 	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
 	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
-	// only, which a method with no row is), and the mail links: the invitations, address
-	// verifications and sign-ups the auth mails, each a single-use token its follower
-	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
-	// auth issues (the application tokens its people issue and the access and refresh
-	// tokens of the device grants they approve); the device codes: the device
-	// authorizations command-line clients wait on; and the second factor's tables: the
-	// sign-in codes mailed to people and the browsers they asked to be remembered. The
-	// names are spelled out in full so the tool's session-tables check, which reads the
-	// literals, finds their migrations.
+	// only, which a method with no row is), the sign-in settings (whether everyone is asked
+	// for a second factor, and how long a browser is remembered: with no row, required and
+	// 30 days), and the mail links: the invitations, address verifications and sign-ups
+	// the auth mails, each a single-use token its follower proves; the tokens: the bearer
+	// credentials of the machine outlets whose tokens this auth issues (the application
+	// tokens its people issue and the access and refresh tokens of the device grants they
+	// approve); the device codes: the device authorizations command-line clients wait on;
+	// and the second factor's tables: the sign-in codes mailed to people and the browsers
+	// they asked to be remembered. The names are spelled out in full so the tool's
+	// session-tables check, which reads the literals, finds their migrations.
 	sessionsTable       = "MembersSessions"
 	usersTable          = "MembersSessionUsers"
 	identitiesTable     = "MembersSessionIdentities"
@@ -103,6 +104,7 @@ const (
 	pendingTable        = "MembersSessionPendingSignIns"
 	attemptsTable       = "MembersSessionSignInAttempts"
 	methodsTable        = "MembersSessionSignInMethods"
+	signInSettingsTable = "MembersSessionSignInSettings"
 	mailLinksTable      = "MembersSessionMailLinks"
 	tokensTable         = "MembersSessionTokens"
 	deviceCodesTable    = "MembersSessionDeviceCodes"
@@ -398,6 +400,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
+		session.WithSignInSettingsTableName(signInSettingsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
