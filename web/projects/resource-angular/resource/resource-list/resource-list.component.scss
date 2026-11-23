@@ -162,6 +162,23 @@
   color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
 }
 
+// The link under a list to where the rest of it is: on a line of its own, in body text and
+// in the color a row's link takes.
+.impulse-resource-list-more {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--mat-sys-primary, #1976d2);
+}
+
+// A link's indent moves the link in, so only its words are pressed and not the room before
+// them.
+.impulse-resource-list-more.impulse-resource-list-indent {
+  margin-left: 20px;
+  padding-left: 0;
+}
+
 // What holds the rows keeps the room the styles sheet gives the container of a resource's
 // page, a little air above it and a border's width around it, so the rows stand where they
 // did under a name of the list's own.

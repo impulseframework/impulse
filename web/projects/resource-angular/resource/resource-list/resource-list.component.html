@@ -120,6 +120,15 @@
       </impulse-grid>
     </div>
   }
+  @if (moreLink(); as more) {
+    <a
+      class="impulse-resource-list-more"
+      [class.impulse-resource-list-indent]="indentTitle()"
+      [routerLink]="more.route"
+      [queryParams]="more.queryParams"
+      >{{ more.label }}</a
+    >
+  }
 </div>
 
 <ng-template #expandedRowTemplate let-rowData>

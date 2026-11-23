@@ -718,6 +718,19 @@ export class ResourceListComponent implements OnInit {
   });
 
   /**
+   * The link the list draws under its rows (ListViewConfigOptions.more), asked with the row
+   * the list is under: its words, the page it opens with the tenant put in as a row's link
+   * has it, and its query parameters. Nothing where the page names none or it answers none.
+   */
+  moreLink = computed(() => {
+    const link = this.config().more?.(this.relatedData());
+    if (!link) {
+      return undefined;
+    }
+    return { label: link.label, route: '/' + this.resolvePageRoute(link.route), queryParams: link.queryParams ?? {} };
+  });
+
+  /**
    * The digest's List state of each field of the page's resource, by field name: what
    * the server answers a computed list's sort, filter and search by (queryMeta,
    * searchRefused). The empty record across tenants, where no one digest speaks for the

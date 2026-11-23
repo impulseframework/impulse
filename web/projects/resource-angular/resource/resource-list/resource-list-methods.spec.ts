@@ -21,6 +21,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   FieldName,
+  ListLink,
   listViewConfig,
   ListViewConfigOptions,
   METHOD_META,
@@ -982,6 +983,78 @@ describe('ResourceListComponent row methods', () => {
     expect(element().querySelector('impulse-grid')).not.toBeNull();
     expect(element().querySelectorAll('tr.impulse-row')).toHaveLength(2);
   });
+
+  // A link under a list to the page that lists the rest of what it shows: here the
+  // sessions of the person the list is under, on a page whose route names the tenant.
+  const allSessionsOf = (parent: RecordData | undefined): ListLink | undefined =>
+    typeof parent?.['username'] === 'string'
+      ? {
+          label: `All of ${parent['username']}'s sessions`,
+          route: 'sectors/:sectorID/sessions',
+          queryParams: { filter: [`username:eq:${parent['username']}`] },
+        }
+      : undefined;
+  const moreLinks = (): HTMLAnchorElement[] => Array.from(element().querySelectorAll('a.impulse-resource-list-more'));
+
+  it('draws under its rows the link the page names, asked with the row the list is under, to the route resolved as a row link is, with its query parameters', async () => {
+    const handed: (RecordData | undefined)[] = [];
+    const more = (parent: RecordData | undefined): ListLink | undefined => {
+      handed.push(parent);
+      return allSessionsOf(parent);
+    };
+    await create({ primaryResource: people, ...underPerson, more }, {}, person, false);
+
+    expect(handed.at(-1)).toEqual(person);
+    const links = moreLinks();
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent?.trim()).toBe("All of cy's sessions");
+    expect(links[0].getAttribute('href')).toBe('/sectors/anvil/sessions?filter=username:eq:cy');
+    expect(links[0].classList.contains('impulse-resource-list-indent')).toBe(true);
+    // After the table, on a line of its own.
+    const table = element().querySelector('.impulse-resource-list-resource-container') as Element;
+    expect(table.compareDocumentPosition(links[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const style = declared(links[0], ['.impulse-resource-list-more'], ['.impulse-resource-list-indent']);
+    expect(style).toContain('display: inline-block');
+    expect(style).toContain('margin-top: 8px');
+    expect(style).toContain('font-size: 14px');
+    expect(style).toContain('line-height: 20px');
+    expect(style).toContain('color: var(--mat-sys-primary, #1976d2)');
+    // Its indent moves the link in, so the room before its words is not pressed.
+    const indent = declared(links[0], ['.impulse-resource-list-more', '.impulse-resource-list-indent']);
+    expect(indent).toContain('margin-left: 20px');
+    expect(indent).toContain('padding-left: 0');
+
+    // Asked again when the row the list is under changes.
+    fixture.componentRef.setInput('relatedData', { id: 'u-8', username: 'di' });
+    fixture.detectChanges();
+    expect(handed.at(-1)).toEqual({ id: 'u-8', username: 'di' });
+    expect(moreLinks().map((link) => link.textContent?.trim())).toEqual(["All of di's sessions"]);
+  });
+
+  it('draws the link under the one line of a list under a record that holds nothing', async () => {
+    served = [];
+    await create(
+      { primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.', more: allSessionsOf },
+      {},
+      person,
+      false,
+    );
+
+    const links = moreLinks();
+    expect(links.map((link) => link.textContent?.trim())).toEqual(["All of cy's sessions"]);
+    expect(emptyLine()?.compareDocumentPosition(links[0]) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  for (const tt of [
+    { name: 'whose link answers nothing for the row it is under', more: allSessionsOf, parent: { id: 'u-9' } },
+    { name: 'that names no link', more: undefined, parent: person },
+  ]) {
+    it(`draws no link under a list ${tt.name}`, async () => {
+      await create({ primaryResource: people, ...underPerson, more: tt.more }, {}, tt.parent, false);
+
+      expect(moreLinks()).toEqual([]);
+    });
+  }
 
   it('does not offer a filled method the digest does not grant', async () => {
     await create({
