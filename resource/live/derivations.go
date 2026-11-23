@@ -77,36 +77,53 @@ type WholeChange struct {
 // other way, one whole change. A resource reached both ways in one commit is a whole
 // change alone, since that already refetches every subscriber of it. A nil Derivations
 // expands to the rows as they are.
-func (d *Derivations) Expand(touched map[accesstypes.Resource][]resource.RowChange) Writes {
+//
+// The tables are those touched whole, in rows the writer could not name
+// (resource.TouchedRows.TouchTable). Each is one whole change told in every domain, and
+// any rows of it are left out; so is every derived resource rooted at it or reading it,
+// which takes no rows. A resource reached by two whole changes is one, told in every
+// domain if either says so.
+func (d *Derivations) Expand(touched map[accesstypes.Resource][]resource.RowChange, tables ...accesstypes.Resource) Writes {
+	whole := make(map[accesstypes.Resource]bool, len(tables))
+	for _, table := range tables {
+		whole[table] = true
+	}
 	writes := Writes{Rows: make(map[accesstypes.Resource][]resource.RowChange, len(touched))}
 	for res, rows := range touched {
+		if _, ok := whole[res]; ok {
+			continue
+		}
 		writes.Rows[res] = rows
 	}
-	if d == nil {
-		return writes
-	}
 
-	whole := make(map[accesstypes.Resource]bool)
-	for _, derived := range d.Resources {
-		for _, table := range derived.Tables {
-			if _, ok := touched[table.Name]; !ok {
+	if d != nil {
+		for _, derived := range d.Resources {
+			for _, table := range derived.Tables {
+				if slices.Contains(tables, table.Name) {
+					whole[derived.Resource] = true
+				}
+				if _, ok := touched[table.Name]; !ok {
+					continue
+				}
+				whole[derived.Resource] = whole[derived.Resource] || table.Global || derived.Global
+			}
+			if derived.Root != "" && slices.Contains(tables, derived.Root) {
+				whole[derived.Resource] = true
+			}
+		}
+		for _, derived := range d.Resources {
+			if derived.Root == "" {
 				continue
 			}
-			whole[derived.Resource] = whole[derived.Resource] || table.Global || derived.Global
+			rows, ok := touched[derived.Root]
+			if !ok {
+				continue
+			}
+			if _, ok := whole[derived.Resource]; ok {
+				continue
+			}
+			writes.Rows[derived.Resource] = append(writes.Rows[derived.Resource], rows...)
 		}
-	}
-	for _, derived := range d.Resources {
-		if derived.Root == "" {
-			continue
-		}
-		rows, ok := touched[derived.Root]
-		if !ok {
-			continue
-		}
-		if _, ok := whole[derived.Resource]; ok {
-			continue
-		}
-		writes.Rows[derived.Resource] = append(writes.Rows[derived.Resource], rows...)
 	}
 	for res, allDomains := range whole {
 		writes.Whole = append(writes.Whole, WholeChange{Resource: res, AllDomains: allDomains})
