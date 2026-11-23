@@ -283,16 +283,19 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 }
 
 // directoryOnlyPeople is one auth's part of the warning of the method that turns the
-// switch on, as the generated handler hands it to the library: the application's
-// accessor of the auth's generated identity client, and the tenant's list of the auth's
-// people with the fields that name a person, which decide whether the caller is told
-// who the switch keeps out. Where the auth has a password method, the client also
-// answers the tenant's administrators who have one (Administrators), and, where the
-// instance carries the tenant's list of its invitations, the invitations not yet
-// accepted that would make another (InvitationList, with the fields that name an
-// invitation): the two ways into the tenant beside its directory.
+// switch on and of the read of the switch, as the generated rules hand it to the library
+// (resource.DirectoryPeople): the application's accessor of the auth's generated
+// identity client, what a page calls the auth's people (Label, authLabel), and the
+// tenant's list of the auth's people with the fields that name a person, which decide
+// whether the caller is told who the switch keeps out. Where the auth has a password
+// method, the client also answers the tenant's administrators who have one
+// (Administrators), and, where the instance carries the tenant's list of its
+// invitations, the invitations not yet accepted that would make another
+// (InvitationList, with the fields that name an invitation): the two ways into the
+// tenant beside its directory.
 type directoryOnlyPeople struct {
 	Accessor         string
+	Label            string
 	List             string
 	Fields           []string
 	Administrators   bool
@@ -309,6 +312,7 @@ func (r *resourceGenerator) directoryOnlyPeople() []*directoryOnlyPeople {
 		if inst.listsDirectoryOutsiders() {
 			entry := &directoryOnlyPeople{
 				Accessor:       inst.accessor(),
+				Label:          authLabel(inst.auth),
 				List:           r.pluralize(inst.listName(listPeopleSuffix)),
 				Fields:         slices.Clone(directoryOnlyNamingFields),
 				Administrators: inst.password,

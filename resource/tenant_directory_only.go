@@ -76,6 +76,22 @@ type DirectoryOnlyState struct {
 type DirectoryOnlyCount struct {
 	Seated  int `json:"seated"`
 	Outside int `json:"outside"`
+	// Shares says the count auth by auth, one entry for each auth whose people the rules
+	// count, in the order the rules were given them. The totals above are their sums. A
+	// page that links the count to one auth's people reads that auth's share, so a link
+	// never says more people than it opens.
+	Shares []DirectoryOnlyShare `json:"shares,omitempty"`
+}
+
+// DirectoryOnlyShare is one auth's part of a tenant's count: how many of that auth's
+// people the tenant seats, and how many of them the switch keeps out. Label is what a
+// page calls the auth's people, and People the tenant's list of them as grants name it,
+// which a page opens to show who they are.
+type DirectoryOnlyShare struct {
+	Label   string               `json:"label"`
+	People  accesstypes.Resource `json:"people"`
+	Seated  int                  `json:"seated"`
+	Outside int                  `json:"outside"`
 }
 
 // DirectoryOnlyCondition is one thing turning a tenant directory only takes of the
@@ -166,20 +182,26 @@ type DirectoryInvitations func(ctx context.Context, txn ReadWriteTransaction, te
 // many there are and nobody's name. A reader with no list, or with no field named,
 // names nobody.
 type DirectoryPeople struct {
+	// Label is what a page calls the auth's people ("Crew"), which the read of the
+	// switch says the auth's share of its count under (DirectoryOnlyShare).
+	Label string
 	// List is the tenant's list of the auth's people as grants name it, and Fields the
 	// fields of it that name a person: the ones the warning lists a person by
 	// (DirectoryOutsider, DirectoryAdministrator).
 	List   accesstypes.Resource
 	Fields []accesstypes.Tag
+	// Seated counts the auth's people the tenant seats, for the read of the switch; a
+	// nil reader counts nobody.
+	Seated SeatedCount
 	// Outsiders reads the people the switch would keep out.
 	Outsiders DirectoryOutsiders
-	// AdministratorsEnter says the auth's people keep the administrators' way in: the
-	// auth has a password method and names the roles that administer a tenant, so the
-	// tenant's own administrator who has a password still enters, with a code mailed to
-	// them. The warning says so, since it is the one other way into the tenant, and
-	// reads who has it through the two readers below; where it is false, neither is
-	// called.
-	AdministratorsEnter bool
+	// AdministratorsEnter answers whether the auth's people keep the administrators' way
+	// in, asked at each warning: the auth has a password method and names the roles that
+	// administer a tenant, so the tenant's own administrator who has a password still
+	// enters, with a code mailed to them. The warning says so, since it is the one other
+	// way into the tenant, and reads who has it through the two readers below; where it
+	// answers false or is nil, neither is called.
+	AdministratorsEnter func() bool
 	// Administrators reads the tenant's own administrators among the auth's people who
 	// have a password: the warning counts them in a note of its own, and names them to a
 	// caller who may list the people (List and Fields).
@@ -328,11 +350,11 @@ func (w *directoryWrites) removesDirectory(tenant accesstypes.Domain) bool {
 // (Make<Record>DirectoryOnly) answers before it is run, which a dialog shows and holds
 // its button under until the person has typed DirectoryOnlyWord. The consequence says
 // who will be able to enter the tenant and how many of the people seated in it will
-// not, counted through people, one entry for each auth whose people the tenant seats;
-// the confirm words say what the button does. Where no entry reads anybody (an
-// application whose people no generated management lists) nobody was counted, and the
-// sentence says who will lose access without a number: it never says that everyone has
-// signed in through the directory on a count nobody made.
+// not, counted through the rules' people (CountedBy), one entry for each auth whose
+// people the tenant seats; the confirm words say what the button does. Where no entry
+// reads anybody (an application whose people no generated management lists) nobody was
+// counted, and the sentence says who will lose access without a number: it never says
+// that everyone has signed in through the directory on a count nobody made.
 //
 // Everyone the switch would keep out is counted. A person is named only to a caller who
 // may list them: the people of an auth are named where the request's caller
@@ -352,7 +374,7 @@ func (w *directoryWrites) removesDirectory(tenant accesstypes.Domain) bool {
 // warning is refused as a Conflict that says so and names neither its directory nor its
 // people: the write that leaves the switch on is plain whoever makes it, and the
 // warning answers nobody what that write would not ask them to prove.
-func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, people ...DirectoryPeople) (*Warning, error) {
+func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*Warning, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {
 		return nil, err
@@ -372,8 +394,9 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	count, counted, administratorsEnter := 0, false, false
 	var named []DirectoryOutsider
 	var wayIn directoryWayIn
-	for _, auth := range people {
-		administratorsEnter = administratorsEnter || auth.AdministratorsEnter
+	for _, auth := range r.people {
+		enter := auth.AdministratorsEnter != nil && auth.AdministratorsEnter()
+		administratorsEnter = administratorsEnter || enter
 		var outsiders []DirectoryOutsider
 		if auth.Outsiders != nil {
 			counted = true
@@ -383,7 +406,7 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 			}
 			count += len(outsiders)
 		}
-		administrators, invitations, err := readWayIn(ctx, txn, tenant, &auth)
+		administrators, invitations, err := readWayIn(ctx, txn, tenant, &auth, enter)
 		if err != nil {
 			return nil, err
 		}
@@ -479,9 +502,10 @@ func listedNames[T any](people []T, name func(T) string) []string {
 // readWayIn reads one auth's part of who keeps a way into tenant past its directory: the
 // tenant's own administrators who have a password and the invitations that would make
 // another, each where the entry supplies its reader. An entry whose people keep no
-// administrators' way in (AdministratorsEnter false) has neither reader called.
-func readWayIn(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, auth *DirectoryPeople) ([]DirectoryAdministrator, []DirectoryInvitation, error) {
-	if !auth.AdministratorsEnter {
+// administrators' way in (enter, AdministratorsEnter's answer at this warning) has
+// neither reader called.
+func readWayIn(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, auth *DirectoryPeople, enter bool) ([]DirectoryAdministrator, []DirectoryInvitation, error) {
+	if !enter {
 		return nil, nil, nil
 	}
 	var administrators []DirectoryAdministrator
@@ -789,12 +813,13 @@ func turnsOn(value any) bool {
 // stands: its directory as people know it, the role a person gets the first time they
 // sign in through it, in words, whether the caller's auth has passwords, how the caller
 // signed in, and how many people the tenant seats and how many of them the switch keeps
-// out (CountedBy), counted as the warning counts them. While the switch is off it also
-// says what turning it on takes of the caller (DirectoryOnlyState.Conditions): each
-// condition the call would hold them to, whether they meet it, and what they do where
-// they do not, in the words the call refuses in. A tenant with no directory is refused
-// before anything is asked of the person, so no condition is said for it, and nobody is
-// counted. A tenant the record does not hold is NotFound.
+// out (CountedBy), counted as the warning counts them, with each auth's share of both
+// (DirectoryOnlyCount.Shares). While the switch is off it also says what turning it on
+// takes of the caller (DirectoryOnlyState.Conditions): each condition the call would
+// hold them to, whether they meet it, and what they do where they do not, in the words
+// the call refuses in. A tenant with no directory is refused before anything is asked
+// of the person, so no condition is said for it, and nobody is counted. A tenant the
+// record does not hold is NotFound.
 func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyState, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {
@@ -874,27 +899,34 @@ func (r *TenantDirectoryRules) defaultRoleInWords(ctx context.Context, txn ReadW
 	return words.RoleInWords(string(directory.DefaultRole)), nil
 }
 
-// count sums, over the rules' counters, how many people tenant seats and how many of
-// them its switch keeps out; nil for rules that count nobody.
+// count sums, over the rules' people, how many people tenant seats and how many of them
+// its switch keeps out, and says each auth's share where its entry names its list of
+// people (DirectoryOnlyShare), in the rules' order; nil for rules that count nobody.
 func (r *TenantDirectoryRules) count(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyCount, error) {
-	if len(r.counters) == 0 {
+	if len(r.people) == 0 {
 		return nil, nil
 	}
 	count := &DirectoryOnlyCount{}
-	for _, counter := range r.counters {
-		if counter.Seated != nil {
-			seated, err := counter.Seated(ctx, txn, tenant)
+	for _, auth := range r.people {
+		share := DirectoryOnlyShare{Label: auth.Label, People: auth.List}
+		if auth.Seated != nil {
+			seated, err := auth.Seated(ctx, txn, tenant)
 			if err != nil {
 				return nil, errors.Wrap(err, "resource.SeatedCount()")
 			}
-			count.Seated += seated
+			share.Seated = seated
 		}
-		if counter.Outsiders != nil {
-			outsiders, err := counter.Outsiders(ctx, txn, tenant)
+		if auth.Outsiders != nil {
+			outsiders, err := auth.Outsiders(ctx, txn, tenant)
 			if err != nil {
 				return nil, errors.Wrap(err, "resource.DirectoryOutsiders()")
 			}
-			count.Outside += len(outsiders)
+			share.Outside = len(outsiders)
+		}
+		count.Seated += share.Seated
+		count.Outside += share.Outside
+		if auth.List != "" {
+			count.Shares = append(count.Shares, share)
 		}
 	}
 
@@ -913,12 +945,11 @@ func (r *TenantDirectoryRules) count(ctx context.Context, txn ReadWriteTransacti
 // the condition to judge. It writes nothing. client runs it in one transaction, rules
 // are the tenant record's, and tenantParam is the route parameter that names the
 // tenant. rules are the ones the methods that turn the switch are given, each auth's
-// answer about the caller's password with them (PasswordsBy) and each auth's counters of
-// the tenant's people (CountedBy), and the read stamps the
-// caller it checked before it asks them (WithCaller): rules that ask no auth, or a
-// read that named no caller, would leave the password out of what the read says while
-// the method still refused for it. The generated handler of a tenant record that
-// declares the switch builds it.
+// answer about the caller's password with them (PasswordsBy) and each auth's people of
+// the tenant (CountedBy), and the read stamps the caller it checked before it asks them
+// (WithCaller): rules that ask no auth, or a read that named no caller, would leave the
+// password out of what the read says while the method still refused for it. The
+// generated handler of a tenant record that declares the switch builds it.
 func DirectoryOnlyStateHandler(
 	client Client, rules *TenantDirectoryRules, userPermissions func(r *http.Request) UserPermissions,
 	tenantParam httpio.ParamType, methods ...accesstypes.Resource,

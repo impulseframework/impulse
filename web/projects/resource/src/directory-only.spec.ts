@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { Domain, Method } from './brands';
 import { createClient, methodHandle } from './client';
 import { ApiDescriptor } from './descriptor';
-import { directoryOnlyState } from './directory-only';
+import { DirectoryOnlyState, directoryOnlyState } from './directory-only';
 import { ApiError, warningHeader } from './transport';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 
@@ -42,6 +42,26 @@ describe('directoryOnlyState', () => {
     expect(transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
       'GET /api/tenants/acme%20co/directory-only',
     ]);
+  });
+
+  it("answers the count auth by auth, each auth's share with its label and its list of people", async () => {
+    const counted: DirectoryOnlyState = {
+      directoryOnly: false,
+      people: {
+        seated: 17,
+        outside: 3,
+        shares: [
+          { label: 'Crew', people: 'CrewTenantUsers', seated: 12, outside: 2 },
+          { label: 'Staff', people: 'StaffTenantUsers', seated: 5, outside: 1 },
+        ],
+      },
+    };
+    const transport = scriptedTransport({ status: 200, body: counted });
+    const client = createClient(descriptor, { baseUrl: '/api', transport });
+
+    const state = await directoryOnlyState(client, 'acme' as Domain);
+    expect(state).toEqual(counted);
+    expect(state.people?.shares?.map((share) => share.label)).toEqual(['Crew', 'Staff']);
   });
 
   it('refuses an API that serves no tenant route before any request is made', () => {

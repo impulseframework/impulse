@@ -21,7 +21,9 @@ import (
 // login, so he may turn Cinder's switch on and ask its warning. The warning's sentence
 // counts the people of every auth Cinder seats and names the ones he may list, the
 // crew's; the portal's members are counted and not named to him. The read says as many
-// are kept out as the sentence counts, of at least as many who hold a role in Cinder.
+// are kept out as the sentence counts, of at least as many who hold a role in Cinder, and
+// says each auth's share of both, the crew's under the words a page calls them by and
+// with the list of them a page opens: the shares sum to the totals.
 func TestDirectoryOnlyState_saysHowTheSectorStands(t *testing.T) {
 	t.Parallel()
 
@@ -65,6 +67,12 @@ func TestDirectoryOnlyState_saysHowTheSectorStands(t *testing.T) {
 		People *struct {
 			Seated  int `json:"seated"`
 			Outside int `json:"outside"`
+			Shares  []struct {
+				Label   string `json:"label"`
+				People  string `json:"people"`
+				Seated  int    `json:"seated"`
+				Outside int    `json:"outside"`
+			} `json:"shares"`
 		} `json:"people"`
 	}
 	if status != http.StatusOK || json.Unmarshal(body, &counted) != nil || counted.People == nil {
@@ -101,5 +109,17 @@ func TestDirectoryOnlyState_saysHowTheSectorStands(t *testing.T) {
 	}
 	if counted.People.Seated < counted.People.Outside {
 		t.Errorf("the read says %d people hold a role in Cinder and %d of them would be kept out, want at least as many holding a role as kept out", counted.People.Seated, counted.People.Outside)
+	}
+	seated, kept, crew := 0, 0, false
+	for _, share := range counted.People.Shares {
+		seated += share.Seated
+		kept += share.Outside
+		crew = crew || (share.Label == "Crew" && share.People == "CrewSectorUsers")
+	}
+	if !crew {
+		t.Errorf("the read's shares = %+v, want one labeled Crew for the list CrewSectorUsers", counted.People.Shares)
+	}
+	if seated != counted.People.Seated || kept != counted.People.Outside {
+		t.Errorf("the read's shares sum to %d seated and %d kept out, want the totals, %d and %d (%+v)", seated, kept, counted.People.Seated, counted.People.Outside, counted.People.Shares)
 	}
 }

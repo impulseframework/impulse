@@ -2480,11 +2480,7 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 		}
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
-				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					{{- range $people := .People }}
-					resource.DirectoryPeople{List: {{ printf "%q" $people.List }}, Fields: []accesstypes.Tag{ {{- range $i, $field := $people.Fields }}{{ if $i }}, {{ end }}{{ printf "%q" $field }}{{ end -}} }, Outsiders: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryOutsiders, AdministratorsEnter: {{ $.ReceiverName }}.{{ $people.Accessor }}().AdministratorsEnterWithPassword(){{ if $people.Administrators }}, Administrators: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryAdministrators{{ end }}{{ if $people.InvitationList }}, InvitationList: {{ printf "%q" $people.InvitationList }}, InvitationFields: []accesstypes.Tag{ {{- range $i, $field := $people.InvitationFields }}{{ if $i }}, {{ end }}{{ printf "%q" $field }}{{ end -}} }, Invitations: {{ $.ReceiverName }}.{{ $people.Accessor }}().DirectoryInvitations{{ end }}},
-					{{- end }}
-				)
+				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)
 				if err != nil {
 					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")
 				}

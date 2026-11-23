@@ -102,9 +102,10 @@ func Test_tenantRecord_switchIsOutputOnly(t *testing.T) {
 // Test_tenantDirectoryOnlyTemplate pins the handlers of the tenant record's
 // directory-only switch: each of the two methods runs in the tenant's scope to its own
 // Execute grant, with the caller stamped for the warning to ask whom it may list; the
-// one that turns the switch on answers its warning in place of running the call, with
-// every auth's reader of the people the switch keeps out and the list that decides
-// whether the caller is told who they are; the one that turns it off declares no warning
+// one that turns the switch on answers its warning in place of running the call, from
+// the people the rules of the switch hold (every auth's reader of the people the switch
+// keeps out and the list that decides whether the caller is told who they are), which
+// the frame hands the warning none of; the one that turns it off declares no warning
 // and refuses a request for one; each asks the rules of the switch and then writes the
 // flag through the record's update patch, reloads the roster and signals the tenants
 // kind; and the read of the switch is the library's, asked under either method's grant.
@@ -133,7 +134,11 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	// The frame that turns the switch asks each auth's client whether the caller has a
 	// password, and so does the read of the switch as it stands, which says what turning
 	// it on takes of the caller before they try.
-	const switchRules = namedRules + ".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)"
+	// Both, and the warning, read the auths' people from the rules' entries, which say
+	// what a page calls each auth's people.
+	const switchRules = namedRules + ".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)" +
+		`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword}, ` +
+		`resource.DirectoryPeople{Label: "Member", List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword})`
 	named.SwitchRules = switchRules
 	tests := []struct {
 		name            string
@@ -162,9 +167,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"id, err := impulse.UUIDFromString(string(domain))",
 				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif err := a.ResourceClient().ExecuteFunc(",
 				"if asksWarning {",
-				"said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,",
-				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword()},`,
-				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword()},`,
+				"said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)\n",
 				"if err := resource.CheckWarning(string(method), said); err != nil {",
 				"return resource.ErrWarningAsked",
 				"if err := rules.DirectoryOnly(ctx, txn, domain, only); err != nil {",
@@ -183,22 +186,9 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"GET\n// <prefix>/harbors/{harborID}/directory-only",
 				`which a person types "close" under`,
 			},
-			// The read of what turning the switch on would do is the method's warning now.
-			wantNotContains: []string{"DirectoryOnlyConsequence", "SetHarborDirectoryOnly", "req.Turn()"},
-		},
-		{
-			name: "the warning reads who keeps the administrators' way in where an auth has the password method, and the invitations where it lists them",
-			data: data(
-				&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}, Administrators: true, InvitationList: "StaffHarborInvitations", InvitationFields: []string{"email", "name"}},
-				&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}, Administrators: true},
-				&directoryOnlyPeople{Accessor: "GuestsIdentity", List: "GuestHarborUsers", Fields: []string{"username", "name"}},
-			),
-			wantContains: []string{
-				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword(), Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffHarborInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations},`,
-				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword(), Administrators: a.MembersIdentity().DirectoryAdministrators},`,
-				`resource.DirectoryPeople{List: "GuestHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword()},`,
-			},
-			wantNotContains: []string{"a.MembersIdentity().DirectoryInvitations", "a.GuestsIdentity().DirectoryAdministrators"},
+			// The read of what turning the switch on would do is the method's warning now,
+			// and the frame hands the warning no people of its own: the rules hold them.
+			wantNotContains: []string{"DirectoryOnlyConsequence", "SetHarborDirectoryOnly", "req.Turn()", "DirectoryOnlyWarning(ctx, txn, domain,"},
 		},
 		{
 			name:            "a program that generates no auth's management counts and names no person",
@@ -239,11 +229,11 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	}
 }
 
-// Test_resourceGenerator_directoryOnlyPeople pins what the handler of the switch hands
-// the warning of each auth whose client answers who the switch keeps out: the client's
-// readers of who keeps the administrators' way in where the auth has the password method,
-// and of the invitations that would make another where it also lists its invitations,
-// with the list and the fields that name the person invited.
+// Test_resourceGenerator_directoryOnlyPeople pins what the rules of the switch are given
+// of each auth whose client answers who the switch keeps out: what a page calls the
+// auth's people, the client's readers of who keeps the administrators' way in where the
+// auth has the password method, and of the invitations that would make another where it
+// also lists its invitations, with the list and the fields that name the person invited.
 func Test_resourceGenerator_directoryOnlyPeople(t *testing.T) {
 	t.Parallel()
 
@@ -260,13 +250,16 @@ func Test_resourceGenerator_directoryOnlyPeople(t *testing.T) {
 		instance("Staff", true, identityUsers, identityMemberships, identityMailLinks),
 		instance("Member", true, identityUsers, identityMemberships),
 		instance("Guest", false, identityUsers, identityMemberships, identityMailLinks),
+		// What a page calls an auth's people is the auth's name in words.
+		instance("NightCrew", false, identityUsers, identityMemberships),
 		// An auth that lists no people answers nobody, and is no entry.
 		instance("Visitor", true, identityMailLinks),
 	}}}
 	want := []*directoryOnlyPeople{
-		{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}, Administrators: true, InvitationList: "StaffHarborInvitations", InvitationFields: []string{"email", "name"}},
-		{Accessor: "MemberIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}, Administrators: true},
-		{Accessor: "GuestIdentity", List: "GuestHarborUsers", Fields: []string{"username", "name"}},
+		{Accessor: "StaffIdentity", Label: "Staff", List: "StaffHarborUsers", Fields: []string{"username", "name"}, Administrators: true, InvitationList: "StaffHarborInvitations", InvitationFields: []string{"email", "name"}},
+		{Accessor: "MemberIdentity", Label: "Member", List: "MemberHarborUsers", Fields: []string{"username", "name"}, Administrators: true},
+		{Accessor: "GuestIdentity", Label: "Guest", List: "GuestHarborUsers", Fields: []string{"username", "name"}},
+		{Accessor: "NightCrewIdentity", Label: "Night crew", List: "NightCrewHarborUsers", Fields: []string{"username", "name"}},
 	}
 	if diff := cmp.Diff(want, r.directoryOnlyPeople()); diff != "" {
 		t.Errorf("directoryOnlyPeople() mismatch (-want +got):\n%s", diff)

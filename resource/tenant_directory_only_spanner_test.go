@@ -206,11 +206,19 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 	failingInvitations := func(_ context.Context, _ ReadWriteTransaction, _ accesstypes.Domain) ([]DirectoryInvitation, error) {
 		return nil, errors.New("the invitations could not be read")
 	}
+	// enters and staysOut are an auth's answers to whether its people keep the
+	// administrators' way in, as a generated identity client answers them.
+	enters := func() bool {
+		return true
+	}
+	staysOut := func() bool {
+		return false
+	}
 	// keeps is an auth's entry whose people keep the administrators' way in, with the
 	// station's lists of its people and its invitations, and nobody the switch keeps out.
 	keeps := func(admins DirectoryAdministrators, invited DirectoryInvitations) DirectoryPeople {
 		return DirectoryPeople{
-			List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(), AdministratorsEnter: true,
+			List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(), AdministratorsEnter: enters,
 			Administrators: admins, InvitationList: stationInvitations, InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: invited,
 		}
 	}
@@ -334,7 +342,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			name: "administrators named fewer than counted are the one the caller may list", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
 			people: []DirectoryPeople{
 				keeps(administrators(ines), nil),
-				{Outsiders: reader(), AdministratorsEnter: true, Administrators: administrators(wren, abe)},
+				{Outsiders: reader(), AdministratorsEnter: enters, Administrators: administrators(wren, abe)},
 			},
 			want: &Warning{
 				Consequence: entraKept, Confirm: entraConfirm,
@@ -344,7 +352,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		{
 			name: "and the several the caller may list", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
 			people: []DirectoryPeople{
-				{Outsiders: reader(), AdministratorsEnter: true, Administrators: administrators(abe)},
+				{Outsiders: reader(), AdministratorsEnter: enters, Administrators: administrators(abe)},
 				keeps(administrators(wren, ines), nil),
 			},
 			want: &Warning{
@@ -354,6 +362,14 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		},
 		{
 			name: "an auth whose people keep no administrators' way in has neither reader called, and no note", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{{
+				List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(), AdministratorsEnter: staysOut,
+				Administrators: failingAdministrators, InvitationList: stationInvitations, InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: failingInvitations,
+			}},
+			want: &Warning{Consequence: entraOnly + " Everyone seated here has signed in through it.", Confirm: entraConfirm},
+		},
+		{
+			name: "nor one that was never asked whether they do", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
 			people: []DirectoryPeople{{
 				List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(),
 				Administrators: failingAdministrators, InvitationList: stationInvitations, InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: failingInvitations,
@@ -428,7 +444,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			var got *Warning
 			err := client.ExecuteFunc(tt.ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 				var err error
-				got, err = rules.DirectoryOnlyWarning(ctx, txn, tt.station, tt.people...)
+				got, err = rules.CountedBy(tt.people...).DirectoryOnlyWarning(ctx, txn, tt.station)
 
 				return err
 			})
@@ -504,7 +520,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 					return asked.DirectoryOnly(ctx, txn, "beta", true)
 				})
 				warningErr := client.ExecuteFunc(asks(tt.ctx, &switchPermissions{}), func(ctx context.Context, txn ReadWriteTransaction) error {
-					_, err := asked.DirectoryOnlyWarning(ctx, txn, "beta", people(reader(zed))...)
+					_, err := asked.CountedBy(people(reader(zed))...).DirectoryOnlyWarning(ctx, txn, "beta")
 
 					return err
 				})
@@ -532,11 +548,11 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		t.Parallel()
 
 		entries := people(reader(zed), reader())
-		entries[1].AdministratorsEnter = true
+		entries[1].AdministratorsEnter = enters
 		var warning *Warning
 		err := client.ExecuteFunc(asks(through(entra), &switchPermissions{}), func(ctx context.Context, txn ReadWriteTransaction) error {
 			var err error
-			warning, err = rules.DirectoryOnlyWarning(ctx, txn, "beta", entries...)
+			warning, err = rules.CountedBy(entries...).DirectoryOnlyWarning(ctx, txn, "beta")
 
 			return err
 		})
@@ -568,7 +584,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		var warning *Warning
 		err := client.ExecuteFunc(asks(through(entra), &switchPermissions{}), func(ctx context.Context, txn ReadWriteTransaction) error {
 			var err error
-			warning, err = named.DirectoryOnlyWarning(ctx, txn, "beta", people(reader(zed))...)
+			warning, err = named.CountedBy(people(reader(zed))...).DirectoryOnlyWarning(ctx, txn, "beta")
 
 			return err
 		})
@@ -700,7 +716,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 				// it again, so the grants asked are those of the attempt that answered.
 				perms.asked = nil
 				var err error
-				got, err = rules.DirectoryOnlyWarning(ctx, txn, "beta", declared)
+				got, err = rules.CountedBy(declared).DirectoryOnlyWarning(ctx, txn, "beta")
 
 				return err
 			}); err != nil {
@@ -781,7 +797,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		// the caller's auth has passwords, and how many people the switch keeps out.
 		counted := rules.PasswordsBy(func(context.Context, ReadWriteTransaction) (bool, bool, error) {
 			return true, true, nil
-		}).CountedBy(DirectoryCounter{
+		}).CountedBy(DirectoryPeople{
 			Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
 				return 12, nil
 			},
@@ -1022,7 +1038,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 // it, on or off; the role a person gets the first time they sign in through it, in words;
 // whether the caller's auth has passwords; how the caller signed in, and through which
 // organization's directory; and how many people the tenant seats and how many of them the
-// switch keeps out, summed over the counters the rules were given.
+// switch keeps out, summed over the entries the rules were given, with each auth's share.
 func TestTenantDirectoryRules_state(t *testing.T) {
 	t.Parallel()
 
@@ -1040,8 +1056,8 @@ func TestTenantDirectoryRules_state(t *testing.T) {
 
 	password := establishedBy(sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword})
 	throughEntra := establishedBy(sessioninfo.AuthEvent{Method: entra.Method, Connection: entra.Connection})
-	counter := func(seated int, outsiders ...DirectoryOutsider) DirectoryCounter {
-		return DirectoryCounter{
+	counter := func(seated int, outsiders ...DirectoryOutsider) DirectoryPeople {
+		return DirectoryPeople{
 			Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
 				return seated, nil
 			},
@@ -1050,8 +1066,18 @@ func TestTenantDirectoryRules_state(t *testing.T) {
 			},
 		}
 	}
+	// listed is an auth's entry that names the station's list of its people, under what a
+	// page calls them.
+	listed := func(label string, list accesstypes.Resource, seated int, outsiders ...DirectoryOutsider) DirectoryPeople {
+		people := counter(seated, outsiders...)
+		people.Label, people.List = label, list
+
+		return people
+	}
+	const stationStaff accesstypes.Resource = "StationStaffUsers"
 	zed := DirectoryOutsider{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-00000000000a")), Username: "zed"}
 	amy := DirectoryOutsider{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-00000000000b")), Username: "Amy"}
+	bo := DirectoryOutsider{UserID: impulse.Must(impulse.UUIDFromString("00000000-0000-4000-8000-00000000000c")), Username: "bo"}
 	hasPassword := func(context.Context, ReadWriteTransaction) (bool, bool, error) {
 		return true, true, nil
 	}
@@ -1107,8 +1133,33 @@ func TestTenantDirectoryRules_state(t *testing.T) {
 			wantConditions: true,
 		},
 		{
-			name: "two counters are summed, and a nil reader counts nobody", rules: stationRules().CountedBy(counter(3, zed), counter(4, amy), DirectoryCounter{}), ctx: password, station: "alpha",
+			name: "two counters are summed, and a nil reader counts nobody", rules: stationRules().CountedBy(counter(3, zed), counter(4, amy), DirectoryPeople{}), ctx: password, station: "alpha",
 			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword, People: &DirectoryOnlyCount{Seated: 7, Outside: 2}},
+		},
+		{
+			name: "one auth that names its list of people says one share, equal to the totals", rules: stationRules().CountedBy(listed("Crew", stationPeople, 12, zed, amy)), ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword, People: &DirectoryOnlyCount{
+				Seated: 12, Outside: 2,
+				Shares: []DirectoryOnlyShare{{Label: "Crew", People: stationPeople, Seated: 12, Outside: 2}},
+			}},
+		},
+		{
+			name: "two auths say their sums and each auth's share, in the order the rules were given them", rules: stationRules().CountedBy(listed("Crew", stationPeople, 12, zed, amy), listed("Staff", stationStaff, 5, bo)), ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword, People: &DirectoryOnlyCount{
+				Seated: 17, Outside: 3,
+				Shares: []DirectoryOnlyShare{{Label: "Crew", People: stationPeople, Seated: 12, Outside: 2}, {Label: "Staff", People: stationStaff, Seated: 5, Outside: 1}},
+			}},
+		},
+		{
+			name: "an entry that names no list of people is summed and says no share", rules: stationRules().CountedBy(counter(5, bo), listed("Crew", stationPeople, 12, zed, amy)), ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword, People: &DirectoryOnlyCount{
+				Seated: 17, Outside: 3,
+				Shares: []DirectoryOnlyShare{{Label: "Crew", People: stationPeople, Seated: 12, Outside: 2}},
+			}},
+		},
+		{
+			name: "rules given no entries say no count", rules: stationRules().CountedBy(), ctx: password, station: "alpha",
+			want: DirectoryOnlyState{DirectoryOnly: true, Directory: "Google Workspace frontier.example", SignedIn: byPassword},
 		},
 		{
 			name: "a caller whose auth has passwords is told so, with the switch on or off", rules: counted.PasswordsBy(hasPassword), ctx: password, station: "alpha",
@@ -1148,7 +1199,7 @@ func TestTenantDirectoryRules_state(t *testing.T) {
 	}
 
 	// A counter's error is the read's, said by the reader that failed.
-	for name, failing := range map[string]DirectoryCounter{
+	for name, failing := range map[string]DirectoryPeople{
 		"resource.SeatedCount()": {Seated: func(context.Context, ReadWriteTransaction, accesstypes.Domain) (int, error) {
 			return 0, errors.New("the list is unreadable")
 		}},

@@ -59,6 +59,20 @@ export interface DirectoryOnlyCondition {
 export interface DirectoryOnlyCount {
   seated: number;
   outside: number;
+  /** The count auth by auth; the two numbers above are their sums. */
+  shares?: DirectoryOnlyShare[];
+}
+
+/**
+ * One auth's part of a tenant's count: what a page calls the auth's people (`label`), the
+ * tenant's list of them as the description names it (`people`), how many of them hold a
+ * role in the tenant (`seated`) and how many of those the switch keeps out (`outside`).
+ */
+export interface DirectoryOnlyShare {
+  label: string;
+  people: string;
+  seated: number;
+  outside: number;
 }
 
 /** A tenant's directory-only switch as it stands, and what turning it on takes of the person asking. */

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/types"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -463,12 +464,15 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 // (namedDirectoryRules), told what each of the program's auths says of the caller's
 // password (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the
 // generated identity client of every auth whose management the program generates, in
-// declaration order, and given the counters of every auth whose client answers who the
-// switch keeps out (resource.TenantDirectoryRules.CountedBy, directoryOnlyPeople), in
-// the same order, so the read of the switch says how many people it keeps out as the
-// warning counts them. The switch is turned on by a person who has a password, where
-// their auth has passwords; a program that generates no auth's management asks nothing
-// and counts nobody.
+// declaration order, and given the people of every auth whose client answers who the
+// switch keeps out (resource.TenantDirectoryRules.CountedBy, resource.DirectoryPeople,
+// directoryOnlyPeople), in the same order: what a page calls them, the tenant's list of
+// them with the fields that name a person, how many of them the tenant seats, who of
+// them the switch keeps out, and who keeps the administrators' way in. The read of the
+// switch counts them and the warning reads them from the same entries, so the two say
+// the same number. The switch is turned on by a person who has a password, where their
+// auth has passwords; a program that generates no auth's management asks nothing and
+// counts nobody.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {
@@ -483,13 +487,32 @@ func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	if len(people) == 0 {
 		return rules
 	}
-	counters := make([]string, 0, len(people))
+	entries := make([]string, 0, len(people))
 	for _, auth := range people {
 		client := fmt.Sprintf("%s.%s()", r.receiverName, auth.Accessor)
-		counters = append(counters, fmt.Sprintf("resource.DirectoryCounter{Seated: %[1]s.SeatedCount, Outsiders: %[1]s.DirectoryOutsiders}", client))
+		entry := fmt.Sprintf("resource.DirectoryPeople{Label: %q, List: %q, Fields: %s, Seated: %[4]s.SeatedCount, Outsiders: %[4]s.DirectoryOutsiders, AdministratorsEnter: %[4]s.AdministratorsEnterWithPassword",
+			auth.Label, auth.List, tagsLiteral(auth.Fields), client)
+		if auth.Administrators {
+			entry += fmt.Sprintf(", Administrators: %s.DirectoryAdministrators", client)
+		}
+		if auth.InvitationList != "" {
+			entry += fmt.Sprintf(", InvitationList: %q, InvitationFields: %s, Invitations: %s.DirectoryInvitations", auth.InvitationList, tagsLiteral(auth.InvitationFields), client)
+		}
+		entries = append(entries, entry+"}")
 	}
 
-	return rules + ".CountedBy(" + strings.Join(counters, ", ") + ")"
+	return rules + ".CountedBy(" + strings.Join(entries, ", ") + ")"
+}
+
+// tagsLiteral is fields as a Go literal of the fields a grant names,
+// []accesstypes.Tag{"username", "name"}.
+func tagsLiteral(fields []string) string {
+	quoted := make([]string, 0, len(fields))
+	for _, field := range fields {
+		quoted = append(quoted, strconv.Quote(field))
+	}
+
+	return "[]accesstypes.Tag{" + strings.Join(quoted, ", ") + "}"
 }
 
 // DirectoryRules is the expression of the rules of a tenant's directory the
