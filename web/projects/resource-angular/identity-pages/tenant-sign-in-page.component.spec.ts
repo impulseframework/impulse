@@ -247,6 +247,8 @@ interface World {
   write?: TransportResponse;
   /** The server's answer to a request for a method's warning; the warnings above unless given. */
   warning?: TransportResponse;
+  /** Where given, the server answers a read of the switch once this settles. */
+  held?: Promise<void>;
 }
 
 /** The team's own methods, by their routes. */
@@ -257,7 +259,7 @@ const ownMethods = [
   'end-team-directory-only',
 ];
 
-function serverFor(world: World): (request: TransportRequest) => TransportResponse {
+function serverFor(world: World): (request: TransportRequest) => TransportResponse | Promise<TransportResponse> {
   return (request) => {
     const url = new URL(request.url, 'http://library.test');
     const own = ownMethods.find((route) => url.pathname === `/api/teams/${team}/${route}`);
@@ -275,8 +277,10 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
         return { status: 200, body: url.searchParams.get('domain') === team ? world.digest : {} };
       case '/api/user-domains':
         return { status: 200, body: [{ domain: team, name: 'Riverside' }] };
-      case `/api/teams/${team}/directory-only`:
-        return { status: 200, body: world.state ?? { directoryOnly: false } };
+      case `/api/teams/${team}/directory-only`: {
+        const read: TransportResponse = { status: 200, body: world.state ?? { directoryOnly: false } };
+        return world.held ? world.held.then(() => read) : read;
+      }
       case `/api/teams/${team}/team-directories`:
         return { status: 200, body: world.directories ?? [] };
       case `/api/teams/${team}/staff-team-directory-roles`:
@@ -413,6 +417,43 @@ describe('TenantSignInPageComponent', () => {
     expect(readsOfTheSwitch()).toBe(2);
   });
 
+  it('stays drawn while it reads again after a write, and the new answer replaces the old one', async () => {
+    const world: World = { digest: administrator, session: throughWorkspace, state: noDirectoryThroughWorkspace };
+    await pageFor(world);
+    let answer: () => void = () => undefined;
+    world.held = new Promise((resolve) => {
+      answer = resolve;
+    });
+    world.state = withDirectory;
+    world.directories = [workspace];
+
+    // A read held by the server is a task the page waits on, so the page is not stable
+    // until it answers: the clock turns and the page draws without waiting for it.
+    const drawn = async (): Promise<void> => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    };
+    button('make-directory')?.click();
+    await drawn();
+    await drawn();
+    await drawn();
+    // The write succeeded and the switch is read again; until the server answers, the page says what it said.
+    expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
+    expect(readsOfTheSwitch()).toBe(2);
+    expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
+      'People enter Riverside with a password or by invitation. No directory is set.',
+    ]);
+    expect(texts('.impulse-tenant-sign-in-make-directory')).toEqual(["Make it this team's directory"]);
+
+    answer();
+    await turn();
+    await turn();
+    expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
+      'People enter Riverside through Google Workspace riverside.example, with a password or by invitation.',
+    ]);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
+  });
+
   it("the server's refusal of a write is shown in its own words", async () => {
     const sentence =
       "Google Workspace riverside.example already has a team here, and a directory belongs to one team. Ask that team's administrator to invite you.";
@@ -473,6 +514,27 @@ describe('TenantSignInPageComponent', () => {
     await turn();
     await turn();
     expect(writes()).toEqual([{ op: 'remove', path: `/teams/${team}/team-directories/d-1` }]);
+  });
+
+  it("a directory's name that opens a line starts with a capital, and inside a sentence it is as the server says it", async () => {
+    const unnamed = "your organization's Microsoft directory";
+    await pageFor({
+      digest: administrator,
+      session: throughWorkspace,
+      state: { ...withDirectory, directory: unnamed },
+      directories: [workspace],
+    });
+
+    expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
+      "People enter Riverside through your organization's Microsoft directory, with a password or by invitation.",
+    ]);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual(["Your organization's Microsoft directory"]);
+
+    button('remove-directory')?.click();
+    await turn();
+    expect(dialogText('.impulse-action-words')).toBe(
+      "Your organization's Microsoft directory will no longer be this team's directory. The roles it gave stay in place, and it is free for another team.",
+    );
   });
 
   it('a person who cancels the removal of the directory writes nothing, and the directory stays', async () => {
@@ -717,10 +779,24 @@ describe('TenantSignInPageComponent', () => {
     await pageFor({ digest: lister, session: throughWorkspace, directories: [workspace] });
 
     expect(texts('.impulse-tenant-sign-in-stands')).toEqual(['This team has a directory.']);
-    expect(texts('h2')).toEqual(['Directory']);
+    // Nothing would stand under a heading: the list does not name the directory, and the reader may not remove it.
+    expect(texts('h2')).toEqual([]);
     expect(element().querySelectorAll('button').length).toBe(0);
     // The read of the switch is asked only under the grant of a method that turns it.
     expect(readsOfTheSwitch()).toBe(0);
+  });
+
+  it('a reader who may not set a directory, of a team with none, gets no Directory heading', async () => {
+    await pageFor({
+      digest: { MakeTeamDirectoryOnly: { Execute: 'granted' } },
+      session: byPassword,
+      state: noDirectoryByPassword,
+    });
+
+    expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
+      'People enter Riverside with a password or by invitation. No directory is set.',
+    ]);
+    expect(texts('h2')).toEqual(['Directory only']);
   });
 
   it('a reader without the grants is told their role does not cover the page, and nothing is requested under the team', async () => {

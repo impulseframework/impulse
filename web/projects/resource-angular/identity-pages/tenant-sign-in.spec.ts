@@ -98,6 +98,14 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
       "tenantSignInPage: the description names no directories record on the tenant's side of Guests: this application's tenants have no directories, so there is no Sign-in settings page to place",
     );
   });
+
+  it('refuse a description that declares no tenant segment', () => {
+    const withoutSegment: ApiDescriptor = { ...descriptor, domainRoute: undefined };
+
+    expect(() => tenantSignInPage(withoutSegment, { auth: 'Staff' })).toThrowError(
+      "tenantSignInPage: a tenant's pages of Staff live under the API's tenant segment, and the API description declares none (domainRoute)",
+    );
+  });
 });
 
 describe('tenantStandsLine', () => {

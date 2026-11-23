@@ -49,7 +49,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
  *
  * The route carries the names (tenantSignInRoute); the tenant is the one the page is open
  * in. The page draws nothing until the tenant's digest has loaded and each read it asks
- * has answered, and asks again when a digest loads.
+ * has answered, stays drawn while it reads again, and asks again when a digest loads.
  */
 @Component({
   selector: 'impulse-tenant-sign-in-page',
@@ -128,7 +128,8 @@ export class TenantSignInPageComponent {
 
   /**
    * Whether the page knows what to say: the tenant's digest has loaded and each read the
-   * digest grants has answered. Nothing is drawn before.
+   * digest grants has answered for the first time. Nothing is drawn before. A read asked
+   * again, as after a write, leaves the page drawn, and its answer replaces the old one.
    */
   readonly known = computed(() => {
     this.permissions();
@@ -136,8 +137,8 @@ export class TenantSignInPageComponent {
     return (
       !!tenant &&
       this.client.permissions.digest(tenant) !== undefined &&
-      !this.read.isLoading() &&
-      !this.rows.isLoading()
+      this.read.status() !== 'loading' &&
+      this.rows.status() !== 'loading'
     );
   });
 
@@ -160,6 +161,20 @@ export class TenantSignInPageComponent {
     const facts = this.facts();
     return facts ? !!facts.directory : this.row() !== undefined;
   });
+
+  /**
+   * Whether the part headed Directory is drawn: only where something stands under the
+   * heading, the directory's name or the button that removes it, or, with no directory,
+   * what setting one takes of a reader who may create it.
+   */
+  readonly showsDirectory = computed(() =>
+    this.hasDirectory()
+      ? !!this.facts()?.directory || (this.canDelete() && this.row() !== undefined)
+      : this.canCreate(),
+  );
+
+  /** The directory's name on a line of its own, opening with a capital; empty where the read names none. */
+  readonly directoryLine = computed(() => openingCapital(this.facts()?.directory ?? ''));
 
   /**
    * The organization's directory the person is signed in through, as a sentence names it;
@@ -247,7 +262,7 @@ export class TenantSignInPageComponent {
     if (!row) {
       return;
     }
-    const directory = this.facts()?.directory || 'The directory';
+    const directory = this.directoryLine() || 'The directory';
     const confirmed = await askInDialog(this.dialog, {
       title: 'Remove the directory',
       words: `${directory} will no longer be this ${this.word}'s directory. The roles it gave stay in place, and it is free for another ${this.word}.`,
@@ -367,4 +382,13 @@ export class TenantSignInPageComponent {
     const method = this.signIn.methods[kind];
     return method !== undefined && this.allows(ExecutePermission, method);
   }
+}
+
+/**
+ * A name that opens a line, with its first letter in upper case: the server says a
+ * directory nobody named as "your organization's Microsoft directory", which inside a
+ * sentence stays as it is said.
+ */
+function openingCapital(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }

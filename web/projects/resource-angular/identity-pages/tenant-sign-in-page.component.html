@@ -6,42 +6,44 @@
       <p class="impulse-tenant-sign-in-refusal" role="alert">{{ refusal() }}</p>
     }
     @if (reads()) {
-      <h2>Directory</h2>
-      @if (hasDirectory()) {
-        @if (facts()?.directory; as directory) {
-          <p class="impulse-tenant-sign-in-directory">{{ directory }}</p>
-        }
-        @if (canDelete() && row()) {
-          <div class="impulse-tenant-sign-in-action">
-            <button
-              mat-button
-              type="button"
-              class="impulse-tenant-sign-in-remove-directory"
-              [disabled]="busy()"
-              (click)="remove()">
-              Remove the directory
-            </button>
-            <p class="impulse-tenant-sign-in-note">
-              Removing the directory leaves the roles it gave in place and frees it for another {{ word }}. It cannot be
-              removed while this {{ word }} is directory only.
-            </p>
-          </div>
-        }
-      } @else if (canCreate()) {
-        @if (sessionDirectory(); as through) {
-          <p class="impulse-tenant-sign-in-signed-in">You are signed in through {{ through }}.</p>
-          <div class="impulse-tenant-sign-in-action">
-            <button
-              mat-flat-button
-              type="button"
-              class="impulse-tenant-sign-in-make-directory"
-              [disabled]="busy()"
-              (click)="makeDirectory()">
-              Make it this {{ word }}'s directory
-            </button>
-          </div>
+      @if (showsDirectory()) {
+        <h2>Directory</h2>
+        @if (hasDirectory()) {
+          @if (directoryLine(); as directory) {
+            <p class="impulse-tenant-sign-in-directory">{{ directory }}</p>
+          }
+          @if (canDelete() && row()) {
+            <div class="impulse-tenant-sign-in-action">
+              <button
+                mat-button
+                type="button"
+                class="impulse-tenant-sign-in-remove-directory"
+                [disabled]="busy()"
+                (click)="remove()">
+                Remove the directory
+              </button>
+              <p class="impulse-tenant-sign-in-note">
+                Removing the directory leaves the roles it gave in place and frees it for another {{ word }}. It cannot
+                be removed while this {{ word }} is directory only.
+              </p>
+            </div>
+          }
         } @else {
-          <p class="impulse-tenant-sign-in-how-to-set">{{ howToSet() }}</p>
+          @if (sessionDirectory(); as through) {
+            <p class="impulse-tenant-sign-in-signed-in">You are signed in through {{ through }}.</p>
+            <div class="impulse-tenant-sign-in-action">
+              <button
+                mat-flat-button
+                type="button"
+                class="impulse-tenant-sign-in-make-directory"
+                [disabled]="busy()"
+                (click)="makeDirectory()">
+                Make it this {{ word }}'s directory
+              </button>
+            </div>
+          } @else {
+            <p class="impulse-tenant-sign-in-how-to-set">{{ howToSet() }}</p>
+          }
         }
       }
 
