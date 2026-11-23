@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, resource, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   AnyResourceHandle,
   CreatePermission,
@@ -20,8 +20,9 @@ import {
 import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { askInDialog } from '@impulseframework/resource-angular/dialogs';
-import { openMethodDialog } from '@impulseframework/resource-angular/resource';
+import { filterQueryParams, openMethodDialog } from '@impulseframework/resource-angular/resource';
 import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular/resource-client';
+import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 import { TenantSignIn, tenantSignInKey, tenantPeopleLine, tenantStandsLine } from './tenant-sign-in-says';
@@ -54,7 +55,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
 @Component({
   selector: 'impulse-tenant-sign-in-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatButtonModule],
+  imports: [MatButtonModule, RouterLink],
   templateUrl: './tenant-sign-in-page.component.html',
   styleUrl: './tenant-sign-in-page.component.scss',
 })
@@ -64,6 +65,7 @@ export class TenantSignInPageComponent {
   private readonly auth = inject(AuthService);
   private readonly dialog = inject(MatDialog);
   private readonly metaOf = inject(METHOD_META);
+  private readonly resolvePage = pageRouteResolver();
   /** The names the route carries: the tenant word, the directories record and the tenant's methods. */
   readonly signIn = inject(ActivatedRoute).snapshot.data[tenantSignInKey] as TenantSignIn;
   /**
@@ -221,6 +223,26 @@ export class TenantSignInPageComponent {
     const facts = this.facts();
     return facts?.people ? tenantPeopleLine(facts.people, facts.directoryOnly) : '';
   });
+
+  /**
+   * The address of the tenant's People page, which the people line opens, or undefined: it
+   * is drawn only where the read counts somebody directory only keeps out, the application
+   * mounts a page of the tenant's people, and the digest grants List on them in the tenant.
+   */
+  readonly peopleLink = computed((): string | undefined => {
+    const people = this.signIn.people;
+    if (!people || !this.facts()?.people?.outside) {
+      return undefined;
+    }
+    const route = resourcePageRoute(people);
+    if (route === undefined || !this.allows(ListPermission, people)) {
+      return undefined;
+    }
+    return '/' + this.resolvePage(route);
+  });
+
+  /** The People page's filter the people line opens it at: the people directory only keeps out. */
+  readonly keptOutFilter = filterQueryParams([{ field: 'outsideDirectory', operator: 'eq', value: 'true' }]);
 
   /** What turning directory only takes of the person reading that they do not meet, in the server's sentences. */
   readonly unmet = computed((): DirectoryOnlyCondition[] =>

@@ -19,6 +19,8 @@ export interface TenantSignIn {
   word: string;
   /** The record a tenant's one directory is a row of. */
   directories: Resource;
+  /** The record a tenant's people are rows of. */
+  people?: Resource;
   /** The tenant's methods that set how its people enter. */
   methods: {
     openToDirectory?: Method;

@@ -88,7 +88,15 @@
             On: only people who sign in through this {{ word }}'s directory enter it.
           </p>
           @if (peopleLine()) {
-            <p class="impulse-tenant-sign-in-people">{{ peopleLine() }}</p>
+            <p class="impulse-tenant-sign-in-people">
+              @if (peopleLink(); as link) {
+                <a class="impulse-tenant-sign-in-people-link" [routerLink]="link" [queryParams]="keptOutFilter">{{
+                  peopleLine()
+                }}</a>
+              } @else {
+                {{ peopleLine() }}
+              }
+            </p>
           }
           <div class="impulse-tenant-sign-in-action">
             @if (canEndOnly()) {
@@ -114,7 +122,15 @@
             </p>
           } @else {
             @if (peopleLine()) {
-              <p class="impulse-tenant-sign-in-people">{{ peopleLine() }}</p>
+              <p class="impulse-tenant-sign-in-people">
+                @if (peopleLink(); as link) {
+                  <a class="impulse-tenant-sign-in-people-link" [routerLink]="link" [queryParams]="keptOutFilter">{{
+                    peopleLine()
+                  }}</a>
+                } @else {
+                  {{ peopleLine() }}
+                }
+              </p>
             }
             @if (canMakeOnly()) {
               @for (condition of unmet(); track condition.sentence) {
