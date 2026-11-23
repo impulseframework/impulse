@@ -357,6 +357,7 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 	}
 	name.KeyColumn = keyColumn
 	name.NameColumn = fieldColumn(name.source)
+	name.Features = gatesOf(pointed.Feature, name.source.Feature)
 
 	return name
 }

@@ -71,12 +71,17 @@ type QuerySet[Resource Resourcer] struct {
 	// so a dropped field discloses nothing by its absence. droppedSearchFields
 	// records those; branchDecisions and droppedBranches record what the checks
 	// decided for the resource's @searchAlso branches, by the branch's dotted name.
-	// All empty on a hand-built QuerySet.
+	// hiddenBranches are the branches behind a flag that is off, which the box does
+	// not carry (the decode sets it from the parsed tree): no grant is asked for one,
+	// no fingerprint names it and nothing renders it. The per-tenant copies of a
+	// list across tenants share it, since the checks do not write it. All empty on
+	// a hand-built QuerySet.
 	searchBox           bool
 	searchFields        []accesstypes.Field
 	droppedSearchFields map[accesstypes.Field]struct{}
 	branchDecisions     map[string]accesstypes.Decision
 	droppedBranches     map[string]struct{}
+	hiddenBranches      map[string]struct{}
 	// keyFields are the resource's primary-key fields, in declaration order,
 	// appended to every decoded list's order so the order is total: two rows
 	// equal on every sort column are separated by the key. Stamped by the

@@ -189,6 +189,66 @@ func Test_resolveNameFields(t *testing.T) {
 	}
 }
 
+// Test_nameFieldFeatures pins the flags a name stands behind: the pointed-to
+// resource's, then its name field's, each only where it is declared, and the
+// literal the generated NameFields method writes, which names them only where there
+// are any.
+func Test_nameFieldFeatures(t *testing.T) {
+	t.Parallel()
+
+	resourceGate := &featureGate{Constant: "Kits", Name: "kits"}
+	fieldGate := &featureGate{Constant: "KitLabels", Name: "kit_labels"}
+	const literal = `{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""`
+	tests := []struct {
+		name        string
+		resource    *featureGate
+		field       *featureGate
+		want        []resource.Feature
+		wantLiteral string
+	}{
+		{name: "neither gated: no flags, today's literal", wantLiteral: literal + "}"},
+		{name: "the name field gated", field: fieldGate, want: []resource.Feature{"kit_labels"}, wantLiteral: literal + `, Features: []resource.Feature{"kit_labels"}}`},
+		{name: "the pointed-to resource gated", resource: resourceGate, want: []resource.Feature{"kits"}, wantLiteral: literal + `, Features: []resource.Feature{"kits"}}`},
+		{name: "both gated: the resource's first", resource: resourceGate, field: fieldGate, want: []resource.Feature{"kits", "kit_labels"}, wantLiteral: literal + `, Features: []resource.Feature{"kits", "kit_labels"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := nameFixtureResources(t, "Base", "Wing", "Kit", "Stock")
+			if err != nil {
+				t.Fatalf("nameFixtureResources() error = %v", err)
+			}
+			var stock *resourceInfo
+			for _, res := range c.resources {
+				switch res.Name() {
+				case "Kit":
+					res.Feature = tt.resource
+					for _, field := range res.Fields {
+						if field.Name() == "Label" {
+							field.Feature = tt.field
+						}
+					}
+				case "Stock":
+					stock = res
+				}
+			}
+			if err := c.resolveNameFields(c.resources); err != nil {
+				t.Fatalf("resolveNameFields() error = %v", err)
+			}
+			if len(stock.NameFields) != 1 {
+				t.Fatalf("Stock's name fields = %d, want the kit's alone", len(stock.NameFields))
+			}
+			if diff := cmp.Diff(tt.want, stock.NameFields[0].Features); diff != "" {
+				t.Errorf("Features mismatch (-want +got):\n%s", diff)
+			}
+			if got := stock.NameFields[0].GoLiteral(); got != tt.wantLiteral {
+				t.Errorf("GoLiteral() =\n%s\nwant\n%s", got, tt.wantLiteral)
+			}
+		})
+	}
+}
+
 // docketNameFields resolves the namefixture's Docket and returns its name fields by Go
 // name, with the resource.
 func docketNameFields(t *testing.T) (docket *resourceInfo, names map[string]*nameField) {

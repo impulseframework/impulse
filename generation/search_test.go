@@ -372,6 +372,67 @@ func TestSearchFacts(t *testing.T) {
 	})
 }
 
+// Test_searchBranchFeatures pins the flags a branch stands behind: the child
+// resource's, then the child field's, each only where it is declared, and the
+// literal the generated SearchBranches method writes, which names them only where
+// there are any.
+func Test_searchBranchFeatures(t *testing.T) {
+	t.Parallel()
+
+	resourceGate := &featureGate{Constant: "Notes", Name: "notes"}
+	fieldGate := &featureGate{Constant: "NoteBodies", Name: "note_bodies"}
+	const literal = `{Name: "accountNote.body", Resource: "AccountNotes", Field: "Body", Tag: "body", Table: "AccountNotes", Column: "Body", JoinColumn: "AccountId", TenantColumn: "TenantId", Token: "Body_Search", Index: "AccountNotesSearch", Role: resource.SearchRoleText, Anchors: nil, Contains: true, Zone: "", PII: true`
+	tests := []struct {
+		name        string
+		resource    *featureGate
+		field       *featureGate
+		want        []resource.Feature
+		wantLiteral string
+	}{
+		{name: "neither gated: no flags, today's literal", wantLiteral: literal + "}"},
+		{name: "the child field gated", field: fieldGate, want: []resource.Feature{"note_bodies"}, wantLiteral: literal + `, Features: []resource.Feature{"note_bodies"}}`},
+		{name: "the child resource gated", resource: resourceGate, want: []resource.Feature{"notes"}, wantLiteral: literal + `, Features: []resource.Feature{"notes"}}`},
+		{name: "both gated: the resource's first", resource: resourceGate, field: fieldGate, want: []resource.Feature{"notes", "note_bodies"}, wantLiteral: literal + `, Features: []resource.Feature{"notes", "note_bodies"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, resources, err := searchFixture(t, "Account", "AccountContact", "AccountNote", "Pairing")
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			note := resourceNamed(t, resources, "AccountNote")
+			note.Feature = tt.resource
+			fieldNamed(t, note, "Body").Feature = tt.field
+			byName := make(map[string]*resourceInfo, len(resources))
+			for _, res := range resources {
+				byName[res.Name()] = res
+			}
+			account := resourceNamed(t, resources, "Account")
+			var branch *searchBranch
+			for _, decl := range account.searchAlso {
+				if decl.target != "AccountNote.Body" {
+					continue
+				}
+				branch, err = c.resolveSearchBranch(account, decl, byName)
+				if err != nil {
+					t.Fatalf("resolveSearchBranch() error = %v", err)
+				}
+			}
+			if branch == nil {
+				t.Fatal("the fixture's Account declares no @searchAlso(AccountNote.Body)")
+			}
+			if diff := cmp.Diff(tt.want, branch.Features); diff != "" {
+				t.Errorf("Features mismatch (-want +got):\n%s", diff)
+			}
+			if got := branch.GoLiteral(); got != tt.wantLiteral {
+				t.Errorf("GoLiteral() =\n%s\nwant\n%s", got, tt.wantLiteral)
+			}
+		})
+	}
+}
+
 // TestSearchFacts_View pins a view's authored search tags: the table column's fact,
 // read off the schema, lands on the view's field.
 func TestSearchFacts_View(t *testing.T) {

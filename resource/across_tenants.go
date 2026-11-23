@@ -553,7 +553,7 @@ func (g *tenantGroup[Resource]) signature() (string, error) {
 	for _, name := range slices.Sorted(mapKeys(g.q.branchDecisions)) {
 		for i := range g.q.rMeta.searchBranches {
 			branch := &g.q.rMeta.searchBranches[i]
-			if branch.Name != name {
+			if branch.Name != name || g.q.branchHidden(branch) {
 				continue
 			}
 			expr, err := conditionalExpr(branch.fieldResource(), g.q.branchDecisions[name])
@@ -668,6 +668,9 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 		}
 	}
 	for i := range q.rMeta.searchBranches {
+		if q.branchHidden(&q.rMeta.searchBranches[i]) {
+			continue
+		}
 		name := q.rMeta.searchBranches[i].Name
 		dropped := everywhere(func(g *tenantGroup[Resource]) bool {
 			_, isDropped := g.q.droppedBranches[name]
@@ -1075,6 +1078,9 @@ func (q *QuerySet[Resource]) acrossBranchGrants(dbType DBType, registry *paramRe
 	grants := make(map[string]searchGrant)
 	for i := range q.rMeta.searchBranches {
 		branch := &q.rMeta.searchBranches[i]
+		if q.branchHidden(branch) {
+			continue
+		}
 		if _, dropped := q.droppedBranches[branch.Name]; dropped {
 			grants[branch.Name] = searchGrant{dropped: true}
 

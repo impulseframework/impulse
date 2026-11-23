@@ -455,8 +455,30 @@ func (b *searchBranch) GoLiteral() string {
 		anchorList = "[]resource.SearchAnchor{" + strings.Join(anchors, ", ") + "}"
 	}
 
-	return fmt.Sprintf("{Name: %q, Resource: %q, Field: %q, Tag: %q, Table: %q, Column: %q, JoinColumn: %q, TenantColumn: %q, Token: %q, Index: %q, Role: %s, Anchors: %s, Contains: %t, Zone: %q, PII: %t}",
-		b.Name, b.Resource, b.Field, b.Tag, b.Table, b.Column, b.JoinColumn, b.TenantColumn, b.Token, b.Index, "resource.SearchRole"+strings.ToUpper(string(b.Role)[:1])+string(b.Role)[1:], anchorList, b.Contains, b.Zone, b.PII)
+	var features string
+	if len(b.Features) > 0 {
+		quoted := make([]string, 0, len(b.Features))
+		for _, feature := range b.Features {
+			quoted = append(quoted, fmt.Sprintf("%q", feature))
+		}
+		features = ", Features: []resource.Feature{" + strings.Join(quoted, ", ") + "}"
+	}
+
+	return fmt.Sprintf("{Name: %q, Resource: %q, Field: %q, Tag: %q, Table: %q, Column: %q, JoinColumn: %q, TenantColumn: %q, Token: %q, Index: %q, Role: %s, Anchors: %s, Contains: %t, Zone: %q, PII: %t%s}",
+		b.Name, b.Resource, b.Field, b.Tag, b.Table, b.Column, b.JoinColumn, b.TenantColumn, b.Token, b.Index, "resource.SearchRole"+strings.ToUpper(string(b.Role)[:1])+string(b.Role)[1:], anchorList, b.Contains, b.Zone, b.PII, features)
+}
+
+// gatesOf returns the flags of the gates declared, in order, leaving out a gate not
+// declared: what a thing read through another resource stands behind.
+func gatesOf(gates ...*featureGate) []resource.Feature {
+	var features []resource.Feature
+	for _, gate := range gates {
+		if gate != nil {
+			features = append(features, gate.Name)
+		}
+	}
+
+	return features
 }
 
 // searchAlsoArgSpec is @searchAlso's argument shape: the child field, then via:.
@@ -675,6 +697,7 @@ func (c *client) resolveSearchBranch(parent *resourceInfo, decl searchAlsoDecl, 
 	branch.Token, branch.Index, branch.Role = field.Search.Token, field.Search.Index, field.Search.Role
 	branch.Anchors, branch.Contains, branch.Zone = field.Search.Anchors, field.Search.Contains, field.Search.Zone
 	branch.PII = field.IsPII()
+	branch.Features = gatesOf(child.Feature, field.Feature)
 
 	if !join.IsPrimaryKey && !slices.Contains(c.indexStoring(branch.Table, field.Search.Index), branch.JoinColumn) {
 		parent.searchWarnings = append(parent.searchWarnings, SearchBranchStoringWarning{Resource: parent.Name(), Child: branch.Table, IndexName: field.Search.Index, JoinColumn: branch.JoinColumn})

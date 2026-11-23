@@ -429,6 +429,171 @@ func TestNameLookup_hiddenID(t *testing.T) {
 	})
 }
 
+// gatedNamePass is a resource whose rows point to a squadron by an id no flag hides,
+// with the squadron's name beside it, read from a resource behind the flag
+// squadrons and a name field behind the flag squadron_names.
+type gatedNamePass struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+}
+
+// Resource names the resource in grants and routes.
+func (gatedNamePass) Resource() accesstypes.Resource {
+	return "GatedNamePasses"
+}
+
+// NameFields describes the gated name as the generator writes it.
+func (gatedNamePass) NameFields() []NameField {
+	return []NameField{
+		{
+			Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId",
+			Features: []Feature{"squadrons", "squadron_names"},
+		},
+	}
+}
+
+// gatedNamePassRequest is gatedNamePass's list request type.
+type gatedNamePassRequest struct {
+	ID           string  `json:"id"           index:"true" perm:"-"`
+	SquadronID   *string `json:"squadronId"   index:"true"`
+	SquadronName *string `json:"squadronName" index:"true" nameof:"SquadronID"`
+}
+
+// decodeGatedName decodes a list request for sector-1's gated-name passes, which the
+// declared order sorts by the squadron's name, under the flags features holds and
+// the grants perms answers.
+func decodeGatedName(t *testing.T, target string, features *FeatureSet, perms *nameGrantPermissions) (*QuerySet[gatedNamePass], error) {
+	t.Helper()
+
+	resSet, err := NewSet[gatedNamePass, gatedNamePassRequest](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedNamePass, gatedNamePassRequest](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+	key, err := NewCursorKey("dGVzdC1jdXJzb3Ita2V5LW1hdGVyaWFsLTMyLWJ5dGVzIQ==")
+	if err != nil {
+		t.Fatalf("NewCursorKey() error = %v", err)
+	}
+	decoder = decoder.WithCursorKey(key).WithPaging(Paging{Order: []SortField{{Field: "SquadronName", Direction: SortAscending}}}).WithFeatures(features)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+
+	return decoder.Decode(req, perms, inSector1)
+}
+
+// TestNameLookup_sourceBehindFlag pins a name whose pointed-to resource, or whose
+// name field there, stands behind a flag that is off: it is unknown to a request,
+// as a name beside a hidden id is, while a declared order by it still orders by
+// its lookup. With every flag on it is a name as any other.
+func TestNameLookup_sourceBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	lookups := bothDatabases(
+		"(SELECT `ca1`.`Name` FROM `Squadrons` `ca1` WHERE `ca1`.`Id` = `GatedNamePasses`.`SquadronId` AND `ca1`.`SectorId` = @domain)",
+		`(SELECT "ca1"."Name" FROM "Squadrons" "ca1" WHERE "ca1"."Id" = "GatedNamePasses"."SquadronId" AND "ca1"."SectorId" = @domain)`,
+	)
+	squadrons := NameSource{Resource: "Squadrons", Field: "name", Domain: "sector-1"}
+	offs := map[string]*FeatureSet{
+		"the resource's flag off":   featureSetOf(map[Feature]bool{"squadrons": false, "squadron_names": true}),
+		"the name field's flag off": featureSetOf(map[Feature]bool{"squadrons": true, "squadron_names": false}),
+		"no flags wired":            nil,
+	}
+	on := featureSetOf(map[Feature]bool{"squadrons": true, "squadron_names": true})
+
+	for name, features := range offs {
+		t.Run(name+": the name is unknown to columns, sort and filter", func(t *testing.T) {
+			t.Parallel()
+
+			for target, want := range map[string]string{
+				"/?columns=id,squadronName&limit=2":               "unknown column: squadronName",
+				"/?columns=id&sort=squadronName&limit=2":          "unknown sort field: squadronName",
+				"/?columns=id&filter=squadronName:eq:Red&limit=2": "'squadronName' is not filterable",
+			} {
+				_, err := decodeGatedName(t, target, features, &nameGrantPermissions{})
+				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), want) {
+					t.Errorf("Decode(%s) error = %v, want a bad request saying %q", target, err, want)
+				}
+			}
+		})
+
+		t.Run(name+": no columns named: the id and not the name, ordered by the name's lookup", func(t *testing.T) {
+			t.Parallel()
+
+			for dbType, lookup := range lookups {
+				qSet, err := decodeGatedName(t, "/?limit=2", features, &nameGrantPermissions{})
+				if err != nil {
+					t.Fatalf("Decode() error = %v", err)
+				}
+				if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+					t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+				}
+				stmt, err := qSet.stmt(dbType)
+				if err != nil {
+					t.Fatalf("stmt(%s) error = %v", dbType, err)
+				}
+				if sql := oneLine(stmt.SQL); !strings.Contains(sql, "ORDER BY "+lookup+" ASC") {
+					t.Errorf("stmt(%s) SQL =\n%s\nwant its order to open with the name's lookup:\n%s", dbType, sql, lookup)
+				}
+				if diff := cmp.Diff([]accesstypes.Field{"ID", "SquadronID"}, qSet.Fields()); diff != "" {
+					t.Errorf("Fields() on %s mismatch (-want +got):\n%s", dbType, diff)
+				}
+				if names := qSet.Names(); len(names) != 0 {
+					t.Errorf("Names() on %s = %v, want none: a flag hides the name's source", dbType, names)
+				}
+			}
+		})
+
+		t.Run(name+": the name's list is not answered", func(t *testing.T) {
+			t.Parallel()
+
+			qSet, err := decodeGatedName(t, "/?sort=id&limit=2", features, &nameGrantPermissions{})
+			if err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			got, err := qSet.NameSources(t.Context())
+			if err != nil {
+				t.Fatalf("NameSources() error = %v", err)
+			}
+			if len(got) != 0 {
+				t.Errorf("NameSources() = %v, want none: a flag hides the name's source", got)
+			}
+		})
+	}
+
+	t.Run("every flag on: the name is asked for, sorted by, filtered by and given", func(t *testing.T) {
+		t.Parallel()
+
+		for _, target := range []string{
+			"/?columns=id,squadronName&limit=2",
+			"/?columns=id&sort=squadronName&limit=2",
+			"/?columns=id&filter=squadronName:eq:Red&limit=2",
+		} {
+			if _, err := decodeGatedName(t, target, on, &nameGrantPermissions{}); err != nil {
+				t.Errorf("Decode(%s) error = %v, want the name taken", target, err)
+			}
+		}
+		qSet, err := decodeGatedName(t, "/?sort=id&limit=2", on, &nameGrantPermissions{})
+		if err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if err := qSet.checkPermissions(t.Context(), SpannerDBType); err != nil {
+			t.Fatalf("checkPermissions() error = %v", err)
+		}
+		if diff := cmp.Diff([]RequestedName{{Field: "SquadronName", JSONName: "squadronName"}}, qSet.Names()); diff != "" {
+			t.Errorf("Names() mismatch (-want +got):\n%s", diff)
+		}
+		got, err := qSet.NameSources(t.Context())
+		if err != nil {
+			t.Fatalf("NameSources() error = %v", err)
+		}
+		if diff := cmp.Diff([]NameSource{squadrons}, got); diff != "" {
+			t.Errorf("NameSources() mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
 // sourcedPass is a tenant's resource whose rows point to two squadrons, a home one
 // and a visiting one, whose names are read from one list; to a level, an
 // enumeration table; to a maker, a resource of no tenant; and to a bay, a tenant's

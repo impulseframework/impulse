@@ -35,10 +35,13 @@ type parsedQueryParams struct {
 	// SearchBox says the filter carries the search box, and SearchFields names the
 	// resource's own fields it searches, in declaration order; a field the caller
 	// cannot read drops out at the read checks instead of refusing the request.
-	SearchBox    bool
-	SearchFields []accesstypes.Field
-	Page         pageRequest
-	Capabilities []accesstypes.Permission
+	// SearchBranches are the @searchAlso branches the box carries, read from the
+	// parsed tree: the resource's less those behind a flag that is off.
+	SearchBox      bool
+	SearchFields   []accesstypes.Field
+	SearchBranches []SearchBranch
+	Page           pageRequest
+	Capabilities   []accesstypes.Permission
 }
 
 type filterBody struct {
@@ -113,9 +116,50 @@ func (d *QueryDecoder[Resource, Request]) WithFeatures(features *FeatureSet) *Qu
 	return d
 }
 
-// hiddenFields returns the request fields behind a flag that is off, nil when none.
+// hiddenFields returns the request fields behind a flag that is off, nil when none: a
+// gated field of the request type, and a name field whose pointed-to resource or name
+// field there stands behind one (NameField.Features), since what a flag hides is not
+// read through another resource.
 func (d *QueryDecoder[Resource, Request]) hiddenFields() map[accesstypes.Field]struct{} {
-	return d.resourceSet.hiddenFields(d.features)
+	hidden := d.resourceSet.hiddenFields(d.features)
+	for i := range d.names {
+		if flagsOn(d.features, d.names[i].Features) {
+			continue
+		}
+		if hidden == nil {
+			hidden = make(map[accesstypes.Field]struct{})
+		}
+		hidden[d.names[i].Field] = struct{}{}
+	}
+
+	return hidden
+}
+
+// flagsOn reports whether every one of flags is on in features, so what stands
+// behind them may be read. Every flag of a nil FeatureSet is off.
+func flagsOn(features *FeatureSet, flags []Feature) bool {
+	for _, flag := range flags {
+		if !features.Enabled(flag) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// visibleBranches returns the resource's @searchAlso branches a request's box
+// searches: every one less those behind a flag that is off (SearchBranch.Features).
+// A nil FeatureSet hides every gated branch, as it hides every gated field. It
+// filters a copy: the metadata's list is shared by every request.
+func (d *QueryDecoder[Resource, Request]) visibleBranches() []SearchBranch {
+	branches := d.resourceSet.ResourceMetadata().searchBranches
+	if !slices.ContainsFunc(branches, func(branch SearchBranch) bool { return len(branch.Features) > 0 }) {
+		return branches
+	}
+
+	return slices.DeleteFunc(slices.Clone(branches), func(branch SearchBranch) bool {
+		return !flagsOn(d.features, branch.Features)
+	})
 }
 
 // visibleFields returns the request type's fields less the hidden ones. It filters a
@@ -154,11 +198,10 @@ func (d *QueryDecoder[Resource, Request]) visibleFilterFields(hidden map[accesst
 }
 
 // visibleNames returns the name fields whose id field the request type carries,
-// less those beside an id the hidden set holds. A name follows its id, so with the
-// request's hidden set it returns the names a request may name, and a name beside
-// a hidden id is unknown as the id is. With no hidden set it returns every name the
-// query set holds, a name beside a hidden id among them, so a declared order by it
-// orders by it.
+// less those the hidden set holds and those beside an id it holds. A name follows
+// its id, so with the request's hidden set it returns the names a request may name:
+// a name beside a hidden id is unknown as the id is, and so is a name whose source
+// a flag hides (hiddenFields).
 func (d *QueryDecoder[Resource, Request]) visibleNames(hidden map[accesstypes.Field]struct{}) []requestName {
 	fields := d.requestFieldMapper.Fields()
 	visible := make([]requestName, 0, len(d.names))
@@ -166,10 +209,32 @@ func (d *QueryDecoder[Resource, Request]) visibleNames(hidden map[accesstypes.Fi
 		if _, isHidden := hidden[d.names[i].Key]; isHidden || !slices.Contains(fields, d.names[i].Key) {
 			continue
 		}
+		if _, isHidden := hidden[d.names[i].Field]; isHidden {
+			continue
+		}
 		visible = append(visible, d.names[i])
 	}
 
 	return visible
+}
+
+// queryNames returns the name fields a query set holds: every one whose id field
+// the request type carries, a name beside a hidden id among them, and a name the
+// request's hidden set holds marked flagged, so a declared order by either orders
+// by it while no request that names no columns is given it.
+func (d *QueryDecoder[Resource, Request]) queryNames(hidden map[accesstypes.Field]struct{}) []requestName {
+	fields := d.requestFieldMapper.Fields()
+	names := make([]requestName, 0, len(d.names))
+	for i := range d.names {
+		if !slices.Contains(fields, d.names[i].Key) {
+			continue
+		}
+		name := d.names[i]
+		_, name.flagged = hidden[name.Field]
+		names = append(names, name)
+	}
+
+	return names
 }
 
 // nameFieldName resolves a wire name to a name field a request may name.
@@ -416,7 +481,7 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 		return nil, err
 	}
 	if filterInURL {
-		if err := refuseSensitiveInURL(parsedQuery, boxPII && d.boxSearchesPII(parsedQuery.SearchFields)); err != nil {
+		if err := refuseSensitiveInURL(parsedQuery, boxPII && d.boxSearchesPII(parsedQuery.SearchFields, parsedQuery.SearchBranches)); err != nil {
 			return nil, err
 		}
 	}
@@ -426,12 +491,15 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 	qSet.requestableFields = d.visibleFields()
 	qSet.collection = d.collection
 	qSet.jsonNames = d.requestFieldMapper.JSONNames()
-	qSet.names = d.visibleNames(nil)
+	qSet.names = d.queryNames(hidden)
 	qSet.SetFilterParser(parsedQuery.FilterParser)
 	qSet.filterFields = parsedQuery.FilterFields
 	qSet.filterNames = parsedQuery.FilterNames
 	qSet.searchBox = parsedQuery.SearchBox
 	qSet.searchFields = parsedQuery.SearchFields
+	if parsedQuery.SearchBox {
+		qSet.hiddenBranches = hiddenBranches(d.resourceSet.ResourceMetadata().searchBranches, parsedQuery.SearchBranches)
+	}
 	qSet.keyFields = d.keyFields
 	qSet.defaultOrder = d.paging.Order
 	qSet.cursorKey = d.cursorKey
@@ -529,6 +597,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 	var filterParser func(DBType) (ExpressionNode, error)
 	var filter filterRead
 	var searchFields []accesstypes.Field
+	var searchBranches []SearchBranch
 	var err error
 
 	if sortParamValue := query.Get(sortParam); sortParamValue != "" {
@@ -568,6 +637,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 		}
 		if filter.box {
 			searchFields = d.visibleBoxFields(hidden)
+			searchBranches = filter.branches
 		}
 
 		delete(query, filterParam)
@@ -615,6 +685,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 		SensitiveField: filter.sensitive,
 		SearchBox:      filter.box,
 		SearchFields:   searchFields,
+		SearchBranches: searchBranches,
 		Page:           page,
 		Capabilities:   capabilities,
 	}, nil
@@ -648,14 +719,14 @@ func (d *QueryDecoder[Resource, Request]) sensitiveBoxFields(searchFields []acce
 	return sensitive
 }
 
-// boxSearchesPII reports whether the box, as a request searches it (searchFields),
-// reads a sensitive field: one of its own sensitive fields, or a sensitive
-// @searchAlso branch.
-func (d *QueryDecoder[Resource, Request]) boxSearchesPII(searchFields []accesstypes.Field) bool {
+// boxSearchesPII reports whether the box, as a request searches it (searchFields
+// and branches), reads a sensitive field: one of its own sensitive fields, or a
+// sensitive @searchAlso branch. A branch behind a flag that is off is not searched,
+// so it is not among branches.
+func (d *QueryDecoder[Resource, Request]) boxSearchesPII(searchFields []accesstypes.Field, branches []SearchBranch) bool {
 	if len(d.sensitiveBoxFields(searchFields)) > 0 {
 		return true
 	}
-	branches := d.resourceSet.ResourceMetadata().searchBranches
 	for i := range branches {
 		if branches[i].PII {
 			return true
@@ -808,7 +879,7 @@ func (d *QueryDecoder[Resource, Request]) filterExpressionParser(filterStr strin
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create filter expression parser")
 	}
-	parser.WithSearch(d.resourceSet.ResourceMetadata().searchBranches, d.searchKeys)
+	parser.WithSearch(d.visibleBranches(), d.searchKeys)
 	if zoneName = strings.TrimSpace(zoneName); zoneName != "" {
 		zone, err := loadZone(zoneName)
 		if err != nil {
@@ -870,12 +941,13 @@ func (d *QueryDecoder[Resource, Request]) parseFilter(filterStr string, hidden m
 // filterRead is what a parsed filter touches, as readFilter reads it from the
 // tree: the resource fields, a name counting as the id field it stands beside;
 // the name fields; each in first appearance order without repeats; whether it
-// carries the search box; and the wire name of the first sensitive field it
-// names, "" where it names none.
+// carries the search box, and the @searchAlso branches the box carries; and the
+// wire name of the first sensitive field it names, "" where it names none.
 type filterRead struct {
 	fields    []accesstypes.Field
 	names     []accesstypes.Field
 	box       bool
+	branches  []SearchBranch
 	sensitive string
 }
 
@@ -891,6 +963,7 @@ func (d *QueryDecoder[Resource, Request]) readFilter(root ExpressionNode) (filte
 	for _, leaf := range leaves(root) {
 		if leaf.Condition.IsSearch() {
 			read.box = true
+			read.branches = leaf.Condition.search.branches
 
 			continue
 		}

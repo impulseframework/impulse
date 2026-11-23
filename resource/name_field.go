@@ -44,6 +44,11 @@ type NameField struct {
 	// tenant binding walks it.
 	TenantColumn string
 	TenantPath   []BindingHop
+	// Features are the feature flags the name stands behind: the pointed-to
+	// resource's, then its name field's, each only where it is declared; empty where
+	// neither is gated, and for an enumeration table. While any of them is off the
+	// name is unknown to a request, as a name beside a hidden id is.
+	Features []Feature
 }
 
 // GoLiteral renders the name field as the body of a Go composite literal, the form the
@@ -60,9 +65,23 @@ func (n *NameField) GoLiteral() string {
 		}
 		path.WriteString("}")
 	}
+	if len(n.Features) > 0 {
+		path.WriteString(featuresLiteral(n.Features))
+	}
 
 	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q, TenantColumn: %q%s}",
 		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, n.TenantColumn, path.String())
+}
+
+// featuresLiteral renders flags as the Features element of a Go composite literal,
+// with its leading separator: , Features: []resource.Feature{"a", "b"}.
+func featuresLiteral(features []Feature) string {
+	quoted := make([]string, 0, len(features))
+	for _, feature := range features {
+		quoted = append(quoted, fmt.Sprintf("%q", feature))
+	}
+
+	return ", Features: []resource.Feature{" + strings.Join(quoted, ", ") + "}"
 }
 
 // isNameField reports whether a request type's field is a name field: one the
