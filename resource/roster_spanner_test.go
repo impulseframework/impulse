@@ -762,6 +762,45 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 	}
 }
 
+// TestOutsideSignIn pins the sign-in policy's reader asked outside a sign-in over the
+// emulator: each read is a transaction of its own, and it answers as the reader does in
+// the sign-in's transaction, the flag and the directories of a declared station, an
+// empty declaration for a station declaring nothing, and nil for a station the table
+// does not hold or an empty tenant.
+func TestOutsideSignIn(t *testing.T) {
+	t.Parallel()
+
+	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
+	db, _ := tenantDatabase(t, "outside-sign-in", "alpha", "beta")
+	declareStation(t, db, "alpha", true, workspace)
+	declarations := OutsideSignIn(db.Client, NewTenantDeclarationReader(stationsTable, stationsKey, stationColumns))
+
+	tests := []struct {
+		name   string
+		tenant accesstypes.Domain
+		want   *signin.TenantDeclaration
+	}{
+		{name: "a declared station: its flag and its directory", tenant: "alpha", want: &signin.TenantDeclaration{DirectoryOnly: true, Directories: []signin.Directory{workspace}}},
+		{name: "a station declaring nothing: an empty declaration", tenant: "beta", want: &signin.TenantDeclaration{}},
+		{name: "a station the table does not hold: nil", tenant: "nowhere", want: nil},
+		{name: "an empty tenant: nil", tenant: "", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := declarations(t.Context(), tt.tenant)
+			if err != nil {
+				t.Fatalf("OutsideSignIn() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("OutsideSignIn()(%q) mismatch (-want +got):\n%s", tt.tenant, diff)
+			}
+		})
+	}
+}
+
 // TestNewTenantDirectoryReader pins the sign-in's directory reader over the emulator:
 // in the read-write transaction it is handed it answers the station whose directory it
 // is with the row's default seat ("" where the row names none); nothing for a directory
