@@ -1684,14 +1684,41 @@ import (
 // person who takes themselves out keeps a place that makes them the last administrator
 // of a tenant, as they keep the role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
 //
+// The method declares a warning with no word to type: asked first, the server says who
+// leaves which group, and, where the place is the last thing the person holds, that the
+// account is deleted with it.
+//
 // @rpc` + identityTenantScope + identityGroupCallerEnters + `
 // @outlet({{ .Outlets }})
-// @answers(204)` + identityAccessClass + `
+// @answers(204)
+// @warning` + identityAccessClass + `
 type Remove{{ .Subject }}GroupMember struct {
 	// @target({{ .SubjectGroupUser }}, key: GroupID)
 	GroupID impulse.UUID
 	// @target({{ .SubjectGroupUser }}, key: UserID)
 	UserID impulse.UUID
+}
+
+// Warning says who would leave which group, and whether the account goes with it. It
+// writes nothing.
+func (m *Remove{{ .Subject }}GroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	{{- if .ForTenant }}
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	warning, err := tenant.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Tenant.GroupMemberRemovalWarning()")
+	}
+	{{- else }}
+	warning, err := client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.GroupMemberRemovalWarning()")
+	}
+	{{- end }}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

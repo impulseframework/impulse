@@ -15,6 +15,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -252,6 +253,7 @@ export const COMPANION_FILTER_HINT =
     MatIconModule,
     MatTooltipModule,
     MatMenuModule,
+    MatDividerModule,
     MatFormFieldModule,
     MatInputModule,
     MatProgressSpinnerModule,

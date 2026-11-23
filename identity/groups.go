@@ -328,6 +328,9 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 // they hold outside the tenants stays while they hold roles in more than one
 // (refuseSeveralTenantsLeft). A place whose period has ended gives the person nothing,
 // and goes whoever asks.
+//
+// GroupMemberRemovalWarning answers what a call would do, from the same judgment, and
+// writes nothing.
 func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -343,24 +346,16 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	if !in {
 		return nil
 	}
-	if err := m.refuseTakingPlace(ctx, txn, groupID, userID); err != nil {
+	last, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
+	if err != nil {
 		return err
 	}
-	own, err := m.store.Memberships(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	elsewhere := slices.ContainsFunc(places, func(place GroupPlace) bool { return place.ID != groupID })
 	// The notice of a removal from a tenant is mailed to the address the person
 	// confirmed, read while the account is still there to read it from.
-	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, len(own) == 0 && !elsewhere); err != nil {
+	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, last); err != nil {
 		return err
 	}
-	if len(own) == 0 && !elsewhere {
+	if last {
 		if err := m.deleteLeftWithNothing(ctx, txn, userID, "the group they were removed from was the last thing they held"); err != nil {
 			return err
 		}
