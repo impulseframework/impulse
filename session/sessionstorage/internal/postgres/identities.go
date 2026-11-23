@@ -182,7 +182,7 @@ func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID imp
 	)
 	if err := tx.QueryRow(ctx, query, userID).Scan(&u.ID, &u.Username, &hash, &u.Disabled, &u.Email, &verifiedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return nil, dbtype.AccountNotFound(userID)
 		}
 
 		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
@@ -306,7 +306,7 @@ func (s *SessionStorageDriver) Identity(ctx context.Context, method sessioninfo.
 		return nil, err
 	}
 	if link == nil {
-		return nil, httpio.NewNotFoundMessagef("identity (%s, %q, %q) is not linked", method, connection, subject)
+		return nil, dbtype.SignInIdentityNotLinked(method, connection, subject)
 	}
 
 	return link, nil
@@ -374,7 +374,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	var userID impulse.UUID
 	if err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "UserId" FROM %s WHERE "Id" = $1`, s.identitiesTable()), identityID).Scan(&userID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
+			return dbtype.SignInIdentityNotFound(identityID)
 		}
 
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
@@ -466,7 +466,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		FROM %s WHERE "Id" = $1 FOR UPDATE`, s.userTable())
 	if err := txn.QueryRow(ctx, lockUser, userID, proven).Scan(&hasPassword, &holdsProven); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
@@ -602,7 +602,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 	var expired bool
 	if err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Expired" FROM %s WHERE "Id" = $1 FOR UPDATE`, s.sessionTable()), sessionID).Scan(&expired); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+			return dbtype.SessionNotFound(sessionID)
 		}
 
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")

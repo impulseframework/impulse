@@ -403,12 +403,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// people and the methods that act on an account, over the engine that reads their
 	// memberships and the API of the session manager that signs them in. No invitation
 	// gives a client a role: the directory's groups name the roles and the sync removes,
-	// at every sign-in, a role they do not name, so the client answers no sign-in hook
-	// and none is set.
+	// at every sign-in, a role they do not name, so no hook that gives a role is set;
+	// the one hook set is the sign-in's, below.
 	identityClient, err := membersidentity.NewClient(accessClient, membersSession.API())
 	if err != nil {
 		return nil, errors.Wrap(err, "membersidentity.NewClient()")
 	}
+	// The session library calls the identity client's SignedIn once a sign-in's session
+	// is committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It announces the sign-in to the open pages: the session it made, the person's
+	// account, and the identities and roles a sign-in can write, so a list of accounts, a
+	// person's page and a tenant's people show them without a reload. The directory
+	// writes this auth's roles, so none is given for a period and the hook removes none.
+	membersSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	return &Auth{access: accessClient, handlers: &Handlers{Session: membersSession, directory: directory}, identity: identityClient}, nil
 }

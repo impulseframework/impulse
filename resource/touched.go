@@ -160,10 +160,13 @@ func (p *PatchSet[Resource]) patchDomain() accesstypes.Domain {
 // publishes them once the commit lands and before it answers. CollectTouchedRows puts
 // one in the context the generated handler runs its transaction under; the executor
 // adds each committed transaction's rows, and the handler reads them back with Rows.
-// It is safe for concurrent use.
+// Code that writes some other way tells it too (Touch, TouchTable). It is safe for
+// concurrent use.
 type TouchedRows struct {
 	mu   sync.Mutex
 	rows []touchedRow
+	// tables are the tables touched whole (TouchTable), each once, in the order told.
+	tables []accesstypes.Resource
 }
 
 // touchedRowsKey is the context key the collector rides under.
@@ -195,7 +198,45 @@ func (t *TouchedRows) add(rows []touchedRow) {
 	t.rows = append(t.rows, rows...)
 }
 
-// Empty reports whether nothing was committed.
+// Touch records a row written some other way than through the resource client (another
+// library's store, a statement of the caller's own), so the publish tells its pages as it
+// tells a patch's. The row is recorded in the zero domain, so Rows lists it under the
+// fallback, as a patch built by hand is. A nil collector records nothing.
+func (t *TouchedRows) Touch(res accesstypes.Resource, change RowChange) {
+	t.add([]touchedRow{{resource: res, change: change}})
+}
+
+// TouchTable records that a table changed in rows the writer cannot name: every
+// subscriber of the table and of every view that reads it is told, in every tenant, and
+// refetches what it holds. A table is recorded once however often it is told. A nil
+// collector records nothing.
+func (t *TouchedRows) TouchTable(res accesstypes.Resource) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if slices.Contains(t.tables, res) {
+		return
+	}
+	t.tables = append(t.tables, res)
+}
+
+// Tables returns the tables touched whole (TouchTable), each once, sorted by name: nil
+// when none was, and for a nil collector.
+func (t *TouchedRows) Tables() []accesstypes.Resource {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tables := slices.Clone(t.tables)
+	slices.Sort(tables)
+
+	return tables
+}
+
+// Empty reports whether nothing was committed: no row and no table touched whole.
 func (t *TouchedRows) Empty() bool {
 	if t == nil {
 		return true
@@ -203,7 +244,7 @@ func (t *TouchedRows) Empty() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	return len(t.rows) == 0
+	return len(t.rows) == 0 && len(t.tables) == 0
 }
 
 // Rows returns the committed rows grouped by the domain each was written in and then by

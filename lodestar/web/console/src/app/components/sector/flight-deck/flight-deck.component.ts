@@ -270,7 +270,7 @@ export class FlightDeckComponent {
   pendingEdge = signal<Method | undefined>(undefined);
   // What the server refused of the edge the open dialog sent, in its own words:
   // HoldMission writes its reason as the caller, so a Flight Lead whom Execute admits is
-  // still refused the note, and the dialog says which grant said no.
+  // still refused the note, and the dialog shows the server's sentence for it.
   refusal = signal<string | undefined>(undefined);
   /** The verdict on the edge whose dialog is open. */
   pendingVerdict = computed(() => {

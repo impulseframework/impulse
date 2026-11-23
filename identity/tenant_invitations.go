@@ -529,8 +529,10 @@ func (m *Manager) tenantInvitationAccepted(
 
 	return func(ctx context.Context) {
 		m.oneTenant.forget(tx)
+		ctx, announcement := m.announcing(ctx)
 		txn.Committed(ctx)
 		logger.FromCtx(ctx).Infof("%s: %q accepted the invitation to %s: the %s %s was made, and they administer it", auth, username, inv.Email, m.tenantWord, domain)
+		announcement.row(m.tables.Users, userID).row(m.tables.MailLinks, inv.ID).whole(m.tables.Identities).announce(ctx)
 	}, nil
 }
 

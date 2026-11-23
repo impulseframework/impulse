@@ -7,7 +7,6 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -88,7 +87,7 @@ func (s *SessionStorageDriver) UpdateCustomUserData(ctx context.Context, userID 
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.ReadRow(ctx, s.userDataParentTable(), spanner.Key{userID}, []string{"Id"}); err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+				return dbtype.AccountNotFound(userID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")

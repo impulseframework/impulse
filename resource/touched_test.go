@@ -276,6 +276,174 @@ func TestMockClient_ExecuteFunc_collectsTouchedRows(t *testing.T) {
 	}
 }
 
+// TestTouchedRows_Touch pins a row written outside the resource client: it is recorded in
+// the zero domain, so Rows lists it under the fallback beside a patch's own, and a nil
+// collector records nothing.
+func TestTouchedRows_Touch(t *testing.T) {
+	t.Parallel()
+
+	collector := &TouchedRows{}
+	collector.add([]touchedRow{{resource: "Hangars", domain: "bastion", change: RowChange{Key: "h1"}}})
+	collector.Touch("Sessions", RowChange{Key: "s1"})
+	collector.Touch("Users", RowChange{Key: "u1", Deleted: true})
+	if collector.Empty() {
+		t.Error("Empty() = true after Touch, want false")
+	}
+	want := map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{
+		"bastion": {"Hangars": {{Key: "h1"}}},
+		"anvil": {
+			"Sessions": {{Key: "s1"}},
+			"Users":    {{Key: "u1", Deleted: true}},
+		},
+	}
+	if diff := cmp.Diff(want, collector.Rows("anvil")); diff != "" {
+		t.Errorf("Rows() mismatch (-want +got):\n%s", diff)
+	}
+
+	var none *TouchedRows
+	none.Touch("Sessions", RowChange{Key: "s1"})
+	if !none.Empty() {
+		t.Error("a nil collector's Empty() = false after Touch, want true")
+	}
+}
+
+// TestTouchedRows_TouchTable pins a table touched whole: each table once however often it
+// is told, sorted by name, apart from the rows; a nil collector records nothing and
+// answers nil.
+func TestTouchedRows_TouchTable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		tables    []accesstypes.Resource
+		rows      []touchedRow
+		want      []accesstypes.Resource
+		wantEmpty bool
+		wantRows  map[accesstypes.Domain]map[accesstypes.Resource][]RowChange
+	}{
+		{
+			name:      "nothing touched answers no table",
+			wantEmpty: true,
+			wantRows:  map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{},
+		},
+		{
+			name:     "a table touched whole alone is not empty and lists no row",
+			tables:   []accesstypes.Resource{"Identities"},
+			want:     []accesstypes.Resource{"Identities"},
+			wantRows: map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{},
+		},
+		{
+			name:     "each table once, sorted by name",
+			tables:   []accesstypes.Resource{"Memberships", "Identities", "Memberships", "Identities"},
+			want:     []accesstypes.Resource{"Identities", "Memberships"},
+			wantRows: map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{},
+		},
+		{
+			name:   "rows stay rows beside the tables",
+			tables: []accesstypes.Resource{"Identities"},
+			rows:   []touchedRow{{resource: "Users", change: RowChange{Key: "u1"}}},
+			want:   []accesstypes.Resource{"Identities"},
+			wantRows: map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{
+				"anvil": {"Users": {{Key: "u1"}}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			collector := &TouchedRows{}
+			collector.add(tt.rows)
+			for _, table := range tt.tables {
+				collector.TouchTable(table)
+			}
+			if diff := cmp.Diff(tt.want, collector.Tables()); diff != "" {
+				t.Errorf("Tables() mismatch (-want +got):\n%s", diff)
+			}
+			if got := collector.Empty(); got != tt.wantEmpty {
+				t.Errorf("Empty() = %v, want %v", got, tt.wantEmpty)
+			}
+			if diff := cmp.Diff(tt.wantRows, collector.Rows("anvil")); diff != "" {
+				t.Errorf("Rows() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	var none *TouchedRows
+	none.TouchTable("Identities")
+	if got := none.Tables(); got != nil {
+		t.Errorf("a nil collector's Tables() = %v, want nil", got)
+	}
+	if !none.Empty() {
+		t.Error("a nil collector's Empty() = false after TouchTable, want true")
+	}
+}
+
+// TestMockReadWriteTransaction_Committed_handsRowsOver pins a transaction a test builds and
+// commits itself: Committed hands the rows its patches wrote to the collector the context
+// carries, once, before the after-commit work runs, and with no collector it only runs
+// that work.
+func TestMockReadWriteTransaction_Committed_handsRowsOver(t *testing.T) {
+	t.Parallel()
+
+	id := impulse.Must(impulse.UUIDFromString("70000000-0000-4000-8000-000000000001"))
+
+	tests := []struct {
+		name    string
+		collect bool
+		want    map[accesstypes.Domain]map[accesstypes.Resource][]RowChange
+		// wantSeen is what the after-commit work saw in the collector when it ran.
+		wantSeen bool
+	}{
+		{
+			name:     "the rows reach the collector before the after-commit work runs",
+			collect:  true,
+			want:     map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{"anvil": {"KeyedRows": {{Key: id.String()}}}},
+			wantSeen: true,
+		},
+		{
+			name: "a context without a collector only runs the after-commit work",
+			want: map[accesstypes.Domain]map[accesstypes.Resource][]RowChange{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			var collector *TouchedRows
+			if tt.collect {
+				ctx, collector = CollectTouchedRows(ctx)
+			}
+			txn := NewMockReadWriteTransaction(&bufferingTxn{})
+			p := NewPatchSet(NewMetadata[keyedRow]()).SetPatchType(CreatePatchType)
+			p.SetKey("ID", id)
+			p.Set("Name", "Kingfisher")
+			if err := p.Buffer(ctx, txn); err != nil {
+				t.Fatalf("Buffer() error = %v", err)
+			}
+			ran, seen := false, false
+			mustAfterCommit(t, txn, func(context.Context) {
+				ran = true
+				seen = !collector.Empty()
+			})
+
+			txn.Committed(ctx)
+			if !ran {
+				t.Error("Committed() ran no after-commit work")
+			}
+			if seen != tt.wantSeen {
+				t.Errorf("the after-commit work saw rows collected = %v, want %v", seen, tt.wantSeen)
+			}
+			if diff := cmp.Diff(tt.want, collector.Rows("anvil")); diff != "" {
+				t.Errorf("Rows() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestQuerySet_Permitted(t *testing.T) {
 	t.Parallel()
 

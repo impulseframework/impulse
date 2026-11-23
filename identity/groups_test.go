@@ -958,7 +958,7 @@ func TestManager_groups_noWayToTheSuperAdministratorRole(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.AssignRole(ctx, txn, globalScope, frankID, accesstypes.SuperAdministrator)
 			},
-			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super Administrator role",
+			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super administrator role, and you are not one.",
 		},
 		{
 			name: "nor changes how a super administrator signs in", ctx: as(erin),

@@ -488,8 +488,10 @@ func (m *Manager) SignedUp(auth string) session.SignUpSeatedHook[*spanner.ReadWr
 		}
 
 		return func(ctx context.Context) {
+			ctx, announcement := m.announcing(ctx)
 			txn.Committed(ctx)
 			logger.FromCtx(ctx).Infof("%s: %q signed up through %s and holds %s", auth, username, method, role)
+			announcement.row(m.tables.Users, userID).whole(m.tables.Identities).announce(ctx)
 		}, nil
 	}
 }

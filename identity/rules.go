@@ -360,7 +360,7 @@ type removal struct {
 // tenant's last administrator reads it: the role's removal, and a period of the
 // caller's giving that cuts the role short.
 func ownRoleGone(key *access.MembershipKey) *removal {
-	return &removal{user: key.User, role: key.Role, group: "", kept: nil, wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
+	return &removal{user: key.User, role: key.Role, group: "", kept: nil, wholeGroup: false, unnamed: "You cannot remove a role from yourself.", before: "remove your own"}
 }
 
 // takes reports whether the removal takes the holding away: the membership of the
@@ -457,7 +457,7 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 
 	// The tenant's key is an id nobody reads, so the sentence does not print it; it
 	// says the application's word for a tenant.
-	return httpio.NewForbiddenMessagef("you are the last administrator of this %s: give another person the role before you %s", m.tenantWord, gone.before)
+	return httpio.NewForbiddenMessagef("You are the last administrator of this %s. Give another person the role before you %s.", m.tenantWord, gone.before)
 }
 
 // administratorHoldings lists every way a person administers the tenant scope names

@@ -2643,6 +2643,17 @@ the window is the browser's own; before any change arrived the client mints a se
 login, so a second user on a shared machine never hits the first's cached answers. Every
 other response stays uncached; the session and digest routes never carry the header.
 
+**A write the resource client did not make.** Code that changes a row some other way
+(another library's store, a statement of its own) says so on the collector:
+`TouchedRows.Touch` names a row by its key, and `TouchedRows.TouchTable` says a table
+changed in rows the writer cannot name, which tells every subscriber of the table and of
+every view that reads it, in every tenant, with one resource document each. A
+transaction wrapped with `NewSpannerReadWriteTransaction` and committed outside the
+executor hands the rows its patches wrote to the collector its context carries when
+`Committed` is called. Inside a generated handler the request's publish carries all of
+it; outside one, `live.Announce` publishes a collector with no answer to name its
+documents on.
+
 **Whose change it is, and when a page fetches.** A page shows a person's own change at
 once and groups other people's, and what tells the two apart is the write's id. A
 committed request is one write: `live.Publish` mints its id (26 random characters) once,
@@ -2728,9 +2739,21 @@ the same run from the same schema; and a name brings no import, so the tree's ow
 methods may read the view. The view's query is read, or `@changedBy` declared, exactly
 as for any other table. The Auth's handlers publish their commits with the application's
 derivations, which the application hands them where it constructs them, so a membership
-given or an account disabled through the management reaches the view's pages; a write to
-those tables that no generated handler commits (a sign-in, the session library's own
-routes) is published by nothing, as a write behind any table's back is not.
+given or an account disabled through the management reaches the view's pages. A sign-in
+is announced too, though no generated handler commits it. Once a sign-in's session
+stands, the Auth's identity client tells the open pages of the session it made and of
+the person's account, and that the Auth's identities and role memberships changed
+(`live.Announce`, through the service and the derivations the Auth's handlers hand it,
+`AnnounceThrough`). The roles an accepted invitation, a directory's default role or a
+sign-up gives, and a tenant an invitation makes, are announced when their transaction
+commits, and so is what a person's leaving a tenant from their own account page writes.
+So a list of accounts, a person's page and a tenant's people show a new account, a role
+given, a sign-in identity linked and a session started without a reload. Each
+announcement asks the subscription record once for every table and view it reaches,
+inside the sign-in's request, bounded by the two seconds of every publish; a failure is
+logged and the sign-in stands. The session library's other routes (a sign-out, a
+password or an address a person changes on their own page, a reset) still publish
+nothing, as a write behind any table's back does not.
 
 The views the generated management declares itself, a tenant's lists (section 21), are
 recorded where the assembly can reach them: in the Auth's handlers package
@@ -4551,8 +4574,8 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   and administers nothing until it is enabled again, so the person beside it is the
   tenant's last administrator and keeps the role. A
   refusal that speaks of a tenant says the application's word for one, the tenant
-  record's label or its name in words ("you are the last administrator of this
-  sector"): the generated client hands it to the rules (`identity.WithTenantWord`).
+  record's label or its name in words ("You are the last administrator of this
+  sector."): the generated client hands it to the rules (`identity.WithTenantWord`).
 
 What a tenant may do to a person who also holds a role outside it, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
@@ -4896,14 +4919,15 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   generated client answers the session library's hook for a sign-in that stands
   (`crewidentity.Client.SignedIn(db)`), and the Auth's package sets it where it sets
   the invitation's hook (`session.Auth.SetSignedInHook`); an application that has a hook
-  of its own calls the client's from it, since one Auth has one hook. The session
-  library calls it once the session is committed and logs an error it answers, so the
-  removal neither fails a sign-in nor undoes one, and a sign-in with nothing to clear
-  costs one read of the person's own rows. What has ended is the database's to say, by
-  its own clock, the one the lists and the sign-in rule read: the statement that finds
-  the rows carries the condition, before the transaction and again inside the
-  transaction that removes them, so a server whose clock runs fast removes nothing that
-  still counts. It removes the person's ended roles and
+  of its own calls the client's from it, since one Auth has one hook. The same hook
+  announces the sign-in to the open pages (section 14). The session library calls it
+  once the session is committed and logs an error it answers, so the removal neither
+  fails a sign-in nor undoes one, and a sign-in with nothing to clear costs one read of
+  the person's own rows. What has ended is the database's to say, by its own clock, the
+  one the lists and the sign-in rule read: the statement that finds the rows carries the
+  condition, before the transaction and again inside the transaction that removes them,
+  so a server whose clock runs fast removes nothing that still counts. It removes the
+  person's ended roles and
   places and nothing else: never the account, also when the ended role was the last
   thing the person held; the rule on a tenant's last administrator does not judge it;
   the engine is told nothing, since an ended assignment already counts for nothing; and
@@ -5279,13 +5303,15 @@ no longer holds when the person accepts (the role file changed, or a custom role
 deleted, since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is
 told once the transaction has committed, before the sign-in policy decides. The client
-of an Auth whose roles a directory writes has none of the hooks: the directory's answer at
-every sign-in is that Auth's roles.
+of an Auth whose roles a directory writes has neither of these two hooks: the
+directory's answer at every sign-in is that Auth's roles.
 
 A third hook runs once a sign-in stands, apart from it: the client's `SignedIn` removes
 the person's roles and places in groups whose period has ended (the period of an
-assignment, above), in a transaction of its own on the application's database. It is set
-beside the other two, and an Auth whose roles a directory writes has none:
+assignment, above), in a transaction of its own on the application's database, and then
+announces the sign-in to the open pages (section 14). It is set beside the other two,
+and it is the one hook the package of an Auth whose roles a directory writes sets: there
+it removes nothing and only announces:
 
 ```go
 authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))

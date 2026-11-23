@@ -282,7 +282,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID impulse.UU
 	row, err := iter.Next()
 	if err != nil {
 		if errors.Is(err, iterator.Done) {
-			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+			return nil, dbtype.SessionNotFound(sessionID)
 		}
 
 		return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
@@ -412,7 +412,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("session %q not found", sessionUpdate.ID)
+			return dbtype.SessionNotFound(sessionUpdate.ID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -596,7 +596,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id impulse.UUID) (*dbty
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return nil, dbtype.AccountNotFound(id)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")
@@ -620,7 +620,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("username %q does not exist", username)
+			return nil, dbtype.UsernameNotFound(username)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")
@@ -713,7 +713,7 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 	})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		if s.usernameConflict(err) {
@@ -878,7 +878,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{passwordHashColumn})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+				return dbtype.AccountNotFound(userID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -948,7 +948,7 @@ func (s *SessionStorageDriver) holdsProvenPasswordIn(ctx context.Context, tx *sp
 	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{passwordHashColumn})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -975,7 +975,7 @@ func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID impul
 	touch := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, "LastSignInAt": spanner.CommitTimestamp})
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{touch}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -1004,7 +1004,7 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UU
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -1036,7 +1036,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 		if deleteCount, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		} else if deleteCount == 0 {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
 		return nil
@@ -1068,7 +1068,7 @@ func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -1187,7 +1187,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		sessionRow, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID}, []string{expiredColumnName})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+				return dbtype.SessionNotFound(sessionID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
