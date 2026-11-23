@@ -112,7 +112,7 @@ func Test_decodersTemplate_gating(t *testing.T) {
 			},
 			wantContains: []string{
 				"resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(a.CursorKey()).WithFeatures(a.FeatureSet()).WithNameViews(nameViews)",
-				"so a field\n// gated behind a flag that is off is unknown to the request, and to the application's\n// name views so a name that points into a view is read from the view's query.",
+				"so a field\n// gated behind a flag that is off is unknown to the request, and to the name views its\n// lists may point into (the application's; in an auth's handlers, the auth's own) so a\n// name that points into a view is read from the view's query.",
 			},
 		},
 		{

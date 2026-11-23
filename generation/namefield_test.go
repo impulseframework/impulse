@@ -589,7 +589,7 @@ func Test_packageNameViews(t *testing.T) {
 	out := renderFormatted(t, "nameViewsPackageTemplate", nameViewsPackageTemplate, &nameViewsPackageData{Source: `Auth("` + crewAuthPath + `")`, Package: "crewhandlers", Views: want[1].Views})
 	for _, wantText := range []string{
 		"package crewhandlers",
-		"// NameViews are the views of this package that declare what their rows are known by\n// (@name), by resource: a list that points into one reads the name from the view's\n// query, which its decoder is handed.",
+		"// NameViews are the views that declare what their rows are known by (@name), by\n// resource: this package's own, or, in an auth's handlers package, those of the auth's\n// generated management. A list that points into one reads the name from the view's\n// query, which its decoder is handed.",
 		"var NameViews = resource.NameViews{\n\t\"Hangars\": crewresources.Hangar{},\n}",
 	} {
 		if !strings.Contains(out, wantText) {
