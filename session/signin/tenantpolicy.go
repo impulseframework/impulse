@@ -293,7 +293,8 @@ func PasswordsDisabledByTenants(
 		panic("signin: PasswordsDisabledByTenants was given no role store: pass the access library's user manager")
 	}
 	if declarations == nil {
-		panic("signin: PasswordsDisabledByTenants was given no declaration reader: pass a reader of a tenant's declaration that needs no transaction (on Spanner, resource.OutsideSignIn over the sign-in's reader)")
+		panic("signin: PasswordsDisabledByTenants was given no declaration reader: pass a reader of a tenant's declaration " +
+			"that needs no transaction (on Spanner, resource.OutsideSignIn over the sign-in's reader)")
 	}
 	p := &tenantPolicy[outsideSignIn]{
 		roles: roles,
