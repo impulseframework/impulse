@@ -283,7 +283,12 @@ interface ColumnConfigBase {
   width?: number;
   resizable?: boolean;
   /* eslint-disable  @typescript-eslint/no-explicit-any */
-  valueGetter?: (data: any) => string;
+  /**
+   * How the cell is read off the row, in place of the field's own value: handed the row
+   * as the server answered it. A getter that answers a list, on a column with `lines`,
+   * is drawn a line each.
+   */
+  valueGetter?: (data: any) => string | string[];
   valueFormatter?: (data: any) => string;
   tooltipPosition?: TooltipPosition;
   viewRoute?: Resource;

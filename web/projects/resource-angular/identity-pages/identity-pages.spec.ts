@@ -1,5 +1,6 @@
 import { ApiDescriptor, IdentityDescriptor, Resource } from '@impulseframework/resource';
 import {
+  ColumnConfig,
   FieldMeta,
   ListViewConfig,
   MethodPresentation,
@@ -235,6 +236,23 @@ const descriptor = {
 const list = (config: RootConfig): ListViewConfig => config.parentConfig as ListViewConfig;
 const columns = (config: ListViewConfig): [string, string | undefined][] =>
   config.listColumns.map((column) => [column.id, column.header]);
+/** The columns a list draws, leaving out the ones read with each row and not drawn. */
+const visibleColumns = (config: ListViewConfig): [string, string | undefined][] =>
+  config.listColumns.filter((column) => !column.hidden).map((column) => [column.id, column.header]);
+/** The ids of the columns read with each row and not drawn. */
+const hiddenColumns = (config: ListViewConfig): string[] =>
+  config.listColumns.filter((column) => column.hidden).map((column) => column.id);
+/** A list's column by its id; a column the list does not have fails the spec. */
+const columnOf = (config: ListViewConfig, id: string): ColumnConfig => {
+  const found = config.listColumns.find((column) => column.id === id);
+  if (!found) {
+    throw new Error(`no column ${id}`);
+  }
+  return found;
+};
+/** What a person's State cell says of a row: the lines its column reads off the row. */
+const stateOf = (config: ListViewConfig): ((row: RecordData) => string[]) =>
+  columnOf(config, 'disabled').valueGetter as (row: RecordData) => string[];
 const methodsOf = (presentations: false | MethodPresentation[] | undefined): [string, string | undefined][] =>
   (presentations || []).map((p) => [p.method, p.label]);
 const presentation = (presentations: false | MethodPresentation[] | undefined, method: string): MethodPresentation => {
@@ -446,12 +464,11 @@ describe("identityPages, the whole application's side", () => {
   });
 
   it('lists the accounts by the columns the schema carries and offers each method under plain words', () => {
-    expect(columns(list(people))).toEqual([
+    expect(visibleColumns(list(people))).toEqual([
       ['username', 'Username'],
       ['name', 'Name'],
       ['email', 'Email'],
-      ['disabled', 'Disabled'],
-      ['passwordChangeRequired', 'Must change password'],
+      ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
     ]);
     expect(methodsOf(list(people).rowMethods)).toEqual([
@@ -469,6 +486,33 @@ describe("identityPages, the whole application's side", () => {
     ]);
     // An account is added by an invitation, and by nothing else on the page.
     expect(methodsOf(list(people).listMethods)).toEqual([['InviteCrewUser', 'Invite']]);
+  });
+
+  it("says an account's state in one State column, a line for each thing there is to say and nothing when all is well", () => {
+    // Its words come from several fields, so a sort or a yes-or-no filter under it would
+    // order or narrow the rows by one of them unseen.
+    const state = columnOf(list(people), 'disabled');
+    expect([state.header, state.lines, state.sortable, state.filterable]).toEqual(['State', true, false, false]);
+    const says = stateOf(list(people));
+    expect(says({ disabled: false, passwordChangeRequired: false })).toEqual([]);
+    expect(says({ disabled: true, passwordChangeRequired: false })).toEqual(['Disabled']);
+    expect(says({ disabled: false, passwordChangeRequired: true })).toEqual(['Must change password']);
+    expect(says({ disabled: true, passwordChangeRequired: true })).toEqual(['Disabled', 'Must change password']);
+    // A row that carries neither field, as for a reader whose role shows neither, says nothing.
+    expect(says({ id: 'u-1', username: 'ada' })).toEqual([]);
+    // Whether a tenant shares the person is a tenant's list to say.
+    expect(says({ heldElsewhere: true, heldGlobally: true })).toEqual([]);
+    // What the column reads besides Disabled rides each row, and is not drawn.
+    expect(hiddenColumns(list(people))).toEqual(['passwordChangeRequired']);
+    // A field the schema does not carry is not read.
+    const bare = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSessionUsers' ? fields('id', 'username', 'disabled') : metas[resource];
+    const [bareAccounts] = identityPages({ ...descriptor }, bare, { auth: 'Crew', scope: 'global' });
+    expect(visibleColumns(list(bareAccounts))).toEqual([
+      ['username', 'Username'],
+      ['disabled', 'State'],
+    ]);
+    expect(hiddenColumns(list(bareAccounts))).toEqual([]);
   });
 
   it('says whether the message of a method that mails a person went, in the words the server gives when it did not', () => {
@@ -710,7 +754,7 @@ describe("identityPages, the whole application's side", () => {
       ? { ...metas[resource], fields: [...metas[resource].fields, ...fields('invitedByUserId', 'mailFailedAt').fields] }
       : metas[resource];
   const dates = ['createdAt', 'expiresAt', 'consumedAt'];
-  const cell = (config: RootConfig, id: string): ((row: RecordData) => string) | undefined =>
+  const cell = (config: RootConfig, id: string): ((row: RecordData) => string | string[]) | undefined =>
     list(config).listColumns.find((column) => column.id === id)?.valueGetter;
 
   it('says a link whose message could not be mailed was not mailed and ended, and leaves its Used cell empty', () => {
@@ -826,7 +870,7 @@ describe("identityPages, a tenant's side", () => {
         : resourceMeta(resource);
     // The pages are made once for a description, so this record's are asked of its own.
     const [kept] = identityPages({ ...descriptor }, withSwitch, { auth: 'Crew', scope: 'domain' });
-    expect(columns(list(kept)).at(-1)).toEqual(['cannotEnter', 'Cannot enter']);
+    expect(visibleColumns(list(kept)).at(-1)).toEqual(['cannotEnter', 'Cannot enter']);
     // A tenant record with no switch carries no such fact, and the page no such column.
     expect(columns(list(people)).map(([id]) => id)).not.toContain('cannotEnter');
   });
@@ -848,15 +892,12 @@ describe("identityPages, a tenant's side", () => {
   });
 
   it('names the tenant record in its words and leaves out what the side does not have', () => {
-    expect(columns(list(people)).at(-1)).toEqual(['heldElsewhere', 'Also in another sector']);
-    // No password method on this side of the description: no column for it.
-    expect(columns(list(people)).map(([id]) => id)).toEqual([
-      'username',
-      'name',
-      'email',
-      'disabled',
-      'lastSignInAt',
-      'heldElsewhere',
+    expect(visibleColumns(list(people))).toEqual([
+      ['username', 'Username'],
+      ['name', 'Name'],
+      ['email', 'Email'],
+      ['disabled', 'State'],
+      ['lastSignInAt', 'Last sign-in'],
     ]);
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
@@ -866,6 +907,31 @@ describe("identityPages, a tenant's side", () => {
       ['DeleteCrewSectorUser', 'Delete'],
     ]);
     expect(methodsOf(list(people).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
+  });
+
+  it("says on a person's row, in the State column, that another sector or the whole application also holds them", () => {
+    const state = columnOf(list(people), 'disabled');
+    expect([state.header, state.lines, state.sortable, state.filterable]).toEqual(['State', true, false, false]);
+    const says = stateOf(list(people));
+    expect(says({ disabled: false, heldElsewhere: false, heldGlobally: false })).toEqual([]);
+    expect(says({ heldElsewhere: true })).toEqual(['Also in another sector']);
+    expect(says({ heldGlobally: true })).toEqual(['Also holds a role in the whole application']);
+    expect(says({ disabled: true, heldElsewhere: true })).toEqual(['Disabled', 'Also in another sector']);
+    // No password method on this side of the description: the row never says the person must change it.
+    expect(says({ passwordChangeRequired: true })).toEqual([]);
+    // What the column reads besides Disabled rides each row, and is not drawn.
+    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldGlobally']);
+    // The tenant's word is the description's.
+    const costCenters = { ...descriptor, identity: [{ ...crew, tenant: 'CostCenter' }] } as ApiDescriptor;
+    const [costCenterPeople] = identityPages(costCenters, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    expect(stateOf(list(costCenterPeople))({ heldElsewhere: true })).toEqual(['Also in another cost center']);
+    // A field the schema does not carry is not read.
+    const unshared = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSectorUsers'
+        ? fields('id', 'domainId', 'username', 'disabled', 'heldElsewhere')
+        : metas[resource];
+    const [unsharedPeople] = identityPages({ ...descriptor }, unshared, { auth: 'Crew', scope: 'domain' });
+    expect(hiddenColumns(list(unsharedPeople))).toEqual(['heldElsewhere']);
   });
 
   it("leaves a tenant's methods to their target rows: nothing is filled", () => {

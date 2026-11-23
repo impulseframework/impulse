@@ -263,10 +263,16 @@ class SideBuilder {
    * The people, each with what the caller may do to them, and a person's row page with
    * the roles and the identities under it. A person's roles are one list, each saying
    * where it comes from: their own, or the group it comes through.
+   *
+   * A row says the person's state in one column, State, a line for each thing there is
+   * to say (statesOf): Disabled, Must change password, and on a tenant's list that
+   * another tenant or the whole application also holds the person. It is blank when all
+   * is well. Its words come from several fields, so the column neither sorts nor filters.
    */
   people(): RootConfig {
     const { lists, methods } = this.side;
     const password = methods.requirePasswordChange !== undefined;
+    const users = lists.users as Resource;
     const fields: Named[] = [
       ['username', 'Username'],
       ['name', 'Name'],
@@ -275,16 +281,10 @@ class SideBuilder {
       ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
       ['lastSignInAt', 'Last sign-in'],
       ['heldElsewhere', `Also in another ${this.tenantWord}`],
-      // Only a tenant's list of its people carries it, and only where the tenant record
-      // has a directory-only switch: the server's sentence for a person the switch keeps
-      // out, empty for everyone else.
       ['cannotEnter', 'Cannot enter'],
-    ];
-    const more: Named[] = [
       ['emailVerifiedAt', 'Email verified'],
       ['createdAt', 'Created'],
     ];
-    const users = lists.users as Resource;
     const related = [
       this.rolesOf(),
       this.rolesThroughGroupsOf(),
@@ -307,7 +307,38 @@ class SideBuilder {
           : {}),
         primaryResource: users,
         showRowCount: true,
-        listColumns: this.columns(users, fields),
+        listColumns: [
+          ...this.columns(users, [
+            ['username', 'Username'],
+            ['name', 'Name'],
+            ['email', 'Email'],
+          ]),
+          // The person's state, on the field it says first.
+          ...(this.has(users, 'disabled')
+            ? [
+                {
+                  id: 'disabled' as FieldName,
+                  header: 'State',
+                  lines: true,
+                  sortable: false,
+                  filterable: false,
+                  valueGetter: (row: RecordData) => this.statesOf(row),
+                },
+              ]
+            : []),
+          ...this.columns(users, [
+            ['lastSignInAt', 'Last sign-in'],
+            // Only a tenant's list of its people carries it, and only where the tenant
+            // record has a directory-only switch: the server's sentence for a person the
+            // switch keeps out, empty for everyone else.
+            ['cannotEnter', 'Cannot enter'],
+          ]),
+          // Read with each row and not drawn: what the State column says besides Disabled.
+          ...this.known(
+            users,
+            this.stateLines().filter(([name]) => name !== 'disabled'),
+          ).map(([name]) => ({ id: name as FieldName, hidden: true })),
+        ],
         rowMethods: this.onPerson(),
         listMethods: this.present([
           [
@@ -318,7 +349,7 @@ class SideBuilder {
         elements: [
           section({
             label: this.tenant ? 'Person' : 'Account',
-            children: this.known(users, [...fields, ...more]).map(([name, label]) =>
+            children: this.known(users, fields).map(([name, label]) =>
               field({ name: name as FieldName, label, cols: 4 }),
             ),
           }),
@@ -1783,6 +1814,42 @@ class SideBuilder {
       header: column.header,
       valueGetter: (row: RecordData) => (row['mailFailedAt'] ? said : String(row[id] ?? '')),
     };
+  }
+
+  /**
+   * The fields a person's state is said from on this side, each with the line a row
+   * says where the field is true, in the order the lines are said: Disabled; Must change
+   * password, where the side has a password method; and on a tenant's side that another
+   * tenant also holds the person, or that they hold a role in the whole application,
+   * which keeps Disable and Delete from the tenant's administrator as a shared person
+   * does.
+   */
+  private stateLines(): Named[] {
+    const password = this.side.methods.requirePasswordChange !== undefined;
+    return [
+      ['disabled', 'Disabled'],
+      ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
+      ...(this.tenant
+        ? ([
+            ['heldElsewhere', `Also in another ${this.tenantWord}`],
+            ['heldGlobally', 'Also holds a role in the whole application'],
+          ] as Named[])
+        : []),
+    ];
+  }
+
+  /**
+   * What a person's row says of their state, a line each (stateLines): a line for each
+   * field the row holds as true, so a field the reader's role leaves out of the row says
+   * nothing. Empty when all is well, and for no row.
+   */
+  private statesOf(row: RecordData | undefined): string[] {
+    if (!row) {
+      return [];
+    }
+    return this.stateLines()
+      .filter(([name]) => row[name] === true)
+      .map(([, line]) => line);
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
