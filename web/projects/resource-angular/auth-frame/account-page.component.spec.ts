@@ -112,14 +112,20 @@ const only: TenantBody = { domain: 't-acme', name: 'Acme', roles: ['Reader'], de
 /** The record of a session that acts for the person. */
 const impersonation = { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' };
 
-/** What the server says the person signs in with: a password or none, the directories linked by their words, and whether the address is a directory's. */
-function means(password: boolean, labels: string[] = [], directoryAddress = false): TransportResponse {
+/** What the server says the person signs in with: a password or none, the directories linked by their words, whether the address is a directory's, and whether a password is disabled for them. */
+function means(
+  password: boolean,
+  labels: string[] = [],
+  directoryAddress = false,
+  passwordDisabled = false,
+): TransportResponse {
   return {
     status: 200,
     body: {
       password,
       directories: labels.map((label, i) => ({ name: `directory-${i}`, label })),
       directoryAddress,
+      passwordDisabled,
     },
   };
 }
@@ -483,6 +489,15 @@ describe('AccountPageComponent', () => {
       expect(TestBed.inject(Account).usernameLine()).toBe(false);
     });
 
+    it('does not say the address is what they sign in with to a person whose password is disabled', async () => {
+      await open({
+        methods: { ...everything, usernameIsEmail: true },
+        session: { ...gale, username: 'gale@lakeside.edu' },
+        means: means(true, [], false, true),
+      });
+      expect(inLine('email', 'hint')).toBe('Sign-in codes and notices go here.');
+    });
+
     it("shows a directory person their address as the directory's, unchanged here, and the directory they sign in through", async () => {
       await open({ methods: directoryMethods, means: means(false, ['Lakeside Google'], true) });
       expect(lines()).toEqual(['username', 'name', 'email', 'sign-in']);
@@ -515,6 +530,33 @@ describe('AccountPageComponent', () => {
       expect(inLine('sign-in', 'value')).toBe('Through Lakeside Google or Lakeside Entra');
       expect(inLine('sign-in', 'hint')).toBe('You can also sign in with your password.');
       expect(inLine('username', 'hint')).toBe('You sign in with this.');
+    });
+
+    it('shows a person with no password whose organization signs in through its directory only no Password line, and their only way in', async () => {
+      await open({ means: means(false, ['Lakeside Google'], false, true) });
+      expect(lines()).toEqual(['username', 'name', 'email', 'sign-in']);
+      expect(line('password')).toBeNull();
+      expect(icon('password')).toBeNull();
+      expect(inLine('username', 'hint')).toBeUndefined();
+      expect(inLine('sign-in', 'value')).toBe('Through Lakeside Google');
+      expect(inLine('sign-in', 'hint')).toBe(
+        'It is your only way in. Your organization does not sign in with a password here.',
+      );
+      expect(TestBed.inject(Account).firstPassword()).toBe(false);
+    });
+
+    it('shows a person who holds a password their organization does not sign in with no Password line, and does not say they sign in with their username', async () => {
+      await open({ means: means(true, ['Lakeside Google'], false, true) });
+      expect(lines()).toEqual(['username', 'name', 'email', 'sign-in']);
+      expect(line('password')).toBeNull();
+      expect(inLine('username', 'hint')).toBeUndefined();
+      expect(inLine('sign-in', 'value')).toBe('Through Lakeside Google');
+      expect(inLine('sign-in', 'hint')).toBe(
+        'It is your only way in. Your organization does not sign in with a password here.',
+      );
+      const account = TestBed.inject(Account);
+      expect(account.password()).toBe(false);
+      expect(account.holdsPassword()).toBe(false);
     });
 
     it('joins three directories as a list', async () => {

@@ -844,6 +844,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
 	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
 
+	// The same rule, asked outside a sign-in, says whose password is disabled: a person
+	// every one of whose sectors is directory only, who administers none of them and
+	// holds no role outside them. Their account page draws no Password line and they
+	// are refused a first password (SetPasswordDisabledCheck). The declarations are read
+	// with the sign-in's reader, each in a transaction of its own (resource.OutsideSignIn).
+	crewSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
+
 	// The crew's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the
 	// session manager that signs them in, which makes the link an invitation mails. A

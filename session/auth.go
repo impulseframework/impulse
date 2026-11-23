@@ -257,6 +257,10 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// ownTenants answers the own-tenants handlers (OwnTenants, LeaveTenant), nil when the
 	// application set none. Set by SetOwnTenants before the Auth is in use.
 	ownTenants *OwnTenantsHook
+	// passwordDisabledCheck says whose password the tenants' sign-in settings disable
+	// (signin.PasswordsDisabledByTenants), nil when the application set none. Set by
+	// SetPasswordDisabledCheck before the Auth is in use.
+	passwordDisabledCheck signin.PasswordDisabledCheck
 
 	// cookies is the session cookie client. It also writes the external methods' state
 	// cookies.
@@ -560,6 +564,31 @@ func (a *Auth[SessionData, UserData, Tx]) SetOwnTenants(hook OwnTenantsHook) {
 		panic("session: the own-tenants hook was set twice: one Auth has one")
 	}
 	a.ownTenants = &hook
+}
+
+// SetPasswordDisabledCheck sets the check that says whose password the tenants' sign-in
+// settings disable: the tenant policy's own decision for a sign-in with a password,
+// signin.PasswordsDisabledByTenants over the role store and the declarations the policy
+// reads. With it, what a person signs in with (SignInMeans) says so (PasswordDisabled),
+// so their account page draws no Password line, and the person is refused a first
+// password (FirstPassword(), 403); a password their account holds stays. Without it,
+// and on an Auth with no password method, nobody's password is disabled. Set it after
+// NewAuth and before serving the first request; a nil check, a second check, or a check
+// set once the Auth is in use is a wiring mistake and panics, as SetOwnTenants does.
+func (a *Auth[SessionData, UserData, Tx]) SetPasswordDisabledCheck(check signin.PasswordDisabledCheck) {
+	if check == nil {
+		panic("session: SetPasswordDisabledCheck was given nil: pass signin.PasswordsDisabledByTenants over the role store and the declarations the tenant policy reads, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the password-disabled check was set after the Auth served a request: set it before serving")
+	}
+	if a.passwordDisabledCheck != nil {
+		panic("session: the password-disabled check was set twice: one Auth has one")
+	}
+	a.passwordDisabledCheck = check
 }
 
 // UserRenamedHook is told that a user's username changed by the library's own doing:

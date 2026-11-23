@@ -77,7 +77,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			"\tif settings.TenantDeclarations == nil {\n",
 			"\tTenantMaker identity.TenantMaker\n}",
 			"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators)",
-			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
+			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n" + passwordDisabledCheck,
 		},
 		"pkg/config/data.go":              {"app.NewTenantDeclarationReader()", "app.NewTenantMaker(tenants, liveService)"},
 		"pkg/config/tenancy.go":           {"func (c *DataConfiguration) TenantDeclarations() resource.TenantDeclarations {\n\treturn c.tenants.Declarations\n}"},
@@ -111,7 +111,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 		true: {
 			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key and a unique Name; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)",
 			"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with change tracking and no directory-only switch, since no tenant has a directory",
-			"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles)",
+			"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) with the password-disabled check beside it (signin.PasswordsDisabledByTenants over the same reader, through resource.OutsideSignIn)",
 			"pkg/config/data.go: dataConfig.staffSettings passes the declaration reader (app.NewTenantDeclarationReader()) and what makes a tenant from an accepted invitation (app.NewTenantMaker(tenants, liveService), over the roster built ahead of the auth) to the staff auth",
 			"web/console/src/app/components/ui/new-tenant/ and web/console/src/app/configs/tenants.config.ts: the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference, without the directory-only column and field, which the record does not carry; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher. No Sign-in settings page is placed: that page is where a tenant's directory is set and what it is made the only way in of, and no tenant has one",
 			"web/console/src/app/app.menus.ts: the tenant menus ahead of the others, as the reference's: Tenants (All tenants, in the place outside every tenant) and People (the tenant's side of the auth's people), each showing in its place only, and no menu for Sign-in settings, since no tenant has a directory to set there; Feature flags, whose address has no tenant in it, is a page of the place outside every one",
@@ -224,10 +224,12 @@ func TestTenancyApply_overAMethodThroughADirectory(t *testing.T) {
 		}
 
 		auth := read(t, a, "pkg/auth/staff/staff.go")
-		// The method is registered as it was, and the sign-in rule is set, in both.
+		// The method is registered as it was, and the sign-in rule and the password-disabled
+		// check are set, in both.
 		for _, want := range []string{
 			"\thandlers.google = registerGoogle(",
 			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant())",
+			"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n",
 		} {
 			if !strings.Contains(auth, want) {
 				t.Errorf("no directories %v: pkg/auth/staff/staff.go lacks %q:\n%s", noDirectories, want, auth)

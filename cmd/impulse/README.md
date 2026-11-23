@@ -1317,8 +1317,11 @@ one directory and a directory to one tenant, the directories record joins the re
 package (`@tenantDirectory`, tenant-scoped, its directory set from a sign-in and never
 typed), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
-(`signin.TenantPolicy`, the memberships read through `resource.SignInRoles`), and the
-data level's settings literal passes the reader in. An Auth has one sign-in rule, and a
+(`signin.TenantPolicy`, the memberships read through `resource.SignInRoles`) and, from
+the same reader, the check that says whose password the tenants' sign-in settings
+disable (`signin.PasswordsDisabledByTenants`, the declarations read through
+`resource.OutsideSignIn`), and the data level's settings literal passes the reader in.
+An Auth has one sign-in rule, and a
 second `SetSignInPolicy` call panics when the auth opens, so where `New` set the second
 factor alone, as the base's auth package does, that call is taken out and the tenant
 policy is written with the second factor chained last
