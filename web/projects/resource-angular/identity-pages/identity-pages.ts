@@ -290,14 +290,18 @@ class SideBuilder {
       routeData: { route: this.route('users', this.tenant ? 'people' : 'accounts'), hasViewRoute: true },
       parentConfig: listViewConfig({
         title: this.tenant ? 'People' : `${this.identity.label} accounts`,
-        // A tenant's people are those who hold a role in it: the last role taken away
-        // takes the person off the list, and the list says so.
-        ...(this.tenant
-          ? {
-              rowGone: (row: RecordData): string =>
-                `${String(row['username'] ?? 'This person')} no longer holds a role here.`,
-            }
-          : {}),
+        // What the list says of a person who left it while their page was open. A tenant's
+        // people are those who hold a role in it: the last role taken away takes the person
+        // off the list. An account that left the whole application's list was deleted: by
+        // its own Delete, or with the last thing it held.
+        rowGone: this.tenant
+          ? (row: RecordData): string => `${String(row['username'] ?? 'This person')} no longer holds a role here.`
+          : (row: RecordData): string => {
+              const username = row['username'];
+              return typeof username === 'string' && username !== ''
+                ? `${username}'s account was deleted.`
+                : 'This account was deleted.';
+            },
         primaryResource: users,
         showRowCount: true,
         // A person's page is headed by the person.

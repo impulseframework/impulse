@@ -1007,13 +1007,15 @@ describe("identityPages, a tenant's side", () => {
     ]);
   });
 
-  it("says of a person who left the list that they no longer hold a role here, on a tenant's side alone", () => {
+  it('says of a person who left the list that they no longer hold a role here', () => {
     // A tenant's people are those who hold a role in it, so the last role taken away
     // takes the person off the list: the list says so by the person's username.
     expect(list(people).rowGone?.({ id: 'u-1', username: 'ada' })).toBe('ada no longer holds a role here.');
     expect(list(people).rowGone?.({ id: 'u-1' })).toBe('This person no longer holds a role here.');
+    // An account that left the whole application's list was deleted.
     const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
-    expect(list(accounts).rowGone).toBeUndefined();
+    expect(list(accounts).rowGone?.({ id: 'u-1', username: 'ada' })).toBe("ada's account was deleted.");
+    expect(list(accounts).rowGone?.({ id: 'u-1' })).toBe('This account was deleted.');
   });
 
   it('names the tenant record in its words and leaves out what the side does not have', () => {
