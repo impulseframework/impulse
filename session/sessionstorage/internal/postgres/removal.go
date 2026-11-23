@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/logger"
 )
 
@@ -31,8 +32,10 @@ type removal struct {
 	order string
 }
 
-// The three removals. The periods are counted in hours, as Spanner's are: PostgreSQL
-// counts a day by the session's time zone, and one day a year is 23 hours long.
+// The three removals. The sign-in attempts and mail links periods are counted in hours,
+// as Spanner's are: PostgreSQL counts a day by the session's time zone, and one day a
+// year is 23 hours long. The sessions are counted by the UTC day, which is always 24
+// hours; their condition in hours is a guard that takes no row out of what the day finds.
 var (
 	// sessionsRemoval finds the sessions that are due by the UTC day of their last
 	// activity (UpdatedOn, which the database works out from UpdatedAt) and holds each to
@@ -75,11 +78,12 @@ func (r removal) statement(table string) string {
 // remove runs the removal over table on db and says whether it succeeded. A removal that
 // fails is logged as an error, never returned: it is housekeeping for rows the write has
 // nothing to do with, and the write that carried it goes on to its own answer. One that
-// failed because the request's context ended is not logged: nothing is wrong with the
-// table then, and the next write removes the rows.
+// failed because the request was canceled is not logged: the person went away, nothing
+// is wrong with the table, and the next write removes the rows. One a deadline cut short
+// is logged: the removal may be what used the request's time up.
 func (r removal) remove(ctx context.Context, db execer, table string, args ...any) bool {
 	if _, err := db.Exec(ctx, r.statement(table), args...); err != nil {
-		if ctx.Err() == nil {
+		if !errors.Is(ctx.Err(), context.Canceled) {
 			logger.FromCtx(ctx).Errorf(
 				`removing %s from %s failed, and the write that carried it went on: %v (see "Rows that are over are removed" in the session README)`,
 				r.what, table, err)

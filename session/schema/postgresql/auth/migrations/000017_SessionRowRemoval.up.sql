@@ -8,7 +8,7 @@
 -- that are due by these indexes. The sessions are indexed by the day, not by UpdatedAt:
 -- an index on UpdatedAt would be written by every activity update, the most frequent
 -- write there is, while UpdatedOn changes once a day for a session in use, and an
--- update that changes no indexed column writes no index.
+-- update that changes no indexed column writes no index while its row's page has room.
 BEGIN;
 
 ALTER TABLE "SessionSignInAttempts" ADD COLUMN "EndsAt" timestamp with time zone GENERATED ALWAYS AS (GREATEST("WindowEndsAt", COALESCE("LockedUntil", "WindowEndsAt"))) STORED;

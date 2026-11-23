@@ -297,7 +297,8 @@ func TestAuth_LinkInsertStandsWhenItsRemovalFails(t *testing.T) {
 // TestAuth_ActivityUpdateWritesNoIndex proves what the sessions removal's index rests on:
 // the store's activity update moves UpdatedAt and leaves the day of it where it was, so
 // it changes no indexed column, and PostgreSQL makes it a heap-only update, one that
-// writes no index entry. The transaction's own counters read the one update.
+// writes no index entry, while the row's page has room, as it has here. The
+// transaction's own counters read the one update.
 func TestAuth_ActivityUpdateWritesNoIndex(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

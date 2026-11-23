@@ -274,7 +274,9 @@ func (s *SessionStorageDriver) InsertSessionIn(ctx context.Context, tx pgx.Tx, i
 // session in use is never among them, since every request it serves moves UpdatedAt. It
 // is the last thing a sign-in writes. A removal that fails is rolled back to the
 // savepoint and logged, and the sign-in goes on; a savepoint that cannot be opened,
-// released or rolled back leaves tx unusable and is the sign-in's error.
+// released or rolled back leaves tx unusable and is the sign-in's error. A request that
+// ends while the removal runs is that case: its sign-in fails, as it would had the
+// request ended in any other statement of the transaction.
 func (s *SessionStorageDriver) removeIdleSessions(ctx context.Context, tx pgx.Tx) error {
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
