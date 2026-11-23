@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -106,6 +107,14 @@ func (p *AuthAPI[S, U, Tx]) SignsInThrough(method sessioninfo.AuthMethod, connec
 // of the Auth's methods does.
 func (p *AuthAPI[S, U, Tx]) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
 	return p.auth.directoryName(method, connection)
+}
+
+// TenantName answers what people call a tenant, by its key, from the names the
+// application set (SetTenantNames): "" where it set none, for a tenant they do not know
+// and for no key. A sentence that names a tenant to a person says it by this and never by
+// the key, which is an id. It reads nothing.
+func (p *AuthAPI[S, U, Tx]) TenantName(tenant accesstypes.Domain) string {
+	return p.auth.tenantName(string(tenant))
 }
 
 // directoryName is DirectoryName: the registrations of the login page first, in its

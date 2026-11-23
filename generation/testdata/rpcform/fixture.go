@@ -207,6 +207,22 @@ type (
 	// @rpc
 	// @warning(typed: open)
 	WarningOtherClient struct{}
+
+	// @rpc
+	// @warning
+	WarningBare struct{}
+
+	// @rpc
+	// @warning
+	WarningBareNoMethod struct{}
+
+	// @rpc
+	// @warning(typed: Open)
+	WarningCapitalWord struct{}
+
+	// @rpc
+	// @warning(word: open)
+	WarningOtherKey struct{}
 )
 
 func (Verdict) HTTPStatus() int { return 200 }
@@ -369,5 +385,26 @@ func (*WarningOtherClient) Execute(context.Context, resource.ReadWriteTransactio
 	return nil
 }
 func (*WarningOtherClient) Warning(context.Context, resource.ReadWriteTransaction, *OtherClient) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningBare) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningBare) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningBareNoMethod) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningCapitalWord) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningCapitalWord) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningOtherKey) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningOtherKey) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
 	return nil, nil
 }

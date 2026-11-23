@@ -611,6 +611,22 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormClient},
 			wantNot: []string{"dryRun: true"},
 		},
+		{
+			name:   "a method that warns with a typed word carries the word",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn, Warning: &rpcWarning{Typed: "open"}},
+			want:   []string{"    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [", "  warning?: { typed?: string };"},
+		},
+		{
+			name:    "a method that warns with no typed word carries a warning without one",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn, Warning: &rpcWarning{}},
+			want:    []string{"    dryRun: true,\n    warning: {},\n    fields: [", "  warning?: { typed?: string };"},
+			wantNot: []string{"typed: ''"},
+		},
+		{
+			name:    "a method that does not warn carries no warning",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn},
+			wantNot: []string{"    warning: {"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -654,10 +654,15 @@ import (
 // with no role anywhere is deleted with their identity links and sessions, in the same
 // transaction: an account nothing admits is not kept.
 //
+// The method declares a warning with no word to type: asked first, the server says whose
+// role goes and where it is held, and, where it is the last thing the person holds, that
+// the account is deleted with it.
+//
 // @rpc
 // @permissionScope(domain)
 // @outlet({{ .Outlets }})
-// @answers(204)` + identityAccessClass + `
+// @answers(204)
+// @warning` + identityAccessClass + `
 type Remove{{ .Subject }}Role struct {
 	// @target({{ .TenantHeldRole }}, key: UserID)
 	UserID impulse.UUID
@@ -671,10 +676,32 @@ type Remove{{ .Subject }}Role struct {
 	GroupID string
 }
 
+// remove{{ .Subject }}RoleThroughGroup is said of a request that names a role that comes
+// to the person through a group, which is not taken away from the person.
+const remove{{ .Subject }}RoleThroughGroup = "That role comes to the person through a group, so it is not taken away from the person. Take the role away from the group, or take the person out of the group, on the group's page."
+
+// Warning says whose role would go and where it is held, and whether the account goes
+// with it. It writes nothing.
+func (m *Remove{{ .Subject }}Role) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	if m.GroupID != "" {
+		return nil, httpio.NewBadRequestMessage(remove{{ .Subject }}RoleThroughGroup)
+	}
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	warning, err := tenant.RoleRemovalWarning(ctx, txn, m.UserID, accesstypes.Role(m.Role))
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Tenant.RoleRemovalWarning()")
+	}
+
+	return warning, nil
+}
+
 // Execute buffers the removal into the caller's transaction.
 func (m *Remove{{ .Subject }}Role) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
 	if m.GroupID != "" {
-		return httpio.NewBadRequestMessage("that role comes to the person through a group, so it is not taken away from the person: take the role away from the group, or take the person out of the group, on the group's page")
+		return httpio.NewBadRequestMessage(remove{{ .Subject }}RoleThroughGroup)
 	}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {

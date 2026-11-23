@@ -112,32 +112,54 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	defer span.End()
 
 	if role == "" {
-		return httpio.NewBadRequestMessage("No role is named. Name the role to take away.")
+		return httpio.NewBadRequestMessage(noRoleNamedMessage)
 	}
 	if err := t.manager.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
 		return err
 	}
+	_, key, err := t.heldRole(ctx, txn, userID, role)
+	if err != nil {
+		return err
+	}
+	if key == nil {
+		return nil
+	}
+
+	return t.manager.removeMembership(ctx, txn, t.scope(), userID, key)
+}
+
+// noRoleNamedMessage is said of a request to take a role away from a person in the
+// tenant that names no role.
+const noRoleNamedMessage = "No role is named. Name the role to take away."
+
+// heldRole reads a role a person holds in the tenant, as its removal and the warning
+// before it read it (RemoveRole, RoleRemovalWarning), once each has refused an empty
+// role and the account a session views as: the person's username, and the tenant's own
+// membership of the role, nil where the tenant holds none. An account that is not there
+// is refused, and so is a role the person holds in every tenant alone, which is not the
+// tenant's to take.
+func (t *Tenant) heldRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role) (string, *access.MembershipKey, error) {
 	username, found, err := t.manager.store.Username(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
+		return "", nil, errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return accountNotFound(userID)
+		return "", nil, accountNotFound(userID)
 	}
 
 	key := access.NewMembershipKey(t.scope(), User(userID), role)
 	own, err := t.manager.store.HasMembership(ctx, txn, &key)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.HasMembership()")
+		return "", nil, errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if own {
-		return t.manager.removeMembership(ctx, txn, t.scope(), userID, &key)
+		return username, &key, nil
 	}
 
 	every := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), User(userID), role)
 	everywhere, err := t.manager.store.HasMembership(ctx, txn, &every)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.HasMembership()")
+		return "", nil, errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if everywhere {
 		word := t.manager.tenantWord
@@ -146,10 +168,10 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 			cause = "%s holds the role %s in every %s, which is not one %s's to take away"
 		)
 
-		return httpio.NewConflictMessageWithErrorf(errors.Newf(cause, username, role, word, word), said, roleInWords(role), word, word)
+		return "", nil, httpio.NewConflictMessageWithErrorf(errors.Newf(cause, username, role, word, word), said, roleInWords(role), word, word)
 	}
 
-	return nil
+	return username, nil, nil
 }
 
 // Invite buffers an invitation into the tenant and has its link mailed once the
