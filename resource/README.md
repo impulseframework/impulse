@@ -2942,10 +2942,11 @@ Lodestar's wiring is [pkg/config/data.go](../lodestar/pkg/config/data.go) and
 the routes `live/renew`, `live/unsubscribe` and `live/token` under the outlet's prefix,
 the renewal interval 120 s, the expiry 300 s, the cache header `Cache-Control: private,
 max-age=300`, the bulk threshold 100, the response header `X-Changes` and its JSON
-(`write`, `changes`, `all`), and the change document's shape (`kind` of `row`,
-`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`,
-`expires` and `write`). The generated descriptor names the routes per outlet:
-`live: { renewRoute, unsubscribeRoute, tokenRoute }`.
+(`write`, `changes`, `all`), the response header `X-Names` and its JSON (`of`, `names`,
+each entry a subscription), a subscription's `nameField`, and the change document's
+shape (`kind` of `row`, `list` or `resource`; `resource`; `key` and `deleted` on a row;
+`domain` on a list; `at`, `expires` and `write`). The generated descriptor names the
+routes per outlet: `live: { renewRoute, unsubscribeRoute, tokenRoute }`.
 
 ## 15. Feature flags
 
