@@ -124,10 +124,17 @@ func (d *QueryDecoder[Resource, Request]) WithFeatures(features *FeatureSet) *Qu
 // handlers hand every view that declares a name. It panics where a name of the
 // decoder's, in the request type's order, is read from a view the map holds no entry
 // for, or from a view whose query opens with a WITH clause, which the statement of the
-// list that shows the name cannot hold where the name is read. A decoder whose names
-// are all read from tables accepts any map, nil included.
+// list that shows the name cannot hold where the name is read, or, where the decoder's
+// own resource is a view whose query opens with WITH tables, from a view whose query
+// uses the name of one of them, which the statement would read in that place. A
+// decoder whose names are all read from tables accepts any map, nil included.
 func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryDecoder[Resource, Request] {
 	var res Resource
+	var withTables []string
+	if own, ok := any(res).(View); ok {
+		ownQuery, _ := own.Subquery()
+		withTables = withTableNames(ownQuery)
+	}
 	for i := range d.names {
 		name := &d.names[i]
 		if !name.View {
@@ -140,6 +147,9 @@ func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryD
 		query, _ := view.Subquery()
 		if withClause, _ := extractWithClause(query); withClause != "" {
 			panic(fmt.Sprintf("name field %s of %s is read from the view %s, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.", name.Field, res.Resource(), name.Resource))
+		}
+		if withTable, used := firstWithTableUsed(query, withTables); used {
+			panic(fmt.Sprintf("the query of %s opens with a WITH table named %s, and the query of the view %s, which the name %s is read from, uses that name too: a statement over %s would read the WITH table's rows there. Rename the WITH table in the query of %s.", res.Resource(), withTable, name.Resource, name.Field, res.Resource(), res.Resource()))
 		}
 	}
 	d.nameViews = views
@@ -354,9 +364,12 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 }
 
 // refuseWithTableNamedAsNames refuses a view whose query opens with a WITH table
-// spelled as the table one of the request's names is read from: every statement over
-// the view lifts the WITH clause to lead it (viewFromItem), so the name's lookup would
-// read the WITH table's rows. The names are checked in the request type's order.
+// spelled as the table one of the request's names is read from, or as a table such a
+// name is held to its tenant through: every statement over the view lifts the WITH
+// clause to lead it (viewFromItem), so the name's lookup, or its tenant test, would
+// read the WITH table's rows. The names are checked in the request type's order, each
+// WITH table against the name's table first, then against the tables of its way to
+// its tenant, in the way's order.
 func refuseWithTableNamedAsNames[Resource Resourcer](names []requestName) error {
 	var res Resource
 	view, ok := any(res).(View)
@@ -369,6 +382,11 @@ func refuseWithTableNamedAsNames[Resource Resourcer](names []requestName) error 
 		for _, withTable := range withTables {
 			if strings.EqualFold(withTable, names[i].Table) {
 				return errors.Newf("the query of %s opens with a WITH table named %s, which is also the table the name %s is read from: a statement over the view would read the name from the WITH table's rows. Rename the WITH table in the view's query.", res.Resource(), withTable, names[i].Field)
+			}
+			for _, hop := range names[i].TenantPath {
+				if strings.EqualFold(withTable, hop.Table) {
+					return errors.Newf("the query of %s opens with a WITH table named %s, which is also a table the name %s is held to its tenant through: a statement over the view would read the tenant from the WITH table's rows. Rename the WITH table in the view's query.", res.Resource(), withTable, names[i].Field)
+				}
 			}
 		}
 	}

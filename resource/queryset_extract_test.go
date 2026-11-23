@@ -109,8 +109,9 @@ WHERE RowNum = 1`,
 }
 
 // TestWithTableNames pins the WITH tables a view's query opens with: each item's name
-// at the clause's own depth, after WITH or a comma, with or without a column list, and
-// none from a WITH inside a body.
+// at the clause's own depth, after WITH or a comma, with or without a column list,
+// written plain or in double quotes, and none from a WITH inside a body or an item
+// headed by a single-quoted string.
 func TestWithTableNames(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +152,15 @@ func TestWithTableNames(t *testing.T) {
 		{
 			name:  "a WITH inside the query's body",
 			query: "SELECT Id FROM (WITH Squadrons AS (SELECT Id FROM Units) SELECT Id FROM Squadrons)",
+		},
+		{
+			name:  "a WITH table written in double quotes",
+			query: `WITH "Squadrons" AS (SELECT Id, Name FROM Units) SELECT Id FROM "Squadrons"`,
+			want:  []string{"Squadrons"},
+		},
+		{
+			name:  "a WITH item headed by a single-quoted string",
+			query: "WITH 'Squadrons' AS (SELECT Id, Name FROM Units) SELECT Id FROM Squadrons",
 		},
 	}
 

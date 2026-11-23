@@ -1762,10 +1762,11 @@ func extractWithClause(query string) (withClause, remainingQuery string) {
 }
 
 // withTableNames returns the names of the WITH tables a query opens with, as the query
-// spells them, in order: the identifier heading each item of the clause
-// extractWithClause lifts (the first after WITH, each one after a comma at depth 0),
-// before its optional column list and AS (. A WITH inside an item's body is the body's
-// own and is not returned; a query that does not open with WITH has none.
+// spells them, in order: the identifier, or the string written in double quotes,
+// heading each item of the clause extractWithClause lifts (the first after WITH, each
+// one after a comma at depth 0), before its optional column list and AS (. A WITH
+// inside an item's body is the body's own and is not returned; a query that does not
+// open with WITH has none.
 func withTableNames(query string) []string {
 	lex := &memefish.Lexer{
 		File: &token.File{Buffer: query},
@@ -1786,7 +1787,7 @@ func withTableNames(query string) []string {
 		i++
 	}
 	var names []string
-	for i < len(toks) && toks[i].Kind == token.TokenIdent {
+	for i < len(toks) && namesSomething(toks[i]) {
 		name := toks[i].AsString
 		i++
 		if i < len(toks) && toks[i].Kind == "(" {
@@ -1804,6 +1805,42 @@ func withTableNames(query string) []string {
 	}
 
 	return names
+}
+
+// namesSomething reports whether a token is a name: an identifier, or a string written
+// in double quotes, PostgreSQL's spelling of a name that keeps its case, which the
+// lexer reads as a string.
+func namesSomething(tok token.Token) bool {
+	if tok.Kind == token.TokenIdent {
+		return true
+	}
+
+	return tok.Kind == token.TokenString && strings.HasPrefix(tok.Raw, `"`)
+}
+
+// firstWithTableUsed returns the first of withTables that query names, as withTables
+// spells it: the query is read in order, to its end or to the lexer's first error, and
+// each of its names is compared with the WITH tables without regard to case.
+func firstWithTableUsed(query string, withTables []string) (string, bool) {
+	if len(withTables) == 0 {
+		return "", false
+	}
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	for {
+		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
+			return "", false
+		}
+		if !namesSomething(lex.Token) {
+			continue
+		}
+		for _, withTable := range withTables {
+			if strings.EqualFold(withTable, lex.Token.AsString) {
+				return withTable, true
+			}
+		}
+	}
 }
 
 // closingParen returns the index of the parenthesis that closes the one at open, or

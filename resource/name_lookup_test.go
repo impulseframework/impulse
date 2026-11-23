@@ -328,6 +328,22 @@ func (levelsThenSquadronsWith) query() string {
 	return "WITH PassLevels AS (SELECT Id FROM Levels), Squadrons AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM Squadrons"
 }
 
+// wingsWith opens the view's query with a WITH table spelled as the table the crew's
+// name is held to its tenant through.
+type wingsWith struct{}
+
+func (wingsWith) query() string {
+	return "WITH Wings AS (SELECT Id, SectorId FROM Sectors) SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses"
+}
+
+// quotedSquadronsWith writes the WITH table spelled as the squadron's name's table in
+// double quotes.
+type quotedSquadronsWith struct{}
+
+func (quotedSquadronsWith) query() string {
+	return `WITH "Squadrons" AS (SELECT Id, SectorId, SquadronId, LevelId, CrewId FROM HangarPasses) SELECT * FROM "Squadrons"`
+}
+
 // renamedWith opens with a WITH table no name is read from.
 type renamedWith struct{}
 
@@ -388,14 +404,16 @@ func newPassViewDecoder[Q passViewQuery, Request any](t *testing.T) error {
 }
 
 // TestNewQueryDecoder_withTableNamedAsAName pins that a view whose query opens with a
-// WITH table spelled, in any case, as the table one of the request's names is read
-// from is refused where its list's decoder is built, naming the first such name in the
-// request type's order and what to rename; and that the view builds with the WITH
+// WITH table spelled, in any case, plain or in double quotes, as the table one of the
+// request's names is read from, or as a table such a name is held to its tenant
+// through, is refused where its list's decoder is built, naming the first such name in
+// the request type's order and what to rename; and that the view builds with the WITH
 // table renamed, or over a request type that carries no name.
 func TestNewQueryDecoder_withTableNamedAsAName(t *testing.T) {
 	t.Parallel()
 
 	const refusal = "the query of PassViews opens with a WITH table named %s, which is also the table the name %s is read from: a statement over the view would read the name from the WITH table's rows. Rename the WITH table in the view's query."
+	const hopRefusal = "the query of PassViews opens with a WITH table named %s, which is also a table the name %s is held to its tenant through: a statement over the view would read the tenant from the WITH table's rows. Rename the WITH table in the view's query."
 	tests := []struct {
 		name    string
 		build   func(t *testing.T) error
@@ -414,6 +432,16 @@ func TestNewQueryDecoder_withTableNamedAsAName(t *testing.T) {
 		{
 			name:    "two names' tables: the first name in the request type's order",
 			build:   newPassViewDecoder[levelsThenSquadronsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
+		},
+		{
+			name:    "a WITH table spelled as a table a name is held to its tenant through",
+			build:   newPassViewDecoder[wingsWith, lookupPassRequest],
+			wantErr: fmt.Sprintf(hopRefusal, "Wings", "CrewName"),
+		},
+		{
+			name:    "a WITH table written in double quotes",
+			build:   newPassViewDecoder[quotedSquadronsWith, lookupPassRequest],
 			wantErr: fmt.Sprintf(refusal, "Squadrons", "SquadronName"),
 		},
 		{

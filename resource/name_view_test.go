@@ -430,6 +430,63 @@ func TestNameView_decoder(t *testing.T) {
 	}
 }
 
+// labelPassWithView is a view of the fixture's passes with labelPass's names, whose
+// query Q gives.
+type labelPassWithView[Q passViewQuery] struct {
+	ID         string  `spanner:"Id"         postgres:"Id"`
+	SectorID   string  `spanner:"SectorId"   postgres:"SectorId"`
+	SquadronID *string `spanner:"SquadronId" postgres:"SquadronId"`
+}
+
+// Resource names the resource in grants and routes.
+func (labelPassWithView[Q]) Resource() accesstypes.Resource {
+	return "PassViews"
+}
+
+// DefaultConfig is the resource's configuration.
+func (labelPassWithView[Q]) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the view's name fields: labelPass's.
+func (labelPassWithView[Q]) NameFields() []NameField {
+	return labelNameFields()
+}
+
+// Subquery is the view's query.
+func (labelPassWithView[Q]) Subquery() (query string, params map[string]any) {
+	var q Q
+
+	return q.query(), nil
+}
+
+// TestNameView_withTableInTheNamesView pins that a list of a view whose query opens
+// with a WITH table spelled as a name the query of a name's view uses is built, and
+// refused where it is handed the views, naming the WITH table, the name's view and the
+// name; and that with the WITH table renamed it is handed them.
+func TestNameView_withTableInTheNamesView(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a WITH table spelled as a table the name's view reads", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := newLabelDecoder[labelPassWithView[squadronsWith], labelPassRequest](t, nil)
+		const want = "the query of PassViews opens with a WITH table named Squadrons, and the query of the view SquadronLabels, which the name SquadronName is read from, uses that name too: a statement over PassViews would read the WITH table's rows there. Rename the WITH table in the query of PassViews."
+		defer func() {
+			if got := fmt.Sprint(recover()); got != want {
+				t.Errorf("WithNameViews() panicked with %q, want %q", got, want)
+			}
+		}()
+		decoder.WithNameViews(labelViews)
+	})
+
+	t.Run("the WITH table renamed", func(t *testing.T) {
+		t.Parallel()
+
+		newLabelDecoder[labelPassWithView[renamedWith], labelPassRequest](t, labelViews)
+	})
+}
+
 // TestNameView_sources pins the live source of a name read from a view: the view's
 // list in the request's tenant.
 func TestNameView_sources(t *testing.T) {
