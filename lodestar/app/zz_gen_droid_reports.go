@@ -28,7 +28,7 @@ func (a *App) DroidReports() http.HandlerFunc {
 		Reading    float64          `json:"reading"`
 		RecordedAt time.Time        `json:"recordedAt"`
 		Frame      *telemetry.Frame `json:"frame"`
-		SectorName *string          `json:"sectorName" nameof:"SectorID"`
+		SectorName *string          `json:"sectorName" nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any

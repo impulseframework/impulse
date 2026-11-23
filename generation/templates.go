@@ -123,8 +123,8 @@ func ({{ .Resource.Name }}) SearchBranches() []resource.SearchBranch {
 {{- if .Resource.NameFields }}
 
 // NameFields names the resource's name fields: beside each id that points to a row with
-// a name, the name of that row, which a list shows and sorts by. A name is looked up in
-// the pointed-to table by the id; it is no column of this resource.
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
 func ({{ .Resource.Name }}) NameFields() []resource.NameField {
 	return []resource.NameField{
 	{{- range $name := .Resource.NameFields }}
@@ -3208,7 +3208,7 @@ import (
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
 		{{- range $name := .Resource.NameFields }}
-		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{ $name.Name }} *string ` + "`{{ $name.ListStructTag }}`" + `
 		{{- end }}
 	}
 
@@ -3311,7 +3311,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
 		{{- range $name := .Resource.NameFields }}
-		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{ $name.Name }} *string ` + "`{{ $name.ListStructTag }}`" + `
 		{{- end }}
 	}
 
@@ -4244,7 +4244,7 @@ const resourceMap = defineResourceMap({
     searchBranches: [{{ range $i, $branch := $resource.SearchBranches }}{{ if $i }}, {{ end }}{ field: '{{ $branch.Name }}', resource: Resources.{{ Pluralize $branch.ChildName }}, fieldName: '{{ $branch.ChildWireName }}'{{ if $branch.PII }}, pii: true{{ end }} }{{ end }}],
     {{- end }}
     {{- if $resource.NameFields }}
-    nameFields: [{{ range $i, $name := $resource.NameFields }}{{ if $i }}, {{ end }}{ fieldName: '{{ $name.WireName }}', of: '{{ $name.KeyWireName }}'{{ if $name.IsPII }}, pii: true{{ end }} }{{ end }}],
+    nameFields: [{{ range $i, $name := $resource.NameFields }}{{ if $i }}, {{ end }}{ fieldName: '{{ $name.WireName }}', of: '{{ $name.KeyWireName }}'{{ if $name.TypescriptFilterable }}, filterable: '{{ $name.TypescriptFilterable }}'{{ end }}{{ if $name.TypescriptSearch }}, search: [{{ $name.TypescriptSearch }}]{{ end }}{{ if $name.IsPII }}, pii: true{{ end }} }{{ end }}],
     {{- end }}
   },
 

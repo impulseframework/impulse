@@ -1,8 +1,8 @@
 // Package namefixture provides parsed-struct fixtures for the name a resource's rows are
 // known by (@name) and the name field the generator adds beside each id that points to a
 // row with one: a tenant record and its tenant-scoped resources, a global resource, a
-// view, a key into an enumeration table, a default order by a name field, and each shape
-// the annotation refuses. The schema behind the table-backed structs is synthetic
+// view, a key into an enumeration table, a default order by a name field, each way a
+// filter may name a name field and may not, and each shape the annotation refuses. The schema behind the table-backed structs is synthetic
 // (nameFixtureTables in the tests), and Grades is an enumeration table there.
 package namefixture
 
@@ -276,6 +276,52 @@ type (
 		// @domain
 		BaseID  impulse.UUID `spanner:"BaseId"`
 		CrateID impulse.UUID `spanner:"CrateId"`
+	}
+
+	// Badge is a global resource known by an indexed title.
+	//
+	// @resource
+	Badge struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Title string `spanner:"Title"`
+	}
+
+	// Seal is a global resource known by a motto its search index answers, which no
+	// index of its own leads.
+	//
+	// @resource
+	Seal struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Motto string `spanner:"Motto"`
+	}
+
+	// Ward is a global resource known by an indexed alias that is PII.
+	//
+	// @resource
+	Ward struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Alias string `spanner:"Alias" conditions:"pii"`
+	}
+
+	// Docket is a global resource pointing to a name in each way a filter may name it, and
+	// in the ways it may not: an indexed id to an indexed name, to an enumeration table, to
+	// a name its search index answers and to a PII name; an allow_filter id to a name its
+	// search index answers; an id that is not filterable; and an indexed id to a name that
+	// is not filterable where it lives.
+	//
+	// @resource
+	Docket struct {
+		ID           impulse.UUID `spanner:"Id"`
+		BadgeID      impulse.UUID `spanner:"BadgeId"`
+		Grade        string       `spanner:"Grade"`
+		SealID       impulse.UUID `spanner:"SealId"`
+		SpareSealID  impulse.UUID `allow_filter:"true" spanner:"SpareSealId"`
+		LooseBadgeID impulse.UUID `spanner:"LooseBadgeId"`
+		KitID        impulse.UUID `spanner:"KitId"`
+		WardID       impulse.UUID `spanner:"WardId"`
 	}
 
 	// Astray orders by a name no field of it could be given.

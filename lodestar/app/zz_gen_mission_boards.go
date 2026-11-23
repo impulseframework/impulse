@@ -29,8 +29,8 @@ func (a *App) MissionBoards() http.HandlerFunc {
 		StatusID     string       `json:"statusId"     index:"true"`
 		Deadline     time.Time    `json:"deadline"     index:"true"`
 		DaysLeft     int64        `json:"daysLeft"     allow_filter:"true"`
-		KindName     *string      `json:"kindName"     nameof:"KindID"`
-		StatusName   *string      `json:"statusName"   nameof:"StatusID"`
+		KindName     *string      `json:"kindName"     nameof:"KindID"     index:"true"`
+		StatusName   *string      `json:"statusName"   nameof:"StatusID"   index:"true"`
 	}
 
 	type response []map[string]any

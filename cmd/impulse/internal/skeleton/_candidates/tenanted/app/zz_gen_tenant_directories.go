@@ -24,7 +24,7 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 		Method      string       `json:"method"      index:"true"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`
-		TenantName  *string      `json:"tenantName"  nameof:"TenantID"`
+		TenantName  *string      `json:"tenantName"  nameof:"TenantID" index:"true"`
 	}
 
 	type response []map[string]any

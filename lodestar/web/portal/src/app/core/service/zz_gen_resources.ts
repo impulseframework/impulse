@@ -353,7 +353,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.MembersHeldRoles]: {
     route: 'members-held-roles',
@@ -658,7 +658,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'settlement', displayType: 'number', decimal: true, required: false, isIndex: false },
     ],
     searchFields: ['title', 'deadline'],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }, { fieldName: 'kindName', of: 'kindId' }, { fieldName: 'requiredCertName', of: 'requiredCertId' }, { fieldName: 'statusName', of: 'statusId' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'requiredCertName', of: 'requiredCertId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',

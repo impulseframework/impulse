@@ -29,7 +29,7 @@ func (a *App) Refits() http.HandlerFunc {
 		OpenedByUserID string              `json:"openedByUserId"`
 		OpenedByName   string              `json:"openedByName"`
 		Notes          *string             `json:"notes"`
-		StatusName     *string             `json:"statusName"     nameof:"StatusID"`
+		StatusName     *string             `json:"statusName"     nameof:"StatusID" index:"true"`
 	}
 
 	type response []map[string]any
