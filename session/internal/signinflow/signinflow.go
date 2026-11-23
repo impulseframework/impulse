@@ -240,6 +240,11 @@ type Rules[Tx any] struct {
 	// the account still holds it (nameAloneHold); and it is what lets an external
 	// sign-in through to an account with no confirmed address (addressHold).
 	CodeAddress *dbtype.CodeAddress
+	// NewAccount is the account a sign-up with a password through an invitation makes,
+	// given by the sign-in that carries the code mailed to the invited address and by no
+	// other (nil). The account is written in the transaction that consumes the invitation
+	// and runs the acceptor, so it exists only with the acceptance; see acceptBySignUp.
+	NewAccount *dbtype.InsertSessionUser
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -258,6 +263,11 @@ type Rules[Tx any] struct {
 // user is known, req.UserID, req.Username and req.User are set to it, whatever the
 // outcome. A refusal is a *sessioninfo.LoginRefusal and a sign-in that must wait a
 // *signin.PendingSignInError.
+//
+// A sign-up through an invitation (rules.NewAccount) is a password identity whose
+// account does not exist yet: req.UserID is the id it will have, and the account is
+// written in the transaction that consumes the invitation and runs the acceptor
+// (acceptBySignUp), before the transaction that decides and inserts the session.
 //
 // A sign-in that carries an invitation (req.Invitation) accepts it once the user is
 // known and before the policy decides, so the policy sees what the acceptance
@@ -325,6 +335,9 @@ func SignIn[Tx any](
 	if req.Identity == nil {
 		return errors.New("a sign-in carries its verified identity in req.Identity")
 	}
+	if rules.NewAccount != nil && dbtype.IsExternal(req.Identity) {
+		return errors.New("a sign-up through an invitation signs in with the password it chose: rules.NewAccount goes with a password identity")
+	}
 
 	resolved := *req
 	resolved.User = nil
@@ -359,6 +372,14 @@ func SignIn[Tx any](
 		resolved.User = &sessioninfo.SignInUser{ID: resolved.UserID, Username: resolved.Username, Source: source, Tenant: tenant}
 	case req.UserID.IsNil():
 		return errors.New("a password sign-in names its user in req.UserID")
+	case rules.NewAccount != nil:
+		stop, err := acceptBySignUp(ctx, d, &resolved, rules)
+		if err != nil {
+			return err
+		}
+		if stop != nil {
+			return stop
+		}
 	default:
 		if req.Invitation != nil {
 			// The address was held to the invited one above, and the acceptance is held
@@ -1061,6 +1082,94 @@ func acceptInvitation[Tx any](
 	committed.run(ctx)
 
 	return false, nil, nil
+}
+
+// acceptBySignUp is the transaction of a sign-up with a password through an invitation
+// (rules.NewAccount): the invitation is consumed, the account written and the
+// acceptor run in it, so the account is made and the invitation accepted together, or
+// neither is. The sign-in entered the code mailed to the invited address
+// (Invitation.AddressProven), which is what the account's confirmed address rests on.
+//
+// An invitation that is no longer live (used, withdrawn or run out) is the
+// invitation_expired refusal. An address another account holds, confirmed or not, and
+// a username that is taken are a Conflict, also where the other account took it at the
+// same moment (dbtype.EmailConflict, dbtype.UsernameConflict). An acceptor that fails
+// ends the sign-in with its error. Nothing is written by any of them: no account is
+// made, and an invitation that was live stands. The acceptor is handed an account it
+// cannot read in the transaction (InvitationAcceptor), and names it by id.
+//
+// A transaction the database ends to break a deadlock or a serialization failure
+// (dbtype.LockConflict) runs once more, as acceptInvitation's does. What follows the
+// commit is the sign-in of any account: a sign-in the policy then denies or holds
+// leaves the account made and the invitation accepted.
+func acceptBySignUp[Tx any](ctx context.Context, d Driver[Tx], req *sessioninfo.NewSessionRequest, rules Rules[Tx]) (stop, err error) {
+	inv, account := req.Invitation, rules.NewAccount
+	switch {
+	case inv == nil || !inv.AddressProven:
+		return nil, errors.New("a sign-up through an invitation carries, in req.Invitation, the invitation whose mailed code it entered")
+	case !account.ID.Valid || account.ID.UUID != req.UserID:
+		return nil, errors.New("a sign-up through an invitation names the account it makes: rules.NewAccount.ID is req.UserID")
+	case account.Email == nil || !sameAddress(*account.Email, inv.Email) || !account.EmailVerified:
+		return nil, errors.New("the account of a sign-up through an invitation holds the invited address, confirmed")
+	}
+	if err := dbtype.ValidateInsertUser(account, d.UsernameIsEmail()); err != nil {
+		return nil, errors.Wrap(err, "dbtype.ValidateInsertUser()")
+	}
+
+	inv.Accepted = false
+	var (
+		committed committedWork
+		// dead says the run found the invitation no longer live.
+		dead bool
+	)
+	run := func(ctx context.Context, tx Tx) error {
+		// Each run starts with nothing owed and the invitation taken for live.
+		committed, dead = nil, false
+		if err := d.ConsumeMailLinkIn(ctx, tx, inv.ID, time.Now()); err != nil {
+			dead = httpio.HasNotFound(err)
+
+			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
+		}
+		holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
+		if err != nil {
+			return errors.Wrap(err, "Driver.UserByEmailIn()")
+		}
+		if holder != nil {
+			return httpio.NewConflictMessagef("the email address %q is already in use", inv.Email)
+		}
+		if _, err := d.InsertUserIn(ctx, tx, account); err != nil {
+			return errors.Wrap(err, "Driver.InsertUserIn()")
+		}
+		granted, err := grantConsumed(ctx, tx, req.UserID, account.Username, inv, rules.Accept)
+		if err != nil {
+			return err
+		}
+		committed.add(granted)
+
+		return nil
+	}
+	txErr := d.Transact(ctx, run)
+	if runsOnceMore(d, txErr) {
+		// The database broke a deadlock or a serialization failure: the sign-up runs once
+		// more, and what it answers is decided on that run.
+		txErr = d.Transact(ctx, run)
+	}
+	if txErr != nil {
+		switch {
+		case dead:
+			return Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, InvitationEnded), nil
+		case d.SignInConflict(txErr) == dbtype.UsernameConflict:
+			return nil, httpio.NewConflictMessagef("username %q already exists", account.Username)
+		case d.SignInConflict(txErr) == dbtype.EmailConflict:
+			return nil, httpio.NewConflictMessagef("the email address %q is already in use", inv.Email)
+		default:
+			return nil, errors.Wrap(txErr, "Driver.Transact()")
+		}
+	}
+	inv.Accepted = true
+	committed.run(ctx)
+
+	return nil, nil
 }
 
 // acceptanceAddress decides the address of an acceptance in acceptInvitation, in the

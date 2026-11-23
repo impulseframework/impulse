@@ -324,6 +324,12 @@ type AuthInstance struct {
 	// reads it off the account when the code is checked. The harness builds it with
 	// NewSignInByCode.
 	SignInByCode func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error)
+	// SignUpInvited establishes the session of a sign-up with a password through an
+	// invitation, as SignIn does, for the sign-in that enters the code mailed to the
+	// invited address: account is the account the sign-up makes (the rules'
+	// NewAccount), and proven the proof of the password the sign-up chose. The harness
+	// builds it with NewSignUpInvited.
+	SignUpInvited func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error)
 	// Accept accepts inv for userID by hand, as the Auth does for a person already
 	// signed in, with the configured acceptor. The harness builds it with NewAccept.
 	Accept func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error
@@ -477,7 +483,7 @@ func NewSignIn[Tx any](
 	signIn := newSignIn(d, cfg, adapt)
 
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
-		return signIn(ctx, insert, req, oneProof(proven), nil)
+		return signIn(ctx, insert, req, oneProof(proven), nil, nil)
 	}
 }
 
@@ -489,15 +495,29 @@ func NewSignInByCode[Tx any](
 	signIn := newSignIn(d, cfg, adapt)
 
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error) {
-		return signIn(ctx, insert, req, nil, claim)
+		return signIn(ctx, insert, req, nil, claim, nil)
 	}
 }
 
-// newSignIn is the flow NewSignIn and NewSignInByCode run over d: proof and claim are
-// the rules' Proven and CodeAddress, nil for none.
+// NewSignUpInvited returns an instance's SignUpInvited over d: NewSignIn's flow, for the
+// sign-in that completes a sign-up through an invitation and carries the account it
+// makes.
+func NewSignUpInvited[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error) {
+	signIn := newSignIn(d, cfg, adapt)
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error) {
+		return signIn(ctx, insert, req, proven, nil, account)
+	}
+}
+
+// newSignIn is the flow NewSignIn, NewSignInByCode and NewSignUpInvited run over d:
+// proof, claim and account are the rules' Proven, CodeAddress and NewAccount, nil for
+// none.
 func newSignIn[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
-) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress) (impulse.UUID, error) {
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress, account *dbtype.InsertSessionUser) (impulse.UUID, error) {
 	var rule signin.AccountRule[Tx]
 	switch {
 	case cfg.Resolve != nil:
@@ -517,7 +537,7 @@ func newSignIn[Tx any](
 	directories, seat, onlyIn := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	signUp := adaptSignUp(cfg, adapt)
-	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress) (impulse.UUID, error) {
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress, account *dbtype.InsertSessionUser) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
@@ -525,7 +545,7 @@ func newSignIn[Tx any](
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
 			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: proof, NoPassword: cfg.NoPassword,
-			ConfirmAddress: cfg.ConfirmAddress, CodeAddress: claim,
+			ConfirmAddress: cfg.ConfirmAddress, CodeAddress: claim, NewAccount: account,
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -695,6 +715,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a failing seat hook fails the transaction that provisions the user: no account, no link, none of the hook's writes; the next sign-in is provisioned and seated", run: testDirectorySeatHookFails},
 		{name: "a failing invitation hook fails the transaction that consumes the invitation: the invitation stands, a stranger is not provisioned, the hook's writes are not committed, and the next attempt accepts it", run: testInvitationHookFails},
 		{name: "an invitation hook's committed function runs exactly once, after the commit and before the policy decides", run: testInvitationHookCommitted},
+		{name: "a sign-up with a password through an invitation makes its account in the transaction that consumes the invitation and runs the acceptor: made and accepted together, or neither, when the invitation is dead or another account holds the address or the username", run: testInvitedSignUp},
+		{name: "a failing invitation hook fails the transaction that would make the account of a sign-up through the invitation: no account, and the invitation stands", run: testInvitedSignUpHookFails},
+		{name: "an account to make goes only with a password sign-in that entered the code mailed for the invitation it carries, under the request's id and with the invited address confirmed: anything else is an error that writes nothing", run: testInvitedSignUpMisused},
 		{name: "a password sign-in accepts the invitation it carries only by the code mailed to the invited address, in a transaction of its own, and an acceptance by hand only for the address the account holds confirmed", run: testInvitationAcceptedByHand},
 		{name: "an invitation is read back with the place its roles are held in, one tenant, every tenant or the global surface, by its token hash and in the listing of the live ones", run: testInvitationPlaceRoundTrip},
 		{name: "an invitation that makes a tenant is read back with the tenant it carries, by its token hash and in the listing of the live ones", run: testTenantInvitationRoundTrip},

@@ -82,6 +82,12 @@ type signInAttempt struct {
 	// for the attempt that holds it as a pending identity (invitationSignUp); nil for
 	// every other attempt.
 	signUp *heldSignUp
+	// newAccount is the account a sign-up through an invitation makes, for the attempt
+	// that completes its wait with the code (invitedSignUpAttempt); nil for every other
+	// attempt. The attempt names the account by the id the row carries, and the store
+	// writes the row with the invitation's acceptance
+	// (sessionstorage.SignInRules.NewAccount).
+	newAccount *sessionstorage.InsertSessionUser
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -238,6 +244,7 @@ func (a *Auth[S, U, Tx]) signInRules(at *signInAttempt) sessionstorage.SignInRul
 		// seeded.
 		ConfirmAddress: method != "" && !seeded,
 		CodeAddress:    at.codeAddress,
+		NewAccount:     at.newAccount,
 	}
 }
 
