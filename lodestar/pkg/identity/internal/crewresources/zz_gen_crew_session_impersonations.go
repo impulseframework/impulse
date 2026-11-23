@@ -307,6 +307,10 @@ func (p CrewSessionImpersonationQueryPartialClause) PrincipalUserID() CrewSessio
 	return CrewSessionImpersonationQueryIdent[string]{Ident: resource.NewIdent[string]("PrincipalUserID", p.partialClause, true)}
 }
 
+func (p CrewSessionImpersonationQueryPartialClause) PrincipalUsername() CrewSessionImpersonationQueryIdent[string] {
+	return CrewSessionImpersonationQueryIdent[string]{Ident: resource.NewIdent[string]("PrincipalUsername", p.partialClause, true)}
+}
+
 type CrewSessionImpersonationQueryClause struct {
 	clause resource.QueryClause
 }

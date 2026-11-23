@@ -1767,7 +1767,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "startedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				Order:     []accesstypes.Tag{"startedAt"},
-				QueryKeys: []accesstypes.Tag{"actorUsername", "principalUserId"},
+				QueryKeys: []accesstypes.Tag{"actorUsername", "principalUserId", "principalUsername"},
 			},
 			{
 				Name:        "CrewSessionMailLinks",

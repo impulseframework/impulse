@@ -27,7 +27,7 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 		SourceSessionID   *impulse.UUID             `json:"sourceSessionId"`
 		PrincipalKind     string                    `json:"principalKind"`
 		PrincipalUserID   *string                   `json:"principalUserId"   index:"true"`
-		PrincipalUsername *string                   `json:"principalUsername"`
+		PrincipalUsername *string                   `json:"principalUsername" index:"true"`
 		PrincipalRole     *string                   `json:"principalRole"`
 		Mask              accesstypes.NullMaskWords `json:"mask"`
 		Reason            *string                   `json:"reason"`
