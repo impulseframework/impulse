@@ -14,8 +14,10 @@
   // Never taller than the room its page has, which the library's frame measures and hands
   // down (or an application sets around a list it draws outside the frame): a list with
   // more rows than fit scrolls inside its own frame, under its headings and over its
-  // pager. With nothing set, a list is as tall as its rows.
+  // pager. With nothing set, a list is as tall as its rows. The bound is the list's whole
+  // box, its border inside it, so the room the frame hands down is the room the list takes.
   max-height: var(--impulse-list-max-height, none);
+  box-sizing: border-box;
   border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   border-radius: 4px;
   overflow: clip;

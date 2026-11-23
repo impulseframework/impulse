@@ -3870,7 +3870,7 @@ describe('a list and the room its page has', () => {
     await settle();
   };
 
-  it('is never taller than the room its page hands it, and as tall as its rows where nothing is handed', () => {
+  it('is never taller than the room its page hands it, its border included, and as tall as its rows where nothing is handed', () => {
     const sheet = Array.from(document.querySelectorAll('style'))
       .map((style) => style.textContent ?? '')
       .filter((text) => text.includes('.impulse-grid-host'))
@@ -3882,6 +3882,8 @@ describe('a list and the room its page has', () => {
       .join('\n');
 
     expect(host).toMatch(/max-height:\s*var\(--impulse-list-max-height,\s*none\)/);
+    // The room is the list's whole box: its border is inside it, as the frame counts it.
+    expect(host).toMatch(/box-sizing:\s*border-box/);
   });
 
   it('is shown from its first row after Next, where it stays scrolled sideways', () => {
