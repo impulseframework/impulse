@@ -678,20 +678,29 @@ export class ResourceListComponent implements OnInit {
   );
 
   /**
+   * Whether the page the list holds comes after its first. Such a page with no row is not a
+   * list that holds nothing: its rows went while the pages before it hold theirs, and the
+   * pager is the way back to them.
+   */
+  afterFirstPage = computed(() => this.store.page().offset > 0 || this.store.page().hasPrev);
+
+  /**
    * What the empty table says: the refusal when the digest leaves no column; in the page's
    * own words, that the person may not see the list, that it could not be loaded the way
    * it was asked for (a filter, a sort or a page size) or that it could not be loaded, when the
    * request was refused or failed; otherwise the page's own sentence for a list that holds
-   * nothing (the config's `emptyMessage`), said only while neither a column filter nor the
-   * search box narrows the list, else the plain empty-list text. A refusal must never read
-   * as an empty list, and what the server said of it is written to the console, never to
-   * the screen.
+   * nothing (the config's `emptyMessage`), said only on the list's first page and while
+   * neither a column filter nor the search box narrows the list, else the plain empty-list
+   * text. A refusal must never read as an empty list, and what the server said of it is
+   * written to the console, never to the screen.
    */
   emptyMessage = computed(() =>
     listEmptyMessage(
       this.store.pageError(),
       this.noListableColumns(),
-      this.boxActive() || this.store.columnFilters().length > 0 ? undefined : this.config().emptyMessage,
+      this.boxActive() || this.store.columnFilters().length > 0 || this.afterFirstPage()
+        ? undefined
+        : this.config().emptyMessage,
     ),
   );
 
@@ -699,15 +708,16 @@ export class ResourceListComponent implements OnInit {
    * What a list under a record says in place of its table when it holds nothing: the page's
    * own sentence (the config's emptyMessage), else "No hangar passes." from the word its rows
    * go by. Empty wherever the table is drawn: for the list a page is built on, before the first
-   * answer, for a refusal or a failed request, where the person may see no column, and while a
-   * column filter or the search box narrows the list, whose table then says what it always did.
+   * answer, on a page after the first, for a refusal or a failed request, where the person may
+   * see no column, and while a column filter or the search box narrows the list, whose table
+   * then says what it always did.
    */
   emptyLine = computed(() => {
     const underRecord = this.isRootList() === false && !!this.config().parentRelation?.childKey;
     if (!underRecord || !this.store.firstPageAnswered() || this.store.page().rows.length > 0) {
       return '';
     }
-    if (this.store.pageError() !== undefined || this.noListableColumns()) {
+    if (this.afterFirstPage() || this.store.pageError() !== undefined || this.noListableColumns()) {
       return '';
     }
     if (this.boxActive() || this.store.columnFilters().length > 0) {

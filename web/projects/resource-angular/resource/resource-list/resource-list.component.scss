@@ -163,13 +163,15 @@
 }
 
 // The link under a list to where the rest of it is: on a line of its own, in body text and
-// in the color a row's link takes.
+// in the color a row's link takes. A long name in its words breaks where the line ends, so
+// the link is never wider than the page.
 .impulse-resource-list-more {
   display: inline-block;
   margin-top: 8px;
   font-size: 14px;
   line-height: 20px;
   color: var(--mat-sys-primary, #1976d2);
+  overflow-wrap: anywhere;
 }
 
 // A link's indent moves the link in, so only its words are pressed and not the room before

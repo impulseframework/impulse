@@ -947,6 +947,22 @@ describe('ResourceListComponent row methods', () => {
     expect(element().textContent).toContain('You do not have permission to see this list.');
   });
 
+  it('draws the table of a list under a record on a page after the first that holds no row, with its pager, which says the plain text', async () => {
+    // The people are answered in two pages, and the second holds no row by the time it is asked for.
+    const second = '/api/sectors/anvil/sector-people?cursor=two';
+    refusal = { status: 200, body: rows, headers: { 'total-count': '3', link: `<${second}>; rel="next"` } };
+    await create({ primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.' }, {}, person, false);
+    refusal = { status: 200, body: [], headers: { link: '</api/sectors/anvil/sector-people>; rel="prev"' } };
+    fixture.componentInstance.store.turnPage('next');
+    await settle();
+
+    expect(fixture.componentInstance.store.page().offset).toBe(2);
+    expect(fixture.componentInstance.emptyLine()).toBe('');
+    expect(emptyLine()).toBeNull();
+    expect(element().querySelector('impulse-grid')).not.toBeNull();
+    expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
+  });
+
   for (const tt of [
     { name: 'the list a page is built on', isRootList: undefined },
     { name: "a list above or under the page's own, which names no parent row", isRootList: false },
@@ -1019,6 +1035,7 @@ describe('ResourceListComponent row methods', () => {
     expect(style).toContain('font-size: 14px');
     expect(style).toContain('line-height: 20px');
     expect(style).toContain('color: var(--mat-sys-primary, #1976d2)');
+    expect(style).toContain('overflow-wrap: anywhere');
     // Its indent moves the link in, so the room before its words is not pressed.
     const indent = declared(links[0], ['.impulse-resource-list-more', '.impulse-resource-list-indent']);
     expect(indent).toContain('margin-left: 20px');
