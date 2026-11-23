@@ -330,9 +330,10 @@ or one per domain), loaded on demand and cached for the session.
   administrator with two generated methods in the tenant's scope:
   `api.domain(tenant).make<Record>DirectoryOnly` turns it on and
   `api.domain(tenant).end<Record>DirectoryOnly` turns it off (Execute on each in the
-  tenant; the handle's `can()` says whether the person may). `directoryOnlyState(api, tenant)`
-  reads the switch as it stands (`GET <tenants>/<tenant>/directory-only`), asked under
-  the grant of either method, which the tenant's administrator, who does not read the
+  tenant; the handle's `can()` says whether the person may). `tenantSignInSettings(api, tenant)`
+  reads the tenant's sign-in settings as they stand (`GET <tenants>/<tenant>/sign-in-settings`),
+  asked under the grant of any of the tenant's own sign-in methods, which the tenant's
+  administrator, who does not read the
   tenant record, has no other way to see. The read also says what a page of the tenant's
   sign-in settings shows: `directory`, the tenant's directory as people know it;
   `defaultRole`, the role a person gets the first time they sign in through it, in words;
@@ -356,6 +357,16 @@ or one per domain), loaded on demand and cached for the session.
   through the tenant's directory, a tenant that is directory only already) throws from
   `warning` with its sentence as the error's message, so a page that asks first shows
   the refusal and opens no dialog.
+- The same read says each auth's share of that count (`people.shares`: `label`,
+  `people`, `seated`, `outside`), and, where the application's directories carry it,
+  whether the tenant vouches for its directory's own second factor (`secondFactor`:
+  `vouched`, `asked`, the sentence `says`, and the `conditions` vouching takes of the
+  person asking). The tenant says so with
+  `api.domain(tenant).vouchFor<Record>DirectorySecondFactor`, which warns first (the
+  word `vouch`), and takes it back with
+  `.stopVouchingFor<Record>DirectorySecondFactor`, which is plain: a person who
+  signs in through a directory its tenant vouches for is not asked for the
+  application's mailed code.
 - How a tenant admits its directory's people is the tenant's own too, said with two
   generated methods where the directories record carries a default role:
   `api.domain(tenant).open<Record>ToDirectory({ role })` opens the tenant to them, each

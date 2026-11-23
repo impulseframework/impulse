@@ -780,6 +780,13 @@ as its auth's sign-in setting says, thirty days until it is changed (the `crew-t
 and `members-trusted` cookies, the trusted devices table under each auth's prefix), and
 headquarters forgets a person's remembered browsers from the person's account page
 (`RevokeCrewUserTrustedDevices`, `RevokeMembersUserTrustedDevices`).
+A sector's marshal, signed in through the sector's own directory, can say that the
+directory asks its people for a second factor (`VouchForSectorDirectorySecondFactor`,
+on the sector's Sign-in settings page, behind a warning and the word `vouch`): a crew
+member who signs in through that directory is then not asked for the code, in that
+sector and in every sector that gave them a role, on the sector's word alone; the
+governor and a password persona are asked as before, and
+`StopVouchingForSectorDirectorySecondFactor` takes the word back from the next sign-in.
 Demonstrates: auth.second-factor, auth.attested-directory, auth.trusted-device.
 
 The crew sign in with passwords at `/console/api/user/password/login`, or through the
@@ -1053,8 +1060,8 @@ plain; while the switch is on, the sector's routes, these among them, answer the
 the sector admits, so a sector whose directory has stopped working is opened again by
 its own marshal, signed in with a password and the code, or by a
 super administrator. The marshal, who does not read the `Sectors` record, reads the
-switch in the sector (`GET /console/api/sectors/{sectorID}/directory-only`, under the
-grant of either method). `MakeSectorDirectoryOnly` declares a warning
+switch in the sector (`GET /console/api/sectors/{sectorID}/sign-in-settings`, under the
+grant of any of the sector's own sign-in methods). `MakeSectorDirectoryOnly` declares a warning
 (`@warning`'s mechanism, the word `close`): asked for it (`X-Warning: true`), the method
 answers what the call would do in place of running, the sentence with the count of the
 people seated in the sector who sign in another way (it says too that an administrator
@@ -1107,17 +1114,20 @@ directly (a marshal may not give `SectorMarshal`, so she may not make it the rol
 everyone from the directory gets, and the list the role is picked from,
 `CrewSectorDirectoryRoles`, does not offer it to her: it lists the sector's roles she
 may give, by the grant of the method that gives one); `MakeSectorInviteOnly` clears it.
-The record's own
+The row carries one more word of the sector's own (`SectorDirectory.AsksSecondFactor`,
+`@directorySecondFactor`), which the record shows and never writes. The record's own
 update never writes the seat. The console's Sign-in page (Sector Ops menu, under the
 sector's URL) carries the declaration: a marshal signed in through his organization's
 directory makes it the sector's there with one button and removes it once he confirms;
 a marshal signed
 in with a password is told how a directory is set and offered no button. Everything
-else on the page is one of the four methods, run through the library's method dialog:
+else on the page is one of the six methods, run through the library's method dialog:
 opening the sector to its directory, with the role picked in the dialog beside what
 each role is for, and making it directory only each show the server's warning, with the
 people it names as a list, and hold the button until the word is typed; making it
-invite only and turning directory only off are plain confirmations, and a refusal is
+invite only and turning directory only off are plain confirmations, saying that the
+directory asks for a second factor shows the server's warning and holds the button until
+`vouch` is typed, taking that back is a plain confirmation, and a refusal is
 shown on the page with no dialog. What turning directory only takes of the marshal, a
 sign-in through the sector's directory and a password of his own, is said on the page
 before he presses, in the server's sentences, and the button is offered only where the
@@ -1141,7 +1151,7 @@ grants (`access.WithSuperAdministratorMethods`, handed the generated
 `crewidentity.SuperAdministratorMethods`), and the last holder who can sign in keeps the
 role and the account, whoever asks. Demonstrates: tenancy.declaration,
 tenancy.directory-only, tenancy.creator-directory, tenancy.default-seat,
-tenancy.creator-seat, auth.super-administrator.
+tenancy.directory-second-factor, tenancy.creator-seat, auth.super-administrator.
 
 ## The personas
 

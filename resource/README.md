@@ -3551,16 +3551,21 @@ nothing to turn on."); who the flag keeps out now is the people list's to say, b
 `End<Record>DirectoryOnly` declares no warning, and a request for one is refused (400)
 and does not run.
 
-The switch as it stands is read in the tenant too:
-`GET /<prefix>/<tenants>/{tenant}/directory-only` answers `{"directoryOnly": false}`
-under the Execute grant of either method in the tenant, held without a condition (a read
-has no request for a condition to judge, so it is Forbidden under a grant that holds on
-one), and writes nothing (`resource.DirectoryOnlyStateHandler`). The tenant's
-administrator does not read the global record, and this is what a Sign-in page shows
-them.
+A tenant's sign-in settings as they stand are read in the tenant too:
+`GET /<prefix>/<tenants>/{tenant}/sign-in-settings` answers them under the Execute grant
+of any of the tenant's own sign-in methods the application serves (the two that turn
+directory only, the two that set the default role, the two that say the directory's
+second factor), held without a condition (a read has no request for a condition to
+judge, so it is Forbidden under a grant that holds on one), and writes nothing
+(`resource.TenantSignInSettingsHandler`). The route is on every session outlet that
+serves at least one of those methods, and one handler answers on all of them, so a
+person who holds a method that only another outlet serves is answered too. The tenant's
+administrator does not read the global record, and this is what a Sign-in settings page
+shows them. It is served for every tenant record that declares a directories record; a
+record with no switch answers `directoryOnly` false and counts nobody.
 
 While the switch is off and the tenant has a directory, the read also says what turning
-it on takes of the caller (`conditions`, `resource.DirectoryOnlyCondition`), in the
+it on takes of the caller (`conditions`, `resource.TenantSignInCondition`), in the
 order the call checks: the sign-in through the tenant's directory, then the password
 where the caller's auth has the password method. Each is the `sentence` the refusal
 above opens with, whether the caller meets it (`met`), and, where they do not, what they
@@ -3591,7 +3596,7 @@ refuses for the second.
 
 A tenant with no directory is refused before anything is asked of the person, and a
 tenant that is directory only already has nothing to turn on, so the read names no
-condition for either. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
+condition for either. The browser client's `tenantSignInSettings(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
 library's Sign-in settings page runs each through its method dialog
@@ -3601,15 +3606,24 @@ turns it on only where the tenant has a directory and the person meets every con
 of the read, and shows in its place each condition they do not meet.
 
 The read also says what a page of the tenant's sign-in settings shows
-(`DirectoryOnlyState`): `Directory`, the tenant's directory as people know it;
+(`TenantSignInSettings`): `Directory`, the tenant's directory as people know it;
 `DefaultRole`, the role a person gets the first time they sign in through it, in words;
 `Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
 that says how the caller signed in; `SessionDirectory`, the organization's directory the
-caller is signed in through; and `People`, how many people hold a role in the tenant
+caller is signed in through; `People`, how many people hold a role in the tenant
 (`Seated`) and how many of them the switch keeps out (`Outside`), counted as the warning
-counts them. The generated rules are told who counts (`CountedBy`): each auth's identity
-client answers how many people the tenant seats (`SeatedCount`) and who the switch keeps
-out (`DirectoryOutsiders`).
+counts them, with each auth's share of both (`Shares`: what a page calls the auth's
+people, the tenant's list of them, and its two numbers), so a page that links the count
+to one auth's people never says more people than the link opens; and `SecondFactor`,
+where the directories record carries `@directorySecondFactor` and the tenant has a
+directory: whether the tenant vouches for its directory's second factor (`Vouched`),
+whether the caller's auth asks everyone for one now (`Asked`), the one sentence a page
+shows for the two (`Says`), and what vouching takes of the caller (`Conditions`). The
+generated rules are told who counts (`CountedBy`), one entry for each auth whose people a
+tenant seats (`resource.DirectoryPeople`): the readers of how many the tenant seats, whom
+the switch keeps out and who keeps the administrators' way in, and the lists that decide
+whether a caller is told names. The read and the warning that turns the switch on read
+the same entries.
 
 The tenant's own list of its people (section 21) is made from who holds a role in the
 tenant, never from who can sign in, so a person the flag keeps out stays in it with
