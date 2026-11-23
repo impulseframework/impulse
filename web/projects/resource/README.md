@@ -439,7 +439,7 @@ read asked, not List on the resource); one the server drops is forgotten alone, 
 page stays current, as does a list of the same resource the tab watches in its own right.
 The lists are forgotten with the subscription's last watcher and at logout, and an answer
 for a subscription nothing watches keeps none: a page holds its watcher before its first
-live request, as the example below does and the Angular lists do.
+live answer comes back, as the example below does and the Angular lists do.
 
 What it costs. One feed listener per tab. One renewal request every two minutes while any
 live row or list is held. For a watched row or list: one request for each write the tab
