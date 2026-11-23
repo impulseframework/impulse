@@ -2078,6 +2078,106 @@ func Test_snapshot_userDigest(t *testing.T) {
 	}
 }
 
+// Test_snapshot_userDigest_declaredFields pins that a grant on all of a resource's
+// fields is told field by field over the fields the release declares for the
+// resource, under any permission, though no grant names them: each with the state
+// the grant gives it, granted, conditional or conditional on time. A subject whose
+// grants name their fields is listed as before, and each field's entry answers as a
+// check of the field does.
+func Test_snapshot_userDigest_declaredFields(t *testing.T) {
+	t.Parallel()
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	records := &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Lister"), Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Opener"), Perm: "List", Resource: "widgets", Field: "*", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Shifter"), Perm: "List", Resource: "widgets", Field: "*", Condition: "now < '2099-01-01T00:00:00Z'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Labeler"), Perm: "List", Resource: "widgets", Field: "label"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1.PolicyScope(), Member: userSubject("lou"), Role: "Lister"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("olive"), Role: "Opener"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("tess"), Role: "Shifter"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("lana"), Role: "Labeler"},
+		},
+	}
+	// The release declares two fields of widgets no grant names: List on the
+	// serial, and Read alone on the model.
+	collection, ok := declaringRecords(records).(*stubCollection)
+	if !ok {
+		t.Fatalf("declaringRecords() = %T, want *stubCollection", declaringRecords(records))
+	}
+	collection.list[accesstypes.List] = append(collection.list[accesstypes.List], "widgets.serial")
+	collection.list[accesstypes.Read] = append(collection.list[accesstypes.Read], "widgets.model")
+	snap, findings, err := newSnapshot(records, nil, collection, time.Now())
+	if err != nil {
+		t.Fatalf("newSnapshot() error = %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("newSnapshot() findings = %v, want none", findings)
+	}
+
+	fields := []accesstypes.Resource{"widgets.label", "widgets.model", "widgets.serial"}
+	every := func(state accesstypes.DigestState) accesstypes.PermissionDigest {
+		digest := make(accesstypes.PermissionDigest, len(fields))
+		for _, field := range fields {
+			digest[field] = map[accesstypes.Permission]accesstypes.DigestState{accesstypes.List: state}
+		}
+
+		return digest
+	}
+	tests := []struct {
+		name string
+		user accesstypes.User
+		want accesstypes.PermissionDigest
+	}{
+		{
+			name: "a grant on all fields outright lists every declared field granted",
+			user: "lou",
+			want: every(accesstypes.DigestGranted),
+		},
+		{
+			name: "a grant on all fields under a row condition lists every declared field conditional",
+			user: "olive",
+			want: every(accesstypes.DigestConditional),
+		},
+		{
+			name: "a grant on all fields under a condition on the time lists every declared field conditional on time",
+			user: "tess",
+			want: every(accesstypes.DigestConditionalOnTime),
+		},
+		{
+			name: "a grant that names its field lists that field alone",
+			user: "lana",
+			want: accesstypes.PermissionDigest{"widgets.label": {accesstypes.List: accesstypes.DigestGranted}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snap.userDigest(tenant1, tt.user)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("userDigest(%s, %s) mismatch (-want +got):\n%s", tenant1, tt.user, diff)
+			}
+			// The digest says of each field what a check of it answers: granted
+			// outright, held under conditions, or neither, where it is absent.
+			for i, decision := range snap.decideUserResources(tt.user, tenant1, accesstypes.List, fields...) {
+				state, listed := tt.want[fields[i]][accesstypes.List]
+				switch {
+				case state == accesstypes.DigestGranted && !decision.granted:
+					t.Errorf("List on %s for %s: the digest says granted, the check does not grant it", fields[i], tt.user)
+				case listed && state != accesstypes.DigestGranted && (decision.granted || len(decision.conditions) == 0):
+					t.Errorf("List on %s for %s: the digest says %s, the check answers granted %v under %v", fields[i], tt.user, state, decision.granted, decision.conditions)
+				case !listed && (decision.granted || len(decision.conditions) > 0):
+					t.Errorf("List on %s for %s: the digest leaves it out, the check answers granted %v under %v", fields[i], tt.user, decision.granted, decision.conditions)
+				}
+			}
+		})
+	}
+}
+
 // Test_snapshot_roleHasGrants pins the foothold question for a session
 // operating as a role: any grant the role holds in the scope — own or
 // inherited, resource-attached or scope-wide — is a foothold; a role that

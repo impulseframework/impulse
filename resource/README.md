@@ -564,7 +564,9 @@ neither of these nor the live routes, and when no outlet serves sessions the gen
 **The digest.** The payload is the user's structural grant enumeration for the requested
 scope: resource → permission → `granted` | `conditional` | `conditionalOnTime`, with
 field targets under their dotted names (`"WorkOrders.title"`) and **absence meaning
-denied** — consumers fail closed by construction. It is advisory UI material (which
+denied** — consumers fail closed by construction. A grant on all of a resource's fields
+(`Documents.*`) is listed field by field, over the fields the release declares for the
+resource, so a field's own entry is the whole answer for it. It is advisory UI material (which
 menus, routes, and form inputs to render); enforcement stays with the endpoint gate, the
 read rules, and the write stages. Nothing folds — no `now`, no row data — so a payload
 is stable for the life of a policy snapshot and caches cleanly per scope.

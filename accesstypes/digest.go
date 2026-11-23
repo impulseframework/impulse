@@ -31,7 +31,9 @@ const (
 // of a policy snapshot and caches cleanly per scope. Conditional on time is
 // structure too, read from the conditions' text and never from a clock: the
 // digest does not say whether such a condition holds now. Absence means denied,
-// and the payload stays proportional to the user's grants, never to the
-// application's resource collection. Field targets appear under their dotted
-// resource name ("employees.name"), exactly as grants store them.
+// and the payload stays proportional to what the user's grants reach, never to
+// the application's whole resource collection: a grant on all of a resource's
+// fields is listed field by field, over the fields the release declares for
+// that resource. Field targets appear under their dotted resource name
+// ("employees.name"), exactly as grants store them.
 type PermissionDigest map[Resource]map[Permission]DigestState
