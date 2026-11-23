@@ -26,10 +26,10 @@ func sessionOwnAccounts(ctx context.Context) []string {
 
 	var accounts []string
 	if sess.UserID.Valid {
-		accounts = append(accounts, sess.UserID.UUID.String())
+		accounts = append(accounts, sess.UserID.String())
 	}
 	if imp := sess.Impersonation; imp != nil && imp.ActorID.Valid {
-		if actor := imp.ActorID.UUID.String(); !slices.Contains(accounts, actor) {
+		if actor := imp.ActorID.String(); !slices.Contains(accounts, actor) {
 			accounts = append(accounts, actor)
 		}
 	}

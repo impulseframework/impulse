@@ -170,35 +170,12 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 			if q.collection == nil {
 				continue
 			}
-			resources = resources[:0]
-			var held accesstypes.Resource
-			keptOffOwn := false
-			for _, tm := range executeCandidates(q.collection, q.resourceSet.BaseResource()) {
-				resources = append(resources, tm.Method)
-				if tm.CallerEnters && held == "" {
-					held = tm.Method
-				}
-				if tm.OwnAccountColumn != "" {
-					keptOffOwn = true
-				}
+			var err error
+			if resources, err = q.executeResources(ctx); err != nil {
+				return err
 			}
 			if len(resources) == 0 {
 				continue
-			}
-			// A method a row keeps off the caller's own account (@notOnOwnAccount)
-			// needs the accounts that are the caller's own, read once from the
-			// session.
-			if keptOffOwn && q.ownAccounts == nil {
-				q.ownAccounts = sessionOwnAccounts(ctx)
-			}
-			// A method offered only to a caller whose session enters the row's
-			// tenants (@callerEnters), one that names the row or one offered on
-			// it, needs the tenants this session does not enter, asked once for
-			// the statement.
-			if held != "" {
-				if err := q.askUnentered(ctx, held); err != nil {
-					return err
-				}
 			}
 		case accesstypes.Create:
 			// The affordance question is per member resource: the workflow
@@ -241,6 +218,42 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 	}
 
 	return nil
+}
+
+// executeResources answers the RPC methods the Execute capability asks about on the
+// resource's rows (executeCandidates), and reads once what their marks need: the
+// accounts that are the caller's own, for a method a row keeps off the caller's own
+// account (@notOnOwnAccount), read from the session; and the tenants this session
+// does not enter, for a method offered only to a caller whose session enters the
+// row's tenants (@callerEnters), one that names the row or one offered on it, asked
+// once for the statement.
+func (q *QuerySet[Resource]) executeResources(ctx context.Context) ([]accesstypes.Resource, error) {
+	candidates := executeCandidates(q.collection, q.resourceSet.BaseResource())
+	resources := make([]accesstypes.Resource, 0, len(candidates))
+	var held accesstypes.Resource
+	keptOffOwn := false
+	for _, tm := range candidates {
+		resources = append(resources, tm.Method)
+		if tm.CallerEnters && held == "" {
+			held = tm.Method
+		}
+		if tm.OwnAccountColumn != "" {
+			keptOffOwn = true
+		}
+	}
+	if len(resources) == 0 {
+		return nil, nil
+	}
+	if keptOffOwn && q.ownAccounts == nil {
+		q.ownAccounts = sessionOwnAccounts(ctx)
+	}
+	if held != "" {
+		if err := q.askUnentered(ctx, held); err != nil {
+			return nil, err
+		}
+	}
+
+	return resources, nil
 }
 
 // capabilityGroups interns the distinct condition payloads across every
@@ -616,36 +629,50 @@ func (q *QuerySet[Resource]) renderCapabilities(dbType DBType, registry *paramRe
 	}
 
 	terms := make([]string, len(groupExprs))
-	for i, expr := range groupExprs {
-		var sql string
-		if expr != nil {
-			sql, err = lowerToSQL(expr, lctx, gen, registry)
-			if err != nil {
-				return nil, "", err
-			}
+	for i := range groupExprs {
+		terms[i], err = q.capabilityTerm(groups, i, gen, lctx, entering, registry)
+		if err != nil {
+			return nil, "", err
 		}
-		var marks []string
-		if groups.held[i] {
-			marks = append(marks, q.enteringTerm(gen, lctx.outer, entering, registry))
-		}
-		if column := groups.ownColumns[i]; column != "" {
-			marks = append(marks, ownAccountTerm(gen, lctx.outer, column, q.ownAccounts, registry))
-		}
-		if len(marks) > 0 {
-			term := strings.Join(marks, " AND ")
-			if sql == "" {
-				sql = term
-			} else {
-				sql = "(" + sql + ") AND " + term
-			}
-		}
-		terms[i] = "(" + sql + ")"
 	}
 
 	plan.checksColumn = capabilityChecksColumnName
 	plan.groups = len(groupExprs)
 
 	return plan, capabilityChecksItem(dbType, terms), nil
+}
+
+// capabilityTerm renders the boolean of the condition group at index i: its
+// expression lowered, ANDed with the marks the group carries, the term holding the
+// row to the tenants the caller's session enters (@callerEnters) and the term
+// holding it to none of the caller's own accounts (@notOnOwnAccount). A group with
+// no expression of its own is its marks alone.
+func (q *QuerySet[Resource]) capabilityTerm(groups *capabilityGroups, i int, gen *sqlGenerator, lctx *loweringContext, entering TenantsToEnter, registry *paramRegistry) (string, error) {
+	var sql string
+	if expr := groups.exprs[i]; expr != nil {
+		var err error
+		sql, err = lowerToSQL(expr, lctx, gen, registry)
+		if err != nil {
+			return "", err
+		}
+	}
+	var marks []string
+	if groups.held[i] {
+		marks = append(marks, q.enteringTerm(gen, lctx.outer, entering, registry))
+	}
+	if column := groups.ownColumns[i]; column != "" {
+		marks = append(marks, ownAccountTerm(gen, lctx.outer, column, q.ownAccounts, registry))
+	}
+	if len(marks) > 0 {
+		term := strings.Join(marks, " AND ")
+		if sql == "" {
+			sql = term
+		} else {
+			sql = "(" + sql + ") AND " + term
+		}
+	}
+
+	return "(" + sql + ")", nil
 }
 
 // capabilityChecksItem renders the reserved boolean-array select item.
