@@ -15,6 +15,7 @@ import {
   Method,
   Page,
   Permission,
+  PermissionDigestState,
   Resource,
   ResourceDescriptor,
   ResourceHandle,
@@ -192,8 +193,12 @@ export class SectorService {
     return this.state(permission, target) !== undefined;
   }
 
-  /** The digest state — granted, conditional, or undefined — for the service card. */
-  state(permission: Permission, target: Resource | Method): 'granted' | 'conditional' | undefined {
+  /**
+   * The digest state for the service card: granted, conditional (the server judges it row
+   * by row), conditionalOnTime (the server settles it from the time of the request), or
+   * undefined.
+   */
+  state(permission: Permission, target: Resource | Method): PermissionDigestState | undefined {
     this.permissions();
     const sector = (this.current() || undefined) as Domain | undefined;
     const scope = this.scopeOf(target);
@@ -229,12 +234,13 @@ export class SectorService {
 
   /**
    * The digest state for one field of a domain resource under a permission: granted
-   * when an unconditional grant covers the field, conditional when only a
-   * condition-limited grant does (the condition's text never reaches the browser, so a
-   * form can say "the server judges this" and nothing more precise), undefined when
-   * no grant reaches it. Demonstrates: capability-envelope.
+   * when an unconditional grant covers the field, conditionalOnTime when only
+   * condition-limited grants do and every one of their conditions reads the time of the
+   * request alone, conditional when one of them reads more (the condition's text never
+   * reaches the browser, so a form can say "the server judges this" and nothing more
+   * precise), undefined when no grant reaches it. Demonstrates: capability-envelope.
    */
-  fieldState(permission: Permission, resource: Resource, field: string): 'granted' | 'conditional' | undefined {
+  fieldState(permission: Permission, resource: Resource, field: string): PermissionDigestState | undefined {
     this.permissions();
     const domain = (this.current() || undefined) as Domain | undefined;
     if (!domain) return undefined;

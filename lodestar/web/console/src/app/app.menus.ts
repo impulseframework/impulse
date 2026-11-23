@@ -10,6 +10,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { consignmentsConfig } from './configs/consignments.config';
 import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { expenseManifestsConfig } from './configs/expenseManifests.config';
 import { hangarsConfig } from './configs/hangars.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
@@ -81,11 +82,13 @@ export function appMenus(): Menu[] {
           entries: [
             deckPages.flightDeck,
             deckPages.hangarDeck,
-            // The salvage hold, the call log and the hazard board are the library's lists.
+            // The salvage hold, the call log, the hazard board and the expense manifests are
+            // the library's lists.
             resourcePage(consignmentsConfig, resourceMeta),
             resourcePage(distressCallsConfig, resourceMeta),
             deckPages.roster,
             resourcePage(sectorHazardBoardsConfig, resourceMeta),
+            resourcePage(expenseManifestsConfig, resourceMeta),
             deckPages.shipsLog,
             deckPages.briefing,
           ],

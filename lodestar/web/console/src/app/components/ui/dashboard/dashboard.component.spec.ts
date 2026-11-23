@@ -219,6 +219,21 @@ describe('DashboardComponent, in a "view as" session masked to List and Read', (
   });
 });
 
+describe('DashboardComponent, for a marshal who may issue bulletins until a date', () => {
+  it('says a method held at certain times as such, with the class terms apply is drawn with', async () => {
+    // The bulletin grant's condition reads the time of the request alone, so the global
+    // digest answers it conditionalOnTime.
+    const { fixture } = await openDashboard('marshal', { IssueBulletin: { Execute: 'conditionalOnTime' } });
+    const pills = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('impulse-permissions-card .methods .pill'),
+    );
+
+    expect(pills.map((pill) => pill.textContent?.trim())).toEqual(['IssueBulletin · at certain times']);
+    expect(pills[0]?.classList.contains('conditional')).toBe(true);
+    expect(pills[0]?.classList.contains('granted')).toBe(false);
+  });
+});
+
 describe('DashboardComponent, for a person who may list the service ledger', () => {
   let fixture: ComponentFixture<DashboardComponent>;
   let transport: ScriptedTransport;

@@ -1,10 +1,15 @@
 /**
- * The state of one grant in the permission digest: `granted` when an unconditional
- * grant covers the target, `conditional` when only condition-limited grants do —
- * render the surface and expect the server to narrow it. Denied is never a value:
- * a target the user cannot reach is absent from the digest, so consumers fail closed.
+ * The state of one grant in the permission digest. `granted`: an unconditional grant
+ * covers the target. `conditionalOnTime`: only condition-limited grants do, and every
+ * one of their conditions reads the time of the request alone, so the server answers
+ * the target whole while one holds and refuses it while none does; the digest does not
+ * say which it is now. `conditional`: only condition-limited grants do, and one of them
+ * reads more than the time (the row, a fact about the caller, a request field): render
+ * the surface and expect the server to narrow it, row by row where a condition reads the
+ * row. Denied is never a value: a target the user cannot reach is absent from the
+ * digest, so consumers fail closed.
  */
-export type PermissionDigestState = 'granted' | 'conditional';
+export type PermissionDigestState = 'granted' | 'conditional' | 'conditionalOnTime';
 
 /**
  * The session user's structural grant enumeration for one scope, served by the

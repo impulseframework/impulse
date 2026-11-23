@@ -112,10 +112,11 @@ export function permissionState(
 /**
  * The digest's field-level entries for one resource and permission: every JSON field
  * name whose dotted `Resource.field` target carries the permission in the scope's
- * digest, mapped to its state. Granted and conditional both appear — conditional means
- * render the input and let the server judge the write. A denied field is absent, so
- * consumers fail closed per field. An empty record means the digest carries no
- * field-level entries at all for this resource and permission: the permission is
+ * digest, mapped to its state. Granted, conditional and conditional on time all appear:
+ * conditional means render the input and let the server judge the write, conditional
+ * on time that the server judges by the time of the request alone. A denied field is
+ * absent, so consumers fail closed per field. An empty record means the digest carries
+ * no field-level entries at all for this resource and permission: the permission is
  * denied outright (the base entry is absent too) or the resource has no grant-bearing
  * fields (a keys-only resource) — ask the base entry to tell them apart.
  */
@@ -181,9 +182,10 @@ export type UnreadListener = (domain: Domain | undefined, failure: DigestFailure
 /**
  * PermissionStore owns the session user's digest cache. One digest per scope (global,
  * or one per domain), loaded on demand and cached for the session; `can` answers
- * synchronously from the cache and never fetches. `granted` and `conditional` both
- * answer true: render the surface, and let the server narrow it per row. A scope that
- * has not been loaded answers false — fail closed — so load the digest for a domain
+ * synchronously from the cache and never fetches. `granted`, `conditional` and
+ * `conditionalOnTime` all answer true: render the surface, and let the server narrow it
+ * per row (`conditional`) or refuse it outside its time (`conditionalOnTime`). A scope
+ * that has not been loaded answers false — fail closed — so load the digest for a domain
  * before rendering its pages.
  *
  * A read that fails is not an answer, and the cache never holds one as if it were: a

@@ -149,7 +149,7 @@ describe('ResourceListComponent over a computed resource', () => {
           `${th.querySelector('button.filter-trigger') ? 'a filter' : 'no filter'}`,
       );
 
-  it('draws the heading of a column its reader lists under a condition as words with no filter control, and asks the server nothing when it is pressed', async () => {
+  it('draws the heading of a column its reader lists as conditional as words with no filter control, and asks the server nothing when it is pressed', async () => {
     await create(computedPasses, 'conditional', 'granted');
 
     expect(headings()).toEqual(['Pilot: words, no filter', 'Bay: a button, a filter']);
@@ -168,7 +168,7 @@ describe('ResourceListComponent over a computed resource', () => {
     expect(headings()).toEqual(['Pilot: a button, a filter', 'Bay: a button, a filter']);
   });
 
-  it("leaves a table's columns as they are, one its reader lists under a condition among them", async () => {
+  it("leaves a table's columns as they are, one its reader lists as conditional among them", async () => {
     await create(tablePasses, 'conditional', 'granted');
 
     expect(headings()).toEqual(['Pilot: a button, a filter', 'Bay: a button, a filter']);

@@ -20,6 +20,7 @@ describe('the menu file', () => {
       'Salvage hold',
       'Call log',
       'Hazard board',
+      'Expense manifests',
       'Flight deck',
       'Hangar deck',
       'Squadron roster',

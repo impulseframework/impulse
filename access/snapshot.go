@@ -443,16 +443,22 @@ func (s *snapshot) roleHasGrants(scope accesstypes.Scope, role accesstypes.Role)
 
 // userDigest returns user's structural grant enumeration within scope: every
 // resource and field the user's grants reach, each mapping permission to
-// granted (an unconditional cover exists) or conditional (only conditional
-// grants cover it). Denied targets are absent — the digest is fail-closed by
-// construction — and nothing folds: no facts are consulted, so the answer is
-// a pure function of the snapshot.
+// granted (an unconditional cover exists), conditional on time (only
+// conditional grants cover it, and every one of their conditions reads the
+// time of the request alone) or conditional (only conditional grants cover
+// it, and one of their conditions reads more). Denied targets are absent —
+// the digest is fail-closed by construction — and nothing folds: no facts are
+// consulted, the conditions' text is classified, so the answer is a pure
+// function of the snapshot.
 //
-// Two grant shapes have no enumerable name and are deliberately outside the
-// digest: scope-wide grants (they attach to no resource) and the coverage an
-// all-fields grant extends to fields the snapshot has never seen named (the
-// enumeration lists the known field vocabulary; a check still answers for
-// the unnamed field itself).
+// Two grant shapes have no enumerable name and are outside the digest:
+// scope-wide grants (they attach to no resource) and the coverage an
+// all-fields grant extends to a field that neither the release's collection
+// lists nor any grant names. The enumeration lists the known field
+// vocabulary: every field the collection lists for the resource, under any
+// permission, and every field a kept grant names, so a grant on all fields is
+// told field by field and a page reads a field's own entry as the whole
+// answer for it. A check still answers for an unnamed field itself.
 func (s *snapshot) userDigest(scope accesstypes.Scope, user accesstypes.User) accesstypes.PermissionDigest {
 	return s.digest(s.userGrants(scope, user))
 }
@@ -486,25 +492,47 @@ func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 		case fs.endpoint:
 			set(accesstypes.Resource(base), perm, accesstypes.DigestGranted)
 		case fs.cond != nil && len(fs.cond.endpoint) > 0:
-			set(accesstypes.Resource(base), perm, accesstypes.DigestConditional)
+			set(accesstypes.Resource(base), perm, s.conditionalState(fs.cond.endpoint))
 		}
 		for field, i := range s.fields[resID] {
 			name := accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field))
 			reached := !s.allFieldsLeaveOut(permID, resID, name)
-			var state accesstypes.DigestState
-			switch {
-			case (reached && fs.all) || fs.bit(i):
-				state = accesstypes.DigestGranted
-			case fs.cond != nil && ((reached && len(fs.cond.all) > 0) || len(fs.cond.fields[i]) > 0):
-				state = accesstypes.DigestConditional
-			default:
+			if (reached && fs.all) || fs.bit(i) {
+				set(name, perm, accesstypes.DigestGranted)
+
 				continue
 			}
-			set(name, perm, state)
+			if fs.cond == nil {
+				continue
+			}
+			// The terms decide hands the fold for the field: the all-fields
+			// grant's where it reaches the field, and the field's own.
+			var terms condTerms
+			if reached {
+				terms = fs.cond.all
+			}
+			terms = terms.union(fs.cond.fields[i])
+			if len(terms) > 0 {
+				set(name, perm, s.conditionalState(terms))
+			}
 		}
 	}
 
 	return digest
+}
+
+// conditionalState answers the digest state of a target only conditional
+// grants cover, from the condition terms that cover it: conditional on time
+// when every one of the conditions reads the time of the request alone, so a
+// check settles the target whole, and conditional when one reads more.
+func (s *snapshot) conditionalState(terms condTerms) accesstypes.DigestState {
+	for _, id := range terms {
+		if !condition.TimeOnly(s.compiled[id]) {
+			return accesstypes.DigestConditional
+		}
+	}
+
+	return accesstypes.DigestConditionalOnTime
 }
 
 // userPermissions enumerates user's effective permissions within scope by
@@ -958,6 +986,7 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 //     is held.
 func (s *snapshot) intern(released, stored []policy.Grant, collection PermissionCollection, auth string) ([]policy.Grant, []*SkippedGrant, error) {
 	rule := newGrantRule(collection, auth)
+	declared := declaredFields(rule.listed)
 	exprs := make(map[string]condition.Expr)
 	parse := func(text string) (condition.Expr, error) {
 		if expr, ok := exprs[text]; ok {
@@ -980,7 +1009,7 @@ func (s *snapshot) intern(released, stored []policy.Grant, collection Permission
 
 			continue
 		}
-		if err := s.internNames(&g, collection); err != nil {
+		if err := s.internNames(&g, collection, declared); err != nil {
 			return nil, nil, err
 		}
 		kept = append(kept, g)
@@ -1001,9 +1030,34 @@ func (s *snapshot) intern(released, stored []policy.Grant, collection Permission
 	return kept, skipped, nil
 }
 
+// declaredFields is the fields the release declares for each resource, under
+// any permission, from the collection's List (listed): the part of each dotted
+// name after its last dot, each field once, sorted. A name with no field, or
+// the all-fields "*", gives none.
+func declaredFields(listed map[accesstypes.Permission][]accesstypes.Resource) map[string][]string {
+	declared := make(map[string][]string)
+	for _, names := range listed {
+		for _, name := range names {
+			res, field := splitResourceField(string(name))
+			if field == "" || field == "*" {
+				continue
+			}
+			declared[res] = append(declared[res], field)
+		}
+	}
+	for res, fields := range declared {
+		slices.Sort(fields)
+		declared[res] = slices.Compact(fields)
+	}
+
+	return declared
+}
+
 // internNames gives a kept grant's permission, resource and field their IDs,
-// each the first time the load meets it.
-func (s *snapshot) internNames(g *policy.Grant, collection PermissionCollection) error {
+// each the first time the load meets it. A resource met for the first time
+// takes the fields the release declares for it, so an all-fields grant is
+// enumerated over them. declared is those fields by resource (declaredFields).
+func (s *snapshot) internNames(g *policy.Grant, collection PermissionCollection, declared map[string][]string) error {
 	if _, ok := s.perms[g.Perm]; !ok {
 		if len(s.perms) >= math.MaxUint16 {
 			return errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
@@ -1019,17 +1073,33 @@ func (s *snapshot) internNames(g *policy.Grant, collection PermissionCollection)
 		resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
 		s.resources[g.Resource] = resID
 		s.resourceNames = append(s.resourceNames, g.Resource)
-		s.fields = append(s.fields, make(map[string]uint16))
+		s.fields = append(s.fields, make(map[string]uint16, len(declared[g.Resource])))
 		s.scopes = append(s.scopes, collection.Scope(accesstypes.Resource(g.Resource)))
-	}
-	if g.Field != "" && g.Field != "*" {
-		if _, ok := s.fields[resID][g.Field]; !ok {
-			if len(s.fields[resID]) >= math.MaxUint16 {
-				return errors.Newf("too many fields on resource %q to compile: limit %d", g.Resource, math.MaxUint16)
+		for _, field := range declared[g.Resource] {
+			if err := s.internField(resID, g.Resource, field); err != nil {
+				return err
 			}
-			s.fields[resID][g.Field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
 		}
 	}
+	if g.Field != "" && g.Field != "*" {
+		if err := s.internField(resID, g.Resource, g.Field); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// internField gives a field of the resource with ID resID its ID, the first
+// time the load meets it. resource is the resource's name, for the error.
+func (s *snapshot) internField(resID uint16, resource, field string) error {
+	if _, ok := s.fields[resID][field]; ok {
+		return nil
+	}
+	if len(s.fields[resID]) >= math.MaxUint16 {
+		return errors.Newf("too many fields on resource %q to compile: limit %d", resource, math.MaxUint16)
+	}
+	s.fields[resID][field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
 
 	return nil
 }
