@@ -1497,6 +1497,7 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "outsideDirectory",
                 "cannotEnter"
               ]
             },

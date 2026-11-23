@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, resource, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   AnyResourceHandle,
   CreatePermission,
@@ -20,8 +20,9 @@ import {
 import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { askInDialog } from '@impulseframework/resource-angular/dialogs';
-import { openMethodDialog } from '@impulseframework/resource-angular/resource';
+import { filterQueryParams, openMethodDialog } from '@impulseframework/resource-angular/resource';
 import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular/resource-client';
+import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 import { TenantSignIn, tenantSignInKey, tenantPeopleLine, tenantStandsLine } from './tenant-sign-in-says';
@@ -34,7 +35,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * reading can do about it right now. It says, in one line, how the tenant stands; then the
  * tenant's directory by the name people know it by, the role a person gets the first time
  * they sign in through it in plain words, and whether the tenant is directory only, with
- * how many of its people that keeps out.
+ * how many of its people that keeps out, a count that opens those people on the People page.
  *
  * What it says comes from two reads: the read of the tenant's directory-only switch,
  * asked where the digest grants either method that turns it, which says it all in the
@@ -54,7 +55,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
 @Component({
   selector: 'impulse-tenant-sign-in-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatButtonModule],
+  imports: [MatButtonModule, RouterLink],
   templateUrl: './tenant-sign-in-page.component.html',
   styleUrl: './tenant-sign-in-page.component.scss',
 })
@@ -64,7 +65,8 @@ export class TenantSignInPageComponent {
   private readonly auth = inject(AuthService);
   private readonly dialog = inject(MatDialog);
   private readonly metaOf = inject(METHOD_META);
-  /** The names the route carries: the tenant word, the directories record and the tenant's methods. */
+  private readonly resolvePage = pageRouteResolver();
+  /** The names the route carries: the tenant word, the directories record, the record of the tenant's people and the tenant's methods. */
   readonly signIn = inject(ActivatedRoute).snapshot.data[tenantSignInKey] as TenantSignIn;
   /**
    * The client's digest cache as a signal. The questions below read it, so they are asked
@@ -222,6 +224,29 @@ export class TenantSignInPageComponent {
     return facts?.people ? tenantPeopleLine(facts.people, facts.directoryOnly) : '';
   });
 
+  /**
+   * The address of the tenant's People page, which the people line opens, or undefined: it
+   * is drawn only where the read counts somebody directory only keeps out, the application
+   * mounts a page of the tenant's people, the digest grants List on them in the tenant, and
+   * the list will filter by the mark the link opens it at: the List names no field (nothing
+   * narrows the list) or names the mark as granted or conditional on time. A link is drawn
+   * only where it will open what it says.
+   */
+  readonly peopleLink = computed((): string | undefined => {
+    const people = this.signIn.people;
+    if (!people || !this.facts()?.people?.outside) {
+      return undefined;
+    }
+    const route = resourcePageRoute(people);
+    if (route === undefined || !this.allows(ListPermission, people) || !this.filtersByMark(people)) {
+      return undefined;
+    }
+    return '/' + this.resolvePage(route);
+  });
+
+  /** The People page's filter the people line opens it at: the people directory only keeps out. */
+  readonly keptOutFilter = filterQueryParams([{ field: 'outsideDirectory', operator: 'eq', value: 'true' }]);
+
   /** What turning directory only takes of the person reading that they do not meet, in the server's sentences. */
   readonly unmet = computed((): DirectoryOnlyCondition[] =>
     (this.facts()?.conditions ?? []).filter((condition) => !condition.met),
@@ -375,6 +400,24 @@ export class TenantSignInPageComponent {
     this.permissions();
     const tenant = this.tenant();
     return !!tenant && this.client.can(permission, target, tenant);
+  }
+
+  /**
+   * Whether the reader's list of the tenant's people filters by the mark of the people
+   * directory only keeps out: the digest's List on them names no field at all, or names the
+   * mark as granted or conditional on time, the states the server filters by.
+   */
+  private filtersByMark(people: Resource): boolean {
+    const states = this.auth.fieldPermissionStates({
+      resource: people,
+      permission: ListPermission,
+      domain: this.tenant(),
+    });
+    if (Object.keys(states).length === 0) {
+      return true;
+    }
+    const mark = states['outsideDirectory'];
+    return mark === 'granted' || mark === 'conditionalOnTime';
   }
 
   /** Whether the description names the tenant's method and the digest grants it. */

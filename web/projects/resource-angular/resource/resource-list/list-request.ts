@@ -13,6 +13,7 @@ import {
   ColumnFilterChoices,
   ColumnFilterInputs,
   ColumnSearches,
+  FilterChoice,
   PageTurn,
 } from '@impulseframework/resource-angular/grid';
 import {
@@ -153,24 +154,35 @@ export function queryableMeta(
 }
 
 /**
- * The sorts the server answers this caller: on a computed resource, the sorts less each
- * by a field the digest lists as conditional, which the server refuses as it refuses a
- * filter by it (queryableMeta); on a table or a view, every sort as given.
+ * The sorts the server answers this caller. Where the digest's List field set for the
+ * resource is given (`listable`), a sort by a field it does not name is dropped, a key
+ * field apart, which takes no grant: the server refuses the whole list for a sort by a
+ * field the caller may not list, on a table, a view and a computed resource alike. Not
+ * given (nothing is known, or a list across tenants), nothing is dropped for it. Then,
+ * on a computed resource, each sort by a field the digest lists as conditional is
+ * dropped, which the server refuses as it refuses a filter by it (queryableMeta).
  */
 export function answeredSorts<S extends { readonly field: string }>(
   sorts: readonly S[],
   meta: ResourceMeta | undefined,
   listStates: Readonly<Record<string, PermissionDigestState>>,
+  listable?: ReadonlySet<string>,
 ): S[] {
-  if (meta?.computed !== true) {
-    return [...sorts];
+  let answered = [...sorts];
+  if (listable !== undefined) {
+    const keys = new Set<string>(keyFields(meta).map((key) => key.fieldName));
+    answered = answered.filter((sort) => listable.has(sort.field) || keys.has(sort.field));
   }
-  return sorts.filter((sort) => listStates[sort.field] !== 'conditional');
+  if (meta?.computed !== true) {
+    return answered;
+  }
+  return answered.filter((sort) => listStates[sort.field] !== 'conditional');
 }
 
 /**
  * The sorts a list over the resource is asked in for this caller: the sorts the server
- * answers (answeredSorts) and, where that leaves none of the sorts that were asked for and
+ * answers (answeredSorts, given the digest's List field set where it is known) and, where
+ * that leaves none of the sorts that were asked for and
  * the resource declares no order, its first key field ascending, which takes no grant. The
  * server refuses a paged request with no sort for a resource with no declared order, so
  * without the key a person whose role does not always see the fields a page sorts by would
@@ -182,8 +194,9 @@ export function listSorts(
   meta: ResourceMeta | undefined,
   listStates: Readonly<Record<string, PermissionDigestState>>,
   descriptor: ResourceDescriptor | undefined,
+  listable?: ReadonlySet<string>,
 ): FieldSort[] {
-  const answered = answeredSorts(sorts, meta, listStates);
+  const answered = answeredSorts(sorts, meta, listStates, listable);
   const key = keyFields(meta)[0];
   if (answered.length > 0 || sorts.length === 0 || key === undefined || (descriptor?.order?.length ?? 0) > 0) {
     return answered;
@@ -237,6 +250,12 @@ export function filterInputKinds(
   return inputs;
 }
 
+/** The two values a yes-or-no field's filter menu offers, in the order it offers them. */
+const yesOrNo: readonly FilterChoice[] = [
+  { value: 'true', label: 'Yes' },
+  { value: 'false', label: 'No' },
+];
+
 /**
  * The values each of the table's columns filters by where its field takes one of a fixed
  * set: the generated metadata's `enumeration` for the field each column shows, each value
@@ -245,9 +264,10 @@ export function filterInputKinds(
  * the filter carries the values. A field that holds a role's name offers the metadata's
  * roles and, after them, the roles the list was found to hold beyond those (`found`), each
  * by its words: a role made at run time is in no metadata, and the list is the one place
- * that says a row holds it. A column whose field lists none and was found to hold none (a
- * key into another resource's rows among them), or whose id is not a field of the listed
- * resource, is absent.
+ * that says a row holds it. A yes-or-no field (`boolean` or `nullboolean`) that lists
+ * neither offers "Yes" and "No", carrying `true` and `false`. A column whose field lists
+ * none and was found to hold none (a key into another resource's rows among them), or whose
+ * id is not a field of the listed resource, is absent.
  */
 export function filterChoiceLists(
   meta: ResourceMeta | undefined,
@@ -266,6 +286,11 @@ export function filterChoiceLists(
       if (roles.length > 0) {
         choices[column.id] = roles.map((role) => ({ value: role, label: roleInWords(role) }));
       }
+    } else if (
+      enumeration === undefined &&
+      (field?.displayType === 'boolean' || field?.displayType === 'nullboolean')
+    ) {
+      choices[column.id] = yesOrNo;
     }
   }
   return choices;

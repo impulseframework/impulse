@@ -48,6 +48,18 @@
       <p class="impulse-resource-list-notice-words">{{ sentence }}</p>
     </div>
   }
+  @if (filtersLeftOut()) {
+    <div
+      class="impulse-resource-list-notice impulse-resource-list-filters-left-out"
+      role="status"
+      [class.impulse-resource-list-indent]="indentTitle()">
+      <mat-icon class="impulse-resource-list-notice-icon" aria-hidden="true">warning</mat-icon>
+      <p class="impulse-resource-list-notice-words">
+        This list was opened with a filter it does not offer you, so it is shown without that filter. You can filter it
+        from its column headings.
+      </p>
+    </div>
+  }
   @if (linksUnread()) {
     <div
       class="impulse-resource-list-notice impulse-resource-list-links-unread"

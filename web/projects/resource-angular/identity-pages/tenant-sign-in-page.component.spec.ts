@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { MatDialog } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   ApiDescriptor,
   ClientBase,
@@ -15,6 +15,7 @@ import {
   MethodMeta,
   MethodWarning,
   PermissionDigest,
+  PermissionDigestState,
   Resource,
   TransportRequest,
   TransportResponse,
@@ -24,6 +25,7 @@ import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { MethodDialogComponent } from '@impulseframework/resource-angular/resource';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
+import { registerResourcePage } from '@impulseframework/resource-angular/resource-nav';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { METHOD_META, RecordData, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
@@ -249,6 +251,8 @@ interface World {
   warning?: TransportResponse;
   /** Where given, the server answers a read of the switch once this settles. */
   held?: Promise<void>;
+  /** The names the page's route carries; the library's placing unless given. */
+  route?: TenantSignIn;
 }
 
 /** The team's own methods, by their routes. */
@@ -308,7 +312,7 @@ describe('TenantSignInPageComponent', () => {
           transport,
           client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
         }),
-        { provide: ActivatedRoute, useValue: { snapshot: { data: { [tenantSignInKey]: signIn } } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { [tenantSignInKey]: world.route ?? signIn } } } },
         { provide: TenantService, useValue: { current: signal<Domain | undefined>(team) } },
         // The method dialog draws each method from its metadata and runs it in the tenant
         // the frame provides.
@@ -773,6 +777,148 @@ describe('TenantSignInPageComponent', () => {
     await turn();
     expect(sent('end-team-directory-only')).toEqual([{ kind: 'call', body: {} }]);
     expect(writes()).toEqual([]);
+  });
+
+  describe("links the count of the people directory only keeps out to the team's People page, filtered to them", () => {
+    // The application mounts the list of the team's people at its People page; a record of
+    // people it mounts no page for is the second.
+    const people = 'StaffTeamUsers' as Resource;
+    const unmounted = 'StaffTeamGuests' as Resource;
+    registerResourcePage(people, 'teams/:teamID/people');
+    const listsPeople: PermissionDigest = { ...administrator, StaffTeamUsers: { List: 'granted' } };
+    const link = (): HTMLAnchorElement | null =>
+      element().querySelector<HTMLAnchorElement>('.impulse-tenant-sign-in-people a.impulse-tenant-sign-in-people-link');
+    /** The link's path and its filters, as the router reads its address. */
+    const opens = (): { path: string; filters: string[] } => {
+      const href = link()?.getAttribute('href') ?? '';
+      return {
+        path: href.replace(/\?.*$/, ''),
+        filters: TestBed.inject(Router).parseUrl(href).queryParamMap.getAll('filter'),
+      };
+    };
+
+    it('with the switch off, the sentence is the link, and the words are the same', async () => {
+      await pageFor({ digest: listsPeople, state: withDirectory, directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '2 of 4 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(
+        '2 of 4 people here have never signed in through the directory and would be kept out.',
+      );
+      expect(opens()).toEqual({ path: `/teams/${team}/people`, filters: ['outsideDirectory:eq:true'] });
+    });
+
+    it('with the switch on, the sentence is the link, and the words are the same', async () => {
+      await pageFor({
+        digest: listsPeople,
+        state: { directoryOnly: true, directory, passwords: true, people: { seated: 4, outside: 1 } },
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '1 of 4 people here has never signed in through the directory and is kept out.',
+      ]);
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(
+        '1 of 4 people here has never signed in through the directory and is kept out.',
+      );
+      expect(opens()).toEqual({ path: `/teams/${team}/people`, filters: ['outsideDirectory:eq:true'] });
+    });
+
+    it('where nobody is kept out, the sentence links nowhere', async () => {
+      await pageFor({
+        digest: listsPeople,
+        state: { ...withDirectory, people: { seated: 4, outside: 0 } },
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual(['Nobody here would be kept out.']);
+      expect(link()).toBeNull();
+    });
+
+    it('where the application mounts no page of its people, the sentence links nowhere', async () => {
+      await pageFor({
+        digest: { ...administrator, StaffTeamGuests: { List: 'granted' } },
+        state: withDirectory,
+        directories: [workspace],
+        route: { ...signIn, people: unmounted },
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '2 of 4 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link()).toBeNull();
+    });
+
+    it('where the reader may not list the people, the sentence links nowhere', async () => {
+      await pageFor({ digest: administrator, state: withDirectory, directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '2 of 4 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link()).toBeNull();
+    });
+
+    // The link opens the People page filtered by the mark, so it is drawn only where the
+    // list will filter by it: where the reader's List on the people names no field (nothing
+    // narrows the list), or names the mark as granted or conditional on time.
+    const listing = (fields: Record<string, PermissionDigestState>): PermissionDigest => {
+      const digest: PermissionDigest = { ...listsPeople };
+      for (const [field, state] of Object.entries(fields)) {
+        digest[`${people}.${field}`] = { List: state };
+      }
+      return digest;
+    };
+    const sentence = '2 of 4 people here have never signed in through the directory and would be kept out.';
+
+    it('where the List on the people names no field, the sentence is the link', async () => {
+      await pageFor({ digest: listing({}), state: withDirectory, directories: [workspace] });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+    });
+
+    it('where the List on the people names the mark as granted, the sentence is the link', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'granted' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+      expect(opens()).toEqual({ path: `/teams/${team}/people`, filters: ['outsideDirectory:eq:true'] });
+    });
+
+    it('where the List on the people names the mark as conditional on time, the sentence is the link', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'conditionalOnTime' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+    });
+
+    it('where the List on the people names other fields and not the mark, the sentence links nowhere', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', cannotEnter: 'granted' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([sentence]);
+      expect(link()).toBeNull();
+    });
+
+    it('where the List on the people names the mark as conditional, the sentence links nowhere', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'conditional' }),
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([sentence]);
+      expect(link()).toBeNull();
+    });
   });
 
   it('a reader with the list alone is told whether there is a directory, and gets no Directory only part and no button', async () => {

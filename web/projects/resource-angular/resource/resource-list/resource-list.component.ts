@@ -22,7 +22,19 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialog } from '@angular/material/dialog';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import {
+  ActivatedRoute,
+  Event as RouterEvent,
+  NavigationCancel,
+  NavigationCancellationCode,
+  NavigationEnd,
+  NavigationError,
+  NavigationSkipped,
+  Router,
+  RouterModule,
+  UrlTree,
+} from '@angular/router';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import {
@@ -36,6 +48,7 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import {
+  ApiError,
   Domain,
   ListPermission,
   PermissionDigestState,
@@ -127,6 +140,7 @@ import {
   unorderedFields,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
+import { filterParam, readAddressFilter, sameFilters, standingFilters, writeAddressFilter } from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
 /** A column's heading where the page gives none: its field's name in words, as the table draws it. */
@@ -228,6 +242,19 @@ export class ResourceListComponent implements OnInit {
     return this.resourceConfig() as ListViewConfig;
   });
 
+  /**
+   * Whether this list keeps its column filters in the page's address: the list the page
+   * is built on, handed the route's own config. A list under a row, under another list, or
+   * mounted by a component with a config of its own keeps its filters to itself, since two
+   * lists cannot share one parameter.
+   */
+  private readonly ownsAddress = computed(
+    () => this.isRootList() !== false && this.routeConfig()?.parentConfig === this.config(),
+  );
+
+  /** Whether a write of the address waits for the navigation in flight to end, which it would cancel. */
+  private addressWriteWaiting = false;
+
   expansionConfig = computed(() => {
     const config = this.config().rowExpansionConfig;
     if (config.type !== 'Component' && config.type !== 'Array') {
@@ -313,18 +340,29 @@ export class ResourceListComponent implements OnInit {
    * their headings. Such a read is over, so the list is drawn with the rows it has, and
    * its sentence stands above them, standing still while the read is asked again, until
    * the read answers. Two reads that come to the same sentence (two columns under one
-   * heading, each naming another record) say it once.
+   * heading, each naming another record) say it once. A column over a tenant's key that
+   * says in its own words what a row shows when the tenant may not be seen (`tenantKey`
+   * with a `fallback`) is not named for a read the server refused: its cells already say
+   * it. Where no other column is over that read, nothing is said of it.
    */
   unread = computed<string[]>(() => {
     const sentences = new Set<string>();
     for (const [refKey, error] of this.unanswered()) {
-      const headings = this.headingsOver(refKey);
+      const headings = this.headingsOver(refKey, error instanceof ApiError && error.status === 403);
       if (headings.length > 0) {
         sentences.add(relatedUnreadMessage(error, headings));
       }
     }
     return [...sentences];
   });
+
+  /**
+   * Whether the page's address named a filter the list cannot show the person, so the
+   * list is shown without it and says so above its rows. The list's own rewrite of the
+   * address leaves it standing; the person's next commit, and an address whose filters
+   * all stand, take it away.
+   */
+  filtersLeftOut = signal(false);
 
   /** The refusals and failures already written to the console, so each is written once. */
   private logged = new WeakSet<object>();
@@ -657,7 +695,7 @@ export class ResourceListComponent implements OnInit {
     (): FieldSort[] => {
       const resource = this.config().primaryResource;
       const descriptor = resource ? this.store.client.descriptor.resources[resource] : undefined;
-      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor);
+      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor, this.listableFields());
     },
     { equal: sameSorts },
   );
@@ -691,6 +729,22 @@ export class ResourceListComponent implements OnInit {
    * grid's menu offers their names.
    */
   filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns(), this.foundRoles()));
+
+  /**
+   * The values a filter from the page's address may take on each column (takeAddress): the
+   * choices the menu offers (filterChoices), less every column whose field holds a role's
+   * name (`roles` in the metadata and no enumeration). A role made while the application
+   * runs is in no metadata, so such a column's choices are an open set and any role an
+   * address names stands there, as any value does on a column with no choices.
+   */
+  private readonly addressChoices = computed(() => {
+    const roleFields = new Set(
+      (this.meta()?.fields ?? [])
+        .filter((field) => field.roles !== undefined && field.enumeration === undefined)
+        .map((field) => field.fieldName),
+    );
+    return Object.fromEntries(Object.entries(this.filterChoices()).filter(([column]) => !roleFields.has(column)));
+  });
 
   /**
    * The roles each role column's rows were found to hold beyond those the metadata lists,
@@ -874,6 +928,7 @@ export class ResourceListComponent implements OnInit {
         this.boxActive(),
       ),
     );
+    this.filtersCommitted();
   }
 
   /**
@@ -892,6 +947,111 @@ export class ResourceListComponent implements OnInit {
         text.trim() !== '',
       ),
     );
+    this.filtersCommitted();
+  }
+
+  /**
+   * The person committed the column filters: a filter the address named and the list left
+   * out is no longer spoken of, and the address follows the filters as they now stand.
+   */
+  private filtersCommitted(): void {
+    this.filtersLeftOut.set(false);
+    this.writeAddress();
+  }
+
+  /** The `filter` values of the page's address as it is now, one a filter. */
+  private addressFilterValues(): string[] {
+    return this.router.parseUrl(this.router.url).queryParamMap.getAll(filterParam);
+  }
+
+  /**
+   * Takes the column filters from the page's address: on the page's opening, and after
+   * each navigation while the list stands (Back and Forward, a link to the page it is on,
+   * the menu entry of its own page). An address that already says the filters the list
+   * holds changes nothing, the notice of a filter left out among it. Otherwise the list
+   * holds the filters of the address it can show the person (standingFilters); where one
+   * was left out, it says so above its rows and writes the address it does show.
+   */
+  private takeAddress(): void {
+    const values = this.addressFilterValues();
+    const held = this.store.columnFilters();
+    if (sameTexts(values, held.map(writeAddressFilter))) {
+      return;
+    }
+    const read = values.map(readAddressFilter).filter((filter): filter is ColumnFilter => filter !== undefined);
+    const standing = standingFilters(read, {
+      columns: this.columns(),
+      filterability: this.filterability(),
+      externalFields: this.configFilterFields(),
+      searches: this.searches(),
+      inputs: this.filterInputs(),
+      choices: this.addressChoices(),
+      boxActive: this.boxActive(),
+    });
+    if (!sameFilters(standing, held)) {
+      this.store.columnFilters.set(standing);
+    }
+    this.filtersLeftOut.set(read.length !== values.length || !sameFilters(standing, read));
+    if (!sameTexts(values, standing.map(writeAddressFilter))) {
+      this.writeAddress();
+    }
+  }
+
+  /**
+   * Writes the list's column filters into the page's address, in place, once no
+   * navigation is in flight: starting one inside another would cancel it.
+   */
+  private writeAddress(): void {
+    if (!this.ownsAddress()) {
+      return;
+    }
+    if (this.router.currentNavigation() !== null) {
+      this.addressWriteWaiting = true;
+      return;
+    }
+    this.navigateToFilters();
+  }
+
+  /**
+   * Replaces the page's address with one whose `filter` values are the list's column
+   * filters as written, the parameter absent when there are none, every other query
+   * parameter and the fragment kept. An address that already says them is left as it is.
+   */
+  private navigateToFilters(): void {
+    const tree = this.router.parseUrl(this.router.url);
+    const values = this.store.columnFilters().map(writeAddressFilter);
+    if (sameTexts(tree.queryParamMap.getAll(filterParam), values)) {
+      return;
+    }
+    const params = Object.fromEntries(Object.entries(tree.queryParams).filter(([name]) => name !== filterParam));
+    if (values.length > 0) {
+      params[filterParam] = values;
+    }
+    void this.router.navigateByUrl(new UrlTree(tree.root, params, tree.fragment), { replaceUrl: true });
+  }
+
+  /**
+   * A navigation is over: a write of the address that waited for it is made now, from the
+   * filters as they stand; where none waited, the address of one that ended is taken. A
+   * navigation canceled because another superseded it ends nothing: that other is on its
+   * way, and a write made now would cancel it, so the write waits for that one to be over.
+   *
+   * Taking an address can itself ask for a write (a filter it names is left out). The
+   * router still holds the navigation that ended as its current one while it announces the
+   * end, so that write is set waiting like any other; the navigation is over, and the write
+   * is made here, not left for the end of the next one.
+   */
+  private navigationOver(event: RouterEvent): void {
+    if (event instanceof NavigationCancel && event.code === NavigationCancellationCode.SupersededByNewNavigation) {
+      return;
+    }
+    if (!this.addressWriteWaiting && event instanceof NavigationEnd) {
+      this.takeAddress();
+    }
+    if (this.addressWriteWaiting) {
+      this.addressWriteWaiting = false;
+      this.navigateToFilters();
+    }
   }
 
   /** A pager click: the store follows the server's relation. */
@@ -1488,11 +1648,18 @@ export class ResourceListComponent implements OnInit {
     return true;
   }
 
-  /** The headings, as the table draws them, of the shown columns that name a record of the related read under the key. */
-  private headingsOver(refKey: string): string[] {
+  /**
+   * The headings, as the table draws them, of the shown columns that name a record of the
+   * related read under the key. Where the server refused the read, a column over a tenant's
+   * key with words of its own for a tenant the person may not see is left out.
+   */
+  private headingsOver(refKey: string, refused: boolean): string[] {
     const headings: string[] = [];
     for (const col of this.listColumns()) {
       if (col.hidden || !('additionalIds' in col)) {
+        continue;
+      }
+      if (refused && col.tenantKey && col.fallback) {
         continue;
       }
       const reads = col.additionalIds.some(
@@ -1575,6 +1742,21 @@ export class ResourceListComponent implements OnInit {
 
     this.store.filter.set(this.filters());
     this.store.disableCacheForFilterPii.set(this.config().disableCacheForFilterPii);
+    // The list a page is built on opens with the filters its address names, so its first
+    // request carries them, and follows the address while it stands.
+    if (this.ownsAddress()) {
+      this.router.events.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((event) => {
+        if (
+          event instanceof NavigationEnd ||
+          event instanceof NavigationCancel ||
+          event instanceof NavigationError ||
+          event instanceof NavigationSkipped
+        ) {
+          this.navigationOver(event);
+        }
+      });
+      this.takeAddress();
+    }
 
     runInInjectionContext(this.injector, () => {
       const referenced = new Map<
@@ -1701,6 +1883,11 @@ export class ResourceListComponent implements OnInit {
       this.store.buildStorePage();
     });
   }
+}
+
+/** Whether two lists of texts are the same texts in the same order. */
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((text, i) => text === b[i]);
 }
 
 /** The values a related-record column found, joined as the column asks; a hyphen where it does not say. */

@@ -59,7 +59,7 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
     });
   });
 
-  it('answer the same page object for the same description and Auth, and the route carries it', () => {
+  it("answer the same page object for the same description and Auth, and the route carries it with the record the tenant's people are rows of", () => {
     const placed = tenantSignInPage(descriptor, { auth: 'Staff' });
     const route = tenantSignInRoute(descriptor, { auth: 'Staff' });
 
@@ -70,6 +70,7 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
     const carried: TenantSignIn = {
       word: 'team',
       directories: 'TeamDirectories' as Resource,
+      people: 'StaffTeamUsers' as Resource,
       methods: {
         openToDirectory: 'OpenTeamToDirectory' as Method,
         makeDirectoryInviteOnly: 'MakeTeamInviteOnly' as Method,

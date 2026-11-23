@@ -296,7 +296,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   });
 
   sorts = computed(() => {
-    return answeredSorts(this.picker().sorts, this.sourceMeta(), this.sourceListStates());
+    return answeredSorts(this.picker().sorts, this.sourceMeta(), this.sourceListStates(), this.sourceListable());
   });
 
   /**
