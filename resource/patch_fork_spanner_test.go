@@ -304,10 +304,9 @@ func TestSpannerClient_fork_racingWriters(t *testing.T) {
 	}
 }
 
-// A resource that keeps change records: each case writes the record of the path it ran.
-// The update path reads the stored row for its record, so an update-or-create of a row
-// its own transaction created is refused as not found, exactly as a plain update of that
-// row is; a create-unless-there of such a row skips.
+// A resource that keeps change records: each case writes the record of the path it ran,
+// and a row its own transaction created is updated like any other, its record's old
+// values the ones the create gave.
 func TestSpannerClient_fork_changeRecords(t *testing.T) {
 	t.Parallel()
 
@@ -377,29 +376,60 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 		}
 	}
 
-	// A row this transaction created: a plain update of it is not found, and so is an
-	// update-or-create; a create-unless-there skips.
-	for name, second := range map[string]func() *PatchSet[trackedForkRow]{
-		"a plain update":      func() *PatchSet[trackedForkRow] { return tracked(UpdatePatchType, "row-2", "again") },
-		"an update-or-create": func() *PatchSet[trackedForkRow] { return tracked(UpdatePatchType, "row-2", "again").OrCreate(nil) },
+	// A row this transaction created: a plain update of it commits, and so does an
+	// update-or-create, which updates; each writes its own record.
+	title := func(id string) string {
+		t.Helper()
+
+		row, err := db.Single().ReadRow(ctx, "TrackedForkRows", spanner.Key{id}, []string{"Title"})
+		if err != nil {
+			t.Fatalf("reading %s: %v", id, err)
+		}
+		var title string
+		if err := row.Column(0, &title); err != nil {
+			t.Fatalf("reading the title of %s: %v", id, err)
+		}
+
+		return title
+	}
+	for _, second := range []struct {
+		name    string
+		id      string
+		patch   *PatchSet[trackedForkRow]
+		outcome Outcome
+	}{
+		{"a plain update", "row-2", tracked(UpdatePatchType, "row-2", "again"), ""},
+		{"an update-or-create", "row-4", tracked(UpdatePatchType, "row-4", "again").OrCreate(nil), OutcomeUpdated},
 	} {
-		err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-			if err := tracked(CreatePatchType, "row-2", "new").Buffer(ctx, txn, "test"); err != nil {
+		if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+			if err := tracked(CreatePatchType, second.id, "new").Buffer(ctx, txn, "test"); err != nil {
 				return err
 			}
 
-			return second().Buffer(ctx, txn, "test")
-		})
-		if err == nil || !httpio.HasNotFound(err) {
-			t.Errorf("%s of a row its transaction created: error = %v, want not found", name, err)
+			return second.patch.Buffer(ctx, txn, "test")
+		}); err != nil {
+			t.Errorf("%s of a row its transaction created: ExecuteFunc() error = %v", second.name, err)
+
+			continue
+		}
+		if got := title(second.id); got != "again" {
+			t.Errorf("%s of a row its transaction created: the row holds %q, want %q", second.name, got, "again")
+		}
+		if got := records(second.id); got != 2 {
+			t.Errorf("%s of a row its transaction created: the row has %d change record(s), want 2", second.name, got)
+		}
+		if got := second.patch.Outcome(); got != second.outcome {
+			t.Errorf("%s of a row its transaction created: Outcome() = %q, want %q", second.name, got, second.outcome)
 		}
 	}
+
+	// A create-unless-there of a row this transaction created skips.
 	var skipped Outcome
 	if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-		if err := tracked(CreatePatchType, "row-2", "new").Buffer(ctx, txn, "test"); err != nil {
+		if err := tracked(CreatePatchType, "row-5", "new").Buffer(ctx, txn, "test"); err != nil {
 			return err
 		}
-		p := tracked(CreatePatchType, "row-2", "again").OrSkip()
+		p := tracked(CreatePatchType, "row-5", "again").OrSkip()
 		if err := p.Buffer(ctx, txn, "test"); err != nil {
 			return err
 		}
@@ -412,7 +442,7 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 	if skipped != OutcomeSkipped {
 		t.Errorf("the create-unless-there's Outcome() = %q, want %q", skipped, OutcomeSkipped)
 	}
-	if got := records("row-2"); got != 1 {
-		t.Errorf("row-2 has %d change record(s), want the create's one", got)
+	if got := records("row-5"); got != 1 {
+		t.Errorf("row-5 has %d change record(s), want the create's one", got)
 	}
 }
