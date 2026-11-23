@@ -1936,6 +1936,14 @@ describe('identityPages, the people lists say what each person holds, and a lock
       ]);
     });
 
+    it('says a lock that no time ends with its whole year, so it is not read as one that ends this year', () => {
+      // The session library's own length for such a lock: a hundred years.
+      const at = later(100 * 365 * 24 * 60);
+      const [line] = stateOf(list(accounts))({ lockedUntil: at.toISOString() });
+      expect(line).toBe(`Locked until ${format(at, 'M/d/yyyy h:mm a')}`);
+      expect(line).toContain('2126');
+    });
+
     it('says nothing of a lock that has passed, of an empty one and of one that is no moment', () => {
       for (const config of [accounts, people]) {
         const says = stateOf(list(config));

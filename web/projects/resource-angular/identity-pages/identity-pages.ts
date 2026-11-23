@@ -22,6 +22,8 @@ import {
   ListViewConfig,
   Method,
   MethodPresentation,
+  MOMENT_CELL_FORMAT,
+  momentFormat,
   multiColumnConfig,
   nameInLowerWords,
   nameInWords,
@@ -1010,7 +1012,7 @@ class SideBuilder {
       ]).map((column) => ({ ...column, hidden: true })),
     ];
     const when = (id: string, header: string): ColumnConfig[] =>
-      this.has(taken, id) ? [{ id: id as FieldName, header, formatType: dayAndTime, filterable: false }] : [];
+      this.has(taken, id) ? [{ id: id as FieldName, header, formatType: MOMENT_CELL_FORMAT, filterable: false }] : [];
     const ended = listViewConfig({
       title: 'Ended',
       primaryResource: taken,
@@ -2406,14 +2408,6 @@ function lastDay(end: unknown): string {
 }
 
 /**
- * How a list writes an instant that matters to the minute: the day and the time of day,
- * in the viewer's time zone. A role taken for an hour ends at a time, not on a day. These
- * are the words every list writes a moment in (`MOMENT_CELL_FORMAT`, which no entry point
- * this file reads from carries), and the spec holds the two the same.
- */
-const dayAndTime = 'M/d/yy h:mm a';
-
-/**
  * How a page writes the day of an instant, in the viewer's time zone and with the year,
  * so a day of last year is not read as one of this year: "Nov 15, 2026".
  */
@@ -2454,7 +2448,7 @@ function endsIn(end: unknown, now: number): string {
   if (Number.isNaN(instant.getTime())) {
     return '';
   }
-  const at = format(instant, dayAndTime);
+  const at = format(instant, momentFormat(instant, now));
   const left = timeLeft(instant.getTime() - now);
   return left ? `${at}, ${left} left` : at;
 }
@@ -2462,7 +2456,8 @@ function endsIn(end: unknown, now: number): string {
 /**
  * The State's line for a person whose sign-in failed tries lock: "Locked until" and when
  * the lock passes, in the viewer's time zone, the time alone where it passes on the day
- * of `now` ("Locked until 3:15 PM") and with the day otherwise (dayAndTime). Empty where
+ * of `now` ("Locked until 3:15 PM") and with the day otherwise, as every list writes a
+ * moment (momentFormat): a lock that no time ends reads with its whole year. Empty where
  * the lock is no moment or has passed.
  */
 function lockLine(until: unknown, now: number): string {
@@ -2473,7 +2468,7 @@ function lockLine(until: unknown, now: number): string {
   if (Number.isNaN(instant.getTime()) || instant.getTime() <= now) {
     return '';
   }
-  return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : dayAndTime)}`;
+  return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : momentFormat(instant, now))}`;
 }
 
 /**

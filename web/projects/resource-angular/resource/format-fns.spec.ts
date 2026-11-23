@@ -154,6 +154,64 @@ describe('formatByDisplayType', () => {
   });
 });
 
+// A moment whose year two digits would not tell is written with its whole year: the session
+// library keeps a lock that no time ends as a moment a hundred years off. The clock is fixed at
+// noon of 11/23/2026 on the viewer's clock, so the year of now is the same wherever the suite runs.
+describe('formatByDisplayType, a moment far from this year', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 23, 12, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const cases: { name: string; displayType: ValidDisplayTypes; value: unknown; want: string }[] = [
+    {
+      name: 'a moment a hundred years on is written with its whole year',
+      displayType: 'date',
+      value: '2126-11-23T15:15:00',
+      want: '11/23/2126 3:15 PM',
+    },
+    {
+      name: 'the last moment of the year forty-nine years on keeps two digits',
+      displayType: 'date',
+      value: '2075-12-31T23:59:00',
+      want: '12/31/75 11:59 PM',
+    },
+    {
+      name: 'the first moment of the year fifty years on is written with its whole year',
+      displayType: 'date',
+      value: '2076-01-01T00:00:00',
+      want: '1/1/2076 12:00 AM',
+    },
+    {
+      name: 'the first moment of the year forty-nine years back keeps two digits',
+      displayType: 'date',
+      value: '1977-01-01T00:00:00',
+      want: '1/1/77 12:00 AM',
+    },
+    {
+      name: 'the last moment of the year fifty years back is written with its whole year',
+      displayType: 'date',
+      value: '1976-12-31T23:59:00',
+      want: '12/31/1976 11:59 PM',
+    },
+    {
+      name: 'each moment of a date[] is written by its own year',
+      displayType: 'date[]',
+      value: ['2026-09-21T08:05:00', '2126-09-21T08:05:00'],
+      want: '9/21/26 8:05 AM, 9/21/2126 8:05 AM',
+    },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(formatByDisplayType(tt.displayType, tt.value)).toBe(tt.want);
+    });
+  }
+});
+
 // A list writes a field that takes one of a fixed set of values by the value's name: the
 // generated metadata lists each key beside its name.
 describe('formatFieldValue', () => {

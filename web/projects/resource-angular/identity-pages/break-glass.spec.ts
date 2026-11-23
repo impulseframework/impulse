@@ -4,11 +4,11 @@ import {
   FieldMeta,
   ListViewConfig,
   MethodPresentation,
+  MOMENT_CELL_FORMAT,
   RecordData,
   ResourceMeta,
   RootConfig,
 } from '@impulseframework/resource-angular/types';
-import { MOMENT_CELL_FORMAT } from '@impulseframework/resource-angular/resource';
 import { identityPages } from './identity-pages';
 
 // The reason a role was given for and Break glass, as the pages over an Auth's people say

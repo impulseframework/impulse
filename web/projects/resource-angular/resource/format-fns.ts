@@ -1,5 +1,5 @@
 import { FieldMeta } from '@impulseframework/resource';
-import { FormatType, roleInWords, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
+import { FormatType, momentFormat, roleInWords, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
 import { placeWords } from './place-words';
 
@@ -79,15 +79,6 @@ export function formatByteSize(bytes: number): string {
   return `${value.toFixed(1).replace(/\.0$/, '')} ${units[unit]}`;
 }
 
-/**
- * How a cell writes a moment (a `date`, a `time.Time` on the server): the day and the time
- * of day, in the viewer's time zone (`11/23/26 3:15 PM`). A day alone (a `civildate`) is
- * written M/d/yyyy. The year is written with two digits so that the longest moment is
- * seventeen characters, which a column at the narrowest a column of text goes shows whole
- * on a phone.
- */
-export const MOMENT_CELL_FORMAT = 'M/d/yy h:mm a';
-
 /** The most characters an object's one-line JSON takes in a grid cell before it is cut. */
 export const OBJECT_CELL_LENGTH = 80;
 
@@ -96,9 +87,9 @@ export const OBJECT_CELL_LENGTH = 80;
  * base64), an array its elements each formatted by the element type and joined with
  * `, `, `object` a place in words where the value is one (placeWords: a GeoJSON point
  * reads `34.0522° N, 118.2437° W`, never its JSON) and otherwise its JSON on one line cut
- * at OBJECT_CELL_LENGTH with an ellipsis, `date` (a moment) by MOMENT_CELL_FORMAT in the
- * viewer's time zone, `civildate` (a day) as M/d/yyyy, and everything else
- * `String(value)`. Null and undefined are the empty string, so a column's
+ * at OBJECT_CELL_LENGTH with an ellipsis, `date` (a moment) in the viewer's time zone by
+ * the format momentFormat answers for it, `civildate` (a day) as M/d/yyyy, and everything
+ * else `String(value)`. Null and undefined are the empty string, so a column's
  * `emptyDataValue` applies. A grid cell shows the size of a bytes value, never the base64
  * and never a download; the download is the view's.
  */
@@ -127,8 +118,12 @@ export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, 
       const json = JSON.stringify(value);
       return json.length > OBJECT_CELL_LENGTH ? `${json.slice(0, OBJECT_CELL_LENGTH - 1)}…` : json;
     }
-    case 'date':
-      return formatDateString(MOMENT_CELL_FORMAT, String(value));
+    case 'date': {
+      // A value that is no moment is written as formatDateString writes it: nothing for the
+      // empty string, the value itself otherwise.
+      const moment = parseISO(String(value));
+      return isValid(moment) ? format(moment, momentFormat(moment, Date.now())) : String(value);
+    }
     case 'civildate':
       return formatDateString('M/d/yyyy', String(value));
     default:
