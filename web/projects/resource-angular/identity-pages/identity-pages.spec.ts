@@ -288,6 +288,8 @@ const stateOf = (config: ListViewConfig): ((row: RecordData) => string[]) =>
   columnOf(config, 'disabled').valueGetter as (row: RecordData) => string[];
 const methodsOf = (presentations: false | MethodPresentation[] | undefined): [string, string | undefined][] =>
   (presentations || []).map((p) => [p.method, p.label]);
+const groupsOf = (presentations: false | MethodPresentation[] | undefined): [string, string | undefined][] =>
+  (presentations || []).map((p) => [p.method, p.group]);
 const presentation = (presentations: false | MethodPresentation[] | undefined, method: string): MethodPresentation => {
   const found = (presentations || []).find((p) => p.method === method);
   if (!found) {
@@ -817,6 +819,23 @@ describe("identityPages, the whole application's side", () => {
     expect(children(membersPeople)[0].listMethods).toEqual([]);
   });
 
+  it("draws a person's menu in four groups, and the button above the person's roles in none", () => {
+    expect(groupsOf(list(people).rowMethods)).toEqual([
+      ['AssignCrewRole', 'roles'],
+      ['SetCrewUserName', 'person'],
+      ['RenameCrewUser', 'person'],
+      ['SetCrewUserEmail', 'person'],
+      ['SendCrewUserPasswordResetLink', 'sign-in'],
+      ['RequireCrewPasswordChange', 'sign-in'],
+      ['EndCrewUserSessions', 'sign-in'],
+      ['RevokeCrewUserTrustedDevices', 'sign-in'],
+      ['DisableCrewUser', 'account'],
+      ['EnableCrewUser', 'account'],
+      ['DeleteCrewUser', 'account'],
+    ]);
+    expect(presentation(children(people)[0].listMethods, 'AssignCrewRole').group).toBeUndefined();
+  });
+
   it('where the sector record marks no name there is none to read, and a row shows the key after the word', () => {
     // The key is all such an application has for a sector: nobody is refused a name here.
     const unnamed = (resource: Resource): ResourceMeta =>
@@ -1209,6 +1228,18 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(methodsOf(list(accounts).rowMethods).map(([method]) => method)).not.toContain('RemoveCrewSectorUser');
     const everywhere = presentation(list(accounts).rowMethods, 'DeleteCrewUser');
     expect([everywhere.hidden, everywhere.when]).toEqual([undefined, undefined]);
+  });
+
+  it("draws a person's menu in four groups, the removal from the sector with the account, and the button above the person's roles in none", () => {
+    expect(groupsOf(list(people).rowMethods)).toEqual([
+      ['AssignCrewSectorRole', 'roles'],
+      ['SetCrewSectorUserName', 'person'],
+      ['DisableCrewSectorUser', 'account'],
+      ['EnableCrewSectorUser', 'account'],
+      ['RemoveCrewSectorUser', 'account'],
+      ['DeleteCrewSectorUser', 'account'],
+    ]);
+    expect(presentation(children(people)[0].listMethods, 'AssignCrewSectorRole').group).toBeUndefined();
   });
 
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
