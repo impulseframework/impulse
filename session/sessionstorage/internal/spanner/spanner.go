@@ -655,7 +655,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
-			return nil, errEmailTaken(*insertUser.Email)
+			return nil, errEmailTaken(insertedAddress(insertUser))
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")

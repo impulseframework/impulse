@@ -621,7 +621,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 		if s.isEmailConflict(err) {
-			return nil, errEmailTaken(*user.Email)
+			return nil, errEmailTaken(insertedAddress(user))
 		}
 
 		return nil, err
