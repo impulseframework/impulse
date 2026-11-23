@@ -13,11 +13,13 @@ import {
   filledBody,
   filledMethods,
   holdsValue,
+  inNamedOrder,
   methodsOfferedOn,
   methodsTargeting,
   nameInWords,
   offered,
   offeredAs,
+  OfferedMethod,
   requestBody,
   rowMethods,
   targetBody,
@@ -371,6 +373,76 @@ describe('a method the page names more than once', () => {
     expect(offered('AssignCrewRole', meta, twice).label).toBe('Turn on');
     expect(offeredAs('AssignCrewRole', meta, twice[3]).label).toBe('Turn off');
     expect(offeredAs('AssignCrewRole', meta, undefined).label).toBe('Assign crew role');
+  });
+});
+
+describe('inNamedOrder', () => {
+  const targeting = methodsTargeting(every, metaOf, people);
+  const row = (disabled: boolean, execute: string[]): RecordData =>
+    ({
+      id: 'u-1',
+      user: 'ada',
+      disabled,
+      zzCapabilities: { Execute: execute },
+    }) as unknown as RecordData;
+  /** A row's menu as a list and a row's page join it: the methods that name the row, then those filled from it. */
+  const menu = (r: RecordData, presentations: MethodPresentation[]): OfferedMethod[] => [
+    ...rowMethods(r, targeting, metaOf, presentations),
+    ...filledMethods(r, people, presentations, metaOf, () => true),
+  ];
+
+  it('lists a method filled from the row where the page names it, before the methods that name the row', () => {
+    const named: MethodPresentation[] = [
+      { method: 'AssignCrewRole' as Method, label: 'Give a role', fill: (r) => ({ username: r['user'] }) },
+      { method: 'AssignCrewSectorRole' as Method, label: 'Give a role here' },
+      { method: 'DisableCrewSectorUser' as Method, label: 'Disable' },
+    ];
+    const joined = menu(row(false, ['AssignCrewSectorRole', 'DisableCrewSectorUser']), named);
+    // Joined as they are offered: the metadata's order, and the filled one last.
+    expect(joined.map((m) => m.label)).toEqual(['Disable', 'Give a role here', 'Give a role']);
+    expect(inNamedOrder(joined, named).map((m) => m.label)).toEqual(['Give a role', 'Give a role here', 'Disable']);
+  });
+
+  it('lists the methods the page does not name after every named one, in the order given', () => {
+    const named: MethodPresentation[] = [{ method: 'AssignCrewSectorRole' as Method, label: 'Give a role here' }];
+    const joined = menu(row(false, ['AssignCrewSectorRole', 'DisableCrewSectorUser', 'EnableCrewSectorUser']), named);
+    expect(joined.map((m) => m.label)).toEqual([
+      'Disable crew sector user',
+      'Enable crew sector user',
+      'Give a role here',
+    ]);
+    expect(inNamedOrder(joined, named).map((m) => m.label)).toEqual([
+      'Give a role here',
+      'Disable crew sector user',
+      'Enable crew sector user',
+    ]);
+  });
+
+  it("keeps each entry of a method named twice at its own presentation's place, one offered and one said in its place", () => {
+    const named: MethodPresentation[] = [
+      {
+        method: 'AssignCrewSectorRole' as Method,
+        label: 'Make an officer',
+        when: (r) => r['disabled'] === false,
+        otherwise: () => 'Enable the account first',
+      },
+      { method: 'DisableCrewSectorUser' as Method, label: 'Disable' },
+      { method: 'AssignCrewSectorRole' as Method, label: 'Make a cadet' },
+    ];
+    const joined = menu(row(true, ['AssignCrewSectorRole', 'DisableCrewSectorUser']), named);
+    expect(joined.map((m) => m.label)).toEqual(['Disable', 'Make an officer', 'Make a cadet']);
+    expect(inNamedOrder(joined, named).map((m) => [m.label, m.says])).toEqual([
+      ['Make an officer', 'Enable the account first'],
+      ['Disable', undefined],
+      ['Make a cadet', undefined],
+    ]);
+  });
+
+  it('answers the entries as given where the page names no method', () => {
+    const joined = menu(row(false, ['AssignCrewSectorRole', 'DisableCrewSectorUser']), []);
+    expect(joined.map((m) => m.method)).toEqual(['DisableCrewSectorUser', 'AssignCrewSectorRole']);
+    expect(inNamedOrder(joined, undefined)).toEqual(joined);
+    expect(inNamedOrder(joined, [])).toEqual(joined);
   });
 });
 

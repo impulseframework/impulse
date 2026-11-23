@@ -336,7 +336,7 @@ describe("the watch desk's words", () => {
   });
 
   /** What the desk's Ended column says of a record: the config's own rule for the column. */
-  const ended = (row: RecordData): string | undefined =>
+  const ended = (row: RecordData): string | string[] | undefined =>
     (crewSessionImpersonationsConfig.parentConfig as ListViewConfig).listColumns
       .find((column) => column.id === 'endedAt')
       ?.valueGetter?.(row);
