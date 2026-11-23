@@ -4196,7 +4196,7 @@ POST <prefix>/remove-crew-password            {"userId"}                       E
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
 POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
-POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
+POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole (declares a warning)
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
 POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewListedGroups
@@ -4210,7 +4210,7 @@ POST <prefix>/set-crew-self-service-reset     {"on"}                           E
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
-POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles (declares a warning)
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
@@ -4779,7 +4779,9 @@ holding some of them is refused at generation.
   of roles (`CrewSectorHeldRoles`) by the person, the role and the group the role comes
   through, which is none for a role of the person's own, the row a request that names
   no group names. A row that comes through a group is refused (400), and the refusal
-  says where the role is changed.
+  says where the role is changed. It asks first (a bare `@warning`): the server says
+  whose role goes and where it is held, and that the account is deleted with it where it
+  is the last thing the person holds.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay

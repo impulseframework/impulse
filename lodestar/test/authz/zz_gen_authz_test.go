@@ -4205,6 +4205,14 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveCrewRole warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/remove-crew-role",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveCrewSectorGroupMember denied",
 			method:       http.MethodPost,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-group-member",
@@ -4247,6 +4255,14 @@ Content-Type: application/json
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role",
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RemoveCrewSectorRole warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
