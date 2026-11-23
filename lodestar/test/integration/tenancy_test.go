@@ -321,11 +321,11 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		return n
 	}
-	refused := func(t *testing.T, status int, body []byte, table string) {
+	refused := func(t *testing.T, status int, body []byte, record string) {
 		t.Helper()
 
 		assertStatus(t, status, http.StatusConflict, body)
-		if got, want := refusalMessage(t, body), table+": a referenced record does not exist, or a value is too long for its field."; got != want {
+		if got, want := refusalMessage(t, body), "This "+record+" refers to a record that does not exist, or holds a value that is too long for its field."; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
 	}
@@ -335,7 +335,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		for _, hangar := range []string{hangarAnvilDockID, noHangarID} {
 			status, body := addPass(t, hangar)
-			refused(t, status, body, "HangarPasses")
+			refused(t, status, body, "hangar pass")
 		}
 		if n := count(t, "SELECT COUNT(*) FROM HangarPasses WHERE SectorId = @sector AND HangarId IN UNNEST(@hangars)",
 			map[string]any{"sector": bastion, "hangars": []string{hangarAnvilDockID, noHangarID}}); n != 0 {
@@ -359,7 +359,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		status, body := doRequest(t, h, http.MethodPatch, batch, fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"hangarId":%q}}]`,
 			opPath(bastion, "hangar-passes/"+bastionPassID), hangarAnvilDockID))
-		refused(t, status, body, "HangarPasses")
+		refused(t, status, body, "hangar pass")
 		if got := readColumn[string](ctx, t, db, "HangarPasses", spanner.Key{bastionPassID}, "HangarId"); got != hangarBastionSlipID {
 			t.Errorf("HangarId = %s, want unchanged %s", got, hangarBastionSlipID)
 		}
@@ -370,7 +370,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		for _, answers := range []string{anvilRelay, noRelayID} {
 			status, body := addAnswer(t, bastion, bastionNumber, answers)
-			refused(t, status, body, "DistressRelays")
+			refused(t, status, body, "distress relay")
 		}
 		if n := count(t, "SELECT COUNT(*) FROM DistressRelays WHERE SectorId = @sector AND CaseNumber = @number",
 			map[string]any{"sector": bastion, "number": bastionNumber}); n != 0 {

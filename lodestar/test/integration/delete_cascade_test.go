@@ -636,7 +636,7 @@ func TestDistressRelay_namesACallOfItsOwnSector(t *testing.T) {
 
 			status, body := add(t, bastion, tt.number)
 			assertStatus(t, status, http.StatusConflict, body)
-			if got, want := refusalMessage(t, body), "DistressRelays: a referenced record does not exist, or a value is too long for its field."; got != want {
+			if got, want := refusalMessage(t, body), "This distress relay refers to a record that does not exist, or holds a value that is too long for its field."; got != want {
 				t.Errorf("message = %q, want %q", got, want)
 			}
 			if n := relays(t, bastion, tt.number); n != 0 {
