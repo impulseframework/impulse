@@ -500,8 +500,8 @@ describe("identityPages, the whole application's side", () => {
 
   it('lists the accounts by the columns the schema carries and offers each method under plain words', () => {
     expect(visibleColumns(list(people))).toEqual([
-      ['username', 'Username'],
       ['name', 'Name'],
+      ['username', 'Username'],
       ['email', 'Email'],
       ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
@@ -1039,8 +1039,8 @@ describe("identityPages, a tenant's side", () => {
 
   it('names the tenant record in its words and leaves out what the side does not have', () => {
     expect(visibleColumns(list(people))).toEqual([
-      ['username', 'Username'],
       ['name', 'Name'],
+      ['username', 'Username'],
       ['email', 'Email'],
       ['disabled', 'State'],
       ['lastSignInAt', 'Last sign-in'],
@@ -1615,6 +1615,67 @@ describe("identityPages, the headings of the whole application's pages", () => {
     expect(tenant.map((config) => list(config).title)).toEqual(
       identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' }).map((config) => list(config).title),
     );
+  });
+});
+
+// A list of people leads with the person's name, which is the link to the person's page:
+// the username stands in for a person with no name, and where the list has no name the
+// username leads.
+describe("identityPages, the people lists lead with the person's name", () => {
+  const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
+  const sides: [string, RootConfig][] = [
+    ['the Accounts list', accounts],
+    ['the People list', people],
+  ];
+
+  for (const [side, config] of sides) {
+    it(`${side} leads with Name, the column that opens the row, then Username and Email`, () => {
+      expect(visibleColumns(list(config)).slice(0, 3)).toEqual([
+        ['name', 'Name'],
+        ['username', 'Username'],
+        ['email', 'Email'],
+      ]);
+      const name = columnOf(list(config), 'name');
+      expect(name.opensRow).toBe(true);
+      expect(
+        list(config)
+          .listColumns.filter((column) => column.opensRow)
+          .map((column) => column.id),
+      ).toEqual(['name']);
+    });
+
+    it(`${side} names a person by the name, and by the username where there is none`, () => {
+      const cell = columnOf(list(config), 'name').valueGetter as (row: RecordData) => string;
+      expect(cell({ name: 'Ada Lovelace', username: 'ada' })).toBe('Ada Lovelace');
+      expect(cell({ name: '', username: 'ada' })).toBe('ada');
+      expect(cell({ username: 'ada' })).toBe('ada');
+      expect(cell({})).toBe('');
+    });
+  }
+
+  it('leads with the username, the column that opens the row, where the list has no name', () => {
+    const nameless = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSessionUsers' ? fields('id', 'username', 'email', 'disabled') : metas[resource];
+    // A description of its own: the same request answers the same pages.
+    const [bare] = identityPages({ ...descriptor }, nameless, { auth: 'Crew', scope: 'global' });
+    expect(visibleColumns(list(bare))).toEqual([
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['disabled', 'State'],
+    ]);
+    expect(columnOf(list(bare), 'username').opensRow).toBe(true);
+    expect(columnOf(list(bare), 'email').opensRow).toBeUndefined();
+  });
+
+  it("is headed Accounts where the application manages one auth, and by the auth's label beside others", () => {
+    const [alone] = identityPages({ ...descriptor, identity: [crew] } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'global',
+    });
+    expect(list(alone).title).toBe('Accounts');
+    expect(list(accounts).title).toBe('Crew accounts');
+    expect(list(people).title).toBe('People');
   });
 });
 

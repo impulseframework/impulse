@@ -289,7 +289,7 @@ class SideBuilder {
       page: this.tenant ? { label: 'People', icon: 'group' } : { label: 'Accounts', icon: 'manage_accounts' },
       routeData: { route: this.route('users', this.tenant ? 'people' : 'accounts'), hasViewRoute: true },
       parentConfig: listViewConfig({
-        title: this.tenant ? 'People' : `${this.identity.label} accounts`,
+        title: this.tenant ? 'People' : this.heading('Accounts'),
         // What the list says of a person who left it while their page was open. A tenant's
         // people are those who hold a role in it: the last role taken away takes the person
         // off the list. An account that left the whole application's list was deleted: by
@@ -307,11 +307,7 @@ class SideBuilder {
         // A person's page is headed by the person.
         rowTitle: (row: RecordData) => this.personTitle(row),
         listColumns: [
-          ...this.columns(users, [
-            ['username', 'Username'],
-            ['name', 'Name'],
-            ['email', 'Email'],
-          ]),
+          ...this.leadingColumns(users),
           // The person's state, on the field it says first.
           ...(this.has(users, 'disabled')
             ? [
@@ -981,6 +977,30 @@ class SideBuilder {
         elements: [],
       }),
     });
+  }
+
+  /**
+   * The columns a list of people leads with: the person's name, which is the link to the
+   * person's page, then the username and the email address. A person with no name is
+   * named by the username, so every row has words to press. Where the list has no name,
+   * the username leads and is the link.
+   */
+  private leadingColumns(users: Resource): ColumnConfig[] {
+    const username = this.columns(users, [['username', 'Username']]);
+    const email = this.columns(users, [['email', 'Email']]);
+    if (!this.has(users, 'name')) {
+      return [...username.map((column) => ({ ...column, opensRow: true })), ...email];
+    }
+    const name: ColumnConfig = {
+      id: 'name' as FieldName,
+      header: 'Name',
+      opensRow: true,
+      valueGetter: (row: RecordData) => {
+        const named = row['name'];
+        return typeof named === 'string' && named !== '' ? named : String(row['username'] ?? '');
+      },
+    };
+    return [name, ...username, ...email];
   }
 
   /**
