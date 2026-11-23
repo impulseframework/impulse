@@ -3615,8 +3615,9 @@ transaction (resolver or per-call data), which is atomic with the session insert
 
 ### Session regeneration
 
-A password change destroys all of the user's sessions and starts a fresh one for the
-caller (session-fixation protection). Custom session data is **resolved fresh** for the
+A password change destroys all of the user's sessions and, for a caller in a session of
+the user's own, starts a fresh one (session-fixation protection); a call outside one
+starts none. Custom session data is **resolved fresh** for the
 new session — the resolver runs again with `Reason: ReasonRegeneration` — and values
 previously written via `UpdateCustomSessionData` do **not** carry over. If losing a value
 on regeneration feels like data loss, it was user data, not session data — see

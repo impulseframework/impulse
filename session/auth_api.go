@@ -228,8 +228,8 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 	return nil
 }
 
-// ChangeSessionUserPassword changes a user's password to one the user chose and
-// regenerates its session.
+// ChangeSessionUserPassword changes a user's password to one the user chose and, for a
+// caller that holds a session of the user's own, regenerates that session.
 //
 // The old password must match and the new one must differ from it (BadRequest
 // otherwise). The old password is checked under the attempt limiter, counted under the

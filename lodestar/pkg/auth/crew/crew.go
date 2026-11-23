@@ -831,8 +831,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// (signin.AdmitWithoutTenant), since the pioneer signs up first and charts her
 	// sector after. One part of a sector's declaration reaches past its own door: an
 	// account that signs in through a directory-only sector's directory signs in through
-	// that directory alone, whichever sectors seat the person. A password or any other
-	// sign-in is refused, but for that sector's own marshals.
+	// that directory alone, whichever sectors seat the person. Any other sign-in of the
+	// account is refused, a password too, with the two exceptions above: that sector's
+	// own marshal's password, held for the mailed code, and a super administrator.
 	// Which sectors the session then reaches is decided again, sector by sector, where
 	// its chart is computed (app.UserPermissions): every sector that seats the person,
 	// but a directory-only sector whose directory they did not sign in through, which
