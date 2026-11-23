@@ -55,15 +55,15 @@ type acrossList struct {
 	sources  []resource.NameSource
 }
 
-func (acrossList) Resource() accesstypes.Resource {
+func (*acrossList) Resource() accesstypes.Resource {
 	return "Hangars"
 }
 
-func (l acrossList) TenantsListed(context.Context) (set, narrowed []accesstypes.Domain, err error) {
+func (l *acrossList) TenantsListed(context.Context) (set, narrowed []accesstypes.Domain, err error) {
 	return l.set, l.narrowed, l.err
 }
 
-func (l acrossList) NameSources(context.Context) ([]resource.NameSource, error) {
+func (l *acrossList) NameSources(context.Context) ([]resource.NameSource, error) {
 	return l.sources, nil
 }
 
@@ -182,7 +182,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 	tests := []struct {
 		name      string
 		header    string
-		list      acrossList
+		list      *acrossList
 		want      []Subscription
 		wantNames *Names
 		wantPlain bool
@@ -190,7 +190,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 		{
 			name:   "a page that asks for live registers one subscription over the set, however many tenants",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{"cinder", "anvil"}},
+			list:   &acrossList{set: []accesstypes.Domain{"cinder", "anvil"}},
 			want: []Subscription{
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}},
 			},
@@ -198,7 +198,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 		{
 			name:   "the page's filter on the tenant is kept with it",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}},
+			list:   &acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}},
 			want: []Subscription{
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}}},
 			},
@@ -206,7 +206,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 		{
 			name:   "a list showing a name of no tenant registers both in one write; of names the list of every tenant",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{"cinder", "anvil"}, sources: []resource.NameSource{makers}},
+			list:   &acrossList{set: []accesstypes.Domain{"cinder", "anvil"}, sources: []resource.NameSource{makers}},
 			want: []Subscription{
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}},
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
@@ -219,7 +219,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 		{
 			name:   "a narrowed list showing a name: of names the tenants it was narrowed to, sorted",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}, sources: []resource.NameSource{makers}},
+			list:   &acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}, sources: []resource.NameSource{makers}},
 			want: []Subscription{
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}}},
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
@@ -232,22 +232,22 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 		{
 			name:      "a list served plain registers nothing and names nothing",
 			header:    "tab-1",
-			list:      acrossList{set: tenantKeys(MaxSubscriptionTenants + 1), sources: []resource.NameSource{makers}},
+			list:      &acrossList{set: tenantKeys(MaxSubscriptionTenants + 1), sources: []resource.NameSource{makers}},
 			wantPlain: true,
 		},
 		{
 			name: "a list across tenants is plain unless the page asks: no header, nothing registered",
-			list: acrossList{set: []accesstypes.Domain{"anvil", "cinder"}, sources: []resource.NameSource{makers}},
+			list: &acrossList{set: []accesstypes.Domain{"anvil", "cinder"}, sources: []resource.NameSource{makers}},
 		},
 		{
 			name:   "a list that reads no tenant registers nothing: nothing can change it",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{}, sources: []resource.NameSource{makers}},
+			list:   &acrossList{set: []accesstypes.Domain{}, sources: []resource.NameSource{makers}},
 		},
 		{
 			name:   "a set that cannot be worked out registers nothing and the request goes on",
 			header: "tab-1",
-			list:   acrossList{err: errors.New("the grants are down")},
+			list:   &acrossList{err: errors.New("the grants are down")},
 		},
 	}
 	for _, tt := range tests {

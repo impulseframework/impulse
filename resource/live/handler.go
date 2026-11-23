@@ -183,26 +183,25 @@ func Subscribe(ctx context.Context, w http.ResponseWriter, r *http.Request, svc 
 
 		return
 	}
-	registered := stamped(sub.Normalized(), principal, tab, time.Now().Add(SubscriptionTTL))
-	names := namedLists(ctx, query, registered, tab)
+	registered := sub.Normalized()
+	stamp(&registered, principal, tab, time.Now().Add(SubscriptionTTL))
+	names := namedLists(ctx, query, &registered, tab)
 	ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
 	defer cancel()
-	if err := svc.Register(ctx, withNamed(registered, names)); err != nil {
+	if err := svc.Register(ctx, withNamed(&registered, names)); err != nil {
 		logger.FromCtx(ctx).Errorf("live: registering the %s subscription of tab %s failed; the page is served without it: %v", sub.Resource, tab, err)
 
 		return
 	}
-	setNamesHeader(ctx, w, registered, names)
+	setNamesHeader(ctx, w, &registered, names)
 }
 
-// stamped is the subscription as one request registers it: for the principal and the
-// tab, with the expiry every subscription the request registers takes.
-func stamped(sub Subscription, principal, tab string, expiry time.Time) Subscription {
+// stamp sets on the subscription what one request registers it with: the principal
+// and the tab, and the expiry every subscription the request registers takes.
+func stamp(sub *Subscription, principal, tab string, expiry time.Time) {
 	sub.Principal = principal
 	sub.Tab = tab
 	sub.Expiry = expiry
-
-	return sub
 }
 
 // namedLists returns the subscriptions a request registers beside its own (own, as the
@@ -211,7 +210,7 @@ func stamped(sub Subscription, principal, tab string, expiry time.Time) Subscrip
 // crew that shows each one's lead, who is crew). Each keeps the name field the renewal
 // re-checks it by. A failure to read the lists is logged, and nothing is registered
 // beside own.
-func namedLists(ctx context.Context, query nameSourcer, own Subscription, tab string) []namedList {
+func namedLists(ctx context.Context, query nameSourcer, own *Subscription, tab string) []namedList {
 	sources, err := query.NameSources(ctx)
 	if err != nil {
 		logger.FromCtx(ctx).Errorf("live: reading the lists the names of the %s request of tab %s are read from failed; the request's own subscription is registered without them: %v", own.Resource, tab, err)
@@ -221,7 +220,8 @@ func namedLists(ctx context.Context, query nameSourcer, own Subscription, tab st
 	seen := []string{own.ID()}
 	var names []namedList
 	for _, source := range sources {
-		list := stamped(ListSubscription(source.Resource, source.Domain).Normalized(), own.Principal, own.Tab, own.Expiry)
+		list := ListSubscription(source.Resource, source.Domain).Normalized()
+		stamp(&list, own.Principal, own.Tab, own.Expiry)
 		if id := list.ID(); !slices.Contains(seen, id) {
 			seen = append(seen, id)
 			names = append(names, namedList{sub: list, field: source.Field})
@@ -241,11 +241,11 @@ type namedList struct {
 
 // withNamed is what one write to the record takes for a request: its own subscription,
 // then the lists its names are read from.
-func withNamed(own Subscription, names []namedList) []Subscription {
+func withNamed(own *Subscription, names []namedList) []Subscription {
 	subs := make([]Subscription, 0, 1+len(names))
-	subs = append(subs, own)
-	for _, name := range names {
-		subs = append(subs, name.sub)
+	subs = append(subs, *own)
+	for i := range names {
+		subs = append(subs, names[i].sub)
 	}
 
 	return subs
@@ -263,7 +263,7 @@ type Names struct {
 }
 
 // header renders the names as NamesHeader carries them: their JSON, percent-encoded.
-func (n Names) header() (string, error) {
+func (n *Names) header() (string, error) {
 	encoded, err := json.Marshal(n)
 	if err != nil {
 		return "", errors.Wrap(err, "json.Marshal()")
@@ -274,14 +274,14 @@ func (n Names) header() (string, error) {
 
 // setNamesHeader names on the answer the lists the request registered beside its own
 // subscription. A request that registered none sets nothing.
-func setNamesHeader(ctx context.Context, w http.ResponseWriter, own Subscription, names []namedList) {
+func setNamesHeader(ctx context.Context, w http.ResponseWriter, own *Subscription, names []namedList) {
 	if len(names) == 0 {
 		return
 	}
 	header := Names{Of: requestOf(own), Names: make([]SubscriptionRequest, 0, len(names))}
-	for _, name := range names {
-		named := requestOf(name.sub)
-		named.NameField = string(name.field)
+	for i := range names {
+		named := requestOf(&names[i].sub)
+		named.NameField = string(names[i].field)
 		header.Names = append(header.Names, named)
 	}
 	value, err := header.header()
@@ -294,7 +294,7 @@ func setNamesHeader(ctx context.Context, w http.ResponseWriter, own Subscription
 }
 
 // requestOf is a subscription, as the record keeps it, as the renew route carries it.
-func requestOf(sub Subscription) SubscriptionRequest {
+func requestOf(sub *Subscription) SubscriptionRequest {
 	req := SubscriptionRequest{Resource: string(sub.Resource), Key: sub.Key, Domain: string(sub.Domain)}
 	if sub.Across != nil {
 		req.AcrossTenants = true
@@ -383,16 +383,17 @@ func SubscribeAcrossTenants(ctx context.Context, w http.ResponseWriter, r *http.
 
 		return AcrossTenantsLiveness{}
 	}
-	registered := stamped(AcrossTenantsSubscription(res, set, narrowed).Normalized(), principal, tab, time.Now().Add(SubscriptionTTL))
-	names := namedLists(ctx, list, registered, tab)
+	registered := AcrossTenantsSubscription(res, set, narrowed).Normalized()
+	stamp(&registered, principal, tab, time.Now().Add(SubscriptionTTL))
+	names := namedLists(ctx, list, &registered, tab)
 	ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
 	defer cancel()
-	if err := svc.Register(ctx, withNamed(registered, names)); err != nil {
+	if err := svc.Register(ctx, withNamed(&registered, names)); err != nil {
 		logger.FromCtx(ctx).Errorf("live: registering the %s subscription across tenants of tab %s failed; the page is served without it: %v", res, tab, err)
 
 		return AcrossTenantsLiveness{}
 	}
-	setNamesHeader(ctx, w, registered, names)
+	setNamesHeader(ctx, w, &registered, names)
 
 	return AcrossTenantsLiveness{}
 }

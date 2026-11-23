@@ -857,16 +857,16 @@ func (gatedSearchRow) Resource() accesstypes.Resource { return "gatedSearchRows"
 func (gatedSearchRow) DefaultConfig() Config { return Config{} }
 
 type gatedSearchRequest struct {
-	ID    impulse.UUID `json:"id"    index:"true"                                                      perm:"-"`
-	Name  string       `json:"name"  index:"true"                                                      search:"token=Name_Search;index=RowsSearch;role=text;contains"`
-	Email string       `json:"email" feature:"emails"                       pii:"true"                 search:"token=Email_Search;index=RowsSearch;role=text;contains"`
+	ID    impulse.UUID `json:"id"    index:"true"     perm:"-"`
+	Name  string       `json:"name"  index:"true"     search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	Email string       `json:"email" feature:"emails" pii:"true"                                                     search:"token=Email_Search;index=RowsSearch;role=text;contains"`
 }
 
 type twoSensitiveSearchRequest struct {
-	ID    impulse.UUID `json:"id"    index:"true"                                                      perm:"-"`
-	Name  string       `json:"name"  index:"true"                                                      search:"token=Name_Search;index=RowsSearch;role=text;contains"`
-	Email string       `json:"email" feature:"emails"                       pii:"true"                 search:"token=Email_Search;index=RowsSearch;role=text;contains"`
-	Phone string       `json:"phone" pii:"true"                                                        search:"token=Phone_Search;index=RowsSearch;role=digits;contains"`
+	ID    impulse.UUID `json:"id"    index:"true"     perm:"-"`
+	Name  string       `json:"name"  index:"true"     search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	Email string       `json:"email" feature:"emails" pii:"true"                                                        search:"token=Email_Search;index=RowsSearch;role=text;contains"`
+	Phone string       `json:"phone" pii:"true"       search:"token=Phone_Search;index=RowsSearch;role=digits;contains"`
 }
 
 // TestQueryDecoder_searchBoxBehindFlag pins the URL rule of the search box against
@@ -944,10 +944,10 @@ func TestQueryDecoder_searchBoxBehindFlag(t *testing.T) {
 // gatedOwnerCrateRequest is the crates' list shape with the owner, sensitive, in the
 // box behind the feature flag owners.
 type gatedOwnerCrateRequest struct {
-	ID    string `json:"id"    index:"true"                                                              perm:"-"`
+	ID    string `json:"id"    index:"true"     perm:"-"`
 	Yard  string `json:"-"`
-	Label string `json:"label" index:"true"                                                              search:"token=Label_Search;index=CratesSearch;role=text;contains"`
-	Owner string `json:"owner" feature:"owners"                         pii:"true"                       search:"token=Owner_Search;index=CratesSearch;role=text;contains"`
+	Label string `json:"label" index:"true"     search:"token=Label_Search;index=CratesSearch;role=text;contains"`
+	Owner string `json:"owner" feature:"owners" pii:"true"                                                        search:"token=Owner_Search;index=CratesSearch;role=text;contains"`
 }
 
 // TestDecodeAcrossTenants_searchBoxBehindFlag pins the same URL rule on a list across
