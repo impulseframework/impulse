@@ -113,7 +113,7 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 		return err
 	}
 	if !has {
-		return httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
+		return httpio.NewBadRequestMessage("This account has no password, so a password change cannot be required of it.")
 	}
 	required := true
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: &required, Name: nil}); err != nil {
@@ -151,7 +151,7 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 		return err
 	}
 	if strings.TrimSpace(email) == "" {
-		return httpio.NewBadRequestMessage("an address is required: an account always keeps an email address, so one is replaced and never taken off")
+		return httpio.NewBadRequestMessage("The email address is empty. An account always keeps an email address, so give the one to replace it with.")
 	}
 	bare, err := optionalAddress(&email)
 	if err != nil {
@@ -214,7 +214,7 @@ func optionalAddress(email *string) (*string, error) {
 	}
 	parsed, err := netmail.ParseAddress(strings.TrimSpace(*email))
 	if err != nil || !strings.Contains(parsed.Address, "@") {
-		return nil, httpio.NewBadRequestMessagef("%q is not an email address", *email)
+		return nil, httpio.NewBadRequestMessagef("%q is not an email address. Check it and type it again.", *email)
 	}
 
 	return &parsed.Address, nil

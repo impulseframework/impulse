@@ -115,25 +115,25 @@ func TestManager_OpenSignUp(t *testing.T) {
 			wantFor:    `{"admits":["any-google-account"]}`,
 		},
 		{
-			name:    "a method whose registration carries an account rule of its own is refused by name",
+			name:    "a method whose registration carries an account rule of its own is refused",
 			open:    SignUp{Method: "partners", DefaultRole: "Steward"},
-			refused: httpio.HasConflict, wantHas: `partners\" is decided by the application's own account rule`,
+			refused: httpio.HasConflict, wantHas: "This way to sign in is decided by the application's own account rule. It is neither opened to sign-up nor made invite only here.",
 		},
 		{
 			name:    "without tenants, open without a default role is refused at the save",
 			open:    SignUp{Method: "google"},
-			refused: httpio.HasBadRequest, wantHas: "choose the default role",
+			refused: httpio.HasBadRequest, wantHas: "Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it.",
 		},
 		{
 			name:    "a default role that is not held for the whole application is refused",
 			open:    SignUp{Method: "google", DefaultRole: "NightShiftLead"},
-			refused: httpio.HasBadRequest, wantHas: `\"Night shift lead\" is not a role held for the whole application: choose one of the roles the picker lists`,
+			refused: httpio.HasBadRequest, wantHas: "Night shift lead is not a role held for the whole application. Choose one of the roles the picker lists.",
 		},
 		{
 			name:   "a caller who may give the role is told that it is not held for the whole application",
 			open:   SignUp{Method: "google", DefaultRole: "Reader"},
 			caller: erin, grants: &fakeGrants{},
-			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
+			refused: httpio.HasBadRequest, wantHas: "Reader is not a role held for the whole application. Choose one of the roles the picker lists.",
 			wantAsked: askedToGive("Reader"),
 		},
 		{
@@ -147,7 +147,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "the Super Administrator role is never a default role",
 			open:    SignUp{Method: "google", DefaultRole: accesstypes.SuperAdministrator},
-			refused: httpio.HasBadRequest, wantHas: "the Super administrator role is never a default role",
+			refused: httpio.HasBadRequest, wantHas: "The Super administrator role is never a default role, because every person who signed up would administer the application. Choose another role.",
 		},
 		{
 			name:       "with tenants, a method is opened with no role",
@@ -158,7 +158,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "with tenants, a default role is refused",
 			open:    SignUp{Method: "google", DefaultRole: "Steward", CreatesTenant: true},
-			refused: httpio.HasBadRequest, wantHas: "no default role is chosen here",
+			refused: httpio.HasBadRequest, wantHas: "No default role is chosen here, because a person who signs up creates a tenant of their own and administers it. Send the request without a role.",
 		},
 		{
 			name:    "a method the auth does not register is refused, and its methods named",
@@ -168,7 +168,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "a method whose directory gives the roles is refused",
 			open:    SignUp{Method: "entra", DefaultRole: "Steward"},
-			refused: httpio.HasConflict, wantHas: "takes its roles from its directory",
+			refused: httpio.HasConflict, wantHas: "This way to sign in takes its roles from its directory, which decides who may sign in. It is neither opened to sign-up nor made invite only here.",
 		},
 		{
 			name:       "the password method is opened like any other",
@@ -753,7 +753,7 @@ func TestManager_SetSelfServiceReset(t *testing.T) {
 	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		return directory.SetSelfServiceReset(ctx, txn, true)
 	})
-	if !httpio.HasConflict(err) || httpio.Message(err) != "Nobody signs in to this application with a password, so there is none to reset" {
-		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict in the sentence the session library refuses with", err)
+	if !httpio.HasConflict(err) || httpio.Message(err) != "Nobody signs in to this application with a password, so there is none to reset." {
+		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict in a whole sentence", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/passwordstrength"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/util"
@@ -1093,5 +1094,5 @@ var tokenDecoder = sessioncore.NewDecoder[tokenRequest]()
 
 // errLinkDead is the answer for a token whose link is no longer live.
 func errLinkDead() error {
-	return httpio.NewNotFoundMessage("That link has expired or was already used. Ask for a new one")
+	return httpio.NewNotFoundMessage(dbtype.MailLinkNotLiveMessage)
 }

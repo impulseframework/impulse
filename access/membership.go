@@ -99,7 +99,7 @@ func (u *userManager) Membership(ctx context.Context, scope accesstypes.PolicySc
 		return MembershipKey{}, roleNotFound(role)
 	}
 	if user == "" {
-		return MembershipKey{}, httpio.NewBadRequestMessage("user cannot be empty string")
+		return MembershipKey{}, httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 	}
 
 	return NewMembershipKey(scope, user, role), nil

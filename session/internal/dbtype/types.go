@@ -153,11 +153,11 @@ func ValidateInsertUser(user *InsertSessionUser, usernameIsEmail bool) error {
 	}
 	switch {
 	case user.Email != nil && strings.TrimSpace(*user.Email) == "":
-		return httpio.NewBadRequestMessage("an email address, when given, is not empty")
+		return httpio.NewBadRequestMessage(EmptyEmailMessage)
 	case usernameIsEmail && user.Email != nil && !util.EqualASCIIFold(strings.TrimSpace(*user.Email), strings.TrimSpace(user.Username)):
-		return httpio.NewBadRequestMessagef("the username is the user's email address: %q is not the username %q", *user.Email, user.Username)
+		return httpio.NewBadRequestMessageWithError(errors.Newf("the username is the user's email address: %q is not the username %q", *user.Email, user.Username), EmailIsNotUsernameMessage)
 	case user.EmailVerified && user.Email == nil && !usernameIsEmail:
-		return httpio.NewBadRequestMessage("a verified mark needs an address")
+		return httpio.NewBadRequestMessage(VerifiedWithoutEmailMessage)
 	}
 
 	return nil

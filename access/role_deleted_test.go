@@ -213,7 +213,7 @@ func Test_userManager_AddUserRoles_secondRoleDeleted(t *testing.T) {
 
 // heldInTenant is what a person is told of a role held in every tenant that a person or
 // a group holds in one tenant.
-const heldInTenant = "A person or a group holds the role in a tenant, now or for a period that has not begun yet. You cannot delete a role that is held in a tenant: take it away there first"
+const heldInTenant = "A person or a group holds this role in a tenant, now or for a period that has not begun yet. Take it away there first, then delete it."
 
 // Test_userManager_DeleteRole_heldInDomain pins that a role held in every tenant is not
 // deleted while a person holds it in one tenant through it: the deletion is refused in

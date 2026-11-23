@@ -193,12 +193,12 @@ func GivingMethod(list accesstypes.Resource, methods []accesstypes.Resource, nam
 		return "", false, nil
 	}
 	if len(named) != 1 || named[0].Operator != filterEquals {
-		return "", false, httpio.NewBadRequestMessagef("%s lists the roles one method gives at a time: filter it by one method's name alone (method:eq:<name>), one of %s", list, methodNames(methods))
+		return "", false, httpio.NewBadRequestMessagef("%s lists the roles one method gives at a time. Filter it by one method's name alone (method:eq:<name>), one of %s.", list, methodNames(methods))
 	}
 	name, isText := named[0].Value.(string)
 	if !isText || !slices.Contains(methods, accesstypes.Resource(name)) {
 		return "", false, httpio.NewBadRequestMessagef(
-			"%s lists the roles one method gives at a time, and no method that picks a role from it is named %v: name one of %s (method:eq:<name>)",
+			"%s lists the roles one method gives at a time, and no method that picks a role from it is named %v. Name one of %s (method:eq:<name>).",
 			list, named[0].Value, methodNames(methods),
 		)
 	}
@@ -222,7 +222,7 @@ func GivingGroup(list, groupMethod, method accesstypes.Resource, named []resourc
 	if method != groupMethod {
 		if len(named) != 0 {
 			return nil, false, httpio.NewBadRequestMessagef(
-				"%s takes a group beside the method that gives a group a role alone: name the two together (method:eq:%s,group:eq:<id>), or take the filter on group away",
+				"%s takes a group beside the method that gives a group a role alone. Name the two together (method:eq:%s,group:eq:<id>), or take the filter on group away.",
 				list, groupMethod)
 		}
 
@@ -232,12 +232,12 @@ func GivingGroup(list, groupMethod, method accesstypes.Resource, named []resourc
 		return nil, false, nil
 	}
 	if len(named) != 1 || named[0].Operator != filterEquals {
-		return nil, false, httpio.NewBadRequestMessagef("%s lists the roles one group may be given at a time: filter it by one group's id alone (group:eq:<id>)", list)
+		return nil, false, httpio.NewBadRequestMessagef("%s lists the roles one group may be given at a time. Filter it by one group's id alone (group:eq:<id>).", list)
 	}
 	text, _ := named[0].Value.(string)
 	id, parseErr := impulse.UUIDFromString(text)
 	if parseErr != nil {
-		return nil, false, httpio.NewBadRequestMessagef("%s lists the roles one group may be given at a time, and %v is no group's id: filter it by one group's id (group:eq:<id>)", list, named[0].Value)
+		return nil, false, httpio.NewBadRequestMessagef("%s lists the roles one group may be given at a time, and %v is no group's id. Filter it by one group's id (group:eq:<id>).", list, named[0].Value)
 	}
 
 	return &id, true, nil
@@ -274,11 +274,14 @@ func GivingPlaces(list accesstypes.Resource, tenantWord string, onTenant []resou
 		return whole, nil
 	}
 	if len(onTenant) != 1 || onTenant[0].Operator != filterEquals {
-		return nil, httpio.NewBadRequestMessagef("%s lists the roles of one place at a time: filter it by one %s's id (domain:eq:<id>), or by none", list, tenantWord)
+		return nil, httpio.NewBadRequestMessagef("%s lists the roles of one place at a time. Filter it by one %s's id (domain:eq:<id>), or by none.", list, tenantWord)
 	}
 	tenant, isText := onTenant[0].Value.(string)
 	if !isText {
-		return nil, httpio.NewBadRequestMessagef("%s lists the roles of one place at a time: the filter on domain carries no %s's id", list, tenantWord)
+		return nil, httpio.NewBadRequestMessagef(
+			"%s lists the roles of one place at a time, and the filter on domain carries no %s's id. Filter it by one %s's id (domain:eq:<id>), or by none.",
+			list, tenantWord, tenantWord,
+		)
 	}
 	if tenant == "" {
 		return whole, nil

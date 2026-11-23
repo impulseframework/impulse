@@ -194,14 +194,17 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 	}
 	email := strings.TrimSpace(inv.Email)
 	if email == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("an address is required: the invitation is mailed to it")
+		return impulse.NilUUID, httpio.NewBadRequestMessage("The invitation has no email address. Give the address to mail it to.")
 	}
 	tenantName := strings.TrimSpace(inv.TenantName)
 	if tenantName == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessagef("the %s's name is required: the invitation page shows it to the person invited", m.tenantWord)
+		return impulse.NilUUID, httpio.NewBadRequestMessagef("The %s has no name. Give the name the invitation page shows to the person invited.", m.tenantWord)
 	}
 	if inv.DirectoryOnly && !m.tenants.DeclaresDirectoryOnly() {
-		return impulse.NilUUID, httpio.NewBadRequestMessagef("a %s here cannot be directory only: the application's %s record declares no such switch", m.tenantWord, m.tenantWord)
+		return impulse.NilUUID, httpio.NewBadRequestMessagef(
+			"%s here cannot be directory only, because the application's %s record declares no such switch. Send the invitation without it.",
+			sentenceStart(withArticle(m.tenantWord)), m.tenantWord,
+		)
 	}
 	role, err := m.startingRole(ctx, txn, inv.DefaultRole)
 	if err != nil {
@@ -302,24 +305,30 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 	}
 	role := accesstypes.Role(strings.TrimSpace(*named))
 	if !m.tenants.SeatsDefaultRole() {
-		return "", httpio.NewBadRequestMessagef("a %s's directory keeps no starting role here, so the invitation names none: leave the role empty", m.tenantWord)
+		return "", httpio.NewBadRequestMessagef("%s's directory keeps no starting role here, so the invitation names none. Leave the role empty.", sentenceStart(withArticle(m.tenantWord)))
 	}
 	if err := m.mayStartWith(ctx, txn, role); err != nil {
 		return "", err
 	}
 	if role == accesstypes.SuperAdministrator {
-		const said = "the %s role is held for the whole application alone, and is never the role a %s's people start with"
+		const (
+			said  = "The %s role is held for the whole application alone, and is never the role %s's people start with. Choose another role, or none."
+			cause = "the %s role is held for the whole application alone, and is never the role a %s's people start with"
+		)
 
-		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord), said, roleInWords(role), m.tenantWord)
+		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role), m.tenantWord), said, roleInWords(role), withArticle(m.tenantWord))
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.EveryDomainPolicyScope()})
 	if err != nil {
 		return "", err
 	}
 	if !exists {
-		const said = "role %q is no role of a %s: the people of the new %s's directory start with one of its roles"
+		const (
+			said  = "%s is not a role of %s. The people of the new %s's directory start with one of its roles, so choose one of those."
+			cause = "role %q is no role of a %s: the people of the new %s's directory start with one of its roles"
+		)
 
-		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(said, role, m.tenantWord, m.tenantWord), said, roleInWords(role), m.tenantWord, m.tenantWord)
+		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, role, m.tenantWord, m.tenantWord), said, roleInWords(role), withArticle(m.tenantWord), m.tenantWord)
 	}
 
 	return role, nil
@@ -452,7 +461,7 @@ func (m *Manager) refuseInvitedWithATenant(ctx context.Context, txn resource.Rea
 	}
 	if !outsideTenants(held) && tenantCount(held) > 0 {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
-			"an account already holds the address %s and belongs to a %s, and a person belongs to one %s here: the invitation is not sent", email, m.tenantWord, m.tenantWord,
+			"An account already holds the address %s and belongs to %s, and a person belongs to one %s here. The invitation is not sent.", email, withArticle(m.tenantWord), m.tenantWord,
 		))
 	}
 

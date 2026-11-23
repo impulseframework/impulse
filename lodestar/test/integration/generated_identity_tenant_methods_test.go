@@ -646,7 +646,7 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 		// in, so the first stays while the second is all that would remain.
 		status, body = unlink("marshal", anvil, "ada-fleet")
 		assertStatus(t, status, http.StatusConflict, body)
-		if !strings.Contains(string(body), "none of the other identities linked to the user can sign them in any more") {
+		if !strings.Contains(string(body), "None of the other sign-in identities linked to the account can sign in any more, so this one is its only way to sign in. Link a directory sign-in the login page offers first, or give the account a password.") {
 			t.Errorf("the refusal = %s, want it to say her other identity signs nobody in", body)
 		}
 		if !linked("ada-fleet") {

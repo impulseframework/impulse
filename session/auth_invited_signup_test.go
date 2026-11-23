@@ -420,7 +420,7 @@ func invitedSignUpTaken(t *testing.T) {
 		// The mocked store expects no HoldSignIn: a call fails the test.
 		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse battery staple", "username": "patl"}, cookies)
 
-		if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != `the email address "pat@lakeside.edu" is already in use` {
+		if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != "Another account already uses this email address. Use another address." {
 			t.Errorf("SignUp() for an address an account holds = %d %s, want 409 saying the address is in use", rr.Code, rr.Body.String())
 		}
 		if cookieNamed(rr, defaultPendingCookieName) != nil || len(recorder.Messages()) != 1 {
@@ -435,7 +435,7 @@ func invitedSignUpTaken(t *testing.T) {
 
 		rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse battery staple", "username": "patl"}, cookies)
 
-		if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != `username "patl" already exists` {
+		if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != "Another account already has this username. Choose another." {
 			t.Errorf("SignUp() with a username an account holds = %d %s, want 409 saying the username exists", rr.Code, rr.Body.String())
 		}
 		if cookieNamed(rr, defaultPendingCookieName) != nil || len(recorder.Messages()) != 1 {

@@ -14,7 +14,7 @@ import (
 // role: what was asked, the reason in the words a load of the policy skips a stored
 // grant with, and what a role is given.
 func declaredWhy(asked, reason string) string {
-	return asked + " cannot be given to a role: " + reason + ". A role is given a permission the application declares on a resource or a field; check the permission and the name"
+	return asked + " cannot be given to a role, because " + reason + ". A role is given a permission the application declares on a resource or a field, so check the permission and the name."
 }
 
 // TestUserManager_grantsHeldToTheCollection pins that a grant written to a custom role
@@ -94,14 +94,14 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 			write: func(ctx context.Context, manager UserManager) error {
 				return manager.AddRoleGrant(ctx, tenant1Policy, tester, accesstypes.Execute, createWidgetShop, "")
 			},
-			wantRefused: "Execute on CreateWidgetShop cannot be given to a role: CreateWidgetShop is an action no role is given. Nothing asks for a grant of it, so the grant would do nothing",
+			wantRefused: "Execute on CreateWidgetShop cannot be given to a role, because CreateWidgetShop is an action no role is given. Nothing asks for a grant of it, so the grant would do nothing.",
 		},
 		{
 			name: "AddRolePermission: a permission the release does not have is refused for the whole of a scope too",
 			write: func(ctx context.Context, manager UserManager) error {
 				return manager.AddRolePermission(ctx, tenant1Policy, tester, "Frobnicate")
 			},
-			wantRefused: "Frobnicate cannot be given to a role: this release has no permission Frobnicate. A role is given a permission the application declares; check the permission's name",
+			wantRefused: "Frobnicate cannot be given to a role, because this release has no permission Frobnicate. A role is given a permission the application declares, so check the permission's name.",
 		},
 		{
 			name: "AddRolePermission: a permission the release has",

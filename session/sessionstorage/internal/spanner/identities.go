@@ -169,7 +169,7 @@ func (s *SessionStorageDriver) LinkIdentityIn(
 // them zero until the commit reports it.
 func (s *SessionStorageDriver) newIdentityLink(userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, *spanner.Mutation, error) {
 	if !dbtype.IsExternal(identity) || identity.Subject == "" {
-		return nil, nil, httpio.NewBadRequestMessage("only an external identity with a subject can be linked")
+		return nil, nil, httpio.NewBadRequestMessage(dbtype.OnlyDirectoryIdentityLinksMessage)
 	}
 
 	id, err := impulse.NewUUID()
@@ -442,7 +442,10 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 	committedAt, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.AlreadyExists {
-			return nil, httpio.NewConflictMessagef("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject)
+			return nil, httpio.NewConflictMessageWithError(
+				errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject),
+				dbtype.SignInIdentityAlreadyLinkedMessage,
+			)
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
@@ -575,7 +578,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 			return err
 		}
 		if !user.HasPassword {
-			return httpio.NewBadRequestMessage("the user has no password to remove")
+			return httpio.NewBadRequestMessage(dbtype.NoPasswordToRemoveMessage)
 		}
 		links, err := s.IdentitiesByUserIn(ctx, txn, userID)
 		if err != nil {
@@ -584,7 +587,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		// Only an identity the caller named counts: one that signs nobody in any more
 		// is no means of sign-in, however many of them the user holds.
 		if !slices.ContainsFunc(links, func(link *dbtype.SessionIdentity) bool { return slices.Contains(standing, link.ID) }) {
-			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, dbtype.PasswordIsLastSignInMessage)
 		}
 
 		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, passwordHashColumn: spanner.NullString{}, passwordChangeRequiredColumn: false})
@@ -685,7 +688,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return dbtype.ErrNoAuthEvents
 	}
 	if event.Method == "" {
-		return httpio.NewBadRequestMessage("an auth event needs a method")
+		return httpio.NewBadRequestMessage(dbtype.AuthEventNeedsMethodMessage)
 	}
 
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -702,7 +705,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		if expired {
-			return httpio.NewBadRequestMessage("cannot record an auth event on an expired session")
+			return httpio.NewBadRequestMessage(dbtype.AuthEventOnExpiredSessionMessage)
 		}
 
 		last := spanner.NewStatement(fmt.Sprintf(`SELECT IFNULL(MAX(Seq), 0) FROM %s WHERE SessionId = @id`, s.authEvents.TableName))

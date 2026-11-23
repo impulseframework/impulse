@@ -199,7 +199,7 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 		}
 	}
 	// A role that is not the sector's is refused, and so is a call that names none.
-	if status, body := open(marshal, "Headquarters"); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this sector") {
+	if status, body := open(marshal, "Headquarters"); status != http.StatusBadRequest || !strings.Contains(string(body), "Headquarters is not a role of this sector. Choose one of the roles the picker lists.") {
 		t.Errorf("opening Cinder with a role held for the whole application: status %d, want 400 saying it is no role of the sector: %s", status, body)
 	}
 	if status, body := open(marshal, ""); status != http.StatusBadRequest || !strings.Contains(string(body), "Choose the role") {

@@ -8,6 +8,7 @@ package drivertest
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func assertConfirmationLinkLive(ctx context.Context, t *testing.T, h *AuthHarnes
 }
 
 // assertAddressInUse fails unless err is the Conflict of an address another user holds,
-// in the drivers' words.
+// in the drivers' words, which carry no address.
 func assertAddressInUse(t *testing.T, what string, err error, email string) {
 	t.Helper()
 
@@ -63,8 +64,11 @@ func assertAddressInUse(t *testing.T, what string, err error, email string) {
 
 		return
 	}
-	if want := "the email address \"" + email + "\" is already in use"; httpio.Message(err) != want {
-		t.Errorf("%s: the Conflict says %q, want %q", what, httpio.Message(err), want)
+	if got := httpio.Message(err); got != dbtype.EmailInUseMessage {
+		t.Errorf("%s: the Conflict says %q, want %q", what, got, dbtype.EmailInUseMessage)
+	}
+	if got := httpio.Message(err); strings.Contains(got, email) {
+		t.Errorf("%s: the Conflict says %q, which carries the address %s", what, got, email)
 	}
 }
 

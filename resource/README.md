@@ -3634,8 +3634,8 @@ before a role is picked the sentence ends "Choose the role each of them gets." T
 directory is named as the directory-only warning names it, never by a connection that
 is an id. The role is held to what giving it by hand needs
 (`identity.Manager.DirectoryRole`, through the generated identity client): it is a role
-of the tenant ("... is not a role of this tenant: choose one of the roles the picker
-lists", 400), and the caller could give it there directly, by the grant of the method
+of the tenant ("... is not a role of this tenant. Choose one of the roles the picker
+lists.", 400), and the caller could give it there directly, by the grant of the method
 that gives a role in a tenant, conditions included (403, saying which role and what to
 do; the grant answers before the role is looked for, so the refusal is the same for a
 role the tenant holds and one it does not, and tells nobody of a role the grant keeps

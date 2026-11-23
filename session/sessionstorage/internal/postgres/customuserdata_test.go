@@ -296,7 +296,7 @@ func TestSessionStorageDriver_UpdateCustomSessionData_SessionGate(t *testing.T) 
 		{
 			name:       "expired session is rejected",
 			sessionID:  impulse.Must(impulse.UUIDFromString("22222222-2222-2222-2222-222222222222")),
-			wantErrMsg: "cannot update custom session data for an expired session",
+			wantErrMsg: dbtype.SessionDataOnExpiredSessionMessage,
 		},
 	}
 	for _, tt := range tests {

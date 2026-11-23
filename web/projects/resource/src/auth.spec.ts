@@ -104,7 +104,7 @@ const opened = {
   accountExists: false,
   hasPassword: false,
 };
-const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one' } };
+const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one.' } };
 /** The list of a server whose people reset their own password and confirm an address an administrator set. */
 const resettingList: LoginMethods = {
   ...mailingList,

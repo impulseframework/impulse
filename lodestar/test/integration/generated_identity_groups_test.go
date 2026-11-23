@@ -128,7 +128,7 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	assertStatus(t, status, http.StatusForbidden, body)
 	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", role(string(accesstypes.SuperAdministrator)))
 	assertStatus(t, status, http.StatusBadRequest, body)
-	if !strings.Contains(string(body), "never to a group") {
+	if !strings.Contains(string(body), "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time.") {
 		t.Errorf("the refusal of the Super Administrator role for a sector's group = %s, want it to say the role is never a group's", body)
 	}
 	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Pilot","domain":%q}`, group, bastion))
@@ -294,7 +294,7 @@ func TestGeneratedIdentityFleetGroups(t *testing.T) {
 	// another and a place in a group makes none.
 	status, body = hq("give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":%q}`, group, accesstypes.SuperAdministrator))
 	assertStatus(t, status, http.StatusBadRequest, body)
-	if !strings.Contains(string(body), "never to a group") {
+	if !strings.Contains(string(body), "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time.") {
 		t.Errorf("the refusal of the Super Administrator role for the fleet's group = %s, want it to say the role is never a group's", body)
 	}
 

@@ -112,7 +112,7 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	defer span.End()
 
 	if role == "" {
-		return httpio.NewBadRequestMessage("the role to take away is empty")
+		return httpio.NewBadRequestMessage("No role is named. Name the role to take away.")
 	}
 	if err := t.manager.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
 		return err
@@ -141,9 +141,12 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	}
 	if everywhere {
 		word := t.manager.tenantWord
-		const said = "%s holds the role %s in every %s, which is not one %s's to take away"
+		const (
+			said  = "This person holds the role %s in every %s, which is not one %s's to take away."
+			cause = "%s holds the role %s in every %s, which is not one %s's to take away"
+		)
 
-		return httpio.NewConflictMessageWithErrorf(errors.Newf(said, username, role, word, word), said, username, roleInWords(role), word, word)
+		return httpio.NewConflictMessageWithErrorf(errors.Newf(cause, username, role, word, word), said, roleInWords(role), word, word)
 	}
 
 	return nil

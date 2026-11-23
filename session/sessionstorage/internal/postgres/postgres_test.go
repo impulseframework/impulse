@@ -497,7 +497,7 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			hash:       hash,
 			sourceURL:  []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
 			wantErr:    true,
-			wantErrMsg: `username "testuser" already exists`,
+			wantErrMsg: dbtype.UsernameTakenMessage,
 		},
 	}
 	for _, tt := range tests {
@@ -596,7 +596,7 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			newUsername: "disableduser",
 			sourceURL:   fullFixtures,
 			wantErr:     true,
-			wantErrMsg:  `username "disableduser" already exists`,
+			wantErrMsg:  dbtype.UsernameTakenMessage,
 			postAssertions: []string{
 				`SELECT "Username" = 'testUser' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
 				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,

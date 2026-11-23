@@ -128,7 +128,7 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 	// The role is held for the whole service alone.
 	for _, place := range []string{inAnvil, everywhere} {
 		status, body = post("governor", "assign-crew-role", role(ivanID, "SuperAdministrator", place))
-		refused("the governor giving the role"+place, status, body, http.StatusBadRequest, "the Super administrator role is held for the whole application alone")
+		refused("the governor giving the role"+place, status, body, http.StatusBadRequest, "The Super administrator role is held for the whole application alone, never in a sector or in every sector. Give it with no sector named.")
 	}
 
 	// Sol holds the role and nothing else: the role file grants her nothing, and she

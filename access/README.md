@@ -276,12 +276,12 @@ of `ChangeRoleGrants`, and `AddRolePermission` for a grant that names no
 resource) refuse a grant the release cannot use by its name: a
 permission the release does not have, a permission it does not declare on the
 resource or the field, and an action no role is given. The refusal is a bad
-request that says which and why (`List on Ledgers cannot be given to a role:
-this release declares no List on Ledgers. ...`), and nothing of the call is
-written, the rows beside the refused one included. The load and the writes go
-by one rule for a grant's names, so the grants a load skips by name are the
-ones another release wrote or that were written straight to the store, never
-ones this release was asked for and took.
+request that says which and why (`List on Ledgers cannot be given to a
+role, because this release declares no List on Ledgers. ...`), and nothing
+of the call is written, the rows beside the refused one included. The load
+and the writes go by one rule for a grant's names, so the grants a load skips
+by name are the ones another release wrote or that were written straight to
+the store, never ones this release was asked for and took.
 
 A write of a grant on a resource is held to the rest of the rule the role
 file's grants are held to as well, so a role made at run time holds nothing a

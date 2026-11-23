@@ -332,7 +332,7 @@ func Test_userManager_AssignUserRole(t *testing.T) {
 	// A period that never counts is refused, and the assignment stays as it was.
 	backwards := accesstypes.Period{Start: now.Add(2 * time.Hour), End: now.Add(time.Hour)}
 	err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", backwards, "")
-	if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "not after its start") {
+	if err == nil || !httpio.HasBadRequest(err) || httpio.Message(err) != PeriodNeverCountsMessage {
 		t.Errorf("AssignUserRole() with an end before its start: error = %v, want a bad request saying so", err)
 	}
 	if got := store.memberships[fakeMembership{tenant1Policy, "ann", "Editor"}]; !got.Start.Equal(upcoming.Start) || !got.End.Equal(upcoming.End) {
@@ -356,7 +356,7 @@ func Test_userManager_AssignUserRole_superAdministrator(t *testing.T) {
 		"a start and an end": {Start: in, End: in.Add(time.Hour)},
 	} {
 		err := manager.AssignUserRole(ctx, globalPolicy, "root", accesstypes.SuperAdministrator, period, "")
-		if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "the Super administrator role takes no end and no start") {
+		if err == nil || !httpio.HasBadRequest(err) || httpio.Message(err) != "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted." {
 			t.Errorf("AssignUserRole() of the Super Administrator role with %s: error = %v, want a bad request saying the role takes no end", name, err)
 		}
 	}
@@ -528,7 +528,7 @@ func Test_userManager_DeleteRole_heldByGroup(t *testing.T) {
 			t.Fatalf("AssignGroupRole() error = %v", err)
 		}
 		deleted, err := manager.DeleteRole(ctx, tenant1Policy, "Editor")
-		if deleted || err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "A group holds the role") {
+		if deleted || err == nil || !httpio.HasBadRequest(err) || httpio.Message(err) != "A group holds this role, now or for a period that has not begun yet. Take it away from the group first, then delete it." {
 			t.Errorf("DeleteRole() of a role an empty group holds %s = (%v, %v), want a bad request saying a group holds it", held.name, deleted, err)
 		}
 		if exists, err := store.RoleExists(ctx, tenant1Policy, "Editor"); err != nil || !exists {

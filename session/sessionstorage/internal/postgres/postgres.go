@@ -650,7 +650,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	if err := s.execUserInsert(ctx, id, query, args, customData); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.usernameIndex() {
-			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
+			return nil, httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", user.Username), dbtype.UsernameTakenMessage)
 		}
 		if s.isEmailConflict(err) {
 			return nil, errEmailTaken(insertedAddress(user))
@@ -750,7 +750,7 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 	})
 	switch {
 	case s.isUsernameConflict(err):
-		return httpio.NewConflictMessagef("username %q already exists", newUsername)
+		return httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", newUsername), dbtype.UsernameTakenMessage)
 	case s.isEmailConflict(err):
 		return errEmailTaken(newUsername)
 	case err != nil:
@@ -922,7 +922,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 			return dbtype.AccountNotFound(userID)
 		}
 
-		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
+		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, dbtype.PasswordHeldMessage)
 	}
 
 	return nil
@@ -954,7 +954,7 @@ func (s *SessionStorageDriver) passwordNotProven(ctx context.Context, q rowQueri
 // errPasswordChanged is the refusal of a password write that follows a proof and finds
 // the row holding another hash than the proven one.
 func errPasswordChanged() error {
-	return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
+	return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, dbtype.PasswordChangedMessage)
 }
 
 // TouchUserSignIn moves a user's LastSignInAt to the transaction's time. It is its own
@@ -1148,7 +1148,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
 	}
 	if expired {
-		return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+		return httpio.NewBadRequestMessage(dbtype.SessionDataOnExpiredSessionMessage)
 	}
 
 	columns := s.customData.Codec.Columns()

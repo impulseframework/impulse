@@ -137,7 +137,7 @@ func (s *SessionStorageDriver) TokenByHash(ctx context.Context, tokenHash []byte
 		return nil, err
 	}
 	if len(tokens) == 0 {
-		return nil, httpio.NewNotFoundMessage("no live token")
+		return nil, dbtype.TokenNotFound()
 	}
 
 	return tokens[0], nil
@@ -196,7 +196,7 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 			return err
 		}
 		if len(tokens) == 0 {
-			return httpio.NewNotFoundMessage("no live token")
+			return dbtype.TokenNotFound()
 		}
 		column, value := `"Id"`, any(id)
 		if t := tokens[0]; t.FamilyID.Valid {
@@ -242,12 +242,12 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 			return err
 		}
 		if len(tokens) == 0 || tokens[0].Kind != dbtype.TokenRefresh || !tokens[0].ExpiresAt.After(now) {
-			return httpio.NewNotFoundMessage("no live refresh token")
+			return dbtype.RefreshTokenNotFound()
 		}
 		old := tokens[0]
 		if old.RevokedAt != nil {
 			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.FamilyID.Valid {
-				return httpio.NewNotFoundMessage("no live refresh token")
+				return dbtype.RefreshTokenNotFound()
 			}
 			if err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
 				return err
@@ -358,7 +358,7 @@ func (s *SessionStorageDriver) DeviceCodeByUserCode(ctx context.Context, userCod
 		return nil, err
 	}
 	if len(codes) == 0 {
-		return nil, httpio.NewNotFoundMessage("no pending device code")
+		return nil, dbtype.DeviceCodeNotPending()
 	}
 
 	return codes[0], nil
@@ -376,7 +376,7 @@ func (s *SessionStorageDriver) ApproveDeviceCode(ctx context.Context, id, userID
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessage("no pending device code")
+		return dbtype.DeviceCodeNotPending()
 	}
 
 	return nil
@@ -394,7 +394,7 @@ func (s *SessionStorageDriver) DenyDeviceCode(ctx context.Context, id impulse.UU
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessage("no pending device code")
+		return dbtype.DeviceCodeNotPending()
 	}
 
 	return nil
@@ -423,7 +423,7 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 			return err
 		}
 		if len(codes) == 0 || codes[0].ConsumedAt != nil {
-			return httpio.NewNotFoundMessage("no device code to redeem")
+			return dbtype.DeviceCodeNotRedeemable()
 		}
 		code = codes[0]
 		status, err = s.redeemIn(ctx, tx, code, now, interval, access, refresh)
@@ -462,7 +462,7 @@ func (s *SessionStorageDriver) redeemIn(
 		return "", errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return "", httpio.NewNotFoundMessage("no device code to redeem")
+		return "", dbtype.DeviceCodeNotRedeemable()
 	}
 	for _, t := range []*dbtype.Token{access, refresh} {
 		t.UserID, t.Outlet, t.ClientID = code.UserID.UUID, code.Outlet, code.ClientID

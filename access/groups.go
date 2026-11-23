@@ -87,20 +87,20 @@ type GroupRoleKey struct {
 // store's to hold: the table's unique index refuses a second group of the name there.
 func NewGroup(scope accesstypes.PolicyScope, name, description string) (GroupRow, error) {
 	if scope.IsEveryDomain() {
-		return GroupRow{}, httpio.NewBadRequestMessage("a group is kept for the whole application or in one tenant, never in every tenant: name the tenant or none")
+		return GroupRow{}, httpio.NewBadRequestMessage("A group is kept for the whole application or in one tenant, never in every tenant. Name the tenant, or none.")
 	}
 	name = strings.TrimSpace(name)
 	switch {
 	case name == "":
-		return GroupRow{}, httpio.NewBadRequestMessage("the group has no name: give it the name people will know it by")
+		return GroupRow{}, httpio.NewBadRequestMessage("The group has no name. Give it the name people will know it by.")
 	case utf8.RuneCountInString(name) > maxGroupName:
-		return GroupRow{}, httpio.NewBadRequestMessagef("the group's name is longer than %d characters: shorten it", maxGroupName)
+		return GroupRow{}, httpio.NewBadRequestMessagef("The group's name is longer than %d characters. Shorten it.", maxGroupName)
 	case strings.ContainsFunc(name, unicode.IsControl):
-		return GroupRow{}, httpio.NewBadRequestMessage("the group's name holds a character that cannot be shown: type the name again")
+		return GroupRow{}, httpio.NewBadRequestMessage("The group's name holds a character that cannot be shown. Type the name again.")
 	}
 	description = strings.TrimSpace(description)
 	if description == "" {
-		return GroupRow{}, httpio.NewBadRequestMessagef("the group %q carries no description; a group carries one or two plain sentences saying who is in it", name)
+		return GroupRow{}, httpio.NewBadRequestMessage("The group has no description. Say who is in it in one or two plain sentences.")
 	}
 	kind, axis, domain := policy.ScopeColumns(scope)
 
@@ -142,10 +142,10 @@ func (k *GroupRoleKey) Scope() (accesstypes.PolicyScope, error) {
 // (groupRoleRefusal), in words a person can act on.
 func refuseGroupRole(kept, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
-		return httpio.NewBadRequestMessagef("the %s role is given to a person, never to a group: only a super administrator makes another, one person at a time", roleInWords(role))
+		return httpio.NewBadRequestMessagef("The %s role is given to a person, never to a group. Only a super administrator makes another, one person at a time.", roleInWords(role))
 	}
 	if groupRoleRefusal(kept, scope, role) != "" {
-		return httpio.NewBadRequestMessage("a group kept in one tenant holds roles in that tenant alone: give the role there, or give it to a group kept for the whole application")
+		return httpio.NewBadRequestMessage("A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application.")
 	}
 
 	return nil
@@ -175,7 +175,7 @@ func (u *userManager) GroupRole(ctx context.Context, group accesstypes.Group, ke
 		return GroupRoleKey{}, errors.New("access.UserManager.GroupRole(): the reader of the roles table is nil; pass one over the transaction the group's role is written in")
 	}
 	if group == "" {
-		return GroupRoleKey{}, httpio.NewBadRequestMessage("a role is given to a group: the group's id is empty")
+		return GroupRoleKey{}, httpio.NewBadRequestMessage("No group is named. Name the group the role is for.")
 	}
 	if err := refuseGroupRole(kept, scope, role); err != nil {
 		return GroupRoleKey{}, err
@@ -220,7 +220,7 @@ func (u *userManager) AddGroup(ctx context.Context, scope accesstypes.PolicyScop
 		return "", err
 	}
 	if taken {
-		return "", httpio.NewConflictMessagef("a group named %q already exists there: choose another name", row.Name)
+		return "", httpio.NewConflictMessagef("A group named %q already exists there. Choose another name.", row.Name)
 	}
 
 	return group.ID, nil
@@ -233,7 +233,7 @@ func (u *userManager) DescribeGroup(ctx context.Context, group accesstypes.Group
 
 	description = strings.TrimSpace(description)
 	if description == "" {
-		return httpio.NewBadRequestMessage("a group carries a description: one or two plain sentences saying who is in it")
+		return httpio.NewBadRequestMessage("The group has no description. Say who is in it in one or two plain sentences.")
 	}
 	found, err := u.store.describeGroup(ctx, group, description)
 	if err != nil {
@@ -266,13 +266,16 @@ func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) 
 		return err
 	}
 	if len(members) > 0 || len(roles) > 0 {
-		return httpio.NewConflictMessagef("the group still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", len(members), len(roles))
+		return httpio.NewConflictMessageWithError(
+			errors.Newf("the group still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", len(members), len(roles)),
+			"The group still has a member or holds a role. Remove its members and take its roles away, then delete it.",
+		)
 	}
 	deleted, err := u.store.deleteGroup(ctx, group)
 	if errors.Is(err, policy.ErrStillAssigned) {
 		// The listings read what counts now: what stands in the way is a member
 		// or a role whose period has not begun, or one given since they were read.
-		return httpio.NewConflictMessage("the group has a member or holds a role, now or for a period that has not begun yet: remove its members and take its roles away, then delete it")
+		return httpio.NewConflictMessage("The group has a member or holds a role, now or for a period that has not begun yet. Remove its members and take its roles away, then delete it.")
 	}
 	if err != nil {
 		return err
@@ -339,10 +342,10 @@ func (u *userManager) assignGroupUsers(ctx context.Context, group accesstypes.Gr
 		return err
 	}
 	if slices.Contains(users, "") {
-		return httpio.NewBadRequestMessage("user cannot be empty string")
+		return httpio.NewBadRequestMessage("No person is named. Name the person to put in the group.")
 	}
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, PeriodNeverCountsMessage)
 	}
 	for _, user := range users {
 		if err := u.store.addGroupUser(ctx, group, user, period); err != nil {
@@ -404,7 +407,7 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 		return err
 	}
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, PeriodNeverCountsMessage)
 	}
 	for _, role := range roles {
 		if err := refuseGroupRole(row.Scope, scope, role); err != nil {
