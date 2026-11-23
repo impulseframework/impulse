@@ -3173,7 +3173,10 @@ whose `New` sets the library's sign-in rule over it
 whose people may sign up and create a tenant of their own adds
 `signin.AdmitWithoutTenant()`), and `resource.SignInRoles`
 reads the person's memberships outside the transaction, since the Spanner client refuses
-the engine's read under the transaction's context as a nested transaction. The roster
+the engine's read under the transaction's context as a nested transaction.
+`resource.OutsideSignIn(db, reader)` reads the same declaration outside a sign-in, each
+read in a transaction of its own, for the check that says whose password the tenants'
+sign-in settings disable (`signin.PasswordsDisabledByTenants`). The roster
 keeps the request-time copy: `New<Record>Roster` is built with
 `resource.WithTenantDeclarations` naming the columns, `Reload` reads the keys and the
 declarations in one read, and `Declarations(ctx, domain)` answers from the copy, nil for

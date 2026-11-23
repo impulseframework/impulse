@@ -302,7 +302,7 @@ func TestAuth_SignInMeans(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
-		want := map[string]any{"password": true, "directories": []any{map[string]any{"name": "google", "label": "Fleet Google"}}, "directoryAddress": true}
+		want := map[string]any{"password": true, "directories": []any{map[string]any{"name": "google", "label": "Fleet Google"}}, "directoryAddress": true, "passwordDisabled": false}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("SignInMeans() answer mismatch (-want +got):\n%s", diff)
 		}
@@ -324,7 +324,7 @@ func TestAuth_SignInMeans(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		a.SignInMeans().ServeHTTP(rr, request())
-		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"password":false,"directories":[],"directoryAddress":false}` {
+		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"password":false,"directories":[],"directoryAddress":false,"passwordDisabled":false}` {
 			t.Errorf("SignInMeans() = %d %s, want 200 with no password and an empty list", rr.Code, rr.Body.String())
 		}
 	})

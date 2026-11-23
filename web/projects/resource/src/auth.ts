@@ -480,6 +480,12 @@ export interface SignInMeans {
    * directory's and a page offers no change of it: the server refuses one.
    */
   readonly directoryAddress: boolean;
+  /**
+   * The server says a password does not sign the person in, whether or not they hold one:
+   * their organization signs in through its directory only. A page then shows no password
+   * line and offers no first password, which the server refuses.
+   */
+  readonly passwordDisabled: boolean;
 }
 
 /** A sign-in method of the login page that a directory sign-in linked to a person goes through: the registration's name, and the words its button carries. */
@@ -1342,6 +1348,7 @@ export class AuthClient {
         )
         .map(({ name, label }) => ({ name, label })),
       directoryAddress: answer.directoryAddress === true,
+      passwordDisabled: answer.passwordDisabled === true,
     };
   }
 

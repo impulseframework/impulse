@@ -3,8 +3,10 @@ package resource
 import (
 	"context"
 
+	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -20,6 +22,34 @@ import (
 // operations pass through unchanged.
 func SignInRoles(manager signin.UserRoleManager) signin.UserRoleManager {
 	return &signInRoles{UserRoleManager: manager}
+}
+
+// OutsideSignIn adapts the sign-in policy's reader of a tenant's declaration (the
+// generated New<Record>DeclarationReader's, NewTenantDeclarationReader) to a question
+// asked outside a sign-in, which has no transaction to hand it: the check that says
+// whose password the tenants' sign-in settings disable
+// (signin.PasswordsDisabledByTenants). Each read is a read-write transaction of its
+// own on db, the one the reader is typed to, that writes nothing; Spanner may run it
+// more than once, and the answer is the run that committed. It answers as the reader
+// does, nil for a tenant that declares nothing. It must not be called under the
+// context of a Spanner transaction, which the client refuses as nested.
+func OutsideSignIn(db *spanner.Client, reader signin.DeclarationReader[*spanner.ReadWriteTransaction]) TenantDeclarations {
+	return func(ctx context.Context, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
+		var declaration *signin.TenantDeclaration
+		if _, err := spannertxn.Serializable(ctx, db, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			read, err := reader(ctx, txn, tenant)
+			if err != nil {
+				return errors.Wrap(err, "signin.DeclarationReader()")
+			}
+			declaration = read
+
+			return nil
+		}); err != nil {
+			return nil, errors.Wrap(err, "spannertxn.Serializable()")
+		}
+
+		return declaration, nil
+	}
 }
 
 // signInRoles is SignInRoles's adapter: the manager, with UserRoles and

@@ -597,7 +597,7 @@ func TestAuthApply(t *testing.T) {
 					"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n\tstore, err := spannerstore.New(",
 					"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
 					"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\tif settings.TenantMaker == nil {",
-					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
+					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n" + passwordDisabledCheck + "\n\t// The auth's identity client (pkg/identity, generated)",
 					"\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n\t\tsession.MailSettings{Sender: settings.Mail, Application: Application, LoginURL: settings.MailLoginURL},\n\t\tsession.WithSessionTableName(sessionsTable),\n",
 					"\t_, tenantAdministrators := AdministratorRoles()\n\taccessClient, err := access.New(store, settings.Collection,\n\t\taccess.WithDefaultRoles(Roles(), Name),\n",
 					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n",
@@ -645,7 +645,7 @@ func TestAuthApply(t *testing.T) {
 					"\t// (app.NewTenantDeclarationReader), which answers nothing for every tenant, since\n\t// the application has no tenant directories. Required; New refuses nil.\n",
 					"\tTenantMaker identity.TenantMaker\n}",
 					"\tif settings.TenantDeclarations == nil {\n",
-					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
+					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n" + passwordDisabledCheck + "\n\t// The auth's identity client (pkg/identity, generated)",
 					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n",
 					// With no directory admission between them, what a sign-in clears is followed
 					// at once by what an accepted invitation gives.

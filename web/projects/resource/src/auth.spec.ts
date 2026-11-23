@@ -1833,6 +1833,7 @@ describe('reading what the person signs in with', () => {
       password: true,
       directories: [{ name: 'google', label: 'Fleet Google' }],
       directoryAddress: false,
+      passwordDisabled: false,
     });
     expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `GET ${meansPath}`]);
     expect(errors).toEqual([]);
@@ -1840,7 +1841,12 @@ describe('reading what the person signs in with', () => {
 
   it('answers a person with no password and no directory as the server says it', async () => {
     const { auth } = authOver(reading({ means: { status: 200, body: { password: false, directories: [] } } }));
-    expect(await auth.signInMeans()).toEqual({ password: false, directories: [], directoryAddress: false });
+    expect(await auth.signInMeans()).toEqual({
+      password: false,
+      directories: [],
+      directoryAddress: false,
+      passwordDisabled: false,
+    });
   });
 
   it("answers whether the person's address is an organization's directory's, true only where the server says true", async () => {
@@ -1852,6 +1858,19 @@ describe('reading what the person signs in with', () => {
       reading({ means: { status: 200, body: { password: false, directories: [], directoryAddress: 'yes' } } }),
     ).auth;
     expect((await unsaid.signInMeans())?.directoryAddress).toBe(false);
+  });
+
+  it("answers whether the person's password is disabled, true only where the server says true", async () => {
+    const disabled = authOver(
+      reading({ means: { status: 200, body: { password: true, directories: [], passwordDisabled: true } } }),
+    ).auth;
+    expect((await disabled.signInMeans())?.passwordDisabled).toBe(true);
+    const unsaid = authOver(reading({ means: { status: 200, body: { password: true, directories: [] } } })).auth;
+    expect((await unsaid.signInMeans())?.passwordDisabled).toBe(false);
+    const notBoolean = authOver(
+      reading({ means: { status: 200, body: { password: true, directories: [], passwordDisabled: 'yes' } } }),
+    ).auth;
+    expect((await notBoolean.signInMeans())?.passwordDisabled).toBe(false);
   });
 
   it('answers nothing on a server whose list names no path, asking for nothing more', async () => {
@@ -1881,6 +1900,7 @@ describe('reading what the person signs in with', () => {
       password: true,
       directories: [{ name: 'entra', label: 'Lakeside' }],
       directoryAddress: false,
+      passwordDisabled: false,
     });
   });
 });
