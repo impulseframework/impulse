@@ -1290,10 +1290,10 @@ screen names the tenant an invitation seats a person in and not its id; the app 
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
 `Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
-shape: the tenant pages are copied in (the tenant's sign-in page where a tenant can have
-a directory, the configuration of All
-tenants, the library's list page over the record, and the dialog a person who signed up
-creates their own tenant through), the menu
+shape: the tenant pages are copied in (the configuration of All tenants, the library's list
+page over the record, and the dialog a person who signed up creates their own tenant
+through; the tenant's Sign-in settings page is the library's, which the routes and the menu
+file place where a tenant can have a directory), the menu
 file gains the tenant menus ahead of its others (Tenants with All tenants,
 People with the tenant's side of the auth's people, and, where a tenant can have a
 directory, Tenant with Sign-in settings;

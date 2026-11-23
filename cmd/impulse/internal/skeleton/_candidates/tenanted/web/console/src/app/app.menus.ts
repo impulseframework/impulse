@@ -2,9 +2,8 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { Menu } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
-import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
+import { identityMenuPages, tenantSignInPage } from '@impulseframework/resource-angular/identity-pages';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';
 import { tenantsConfig } from './configs/tenants.config';
 
 /**
@@ -49,7 +48,7 @@ export function appMenus(): Menu[] {
     },
     {
       label: 'Tenant',
-      groups: [{ entries: [tenantSignInPage] }],
+      groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'Staff' })] }],
     },
     {
       label: 'System',

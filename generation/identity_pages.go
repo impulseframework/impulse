@@ -45,6 +45,9 @@ const (
 	identityListGroupUsers    = "groupUsers"
 	identityListGroupRoles    = "groupRoles"
 	identityListThroughGroups = "rolesThroughGroups"
+	// The tenant's directory, on a tenant's side: the record a tenant's one directory is
+	// a row of, which the Sign-in settings page sets and removes.
+	identityListDirectories = "directories"
 )
 
 // identityPart is one list or method of a side: the key a page knows it by and the name
@@ -85,11 +88,13 @@ type tsAPIIdentitySide struct {
 // pageLists names the structs of the lists of a side by what each holds. The whole
 // application's are the declarations over the auth's tables; a tenant's are the lists
 // the tenant keeps of them (listName). A person's roles are the one list that says where
-// each comes from, on both sides (identity_holdings.go).
+// each comes from, on both sides (identity_holdings.go). A tenant's side also names the
+// directories record, where the application declares one, for the page of a tenant's
+// sign-in settings.
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	data := &identitySourceData{identityInstance: i}
 	if tenant {
-		return []identityPart{
+		parts := []identityPart{
 			{identityListUsers, i.listName(listPeopleSuffix)},
 			{identityListRoles, i.listName(listHeldRolesSuffix)},
 			{identityListRolesToGive, data.TenantRoleChoice()},
@@ -101,6 +106,11 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListGroupRoles, i.groupListName(listGroupRolesSuffix, true)},
 			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
 		}
+		if i.tenant != nil && i.tenant.directories != "" {
+			parts = append(parts, identityPart{identityListDirectories, i.tenant.directories})
+		}
+
+		return parts
 	}
 
 	// A person's roles are one list where the schema holds what it reads, and the
@@ -141,7 +151,9 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 // name them (writeIdentitySources, tenantMethodSources): the act, then whose it is, the
 // auth's for the whole application and the auth's with the tenant record's name for a
 // tenant. The methods that end one session and unlock a sign-in are the whole
-// application's alone.
+// application's alone. A tenant's side of an application that declares a directories
+// record also names the tenant record's methods that set how the tenant's people enter
+// (tenantdirectoryrole.go, tenantdirectoryonly.go).
 func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	subject := i.subject(tenant)
 	parts := []identityPart{
@@ -185,6 +197,14 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 				identityPart{"withdrawInvitedTenant", i.withdrawInvitedTenantMethod()},
 			)
 		}
+	}
+	if tenant && i.tenant != nil && i.tenant.directories != "" {
+		parts = append(parts,
+			identityPart{"openToDirectory", openToDirectoryMethodName(i.tenant.name)},
+			identityPart{"makeDirectoryInviteOnly", makeInviteOnlyMethodName(i.tenant.name)},
+			identityPart{"makeDirectoryOnly", makeDirectoryOnlyMethodName(i.tenant.name)},
+			identityPart{"endDirectoryOnly", endDirectoryOnlyMethodName(i.tenant.name)},
+		)
 	}
 
 	return parts

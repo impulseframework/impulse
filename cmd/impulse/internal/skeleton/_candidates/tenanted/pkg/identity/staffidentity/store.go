@@ -768,6 +768,27 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
+// SeatedCount counts the people of the Staff auth who hold a role in the
+// tenant, in it or in every tenant: the rows of the tenant's own list of its people
+// (StaffTenantUser) for it, one row a person, the list DirectoryOutsiders reads, in the
+// caller's transaction. The read of the tenant's directory-only switch says it beside
+// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
+// page that shows the switch says how many of the tenant's people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := staffresources.NewStaffTenantUserQuery().
+		AddColumns(staffresources.NewStaffTenantUserColumns().ID()).
+		Where(staffresources.NewStaffTenantUserQueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "staffresources.StaffTenantUserQuery.List()")
+		}
+		seated++
+	}
+
+	return seated, nil
+}
+
 // DirectoryAdministrators lists the people of the Staff auth who are the tenant's own
 // administrators and have a password: the people who enter the tenant with it and a
 // code mailed to them while it is directory only, the one way in beside its directory.

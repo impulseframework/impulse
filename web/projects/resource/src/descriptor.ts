@@ -303,6 +303,11 @@ export interface IdentityLists {
    * the Break glass page lists, each with whether its time is over (`ended`).
    */
   readonly takenRoles?: string;
+  /**
+   * The tenant's directory, on a tenant's side: the record a tenant's one directory is a
+   * row of. The Sign-in settings page sets and removes it.
+   */
+  readonly directories?: string;
 }
 
 /**
@@ -355,6 +360,16 @@ export interface IdentityMethods {
   readonly inviteTenant?: string;
   readonly withdrawInvitedTenant?: string;
   readonly takeRole?: string;
+  /**
+   * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
+   * person gets the first time they sign in through the tenant's directory,
+   * `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and `endDirectoryOnly`
+   * turn the directory-only switch. None names a row.
+   */
+  readonly openToDirectory?: string;
+  readonly makeDirectoryInviteOnly?: string;
+  readonly makeDirectoryOnly?: string;
+  readonly endDirectoryOnly?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

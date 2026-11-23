@@ -477,10 +477,10 @@ skeleton's components are the pattern for the application's own: the dashboard r
 permission digest over a scripted client from `@impulseframework/resource-angular/testing`
 (`provideResourceTesting` puts the generated client on a transport that records every
 request and answers from the test); the new-tenant dialog posts to the create-your-tenant
-route and reports the server's refusal in place; the tenant's sign-in page has its own; and the
-menu file's spec holds every page the routes carry to a place in the menus. The frame
-itself (the tenant guard, the switcher, the menus and the person's menu) is the library's,
-tested there.
+route and reports the server's refusal in place; and the menu file's spec holds every page
+the routes carry to a place in the menus. The frame itself (the tenant guard, the
+switcher, the menus and the person's menu) and the tenant's Sign-in settings page are the
+library's, tested there.
 
 ## Live pages
 

@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan"
@@ -37,12 +38,44 @@ const DirectoryOnlyWord = "close"
 // it on takes of the caller.
 type DirectoryOnlyState struct {
 	DirectoryOnly bool `json:"directoryOnly"`
+	// Directory is the tenant's directory as people know it (DirectoryName), on or off,
+	// and never its connection. It is empty for a tenant with no directory.
+	Directory string `json:"directory,omitempty"`
+	// DefaultRole is the role a person gets the first time they sign in through the
+	// tenant's directory, in words (words.RoleInWords). It is empty where the tenant
+	// admits the directory's people by invitation only, has no directory, or its
+	// directories record declares no default seat.
+	DefaultRole string `json:"defaultRole,omitempty"`
+	// Passwords says the caller's auth has a password method (PasswordsBy), so that
+	// turning the switch on asks the caller for a password, and an administrator of the
+	// tenant who has one still enters it while it is on.
+	Passwords bool `json:"passwords,omitempty"`
+	// SignedIn says, to the caller, how their session was signed in, in the words a
+	// tenant's refusals say it in.
+	SignedIn string `json:"signedIn"`
+	// SessionDirectory is the organization's directory the caller's session was signed in
+	// through, as people know it (DirectoryName), whichever tenant's it is. It is empty
+	// for a session that came through no organization's directory.
+	SessionDirectory string `json:"sessionDirectory,omitempty"`
+	// People counts the tenant's people and the ones the switch keeps out (CountedBy),
+	// on or off. It is absent for a tenant with no directory and for rules that count
+	// nobody.
+	People *DirectoryOnlyCount `json:"people,omitempty"`
 	// Conditions are what turning the switch on takes of the person who turns it, said
 	// for the caller in the order the call checks them: whether the caller meets each,
 	// and what they do where they do not. A page shows them before the person tries.
 	// There are none while the switch is on, and none for a tenant with no directory,
 	// which is refused before anything is asked of the person.
 	Conditions []DirectoryOnlyCondition `json:"conditions,omitempty"`
+}
+
+// DirectoryOnlyCount is how many people hold a role in a tenant, Seated, and how many
+// of them the tenant's directory-only switch keeps out, Outside: the people who have
+// never signed in through the tenant's directory, counted as the warning that turns the
+// switch on counts them (DirectoryOutsiders), so the two always say the same number.
+type DirectoryOnlyCount struct {
+	Seated  int `json:"seated"`
+	Outside int `json:"outside"`
 }
 
 // DirectoryOnlyCondition is one thing turning a tenant directory only takes of the
@@ -752,11 +785,16 @@ func turnsOn(value any) bool {
 }
 
 // State answers tenant's directory-only switch as it stands, in the caller's
-// transaction, and, while it is off, what turning it on takes of the caller
-// (DirectoryOnlyState.Conditions): each condition the call would hold them to, whether
-// they meet it, and what they do where they do not, in the words the call refuses in.
-// A tenant with no directory is refused before anything is asked of the person, so no
-// condition is said for it. A tenant the record does not hold is NotFound.
+// transaction, with what a page of the tenant's sign-in settings says of how the tenant
+// stands: its directory as people know it, the role a person gets the first time they
+// sign in through it, in words, whether the caller's auth has passwords, how the caller
+// signed in, and how many people the tenant seats and how many of them the switch keeps
+// out (CountedBy), counted as the warning counts them. While the switch is off it also
+// says what turning it on takes of the caller (DirectoryOnlyState.Conditions): each
+// condition the call would hold them to, whether they meet it, and what they do where
+// they do not, in the words the call refuses in. A tenant with no directory is refused
+// before anything is asked of the person, so no condition is said for it, and nobody is
+// counted. A tenant the record does not hold is NotFound.
 func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyState, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {
@@ -765,10 +803,17 @@ func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransacti
 	if !found {
 		return nil, httpio.NewNotFoundMessagef("This %s does not exist.", r.word)
 	}
-	state := &DirectoryOnlyState{DirectoryOnly: on}
-	if on {
-		return state, nil
+	session := sessioninfo.DataFromCtx(ctx)
+	state := &DirectoryOnlyState{
+		DirectoryOnly:    on,
+		SignedIn:         establishedSentence(session, r.namers),
+		SessionDirectory: r.sessionDirectoryName(session),
 	}
+	password, applies, err := r.hasPassword(ctx, txn)
+	if err != nil {
+		return nil, err
+	}
+	state.Passwords = applies
 	directory, has, err := r.directoryOf(ctx, txn, tenant)
 	if err != nil {
 		return nil, err
@@ -776,11 +821,17 @@ func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransacti
 	if !has {
 		return state, nil
 	}
-	state.Conditions = append(state.Conditions, r.throughDirectory(ctx, directory))
-	password, applies, err := r.hasPassword(ctx, txn)
-	if err != nil {
+	state.Directory = r.directoryName(directory)
+	if state.DefaultRole, err = r.defaultRoleInWords(ctx, txn, tenant); err != nil {
 		return nil, err
 	}
+	if state.People, err = r.count(ctx, txn, tenant); err != nil {
+		return nil, err
+	}
+	if on {
+		return state, nil
+	}
+	state.Conditions = append(state.Conditions, r.throughDirectory(ctx, directory))
 	if applies {
 		state.Conditions = append(state.Conditions, password)
 	}
@@ -788,9 +839,72 @@ func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransacti
 	return state, nil
 }
 
+// sessionDirectoryName says the organization's directory session was signed in through,
+// as people know it, where establishedSentence says "You signed in through" it: empty
+// for a session signed in with a password or a personal account, or through no
+// directory.
+func (r *TenantDirectoryRules) sessionDirectoryName(session *sessioninfo.SessionData) string {
+	established, ok := session.EstablishedBy()
+	directory := signin.Directory{Method: established.Method, Connection: established.Connection}
+	// An organization's directory is signed in through neither a password nor a
+	// personal account, so this is where the sentence names it.
+	if !ok || !directory.Organization() {
+		return ""
+	}
+
+	return r.directoryName(directory)
+}
+
+// defaultRoleInWords says, in words, the role a person gets the first time they sign in
+// through tenant's directory, which the tenant has: empty where it admits the
+// directory's people by invitation only, or where the directories record declares no
+// default seat, which leaves the read with no role to say and no reason to fail.
+func (r *TenantDirectoryRules) defaultRoleInWords(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (string, error) {
+	if r.columns.DirectoriesKeyColumn == "" || r.columns.DefaultSeatColumn == "" {
+		return "", nil
+	}
+	directory, err := r.Directory(ctx, txn, tenant)
+	if err != nil {
+		return "", err
+	}
+	if directory.DefaultRole == "" {
+		return "", nil
+	}
+
+	return words.RoleInWords(string(directory.DefaultRole)), nil
+}
+
+// count sums, over the rules' counters, how many people tenant seats and how many of
+// them its switch keeps out; nil for rules that count nobody.
+func (r *TenantDirectoryRules) count(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyCount, error) {
+	if len(r.counters) == 0 {
+		return nil, nil
+	}
+	count := &DirectoryOnlyCount{}
+	for _, counter := range r.counters {
+		if counter.Seated != nil {
+			seated, err := counter.Seated(ctx, txn, tenant)
+			if err != nil {
+				return nil, errors.Wrap(err, "resource.SeatedCount()")
+			}
+			count.Seated += seated
+		}
+		if counter.Outsiders != nil {
+			outsiders, err := counter.Outsiders(ctx, txn, tenant)
+			if err != nil {
+				return nil, errors.Wrap(err, "resource.DirectoryOutsiders()")
+			}
+			count.Outside += len(outsiders)
+		}
+	}
+
+	return count, nil
+}
+
 // DirectoryOnlyStateHandler serves a tenant's directory-only switch as it stands
-// (DirectoryOnlyState, DirectoryOnlyRoute): what a tenant's Sign-in page shows the
-// person who may turn it, with what turning it on takes of them while it is off (State).
+// (DirectoryOnlyState, DirectoryOnlyRoute): what a tenant's Sign-in settings page shows
+// the person who may turn it, how the tenant stands and how many people the switch keeps
+// out, with what turning it on takes of them while it is off (State).
 // The read is the tenant's own: it is served under the tenant's
 // route and asked under the grants of the methods that turn the switch, Execute in the
 // tenant's scope on one of methods (the one that turns it on, or the one that turns it
@@ -799,7 +913,8 @@ func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransacti
 // the condition to judge. It writes nothing. client runs it in one transaction, rules
 // are the tenant record's, and tenantParam is the route parameter that names the
 // tenant. rules are the ones the methods that turn the switch are given, each auth's
-// answer about the caller's password with them (PasswordsBy), and the read stamps the
+// answer about the caller's password with them (PasswordsBy) and each auth's counters of
+// the tenant's people (CountedBy), and the read stamps the
 // caller it checked before it asks them (WithCaller): rules that ask no auth, or a
 // read that named no caller, would leave the password out of what the read says while
 // the method still refused for it. The generated handler of a tenant record that
