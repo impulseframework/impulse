@@ -452,8 +452,10 @@ CREATE TABLE Hangars (
 -- standing pass. The two subject sets the resource struct declares read this table: the
 -- hangars open to the requester and the hangars the requester runs, each through a pass
 -- in their own name, in the name of a squadron they fly with or in the name of a group
--- they are in. A pass goes with its hangar, with its squadron and with its group (the
--- foreign key to CrewGroups is added below that table). Its foreign key to its hangar
+-- they are in. A pass goes with its hangar and with the wing of its squadron, in code
+-- (Hangar and Wing declare it), and with its group by the database's rule (the foreign
+-- key to CrewGroups is added below that table). A squadron that holds a pass is not
+-- deleted until the pass is. Its foreign key to its hangar
 -- holds the sector beside the hangar's id, so a pass never names another sector's
 -- hangar. The holder check counts the three columns and takes exactly one; an empty
 -- UserId names nobody and is not counted.

@@ -1782,14 +1782,14 @@ transaction, and answers the first delete that has one with a 409:
   are sent one after the other. A transaction that deleted more than 200 rows of a kind
   is not counted over that kind.
 - The count never refuses a delete the database would take. A kind whose rows the
-  database removes with a row of another table (`DeleteKind.RemovedWith`: a sortie goes
-  with its mission) is not counted once the transaction deleted a row of that table, and
-  a kind the database removes with the record itself is not in the description.
+  database removes with a row of another table (`DeleteKind.RemovedWith`) is not counted
+  once the transaction deleted a row of that table, and a kind the database removes with
+  the record itself is not in the description. That is so only of a link that still
+  carries the database's rule, which no link to an application's record does.
 
 What the count does not reach is still the commit's to refuse, in the sentences of the
-table above: a row under a row the database removes with the record (a hangar's ships
-go with it, and a sortie names a ship), and a row an update of the same transaction
-leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
+table above: a row under a row the database removes with the record, and a row an update
+of the same transaction leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
 removes the rows under a record with raw mutations and deletes the record with a patch in
 one transaction is refused over rows that are about to go, so those rows are deleted
 through their patches. The mock client holds no rows and refuses nothing here, and
