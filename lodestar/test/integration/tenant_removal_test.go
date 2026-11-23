@@ -22,10 +22,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/resource"
@@ -57,22 +57,22 @@ func (w *tenantListsWorld) giveCrewRole(ctx context.Context, t *testing.T, name,
 	}
 }
 
-// askRemovalWarning asks the removal of the person for its warning as the user, under
-// the sector's address: the answer's status and body.
-func (w *tenantListsWorld) askRemovalWarning(t *testing.T, user accesstypes.User, sector, name string) (int, []byte) {
+// askRemovalWarning asks the removal of the person for its warning as Anvil's marshal,
+// under Anvil's address: the answer's status and body.
+func (w *tenantListsWorld) askRemovalWarning(t *testing.T, name string) (status int, body []byte) {
 	t.Helper()
 
-	rr := doRequestRecordedWithHeaders(t, w.h, user, http.MethodPost, sectorPath(sector, sectorRemovalPath), w.removalBody(name), map[string]string{resource.WarningHeader: "true"})
+	rr := doRequestRecordedWithHeaders(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, sectorRemovalPath), w.removalBody(name), map[string]string{resource.WarningHeader: "true"})
 
 	return rr.Code, rr.Body.Bytes()
 }
 
-// removeFromSector calls the removal of the person as the user, under the sector's
-// address: the answer's status and body.
-func (w *tenantListsWorld) removeFromSector(t *testing.T, user accesstypes.User, sector, name string) (int, []byte) {
+// removeFromSector calls the removal of the person as the user, under Anvil's address:
+// the answer's status and body.
+func (w *tenantListsWorld) removeFromSector(t *testing.T, user accesstypes.User, name string) (status int, body []byte) {
 	t.Helper()
 
-	return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, sectorRemovalPath), w.removalBody(name))
+	return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(anvil, sectorRemovalPath), w.removalBody(name))
 }
 
 // removalBody is the removal's request body naming the person.
@@ -138,7 +138,7 @@ func TestTenantRemoval(t *testing.T) {
 	}
 
 	t.Run("the warning names the roles that go and writes nothing", func(t *testing.T) {
-		status, body := w.askRemovalWarning(t, "marshal", anvil, "kit")
+		status, body := w.askRemovalWarning(t, "kit")
 		assertStatus(t, status, http.StatusOK, body)
 		want := resource.Warning{
 			Consequence: "kit is removed from this sector: every role they hold in it is taken away.",
@@ -146,15 +146,15 @@ func TestTenantRemoval(t *testing.T) {
 			Confirm:     removalConfirmSector,
 			Also:        []resource.WarningNote{{Says: removalKeepsAccount}},
 		}
-		if diff := cmp.Diff(want, decodeWarning(t, body)); diff != "" {
-			t.Errorf("the warning (-want +got):\n%s", diff)
+		if got := decodeWarning(t, body); !reflect.DeepEqual(got, want) {
+			t.Errorf("the warning = %+v, want %+v", got, want)
 		}
 		if got := crewHeldBy(t, w.db, w.ids["kit"]); !slices.Equal(got, kitHolds) {
 			t.Errorf("kit holds %v after the warning, want %v: the warning writes nothing", got, kitHolds)
 		}
 	})
 	t.Run("one call takes both of the sector's roles and keeps the other sector's", func(t *testing.T) {
-		status, body := w.removeFromSector(t, "marshal", anvil, "kit")
+		status, body := w.removeFromSector(t, "marshal", "kit")
 		assertStatus(t, status, http.StatusNoContent, body)
 		want := []string{"domain/" + bastion + " Pilot"}
 		if got := crewHeldBy(t, w.db, w.ids["kit"]); !slices.Equal(got, want) {
@@ -166,20 +166,23 @@ func TestTenantRemoval(t *testing.T) {
 		if _, listed := sectorList(t, w.h, "governor", bastion, sectorPeoplePath)[w.ids["kit"]]; !listed {
 			t.Error("kit is not among Bastion's people after the removal from Anvil")
 		}
+		if methods := executeAnswer(t, w.h, "governor", bastion, sectorPeoplePath, w.ids["kit"]); !slices.Contains(methods, "RemoveCrewSectorUser") {
+			t.Errorf("kit's row among Bastion's people lists %v, want RemoveCrewSectorUser: kit still holds Pilot there", methods)
+		}
 		if !crewAccountExists(t, w.db, w.ids["kit"]) {
 			t.Error("kit's account is gone, want it kept: kit holds a role at Bastion")
 		}
 	})
 	t.Run("a person who holds nothing else is told the account goes, and it goes", func(t *testing.T) {
-		status, body := w.askRemovalWarning(t, "marshal", anvil, "ada")
+		status, body := w.askRemovalWarning(t, "ada")
 		assertStatus(t, status, http.StatusOK, body)
-		if got := decodeWarning(t, body).Also; !cmp.Equal(got, []resource.WarningNote{{Says: removalDeletes}}) {
+		if got := decodeWarning(t, body).Also; !reflect.DeepEqual(got, []resource.WarningNote{{Says: removalDeletes}}) {
 			t.Errorf("the warning's notes = %v, want the account's deletion said", got)
 		}
 		if !crewAccountExists(t, w.db, w.ids["ada"]) {
 			t.Fatal("ada's account is gone after the warning, want it kept: the warning writes nothing")
 		}
-		status, body = w.removeFromSector(t, "marshal", anvil, "ada")
+		status, body = w.removeFromSector(t, "marshal", "ada")
 		assertStatus(t, status, http.StatusNoContent, body)
 		if crewAccountExists(t, w.db, w.ids["ada"]) {
 			t.Error("ada's account is still there after the removal, want it deleted")
@@ -216,7 +219,7 @@ func TestTenantRemoval(t *testing.T) {
 			}
 		}
 
-		status, body := w.removeFromSector(t, "mara", anvil, "mara")
+		status, body := w.removeFromSector(t, "mara", "mara")
 		assertStatus(t, status, http.StatusForbidden, body)
 		if got := refusalMessage(t, body); got != removingYourself {
 			t.Errorf("the removal of oneself answered %q, want %q", got, removingYourself)
@@ -227,9 +230,9 @@ func TestTenantRemoval(t *testing.T) {
 	})
 	t.Run("a person of another sector is not found under this sector's address", func(t *testing.T) {
 		before := crewHeldBy(t, w.db, w.ids["di"])
-		status, body := w.askRemovalWarning(t, "marshal", anvil, "di")
+		status, body := w.askRemovalWarning(t, "di")
 		assertStatus(t, status, http.StatusNotFound, body)
-		status, body = w.removeFromSector(t, "marshal", anvil, "di")
+		status, body = w.removeFromSector(t, "marshal", "di")
 		assertStatus(t, status, http.StatusNotFound, body)
 		if got := crewHeldBy(t, w.db, w.ids["di"]); !slices.Equal(got, before) {
 			t.Errorf("di holds %v after a call that found no row, want %v kept", got, before)
@@ -245,7 +248,7 @@ func TestTenantRemoval(t *testing.T) {
 			t.Errorf("bo's row reads heldHere = %v and heldInEveryTenant = %v, want true and false", bo["heldHere"], bo["heldInEveryTenant"])
 		}
 		before := crewHeldBy(t, w.db, w.ids["cy"])
-		status, body := w.removeFromSector(t, "marshal", anvil, "cy")
+		status, body := w.removeFromSector(t, "marshal", "cy")
 		assertStatus(t, status, http.StatusNotFound, body)
 		if got := refusalMessage(t, body); got != nothingToRemoveHere {
 			t.Errorf("the removal of cy answered %q, want %q", got, nothingToRemoveHere)
@@ -259,12 +262,12 @@ func TestTenantRemoval(t *testing.T) {
 		// Marshal's own role from a Marshal (conditions-proven).
 		provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RemoveCrewSectorRole", "role != 'SectorMarshal' AND everyDomain = false")
 
-		status, body := w.askRemovalWarning(t, "marshal", anvil, "mara")
+		status, body := w.askRemovalWarning(t, "mara")
 		assertStatus(t, status, http.StatusForbidden, body)
 		if got := refusalMessage(t, body); got != removalTakesMarshal {
 			t.Errorf("the warning answered %q, want %q", got, removalTakesMarshal)
 		}
-		status, body = w.removeFromSector(t, "marshal", anvil, "mara")
+		status, body = w.removeFromSector(t, "marshal", "mara")
 		assertStatus(t, status, http.StatusForbidden, body)
 		if got := refusalMessage(t, body); got != removalTakesMarshal {
 			t.Errorf("the call answered %q, want %q", got, removalTakesMarshal)
