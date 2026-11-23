@@ -322,7 +322,9 @@ export interface IdentityLists {
  * `describeGroup`, `deleteGroup`, `addGroupMember` and `giveGroupRole` run against a
  * group; `removeGroupMember` against a person's place in one; and `takeGroupRole`
  * against a role a group holds on a tenant's side, while the whole application's takes
- * the group's id and where the role is held. `inviteTenant` names no row: it takes the
+ * the group's id and where the role is held. `removeFromTenant`, a tenant's side alone,
+ * runs against a person: it takes away everything the person holds in the tenant itself,
+ * and warns first, in the server's words, whether the account goes with it. `inviteTenant` names no row: it takes the
  * invited address and the tenant record's fields, and sends the invitation whose first
  * sign-in makes the tenant; `withdrawInvitedTenant` takes such an invitation's id
  * (`invitationId`), which the page fills from its row. `takeRole` names no row and no
@@ -336,6 +338,7 @@ export interface IdentityMethods {
   readonly disable?: string;
   readonly enable?: string;
   readonly delete?: string;
+  readonly removeFromTenant?: string;
   readonly rename?: string;
   readonly setName?: string;
   readonly setEmail?: string;

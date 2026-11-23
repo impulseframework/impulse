@@ -137,6 +137,29 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
+			name:      "the method that removes a person from a tenant is named on the tenant's side alone",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			// RemoveCrewUser is a method by the name the whole application's side would give
+			// it, which that side does not name.
+			served: []string{"CrewSessionUsers", "DeleteCrewUser", "RemoveCrewUser", "CrewSectorUsers", "DeleteCrewSectorUser", "RemoveCrewSectorUser"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope:   accesstypes.GlobalPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSessionUsers")},
+						Methods: []identityPart{part("delete", "DeleteCrewUser")},
+					},
+					{
+						Scope:   accesstypes.DomainPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSectorUsers")},
+						Methods: []identityPart{part("delete", "DeleteCrewSectorUser"), part("removeFromTenant", "RemoveCrewSectorUser")},
+					},
+				},
+			}},
+		},
+		{
 			name:      "the auth that brings a tenant in by invitation names the list of the ones that stand and the two methods",
 			outlet:    "console",
 			instances: []*identityInstance{inviting},

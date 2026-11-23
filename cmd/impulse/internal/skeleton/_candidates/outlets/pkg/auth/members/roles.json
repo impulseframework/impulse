@@ -49,6 +49,9 @@
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {
+              "resource": "RemoveMembersTenantUser"
+            },
+            {
               "resource": "RenameMembersTenantUser",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
@@ -113,6 +116,8 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "heldHere",
+                "heldInEveryTenant",
                 "outsideDirectory",
                 "cannotEnter"
               ]
@@ -255,6 +260,8 @@
                 "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
+                "heldHere",
+                "heldInEveryTenant",
                 "cannotEnter"
               ]
             },

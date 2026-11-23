@@ -15,11 +15,15 @@ import (
 // session they hold, in one transaction: their next request is refused, and so is
 // their next sign-in. Nobody disables themselves: the caller's own account is refused.
 //
+// The person's own row does not offer it (@notOnOwnAccount): nobody disables or deletes
+// themselves, and the method refuses the call.
+//
 // A row offers it only to a caller whose session enters every sector the person
 // administers (@callerEnters); the method refuses anyone else.
 //
 // @rpc
 // @callerEnters
+// @notOnOwnAccount(ID)
 // @outlet(portal, default)
 // @answers(204)
 type DisableMembersUser struct {

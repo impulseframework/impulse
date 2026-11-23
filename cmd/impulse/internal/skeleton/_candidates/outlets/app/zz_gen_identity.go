@@ -388,6 +388,10 @@ func (a *App) RemoveStaffTenantRole() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RemoveStaffTenantRole()
 }
 
+func (a *App) RemoveStaffTenantUser() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).RemoveStaffTenantUser()
+}
+
 func (a *App) RenameStaffTenantUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RenameStaffTenantUser()
 }
@@ -808,6 +812,10 @@ func (a *App) RemoveMembersTenantGroupMember() http.HandlerFunc {
 
 func (a *App) RemoveMembersTenantRole() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RemoveMembersTenantRole()
+}
+
+func (a *App) RemoveMembersTenantUser() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).RemoveMembersTenantUser()
 }
 
 func (a *App) RenameMembersTenantUser() http.HandlerFunc {

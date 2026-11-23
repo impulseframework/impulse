@@ -168,6 +168,7 @@ linters:
           TestMethodRequestFieldsNoTarget|TestMethodRequestFieldsList|TestMethodRequestFieldsTarget|\
           TestRowsOfWrites|\
           TestSectorPilotsMethod|\
+          TestTenantRemoval|\
           TestWriteTenancy)\
           ('s subtests should call t\\.Parallel| missing the call to method parallel in )"
       # The request log suite redirects the standard logger, which the console exporter

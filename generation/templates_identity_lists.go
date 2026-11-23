@@ -35,6 +35,28 @@ const (
       AND {{ .Standing "g" }}
   )` + identityGroupPersonGlobally + ` AS HeldGlobally`
 
+	// identityTenantPersonHeldFacts are the two more facts about a person that a row of a
+	// tenant's list of people carries, after identityTenantPersonFacts, as
+	// identityTenantPersonFacts reads them: HeldHere, that the person holds something in
+	// the row's tenant itself, and HeldInEveryTenant, that the person holds a role in every
+	// tenant at once. Each check is an equality on the leading columns of the store's index
+	// by user. Where the auth keeps groups, a place in one of the tenant's own groups is
+	// something held in it, and a place in a group kept for the whole application that
+	// holds a role in every tenant is a role held in every tenant
+	// (identityGroupPersonHere, identityGroupPersonInEveryTenant). The list of a tenant's
+	// identities does not carry them.
+	identityTenantPersonHeldFacts = `,
+  (EXISTS (
+    SELECT 1 FROM {{ .Policy.UserRoles }} o
+    WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
+      AND {{ .Standing "o" }}
+  )` + identityGroupPersonHere + `) AS HeldHere,
+  (EXISTS (
+    SELECT 1 FROM {{ .Policy.UserRoles }} o
+    WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
+      AND {{ .Standing "o" }}
+  )` + identityGroupPersonInEveryTenant + `) AS HeldInEveryTenant`
+
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
 	// the memberships held in every tenant once per row of the tenant record's table),
@@ -189,12 +211,18 @@ type (
 	// ended, or has not begun, is not one of its people, whether or not the role's row
 	// still stands. {{ .TenantRole }} lists a role that has not begun, with its period.
 	//
-	// Two columns are facts about the person that no table holds, each under the name a
+	// Four columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. A role file
+	// (heldGlobally) says the person holds a role for the whole application. HeldHere
+	// (heldHere) says the person holds something in this tenant itself, a role of their own
+	// or a place in one of its groups: a person listed only through a role held in every
+	// tenant, or through a group kept for the whole application, holds nothing here, and
+	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
+	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
+	// how the application's own staff come to be among each tenant's people. A role file
 	// uses them to say what a tenant may see and do of a person who is not the tenant's
-	// alone. The list filters and sorts by the username and by the two facts; the
+	// alone. The list filters and sorts by the username and by the four facts; the
 	// account's other columns are no filter keys, so a role file may grant any of them
 	// under a condition at no cost to a page.
 	{{- if .TenantDirectory }}
@@ -245,6 +273,10 @@ type (
 		HeldElsewhere bool ` + "`spanner:\"HeldElsewhere\" index:\"true\"`" + `
 		// @attribute(heldGlobally)
 		HeldGlobally bool ` + "`spanner:\"HeldGlobally\" index:\"true\"`" + `
+		// @attribute(heldHere)
+		HeldHere bool ` + "`spanner:\"HeldHere\" index:\"true\"`" + `
+		// @attribute(heldInEveryTenant)
+		HeldInEveryTenant bool ` + "`spanner:\"HeldInEveryTenant\" index:\"true\"`" + `
 		{{- if .TenantDirectory }}
 		OutsideDirectory bool    ` + "`spanner:\"OutsideDirectory\" index:\"true\"`" + `
 		CannotEnter      *string ` + "`spanner:\"CannotEnter\"`" + `
@@ -271,7 +303,7 @@ SELECT
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
-` + identityTenantPersonFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
+` + identityTenantPersonFacts + identityTenantPersonHeldFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
 ` + "`" + `
 

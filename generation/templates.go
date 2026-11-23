@@ -4995,6 +4995,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- if .CallerEnters }}
 				CallerEnters: true,
 				{{- end }}
+				{{- with .NotOnOwnAccount }}
+				NotOnOwnAccount: "{{ . }}",
+				{{- end }}
 				{{- with .OfferedOn }}
 				OfferedOn: []accesstypes.Resource{ {{- range $i, $r := . }}{{ if $i }}, {{ end }}"{{ $r }}"{{ end -}} },
 				{{- end }}

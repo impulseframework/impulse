@@ -83,6 +83,7 @@ export const Methods = {
   RemoveMembersRole: 'RemoveMembersRole' as Method,
   RemoveMembersTenantGroupMember: 'RemoveMembersTenantGroupMember' as Method,
   RemoveMembersTenantRole: 'RemoveMembersTenantRole' as Method,
+  RemoveMembersTenantUser: 'RemoveMembersTenantUser' as Method,
   RenameMembersTenantUser: 'RenameMembersTenantUser' as Method,
   RenameMembersUser: 'RenameMembersUser' as Method,
   RevokeMembersSessionToken: 'RevokeMembersSessionToken' as Method,
@@ -846,6 +847,8 @@ export namespace MembersTenantUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
+    heldHere: 'heldHere' as FieldName,
+    heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
@@ -862,6 +865,8 @@ export namespace MembersTenantUsers {
     emailVerifiedAt: 'MembersTenantUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'MembersTenantUsers.heldElsewhere' as Resource,
     heldGlobally: 'MembersTenantUsers.heldGlobally' as Resource,
+    heldHere: 'MembersTenantUsers.heldHere' as Resource,
+    heldInEveryTenant: 'MembersTenantUsers.heldInEveryTenant' as Resource,
     id: 'MembersTenantUsers.id' as Resource,
     lastSignInAt: 'MembersTenantUsers.lastSignInAt' as Resource,
     name: 'MembersTenantUsers.name' as Resource,
@@ -1126,6 +1131,12 @@ export namespace RemoveMembersTenantRole {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     groupId: 'groupId' as FieldName,
+  };
+}
+
+export namespace RemoveMembersTenantUser {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
   };
 }
 
