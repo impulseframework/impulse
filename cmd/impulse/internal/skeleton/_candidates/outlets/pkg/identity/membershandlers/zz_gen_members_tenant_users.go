@@ -32,6 +32,8 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		HeldElsewhere          bool         `json:"heldElsewhere"          index:"true"`
 		HeldGlobally           bool         `json:"heldGlobally"           index:"true"`
+		HeldHere               bool         `json:"heldHere"               index:"true"`
+		HeldInEveryTenant      bool         `json:"heldInEveryTenant"      index:"true"`
 		OutsideDirectory       bool         `json:"outsideDirectory"       index:"true"`
 		CannotEnter            *string      `json:"cannotEnter"`
 	}
@@ -124,6 +126,14 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 					if !row.Masked("heldGlobally") {
 						rmap["heldGlobally"] = rec.HeldGlobally
 					}
+				case "HeldHere":
+					if !row.Masked("heldHere") {
+						rmap["heldHere"] = rec.HeldHere
+					}
+				case "HeldInEveryTenant":
+					if !row.Masked("heldInEveryTenant") {
+						rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+					}
 				case "OutsideDirectory":
 					if !row.Masked("outsideDirectory") {
 						rmap["outsideDirectory"] = rec.OutsideDirectory
@@ -167,6 +177,8 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		HeldElsewhere          bool         `json:"heldElsewhere"`
 		HeldGlobally           bool         `json:"heldGlobally"`
+		HeldHere               bool         `json:"heldHere"`
+		HeldInEveryTenant      bool         `json:"heldInEveryTenant"`
 		OutsideDirectory       bool         `json:"outsideDirectory"`
 		CannotEnter            *string      `json:"cannotEnter"`
 	}
@@ -246,6 +258,14 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 			case "HeldGlobally":
 				if !row.Masked("heldGlobally") {
 					rmap["heldGlobally"] = rec.HeldGlobally
+				}
+			case "HeldHere":
+				if !row.Masked("heldHere") {
+					rmap["heldHere"] = rec.HeldHere
+				}
+			case "HeldInEveryTenant":
+				if !row.Masked("heldInEveryTenant") {
+					rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
 				}
 			case "OutsideDirectory":
 				if !row.Masked("outsideDirectory") {

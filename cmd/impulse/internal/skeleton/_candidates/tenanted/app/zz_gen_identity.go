@@ -385,6 +385,10 @@ func (a *App) RemoveStaffTenantRole() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RemoveStaffTenantRole()
 }
 
+func (a *App) RemoveStaffTenantUser() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).RemoveStaffTenantUser()
+}
+
 func (a *App) RenameStaffTenantUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RenameStaffTenantUser()
 }

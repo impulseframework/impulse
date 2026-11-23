@@ -685,6 +685,15 @@ export interface RemoveCrewSectorRole {
 /** The statuses RemoveCrewSectorRole declares; the method chooses one per response. */
 export type RemoveCrewSectorRoleStatus = 204;
 
+export interface RemoveCrewSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewSectorUser {
+  userId: string;
+}
+/** The statuses RemoveCrewSectorUser declares; the method chooses one per response. */
+export type RemoveCrewSectorUserStatus = 204;
+
 export interface RenameCrewSectorUserConfig {
   userId: string | FieldPointer;
   username: string | FieldPointer;
@@ -1787,6 +1796,16 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'groupId', displayType: 'string' },
+    ],
+  },
+  [Methods.RemoveCrewSectorUser]: {
+    route: 'remove-crew-sector-user',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'remove' },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RenameCrewSectorUser]: {

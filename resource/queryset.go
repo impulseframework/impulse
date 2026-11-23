@@ -167,6 +167,14 @@ type QuerySet[Resource Resourcer] struct {
 	// nil otherwise. While it is empty nothing is rendered for it.
 	unentered []accesstypes.Domain
 
+	// ownAccounts are the accounts that are the caller's own (sessionOwnAccounts): the
+	// account the session runs as and, in a session that views as someone else, the
+	// real person's behind it, read by the capability check where the request asked
+	// for Execute and a method that names the resource's rows is kept off the row of
+	// the caller's own account (@notOnOwnAccount); nil otherwise. While it is empty
+	// nothing is rendered for it.
+	ownAccounts []string
+
 	// across is the partition of a list across tenants: the set of tenants the
 	// list reads and what the person's grants decide in each (across_tenants.go).
 	// Nil on every other QuerySet, whose partition is the one scope above.

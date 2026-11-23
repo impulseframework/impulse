@@ -1146,6 +1146,113 @@ describe("identityPages, a tenant's side", () => {
   });
 });
 
+describe("identityPages, a tenant's side that removes a person from the tenant", () => {
+  // The description names the removal on the tenant's side, and the list of the tenant's
+  // people says whether the person holds something in the tenant itself and whether they
+  // hold a role in every tenant at once.
+  const removing = {
+    ...descriptor,
+    identity: [
+      {
+        ...crew,
+        sides: crew.sides.map((side) =>
+          side.scope === 'domain'
+            ? { ...side, methods: { ...side.methods, removeFromTenant: 'RemoveCrewSectorUser' } }
+            : side,
+        ),
+      },
+    ],
+  } as ApiDescriptor;
+  const removingMetas = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSectorUsers'
+      ? fields(
+          'id',
+          'domainId',
+          'username',
+          'name',
+          'email',
+          'disabled',
+          'lastSignInAt',
+          'heldElsewhere',
+          'heldGlobally',
+          'heldHere',
+          'heldInEveryTenant',
+        )
+      : resourceMeta(resource);
+  const [people] = identityPages(removing, removingMetas, { auth: 'Crew', scope: 'domain' });
+
+  it('offers Remove from the sector after Enable, warned by the server, and Delete only on a row that does not offer it', () => {
+    expect(methodsOf(list(people).rowMethods)).toEqual([
+      ['AssignCrewSectorRole', 'Give a role'],
+      ['SetCrewSectorUserName', 'Change the name'],
+      ['DisableCrewSectorUser', 'Disable'],
+      ['EnableCrewSectorUser', 'Enable'],
+      ['RemoveCrewSectorUser', 'Remove from the sector'],
+      ['DeleteCrewSectorUser', 'Delete'],
+    ]);
+    const remove = presentation(list(people).rowMethods, 'RemoveCrewSectorUser');
+    expect([remove.icon, remove.confirm, remove.successMessage]).toEqual([
+      'person_remove',
+      undefined,
+      'The person was removed.',
+    ]);
+    // Delete is drawn on a row whose answer does not list the removal, and on no row whose
+    // answer does.
+    const answered = (capabilities: { Execute?: string[] }): RecordData =>
+      ({ zzCapabilities: capabilities }) as unknown as RecordData;
+    const deleteEntry = presentation(list(people).rowMethods, 'DeleteCrewSectorUser');
+    expect(deleteEntry.hidden).toBeUndefined();
+    expect([
+      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'] })),
+      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser'] })),
+      deleteEntry.when?.(answered({})),
+      deleteEntry.when?.({}),
+    ]).toEqual([false, true, true, true]);
+    // A tenant's side without the removal keeps Delete on every row.
+    const [without] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    const kept = presentation(list(without).rowMethods, 'DeleteCrewSectorUser');
+    expect([kept.hidden, kept.when]).toEqual([undefined, undefined]);
+    // The whole application's side keeps Delete on every row and has no removal.
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    expect(methodsOf(list(accounts).rowMethods).map(([method]) => method)).not.toContain('RemoveCrewSectorUser');
+    const everywhere = presentation(list(accounts).rowMethods, 'DeleteCrewUser');
+    expect([everywhere.hidden, everywhere.when]).toEqual([undefined, undefined]);
+  });
+
+  it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
+    const when = presentation(list(people).rowMethods, 'RemoveCrewSectorUser').when;
+    expect([when?.({ heldHere: false }), when?.({ heldHere: true }), when?.({})]).toEqual([false, true, true]);
+  });
+
+  it('says of a person who holds a role in every sector that they do, and not that another sector holds them besides', () => {
+    const says = stateOf(list(people));
+    expect(says({ heldInEveryTenant: true, heldElsewhere: true })).toEqual(['In every sector']);
+    expect(says({ heldElsewhere: true })).toEqual(['Also in another sector']);
+    expect(says({ heldElsewhere: true, heldInEveryTenant: true, heldGlobally: true })).toEqual([
+      'In every sector',
+      'Also holds a role in the whole application',
+    ]);
+    expect(sayingOf(people, 'State')({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([
+      'In every sector',
+      true,
+    ]);
+    // The whole application's side says neither.
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    expect(stateOf(list(accounts))({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([]);
+  });
+
+  it('reads with each person whether they hold something in the sector itself, and does not draw it', () => {
+    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldInEveryTenant', 'heldGlobally', 'heldHere']);
+    expect(pageFields(people).filter(([, , drawn]) => drawn === false)).toEqual([
+      ['field', 'disabled', false],
+      ['field', 'heldElsewhere', false],
+      ['field', 'heldInEveryTenant', false],
+      ['field', 'heldGlobally', false],
+      ['field', 'heldHere', false],
+    ]);
+  });
+});
+
 describe("identityPages, a person's password", () => {
   // An Auth with a password method: each side names the method that removes a person's
   // password and the list of the ways a person signs in, which the removal is offered from.
@@ -1984,7 +2091,7 @@ describe('identityPages, what the notice says once a method has run', () => {
           takeGroupRole: 'TakeCrewGroupRole',
         },
       },
-      tenant,
+      { ...tenant, methods: { ...tenant.methods, removeFromTenant: 'RemoveCrewSectorUser' } },
     ],
   };
   const everyMetas: Record<string, ResourceMeta> = {
@@ -2020,6 +2127,7 @@ describe('identityPages, what the notice says once a method has run', () => {
     expect(words(global, 'GiveCrewGroupRole')).toBe('The role was given to the group.');
     expect(words(global, 'WithdrawCrewInvitation')).toBe('The invitation is withdrawn.');
     expect(words(global, 'DisableCrewUser')).toBe('The account is disabled.');
+    expect(words(domain, 'RemoveCrewSectorUser')).toBe('The person was removed.');
     // Words a page gives an offer of its own are kept.
     expect(words(global, 'MakeCrewInviteOnly')).toBe('The method is invite only.');
   });

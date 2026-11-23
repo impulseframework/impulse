@@ -404,7 +404,7 @@ linters:
       text: Test_prepareIdentity
     - linters:
       - paralleltest
-      path: generation/identity_(givable|groups|periods|holdings|mailfailed|place|callerenters)_test\.go
+      path: generation/identity_(givable|groups|periods|holdings|mailfailed|place|callerenters|ownaccount)_test\.go
       text: Test_prepareIdentity
     - linters:
       - paralleltest

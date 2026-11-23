@@ -16,10 +16,11 @@ type Method interface {
 		EndMembersUserSessions | GiveMembersGroupRole | GiveMembersTenantGroupRole |
 		InviteMembersTenantUser | InviteMembersUser | RemoveMembersGroupMember |
 		RemoveMembersRole | RemoveMembersTenantGroupMember | RemoveMembersTenantRole |
-		RenameMembersTenantUser | RenameMembersUser | RevokeMembersSessionToken |
-		RevokeMembersTenantUserTrustedDevices | RevokeMembersUserTrustedDevices |
-		SetMembersTenantUserEmail | SetMembersTenantUserName | SetMembersUserEmail |
-		SetMembersUserName | TakeMembersGroupRole | TakeMembersRole | TakeMembersTenantGroupRole |
-		UnlinkMembersSessionIdentity | UnlinkMembersTenantSessionIdentity |
-		UnlockMembersSignIn | WithdrawMembersInvitation | WithdrawMembersTenantInvitation
+		RemoveMembersTenantUser | RenameMembersTenantUser | RenameMembersUser |
+		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
+		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
+		SetMembersUserEmail | SetMembersUserName | TakeMembersGroupRole | TakeMembersRole |
+		TakeMembersTenantGroupRole | UnlinkMembersSessionIdentity |
+		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
+		WithdrawMembersTenantInvitation
 }

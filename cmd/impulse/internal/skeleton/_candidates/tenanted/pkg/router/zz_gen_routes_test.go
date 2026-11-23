@@ -1164,6 +1164,10 @@ func (s *generatedHandlersStub) RemoveStaffTenantRole() http.HandlerFunc {
 	return s.record("RemoveStaffTenantRole")
 }
 
+func (s *generatedHandlersStub) RemoveStaffTenantUser() http.HandlerFunc {
+	return s.record("RemoveStaffTenantUser")
+}
+
 func (s *generatedHandlersStub) RenameStaffTenantUser() http.HandlerFunc {
 	return s.record("RenameStaffTenantUser")
 }

@@ -15,11 +15,15 @@ import (
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.
 //
+// The person's own row does not offer it (@notOnOwnAccount): nobody disables or deletes
+// themselves, and the method refuses the call.
+//
 // A row offers it only to a caller whose session enters every sector the person
 // administers (@callerEnters); the method refuses anyone else.
 //
 // @rpc
 // @callerEnters
+// @notOnOwnAccount(ID)
 // @outlet(portal, default)
 // @answers(204)
 type DeleteMembersUser struct {

@@ -172,6 +172,7 @@ export const Methods = {
   RemoveCrewSectorGroupMember: 'RemoveCrewSectorGroupMember' as Method,
   RemoveCrewSectorPassword: 'RemoveCrewSectorPassword' as Method,
   RemoveCrewSectorRole: 'RemoveCrewSectorRole' as Method,
+  RemoveCrewSectorUser: 'RemoveCrewSectorUser' as Method,
   RenameCrewSectorUser: 'RenameCrewSectorUser' as Method,
   RenameCrewUser: 'RenameCrewUser' as Method,
   RenameMembersSectorUser: 'RenameMembersSectorUser' as Method,
@@ -881,6 +882,8 @@ export namespace CrewSectorUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
+    heldHere: 'heldHere' as FieldName,
+    heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
@@ -898,6 +901,8 @@ export namespace CrewSectorUsers {
     emailVerifiedAt: 'CrewSectorUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'CrewSectorUsers.heldElsewhere' as Resource,
     heldGlobally: 'CrewSectorUsers.heldGlobally' as Resource,
+    heldHere: 'CrewSectorUsers.heldHere' as Resource,
+    heldInEveryTenant: 'CrewSectorUsers.heldInEveryTenant' as Resource,
     id: 'CrewSectorUsers.id' as Resource,
     lastSignInAt: 'CrewSectorUsers.lastSignInAt' as Resource,
     name: 'CrewSectorUsers.name' as Resource,
@@ -1628,6 +1633,8 @@ export namespace MembersSectorUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
+    heldHere: 'heldHere' as FieldName,
+    heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
@@ -1644,6 +1651,8 @@ export namespace MembersSectorUsers {
     emailVerifiedAt: 'MembersSectorUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'MembersSectorUsers.heldElsewhere' as Resource,
     heldGlobally: 'MembersSectorUsers.heldGlobally' as Resource,
+    heldHere: 'MembersSectorUsers.heldHere' as Resource,
+    heldInEveryTenant: 'MembersSectorUsers.heldInEveryTenant' as Resource,
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
     name: 'MembersSectorUsers.name' as Resource,
@@ -2709,6 +2718,12 @@ export namespace RemoveCrewSectorRole {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     groupId: 'groupId' as FieldName,
+  };
+}
+
+export namespace RemoveCrewSectorUser {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
   };
 }
 

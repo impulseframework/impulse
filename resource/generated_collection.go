@@ -265,6 +265,15 @@ type CollectionResource struct {
 	// the list shapes what a page offers. Only a method with no Target carries it.
 	OfferedOn []accesstypes.Resource
 
+	// NotOnOwnAccount is, for an RPC method that names a row (@notOnOwnAccount), the
+	// column of that row that holds the id of the account the row is of: the row does
+	// not offer the method to the person whose account it is, and in a session that
+	// views as someone else to neither the person viewed as nor the real person behind
+	// the session, and capabilities=Execute leaves it out of that row. The method's own
+	// code refuses the call; the mark shapes what a page offers. Only a method with a
+	// Target carries it.
+	NotOnOwnAccount string
+
 	// Parent is a workflow member's immediate parent: the resource its
 	// @stateRoot foreign key references (the root, or another member on the
 	// chain); empty for everything else. The create-under-parent affordance
@@ -473,6 +482,14 @@ func (b *CollectionBuilder) SetMethodOfferedOn(scope accesstypes.PermissionScope
 	b.g.setMethodOfferedOn(scope, method, rows)
 }
 
+// SetMethodNotOnOwnAccount records, for an RPC method resource that names a row within
+// scope, the column of the row that holds the id of the account the row is of
+// (@notOnOwnAccount): the row does not offer the method to the caller whose own account
+// it is. A second call for the method replaces the first.
+func (b *CollectionBuilder) SetMethodNotOnOwnAccount(scope accesstypes.PermissionScope, method accesstypes.Resource, column string) {
+	b.g.setMethodNotOnOwnAccount(scope, method, column)
+}
+
 // SetResourceParent records a workflow member's immediate parent within scope:
 // the resource its @stateRoot foreign key references.
 func (b *CollectionBuilder) SetResourceParent(scope accesstypes.PermissionScope, member, parent accesstypes.Resource) {
@@ -530,6 +547,10 @@ type GeneratedCollection struct {
 	// offeredOn are the resources whose rows offer a method that names no row, by
 	// method, within scope.
 	offeredOn map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Resource
+	// notOnOwnAccount are, for the targeted methods a row does not offer to the caller
+	// whose own account it is, the row's column that holds the account's id, by method,
+	// within scope.
+	notOnOwnAccount map[accesstypes.PermissionScope]map[accesstypes.Resource]string
 	// requiredTags are the fields a create of a resource must be given by the client.
 	requiredTags map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag
 	// formerTags are the renamed fields' former wire names by tag, and formerNames
@@ -567,6 +588,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		targets:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		callerEnters:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
 		offeredOn:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Resource, 2),
+		notOnOwnAccount: make(map[accesstypes.PermissionScope]map[accesstypes.Resource]string, 2),
 		parents:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		masking:         make(map[accesstypes.PermissionScope]maskingMap, 2),
 		queryKeys:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys, 2),
@@ -764,6 +786,13 @@ func (g *GeneratedCollection) addMethodDeclarations(res *CollectionResource) err
 			return err
 		}
 		g.setMethodOfferedOn(res.Scope, res.Name, res.OfferedOn)
+	}
+
+	if res.NotOnOwnAccount != "" {
+		if res.Target == "" && res.Transition == nil {
+			return errors.Newf("method resource %q is kept off the row of the caller's own account but names no target row", res.Name)
+		}
+		g.setMethodNotOnOwnAccount(res.Scope, res.Name, res.NotOnOwnAccount)
 	}
 
 	return nil
@@ -1370,6 +1399,16 @@ func (g *GeneratedCollection) setMethodOfferedOn(scope accesstypes.PermissionSco
 	g.offeredOn[scope][method] = slices.Clone(rows)
 }
 
+// setMethodNotOnOwnAccount records the column of the row an RPC method resource names
+// within scope that holds the id of the account the row is of, replacing any recorded
+// before.
+func (g *GeneratedCollection) setMethodNotOnOwnAccount(scope accesstypes.PermissionScope, method accesstypes.Resource, column string) {
+	if g.notOnOwnAccount[scope] == nil {
+		g.notOnOwnAccount[scope] = make(map[accesstypes.Resource]string)
+	}
+	g.notOnOwnAccount[scope][method] = column
+}
+
 // refuseOfferedOn refuses the rows a method that names no row is offered on where the
 // method names its row, or where a row has no name or is named twice. That the rows are
 // resources of the collection is not asked here, as a Target's is not: the generator
@@ -1467,12 +1506,16 @@ type TransitionMethod struct {
 // @target field addresses; Transition carries the declared edge when the
 // method is a transition, nil for the plain located-row form. CallerEnters
 // says the row offers the method only to a caller whose session enters the
-// tenants the row names (@callerEnters).
+// tenants the row names (@callerEnters). OwnAccountColumn is the row's column
+// that holds the id of the account the row is of, where the row does not offer
+// the method to the caller whose own account it is (@notOnOwnAccount); empty
+// otherwise.
 type TargetedMethod struct {
-	Method       accesstypes.Resource
-	Target       accesstypes.Resource
-	Transition   *TransitionData
-	CallerEnters bool
+	Method           accesstypes.Resource
+	Target           accesstypes.Resource
+	Transition       *TransitionData
+	CallerEnters     bool
+	OwnAccountColumn string
 }
 
 // MethodsTargeting lists the RPC method resources whose @target field
@@ -1495,6 +1538,7 @@ func (g *GeneratedCollection) MethodsTargeting(target accesstypes.Resource) []Ta
 			if _, ok := g.callerEnters[scope][method]; ok {
 				tm.CallerEnters = true
 			}
+			tm.OwnAccountColumn = g.notOnOwnAccount[scope][method]
 			methods = append(methods, tm)
 		}
 	}
@@ -1979,6 +2023,7 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 		if rows := g.offeredOn[key.scope][key.name]; len(rows) > 0 {
 			res.OfferedOn = slices.Sorted(slices.Values(rows))
 		}
+		res.NotOnOwnAccount = g.notOnOwnAccount[key.scope][key.name]
 
 		if parent, ok := g.parents[key.scope][key.name]; ok {
 			res.Parent = parent
