@@ -968,7 +968,12 @@ the way they signed in as its directory, and they are no marshal of one of them 
 in with a password; a person who holds a role outside any one
 sector (a global role, or one held in every sector) and a sign-in whose directory names
 the roles are admitted on the library's checks, and a
-person holding no sector too, since the pioneer signs up first and charts after. Whether
+person holding no sector too, since the pioneer signs up first and charts after. One part
+of a sector's declaration reaches past its own door: an account that signs in through a
+directory-only sector's directory signs in through that directory alone, whichever
+sectors seat the person. Any other sign-in of the account is refused, a password too,
+but for the password of that sector's own marshals, which waits for the code sent to
+their email, and for a super administrator. Whether
 anyone signs up is headquarters' choice in the running application, method by method: the
 console's Sign-in page lists the crew's sign-in methods, each invite only until the
 governor opens it (Open sign-up, behind a warning in the server's words, "Anyone with a
