@@ -10,6 +10,7 @@ import {
   FieldMeta,
   PermissionDigest,
   Resource,
+  ResourceDescriptor,
   ResourceMeta,
   TransportRequest,
   TransportResponse,
@@ -21,6 +22,7 @@ import { registerResourcePage, registerRowPage } from '@impulseframework/resourc
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   FieldName,
+  FieldSort,
   iconCellKey,
   listViewConfig,
   ListViewConfigOptions,
@@ -426,28 +428,47 @@ describe('ResourceListComponent', () => {
         [`${clients}.name`]: { List: 'conditional' },
         [`${clients}.notes`]: { List: 'granted' },
       };
-      /** The sort of the page's first request for the clients, with the name and the notes configured. */
-      const firstSort = async (computedClients: boolean): Promise<string | null> => {
+      const nameThenNotes: FieldSort[] = [
+        { field: 'name' as FieldName, direction: 'asc' },
+        { field: 'notes' as FieldName, direction: 'desc' },
+      ];
+      /** The digest the transport answers at each read of it. */
+      let answer: PermissionDigest;
+      beforeEach(() => {
+        answer = digest;
+      });
+      /** The sort of each of the page's requests for the clients, in the order asked. */
+      const clientsSorts = (): (string | null)[] =>
+        transport.requests
+          .filter((request) => request.url.split('?')[0] === '/api/clients')
+          .map((request) => new URL(request.url, 'http://list.test').searchParams.get('sort'));
+      /** The sort of the page's first request for the clients, with the name and the notes listed. */
+      const firstSort = async (
+        computedClients: boolean,
+        sorts: FieldSort[] = nameThenNotes,
+        clientsDescriptor: ResourceDescriptor = descriptor.resources[clients],
+      ): Promise<string | null> => {
         const config = listViewConfig({
           elements: [],
           primaryResource: clients,
           listColumns: [{ id: 'name' as FieldName }, { id: 'notes' as FieldName }],
-          sorts: [
-            { field: 'name' as FieldName, direction: 'asc' },
-            { field: 'notes' as FieldName, direction: 'desc' },
-          ],
+          sorts,
         });
         transport = scriptedTransport((request: TransportRequest): TransportResponse =>
           request.url.startsWith('/api/permission-digest')
-            ? { status: 200, body: digest }
+            ? { status: 200, body: answer }
             : { status: 200, body: [], headers: { 'total-count': '0' } },
         );
+        const described: ApiDescriptor = {
+          ...descriptor,
+          resources: { ...descriptor.resources, [clients]: clientsDescriptor },
+        };
         await TestBed.configureTestingModule({
           imports: [ResourceListComponent],
           providers: [
             provideResourceTesting({
               transport,
-              client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+              client: (t) => createClient(described, { baseUrl: '/api', transport: t }),
             }),
             {
               provide: RESOURCE_META,
@@ -468,8 +489,14 @@ describe('ResourceListComponent', () => {
         fixture.componentRef.setInput('resourceConfig', config);
         fixture.detectChanges();
         await settle();
-        const first = transport.requests.find((request) => request.url.split('?')[0] === '/api/clients');
-        return first ? new URL(first.url, 'http://list.test').searchParams.get('sort') : null;
+        return clientsSorts()[0] ?? null;
+      };
+      /** Reads the digest again, with the transport answering `next`, and lets the page ask what follows. */
+      const readAgain = async (next: PermissionDigest): Promise<void> => {
+        answer = next;
+        await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+        fixture.detectChanges();
+        await settle();
       };
 
       it('over a computed resource, the sort by the granted field alone', async () => {
@@ -478,6 +505,42 @@ describe('ResourceListComponent', () => {
 
       it('over a table, both sorts', async () => {
         expect(await firstSort(false)).toBe('name:asc,notes:desc');
+      });
+
+      it('over a computed resource with no declared order, whose every configured sort is cut, the key ascending', async () => {
+        expect(await firstSort(true, [nameThenNotes[0]])).toBe('id:asc');
+      });
+
+      it('over a computed resource with a declared order, whose every configured sort is cut, no sort: the declared order applies', async () => {
+        const ordered: ResourceDescriptor = {
+          ...descriptor.resources[clients],
+          order: [{ field: 'notes', direction: 'asc' }],
+        };
+
+        expect(await firstSort(true, [nameThenNotes[0]], ordered)).toBeNull();
+      });
+
+      it('follows the digest: a sort by a field the digest lists as conditional is cut when it is read again, and asked again where it is granted', async () => {
+        const granted: PermissionDigest = { ...digest, [`${clients}.name`]: { List: 'granted' } };
+        answer = granted;
+
+        expect(await firstSort(true)).toBe('name:asc,notes:desc');
+
+        const before = clientsSorts().length;
+        await readAgain(digest);
+        expect(clientsSorts().at(-1)).toBe('notes:desc');
+        expect(
+          clientsSorts()
+            .slice(before)
+            .filter((sort) => sort?.includes('name')),
+        ).toEqual([]);
+
+        await readAgain(granted);
+        expect(clientsSorts().at(-1)).toBe('name:asc,notes:desc');
+
+        const asked = fixture.componentInstance.store.sorts();
+        await readAgain(granted);
+        expect(fixture.componentInstance.store.sorts()).toBe(asked);
       });
     });
   });

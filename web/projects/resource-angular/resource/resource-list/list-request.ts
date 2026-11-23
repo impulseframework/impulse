@@ -3,6 +3,7 @@ import {
   FieldMeta,
   PermissionDigestState,
   Resource,
+  ResourceDescriptor,
   ResourceMeta,
   serializeFilter,
   where,
@@ -14,7 +15,14 @@ import {
   ColumnSearches,
   PageTurn,
 } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig, keyFields, ListViewConfig, roleInWords } from '@impulseframework/resource-angular/types';
+import {
+  ColumnConfig,
+  FieldName,
+  FieldSort,
+  keyFields,
+  ListViewConfig,
+  roleInWords,
+} from '@impulseframework/resource-angular/types';
 
 // The list page's pure parts around the server's page: which columns the server filters,
 // where the page sits after a turn, what an empty table says, and what a page refuses: a
@@ -158,6 +166,35 @@ export function answeredSorts<S extends { readonly field: string }>(
     return [...sorts];
   }
   return sorts.filter((sort) => listStates[sort.field] !== 'conditional');
+}
+
+/**
+ * The sorts a list over the resource is asked in for this caller: the sorts the server
+ * answers (answeredSorts) and, where that leaves none of the sorts that were asked for and
+ * the resource declares no order, its first key field ascending, which takes no grant. The
+ * server refuses a paged request with no sort for a resource with no declared order, so
+ * without the key a person whose role does not always see the fields a page sorts by would
+ * get no list. Where no sort was asked for none comes back: the declared order applies, or
+ * the page's author names one. A resource with no key is read whole and needs no order.
+ */
+export function listSorts(
+  sorts: readonly FieldSort[],
+  meta: ResourceMeta | undefined,
+  listStates: Readonly<Record<string, PermissionDigestState>>,
+  descriptor: ResourceDescriptor | undefined,
+): FieldSort[] {
+  const answered = answeredSorts(sorts, meta, listStates);
+  const key = keyFields(meta)[0];
+  if (answered.length > 0 || sorts.length === 0 || key === undefined || (descriptor?.order?.length ?? 0) > 0) {
+    return answered;
+  }
+
+  return [{ field: key.fieldName as FieldName, direction: 'asc' }];
+}
+
+/** Whether two lists of sorts ask the same order: the same fields and directions, in the same places. */
+export function sameSorts(a: readonly FieldSort[], b: readonly FieldSort[]): boolean {
+  return a.length === b.length && a.every((sort, i) => sort.field === b[i].field && sort.direction === b[i].direction);
 }
 
 /**

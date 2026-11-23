@@ -1,12 +1,20 @@
-import { ApiError, FieldMeta, PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
+import {
+  ApiError,
+  FieldMeta,
+  PermissionDigestState,
+  Resource,
+  ResourceDescriptor,
+  ResourceMeta,
+} from '@impulseframework/resource';
 import { PageTurn } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 import {
   answeredSorts,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   listEmptyMessage,
+  listSorts,
   pageLabel,
   PagePosition,
   positionAfter,
@@ -199,6 +207,50 @@ describe('answeredSorts', () => {
     expect(handed).toEqual(sorts);
     expect(got).not.toBe(handed);
     expect(answeredSorts(handed, table, states)).not.toBe(handed);
+  });
+});
+
+describe('listSorts', () => {
+  // The holder conditional and the budget granted; the key, which takes no grant, is
+  // named by no digest.
+  const states: Record<string, PermissionDigestState> = { holder: 'conditional', budget: 'granted' };
+  const byHolder = { field: 'holder' as FieldName, direction: 'desc' as const };
+  const byBudget = { field: 'budget' as FieldName, direction: 'asc' as const };
+  const unordered: ResourceDescriptor = {
+    resource: 'HangarPass' as Resource,
+    property: 'hangarPasses',
+    route: 'hangar-passes',
+    scope: 'domain',
+    consolidated: false,
+    keys: ['id'],
+    operations: ['list'],
+  };
+  const ordered: ResourceDescriptor = { ...unordered, order: [{ field: 'bay', direction: 'asc' }] };
+
+  it('a computed resource with no declared order keeps a sort the server answers, as it is', () => {
+    expect(listSorts([byHolder, byBudget], passes, states, unordered)).toEqual([byBudget]);
+  });
+
+  it('a computed resource with no declared order, every sort cut, is asked by its first key field ascending', () => {
+    expect(listSorts([byHolder], passes, states, unordered)).toEqual([{ field: 'id', direction: 'asc' }]);
+  });
+
+  it('every sort cut with a declared order gives none: the declared order applies', () => {
+    expect(listSorts([byHolder], passes, states, ordered)).toEqual([]);
+  });
+
+  it('no sort asked gives none', () => {
+    expect(listSorts([], passes, states, unordered)).toEqual([]);
+  });
+
+  it('no key field in the metadata, every sort cut, gives none: the resource is read whole', () => {
+    const keyless: ResourceMeta = { ...passes, fields: passes.fields.slice(1) };
+
+    expect(listSorts([byHolder], keyless, states, unordered)).toEqual([]);
+  });
+
+  it('over a table every sort comes back', () => {
+    expect(listSorts([byHolder, byBudget], table, states, unordered)).toEqual([byHolder, byBudget]);
   });
 });
 

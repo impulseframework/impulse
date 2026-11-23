@@ -103,18 +103,19 @@ import {
   searchRefusedNotice,
 } from '../search-box/search-fields';
 import {
-  answeredSorts,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   foundRolesLimit,
   listEmptyMessage,
+  listSorts,
   queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
   roleQuestionField,
   rolesQuestion,
+  sameSorts,
   searchEligibility,
   unorderedFields,
 } from './list-request';
@@ -636,6 +637,24 @@ export class ResourceListComponent implements OnInit {
     return this.auth.fieldPermissionStates({ resource, permission: ListPermission });
   });
 
+  /** The sorts the page wants: its config's until a header is clicked, then the person's choice. */
+  private readonly wantedSorts = signal<FieldSort[]>([]);
+
+  /**
+   * The sorts the list is asked in (listSorts): the wanted sorts as the server answers them
+   * for this caller. It follows the digest, so after the permissions are read again or under
+   * another tenant the list asks no sort the server refuses there, and asks a wanted sort
+   * again where the server answers it.
+   */
+  private readonly askedSorts = computed(
+    (): FieldSort[] => {
+      const resource = this.config().primaryResource;
+      const descriptor = resource ? this.store.client.descriptor.resources[resource] : undefined;
+      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor);
+    },
+    { equal: sameSorts },
+  );
+
   /**
    * The listed resource's metadata as this caller may sort and filter by it
    * (queryableMeta): on a computed resource, a column the digest lists as `conditional`
@@ -829,7 +848,8 @@ export class ResourceListComponent implements OnInit {
 
   /** A header click: the sorts to request next; the store drops the cursor and asks for a first page. */
   onSortChange(sorts: SortRule[]): void {
-    this.store.sorts.set(sorts as FieldSort[]);
+    this.wantedSorts.set(sorts as FieldSort[]);
+    this.store.sorts.set(this.askedSorts());
   }
 
   /**
@@ -1538,7 +1558,8 @@ export class ResourceListComponent implements OnInit {
       this.store.pageCapabilities.set(
         this.rowMethodNames().length > 0 || this.offeredMethodNames().length > 0 ? ['Execute'] : [],
       );
-      this.store.sorts.set(answeredSorts(this.config().sorts || [], this.meta(), this.listStates()));
+      this.wantedSorts.set(this.config().sorts || []);
+      this.store.sorts.set(this.askedSorts());
       this.store.pageSize.set(this.config().pageSize);
     }
 
@@ -1637,6 +1658,11 @@ export class ResourceListComponent implements OnInit {
             console.error('%s: the records read for %s could not be loaded:', resource, refKey, error);
           }
         }
+      });
+
+      // The store asks what the list is asked in now: the sorts follow the digest (askedSorts).
+      effect(() => {
+        this.store.sorts.set(this.askedSorts());
       });
 
       effect(() => {

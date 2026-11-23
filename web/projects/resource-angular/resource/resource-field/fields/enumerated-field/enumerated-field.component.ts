@@ -315,7 +315,11 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    */
   private keyField = computed((): string => keyFields(this.sourceMeta())[0]?.fieldName ?? 'id');
 
-  /** The display column shown first: the sort a paged source with no @order pages by. */
+  /**
+   * The display column shown first: the sort a paged source with no @order pages by, but
+   * for a computed source whose display column the digest lists as conditional, which
+   * pages by the key (pageRequest).
+   */
   private displayColumn = computed((): string | undefined => {
     const config = this.picker();
     return config.listDisplay[0] ?? config.viewDisplay[0];

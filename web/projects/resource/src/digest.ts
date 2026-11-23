@@ -5,8 +5,9 @@
  * the target whole while one holds and refuses it while none does; the digest does not
  * say which it is now. `conditional`: only condition-limited grants do, and one of them
  * reads more than the time (the row, a fact about the caller, a request field): render
- * the surface and expect the server to narrow it row by row. Denied is never a value: a
- * target the user cannot reach is absent from the digest, so consumers fail closed.
+ * the surface and expect the server to narrow it, row by row where a condition reads the
+ * row. Denied is never a value: a target the user cannot reach is absent from the
+ * digest, so consumers fail closed.
  */
 export type PermissionDigestState = 'granted' | 'conditional' | 'conditionalOnTime';
 
