@@ -11,16 +11,19 @@ import {
   liveChangeWait,
   LiveClock,
   LiveIdentity,
+  LiveNames,
   LiveOptions,
   liveRefetchInterval,
   liveRenewLimit,
   LiveSubscription,
   liveSubscription,
   mintLiveId,
+  namesHeader,
   noLiveRoutesWarning,
   PageEvents,
   pageIsLive,
   parseChangesHeader,
+  parseNamesHeader,
   sameSubscription,
   subscribeHeader,
   unpublishedLiveWarning,
@@ -1733,6 +1736,405 @@ describe('a live list across tenants', () => {
       { resource: 'Ships', acrossTenants: true },
       { resource: 'Ships', acrossTenants: true, domains: 'anvil,cinder' },
       { resource: 'Ships', domain: 'anvil' },
+    ]);
+    await h.client.live.stop();
+  });
+});
+
+// The lists a page's names are read from: a live answer whose names are read from other
+// lists names them in the names header, and the session keeps them under the
+// subscription that holds them, while it is watched. A change to one of them reaches the
+// holder's watchers as a change to their own list does, the holder's version follows
+// them, and the renewal carries each once with its name field.
+
+/** The names header as the server writes it on a live request's answer. */
+function namesAnswer(names: LiveNames): Record<string, string> {
+  return { [namesHeader.toLowerCase()]: encodeURIComponent(JSON.stringify(names)) };
+}
+
+/** The squadrons' list in Anvil, as a list of ships that shows each one's squadron by name is told of it. */
+const squadronNames: LiveSubscription = { resource: 'Squadrons', domain: 'anvil', nameField: 'name' };
+
+/** The anvil list of ships, which shows each ship's squadron by name. */
+const shipsNamed: LiveNames = { of: { resource: 'Ships', domain: 'anvil' }, names: [squadronNames] };
+
+/** A client whose renewals are answered by `decide`: the subscriptions it drops; every other is kept. */
+function renewing(decide: (subscription: LiveSubscription) => boolean): {
+  client: Client<Global, Sector>;
+  transport: ScriptedTransport;
+  feed: FakeFeed;
+  clock: FakeClock;
+  renewals: () => LiveSubscription[][];
+} {
+  const transport = scriptedTransport((request) => {
+    if (request.url === '/api/live/token') {
+      return { status: 200, body: identity };
+    }
+    if (request.url === '/api/live/renew') {
+      const body = request.body as { subscriptions: LiveSubscription[] };
+      return {
+        status: 200,
+        body: {
+          kept: body.subscriptions.filter((s) => !decide(s)),
+          dropped: body.subscriptions.filter((s) => decide(s)),
+          expiresAt: '2026-10-02T12:05:00Z',
+        },
+      };
+    }
+    return { status: 204, body: undefined };
+  });
+  const clock = new FakeClock();
+  const client = createClient<Global, Sector>(descriptor, {
+    baseUrl: '/api',
+    timeZone: '',
+    transport,
+    live: { renewInterval: 60 * 60 * 1000, page: new FakePage(), visibility: new FakeVisibility(), clock },
+  });
+  const renewals = () =>
+    transport.requests
+      .filter((r) => r.url === '/api/live/renew')
+      .map((r) => (r.body as { subscriptions: LiveSubscription[] }).subscriptions);
+  return { client, transport, feed: new FakeFeed(), clock, renewals };
+}
+
+describe('parseNamesHeader', () => {
+  it('reads the subscription and the lists its names are read from, and passes over an entry that is not a list', () => {
+    const header = namesAnswer({
+      of: { resource: 'Ships', domain: 'anvil' },
+      names: [
+        squadronNames,
+        { resource: 'ShipClasses', nameField: 'name' },
+        { resource: 'Bays', domain: 'anvil' },
+        { resource: 'Ships', key: 's1' },
+        { resource: 'Ships', acrossTenants: true },
+        { nameField: 'name' } as LiveSubscription,
+        'Squadrons' as unknown as LiveSubscription,
+      ],
+    })[namesHeader.toLowerCase()];
+    expect(parseNamesHeader(header)).toEqual({
+      of: { resource: 'Ships', domain: 'anvil' },
+      names: [squadronNames, { resource: 'ShipClasses', nameField: 'name' }, { resource: 'Bays', domain: 'anvil' }],
+    });
+  });
+
+  it('reads a row and a list across tenants as the server names them', () => {
+    const row = namesAnswer({ of: { resource: 'Ships', key: 's1' }, names: [squadronNames] });
+    expect(parseNamesHeader(row[namesHeader.toLowerCase()])?.of).toEqual({ resource: 'Ships', key: 's1' });
+    const across = namesAnswer({
+      of: { resource: 'Ships', acrossTenants: true, domains: 'anvil,cinder' },
+      names: [{ resource: 'ShipClasses', nameField: 'name' }],
+    });
+    expect(parseNamesHeader(across[namesHeader.toLowerCase()])?.of).toEqual({
+      resource: 'Ships',
+      acrossTenants: true,
+      domains: 'anvil,cinder',
+    });
+  });
+
+  it('answers nothing for a header it cannot read', () => {
+    expect(parseNamesHeader(undefined)).toBeUndefined();
+    expect(parseNamesHeader('')).toBeUndefined();
+    expect(parseNamesHeader('%E0%A4%A')).toBeUndefined();
+    expect(parseNamesHeader(encodeURIComponent('not json'))).toBeUndefined();
+    expect(parseNamesHeader(encodeURIComponent('[]'))).toBeUndefined();
+    expect(parseNamesHeader(encodeURIComponent(JSON.stringify({ names: [squadronNames] })))).toBeUndefined();
+    expect(
+      parseNamesHeader(encodeURIComponent(JSON.stringify({ of: { domain: 'anvil' }, names: [] }))),
+    ).toBeUndefined();
+  });
+});
+
+describe('the lists the names of a page are read from', () => {
+  it("a list change of a kept list in its domain, or a change to its whole resource, refetches the holder after the wait; another domain's and a row change do not", async () => {
+    const h = harness({});
+    const live = h.client.live;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    watching(h, fetches, 'bastion list', h.client.domain('bastion' as Domain).ships.subscription());
+    await live.start(h.feed);
+    fetches.length = 0;
+    live.named(shipsNamed);
+
+    h.feed.emit({ kind: 'list', resource: 'Squadrons', domain: 'bastion', at: '1700000000000301' });
+    h.feed.emit({ kind: 'row', resource: 'Squadrons', key: 'q1', at: '1700000000000302' });
+    h.feed.emit({ kind: 'list', resource: 'Pilots', domain: 'anvil', at: '1700000000000303' });
+    h.elapse();
+    expect(fetches).toEqual([]);
+
+    const renamed: ChangeEvent = { kind: 'list', resource: 'Squadrons', domain: 'anvil', at: '1700000000000304' };
+    h.feed.emit(renamed);
+    // Somebody else's change waits, as one to the page's own list does.
+    expect(fetches).toEqual([]);
+    h.elapse();
+    expect(fetches.map((f) => [f.who, f.version, f.event])).toEqual([['anvil list', '1700000000000304', renamed]]);
+    fetches.length = 0;
+
+    const bulk: ChangeEvent = { kind: 'resource', resource: 'Squadrons', at: '1700000000000305' };
+    h.feed.emit(bulk);
+    h.elapse();
+    expect(fetches.map((f) => [f.who, f.version, f.event])).toEqual([['anvil list', '1700000000000305', bulk]]);
+    await live.stop();
+  });
+
+  it("the tab's own write that names a kept list refetches the holder at once, by the write", async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-9', [{ kind: 'list', resource: 'Squadrons', domain: 'anvil' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    h.client.live.named(shipsNamed);
+
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches).toEqual([
+      {
+        who: 'anvil list',
+        version: 'w-9',
+        event: { kind: 'list', resource: 'Squadrons', domain: 'anvil', at: 'w-9', write: 'w-9' },
+        at: 0,
+      },
+    ]);
+    expect(h.clock.waiting).toBe(0);
+    await h.client.live.stop();
+  });
+
+  it("the holder's version is the latest among its own and its kept lists', so the next request is not answered from the cache", async () => {
+    const list = '/api/sectors/anvil/ships';
+    const h = harness({ [list]: { rows: [{ id: 's1' }], headers: namesAnswer(shipsNamed) } });
+    const live = h.client.live;
+    const ships = h.client.domain(anvil).ships;
+    live.watch(ships.subscription(), () => undefined);
+    await live.start(h.feed);
+    await ships.list({ live: true });
+    expect(live.version(ships.subscription())).toBe(live.seed);
+
+    h.feed.emit({ kind: 'list', resource: 'Squadrons', domain: 'anvil', at: '1700000000000311' });
+    expect(live.version(ships.subscription())).toBe('1700000000000311');
+    await ships.list({ live: true });
+    // A change to the page's own list after it is the later one.
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000312' });
+    expect(live.version(ships.subscription())).toBe('1700000000000312');
+    h.feed.emit({ kind: 'resource', resource: 'Squadrons', at: '1700000000000313' });
+    expect(live.version(ships.subscription())).toBe('1700000000000313');
+    // The list of Bastion keeps nothing, so its version is its own.
+    expect(live.version(h.client.domain('bastion' as Domain).ships.subscription())).toBe(live.seed);
+    expect(
+      sent(h.transport.requests)
+        .filter((r) => r.url === list)
+        .map((r) => r.version),
+    ).toEqual([live.seed, '1700000000000311']);
+    await live.stop();
+  });
+
+  it('the renewal carries each kept list once with its name field, beside a list watched in its own right, and forgets them with the last watcher', async () => {
+    const h = harness({});
+    const live = h.client.live;
+    const ships = h.client.domain(anvil).ships;
+    const releaseList = live.watch(ships.subscription(), () => undefined);
+    const releaseRow = live.watch(ships.subscription(['s1']), () => undefined);
+    const releaseOwn = live.watch({ resource: 'Squadrons', domain: 'anvil' }, () => undefined);
+    await live.start(h.feed);
+    live.named(shipsNamed);
+    live.named({
+      of: { resource: 'Ships', key: 's1' },
+      names: [
+        squadronNames,
+        { resource: 'ShipClasses', nameField: 'name' },
+        { resource: 'Squadrons', domain: 'anvil' },
+      ],
+    });
+    expect(live.subscriptions()).toEqual([
+      { resource: 'Ships', domain: 'anvil' },
+      squadronNames,
+      { resource: 'Ships', key: 's1', domain: 'anvil' },
+      { resource: 'ShipClasses', nameField: 'name' },
+      { resource: 'Squadrons', domain: 'anvil' },
+    ]);
+    await live.renew();
+    const renewal = h.transport.requests.filter((r) => r.url === '/api/live/renew').at(-1)!;
+    expect((renewal.body as { subscriptions: LiveSubscription[] }).subscriptions).toEqual(live.subscriptions());
+
+    // The row still keeps the squadrons' list; released, nothing keeps it.
+    releaseList();
+    expect(live.subscriptions()).toEqual([
+      { resource: 'Ships', key: 's1', domain: 'anvil' },
+      squadronNames,
+      { resource: 'ShipClasses', nameField: 'name' },
+      { resource: 'Squadrons', domain: 'anvil' },
+    ]);
+    releaseRow();
+    expect(live.subscriptions()).toEqual([{ resource: 'Squadrons', domain: 'anvil' }]);
+    releaseOwn();
+    // Watched anew, the row keeps nothing until an answer names its lists again.
+    live.watch(ships.subscription(['s1']), () => undefined);
+    expect(live.subscriptions()).toEqual([{ resource: 'Ships', key: 's1', domain: 'anvil' }]);
+    await live.stop();
+  });
+
+  it('a holder the server dropped is not renewed, and neither are its kept lists', async () => {
+    const r = renewing((s) => s.resource === 'Ships' && s.key === undefined);
+    await r.client.live.start(r.feed);
+    r.client.live.watch(r.client.domain(anvil).ships.subscription(), () => undefined);
+    r.client.live.watch(r.client.domain(anvil).ships.subscription(['s1']), () => undefined);
+    r.client.live.named(shipsNamed);
+    r.client.live.named({
+      of: { resource: 'Ships', key: 's1' },
+      names: [{ resource: 'Pilots', domain: 'anvil', nameField: 'callsign' }],
+    });
+    await r.client.live.renew();
+    expect(r.client.live.subscriptions()).toEqual([
+      { resource: 'Ships', key: 's1', domain: 'anvil' },
+      { resource: 'Pilots', domain: 'anvil', nameField: 'callsign' },
+    ]);
+    await r.client.live.stop();
+  });
+
+  it('a renewal that drops a kept list forgets it alone: the holder and a watched list of the same resource and domain stay current', async () => {
+    // The person may no longer list the squadrons' names; the squadrons themselves, and the ships, they still may.
+    const r = renewing((s) => s.nameField !== undefined);
+    const live = r.client.live;
+    const versions: { who: string; version: string }[] = [];
+    live.watch(r.client.domain(anvil).ships.subscription(), (version) => versions.push({ who: 'ships', version }));
+    live.watch({ resource: 'Squadrons', domain: 'anvil' }, (version) => versions.push({ who: 'squadrons', version }));
+    await live.start(r.feed);
+    versions.length = 0;
+    live.named(shipsNamed);
+
+    const answer = await live.renew();
+    expect(answer?.dropped).toEqual([squadronNames]);
+    expect(live.subscriptions()).toEqual([
+      { resource: 'Ships', domain: 'anvil' },
+      { resource: 'Squadrons', domain: 'anvil' },
+    ]);
+    await live.renew();
+    expect(r.renewals().at(-1)).toEqual([
+      { resource: 'Ships', domain: 'anvil' },
+      { resource: 'Squadrons', domain: 'anvil' },
+    ]);
+
+    // A change to the squadrons reaches their own list's watcher and no longer the ships'.
+    r.feed.emit({ kind: 'list', resource: 'Squadrons', domain: 'anvil', at: '1700000000000321' });
+    r.clock.advance(Math.max(liveChangeWait, liveRefetchInterval));
+    expect(versions).toEqual([{ who: 'squadrons', version: '1700000000000321' }]);
+    expect(live.version(r.client.domain(anvil).ships.subscription())).toBe(live.seed);
+    expect(live.version({ resource: 'Squadrons', domain: 'anvil' })).toBe('1700000000000321');
+    await live.stop();
+  });
+
+  it('a kept list with no name field the server drops is handled as any list it drops: not renewed again', async () => {
+    const r = renewing((s) => s.resource === 'Bays');
+    const live = r.client.live;
+    live.watch(r.client.domain(anvil).ships.subscription(), () => undefined);
+    await live.start(r.feed);
+    live.named({
+      of: { resource: 'Ships', domain: 'anvil' },
+      names: [squadronNames, { resource: 'Bays', domain: 'anvil' }],
+    });
+    await live.renew();
+    expect(live.subscriptions()).toEqual([{ resource: 'Ships', domain: 'anvil' }, squadronNames]);
+    await live.stop();
+  });
+
+  it('two answers for one subscription are joined, each list once, and a resync keeps them', async () => {
+    const h = harness({});
+    const live = h.client.live;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await live.start(h.feed);
+    live.named(shipsNamed);
+    live.named({
+      of: { resource: 'Ships', domain: 'anvil' },
+      names: [{ resource: 'Pilots', domain: 'anvil', nameField: 'callsign' }, squadronNames],
+    });
+    expect(live.subscriptions()).toEqual([
+      { resource: 'Ships', domain: 'anvil' },
+      squadronNames,
+      { resource: 'Pilots', domain: 'anvil', nameField: 'callsign' },
+    ]);
+
+    h.feed.resync();
+    fetches.length = 0;
+    expect(live.subscriptions()).toHaveLength(3);
+    h.feed.emit({ kind: 'list', resource: 'Pilots', domain: 'anvil', at: '1700000000000331' });
+    h.elapse();
+    expect(fetches.map((f) => [f.who, f.version])).toEqual([['anvil list', '1700000000000331']]);
+    await live.stop();
+  });
+
+  it('a page leave keeps them for a page the browser restores; logging out forgets them', async () => {
+    const h = harness({});
+    const live = h.client.live;
+    live.watch(h.client.domain(anvil).ships.subscription(), () => undefined);
+    await live.start(h.feed);
+    live.named(shipsNamed);
+    h.page.fire('pagehide');
+    expect(live.subscriptions()).toEqual([{ resource: 'Ships', domain: 'anvil' }, squadronNames]);
+    await live.stop();
+    expect(live.subscriptions()).toEqual([{ resource: 'Ships', domain: 'anvil' }]);
+    // While no feed runs the pages are plain: an answer's names are not kept.
+    live.named(shipsNamed);
+    expect(live.subscriptions()).toEqual([{ resource: 'Ships', domain: 'anvil' }]);
+  });
+
+  it('a row is found by an of that names no domain, in every domain it is watched in; a list across tenants by its tenants; an of nothing watches keeps nothing', async () => {
+    const h = harness({});
+    const live = h.client.live;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil s1', h.client.domain(anvil).ships.subscription(['s1']));
+    watching(h, fetches, 'bastion s1', h.client.domain('bastion' as Domain).ships.subscription(['s1']));
+    watching(h, fetches, 'anvil s2', h.client.domain(anvil).ships.subscription(['s2']));
+    watching(h, fetches, 'across', { resource: 'Ships', acrossTenants: true, domains: 'anvil,cinder' });
+    await live.start(h.feed);
+    fetches.length = 0;
+
+    live.named({ of: { resource: 'Ships', key: 's1' }, names: [squadronNames] });
+    live.named({
+      of: { resource: 'Ships', acrossTenants: true, domains: 'anvil,cinder' },
+      names: [{ resource: 'ShipClasses', nameField: 'name' }],
+    });
+    // Nothing watches the list of Bastion, nor the list across every tenant.
+    live.named({
+      of: { resource: 'Ships', domain: 'bastion' },
+      names: [{ resource: 'Pilots', domain: 'bastion', nameField: 'callsign' }],
+    });
+    live.named({ of: { resource: 'Ships', acrossTenants: true }, names: [{ resource: 'Wings', nameField: 'name' }] });
+
+    h.feed.emit({ kind: 'list', resource: 'Squadrons', domain: 'anvil', at: '1700000000000341' });
+    h.feed.emit({ kind: 'list', resource: 'ShipClasses', at: '1700000000000342' });
+    h.elapse();
+    expect(fetches.map((f) => [f.who, f.version]).sort()).toEqual([
+      ['across', '1700000000000342'],
+      ['anvil s1', '1700000000000341'],
+      ['bastion s1', '1700000000000341'],
+    ]);
+
+    h.client.live.watch(h.client.domain('bastion' as Domain).ships.subscription(), () => undefined);
+    h.client.live.watch({ resource: 'Ships', acrossTenants: true }, () => undefined);
+    expect(live.subscriptions().filter((s) => s.nameField !== undefined)).toEqual([
+      squadronNames,
+      { resource: 'ShipClasses', nameField: 'name' },
+    ]);
+    await live.stop();
+  });
+
+  it("the client hands an answer's names header to the session, and passes over one it cannot read", async () => {
+    const list = '/api/sectors/anvil/ships';
+    const row = '/api/sectors/anvil/ships/s1';
+    const h = harness({
+      [list]: { rows: [{ id: 's1' }], headers: namesAnswer(shipsNamed) },
+      [row]: { rows: { id: 's1' }, headers: { [namesHeader.toLowerCase()]: '%E0%A4%A' } },
+    });
+    const ships = h.client.domain(anvil).ships;
+    h.client.live.watch(ships.subscription(), () => undefined);
+    h.client.live.watch(ships.subscription(['s1']), () => undefined);
+    await h.client.live.start(h.feed);
+    await ships.list({ live: true });
+    expect(await ships.read(['s1'], { live: true })).toEqual({ id: 's1' });
+    expect(h.client.live.subscriptions()).toEqual([
+      { resource: 'Ships', domain: 'anvil' },
+      squadronNames,
+      { resource: 'Ships', key: 's1', domain: 'anvil' },
     ]);
     await h.client.live.stop();
   });

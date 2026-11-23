@@ -592,11 +592,15 @@ func (r *revokeRecorder) Revoked() []string {
 	return slices.Clone(r.revoked)
 }
 
-// admitted is the gate of a request the grants admit.
+// admitted is a request the grants admit, which shows no names.
 type admitted struct{}
 
 func (admitted) Permitted(context.Context) (bool, error) {
 	return true, nil
+}
+
+func (admitted) NameSources(context.Context) ([]resource.NameSource, error) {
+	return nil, nil
 }
 
 // serveAs runs one request through an outlet bound to auth (live.Subscribing in front of
@@ -656,7 +660,7 @@ func TestService_twoAuthsOneName(t *testing.T) {
 	// registers it, and asks for its identity.
 	for _, p := range people {
 		watch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			live.Subscribe(r.Context(), r, svc, admitted{}, p.watches)
+			live.Subscribe(r.Context(), w, r, svc, admitted{}, p.watches)
 			w.WriteHeader(http.StatusOK)
 		})
 		if rr := serveAs(t, p.auth, shared, watch, http.MethodGet, "/api/ships", ""); rr.Code != http.StatusOK {
