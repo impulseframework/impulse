@@ -59,7 +59,7 @@ import {
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { refusedSentence } from '../refused-fields';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
-import { filledMethods, OfferedMethod, rowMethods } from '../row-methods/row-methods';
+import { filledMethods, inNamedOrder, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
@@ -290,16 +290,19 @@ export class ResourceViewComponent implements OnInit {
     }
     const row = this.store.viewData();
     const presentations = config.rowMethods || undefined;
-    return [
-      ...rowMethods(row, this.store.methodsTargeting(resource as Resource), this.store.methodMeta, presentations),
-      // The methods the page fills from the row and that name no target row: offered
-      // while the digest grants the caller Execute on them and, for a method the rows of
-      // this resource answer for (`offeredOn` naming it), where the row's Execute answer
-      // lists it.
-      ...filledMethods(row, resource as Resource, presentations, this.store.methodMeta, (method) =>
-        this.auth.hasPermission({ resource: method as Method, permission: ExecutePermission }),
-      ),
-    ];
+    return inNamedOrder(
+      [
+        ...rowMethods(row, this.store.methodsTargeting(resource as Resource), this.store.methodMeta, presentations),
+        // The methods the page fills from the row and that name no target row: offered
+        // while the digest grants the caller Execute on them and, for a method the rows of
+        // this resource answer for (`offeredOn` naming it), where the row's Execute answer
+        // lists it.
+        ...filledMethods(row, resource as Resource, presentations, this.store.methodMeta, (method) =>
+          this.auth.hasPermission({ resource: method as Method, permission: ExecutePermission }),
+        ),
+      ],
+      presentations,
+    );
   });
 
   /**

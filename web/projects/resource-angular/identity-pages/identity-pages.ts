@@ -12,6 +12,8 @@ import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular
 import {
   ChildResourceConfig,
   ColumnConfig,
+  computedDisplayField,
+  ConfigElement,
   field,
   FieldName,
   ListPermission,
@@ -263,27 +265,17 @@ class SideBuilder {
    * The people, each with what the caller may do to them, and a person's row page with
    * the roles and the identities under it. A person's roles are one list, each saying
    * where it comes from: their own, or the group it comes through.
+   *
+   * A row says the person's state in one column, State, a line for each thing there is
+   * to say (statesOf): Disabled, Must change password, and on a tenant's list that
+   * another tenant or the whole application also holds the person. It is blank when all
+   * is well. Its words come from several fields, so the column neither sorts nor filters.
+   * A person's page is headed by the person (personTitle), and says the same state on
+   * one line, where there is any, and whether the email address is confirmed
+   * (personFields).
    */
   people(): RootConfig {
     const { lists, methods } = this.side;
-    const password = methods.requirePasswordChange !== undefined;
-    const fields: Named[] = [
-      ['username', 'Username'],
-      ['name', 'Name'],
-      ['email', 'Email'],
-      ['disabled', 'Disabled'],
-      ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
-      ['lastSignInAt', 'Last sign-in'],
-      ['heldElsewhere', `Also in another ${this.tenantWord}`],
-      // Only a tenant's list of its people carries it, and only where the tenant record
-      // has a directory-only switch: the server's sentence for a person the switch keeps
-      // out, empty for everyone else.
-      ['cannotEnter', 'Cannot enter'],
-    ];
-    const more: Named[] = [
-      ['emailVerifiedAt', 'Email verified'],
-      ['createdAt', 'Created'],
-    ];
     const users = lists.users as Resource;
     const related = [
       this.rolesOf(),
@@ -307,7 +299,40 @@ class SideBuilder {
           : {}),
         primaryResource: users,
         showRowCount: true,
-        listColumns: this.columns(users, fields),
+        // A person's page is headed by the person.
+        rowTitle: (row: RecordData) => this.personTitle(row),
+        listColumns: [
+          ...this.columns(users, [
+            ['username', 'Username'],
+            ['name', 'Name'],
+            ['email', 'Email'],
+          ]),
+          // The person's state, on the field it says first.
+          ...(this.has(users, 'disabled')
+            ? [
+                {
+                  id: 'disabled' as FieldName,
+                  header: 'State',
+                  lines: true,
+                  sortable: false,
+                  filterable: false,
+                  valueGetter: (row: RecordData) => this.statesOf(row),
+                },
+              ]
+            : []),
+          ...this.columns(users, [
+            ['lastSignInAt', 'Last sign-in'],
+            // Only a tenant's list of its people carries it, and only where the tenant
+            // record has a directory-only switch: the server's sentence for a person the
+            // switch keeps out, empty for everyone else.
+            ['cannotEnter', 'Cannot enter'],
+          ]),
+          // Read with each row and not drawn: what the State column says besides Disabled.
+          ...this.known(
+            users,
+            this.stateLines().filter(([name]) => name !== 'disabled'),
+          ).map(([name]) => ({ id: name as FieldName, hidden: true })),
+        ],
         rowMethods: this.onPerson(),
         listMethods: this.present([
           [
@@ -318,9 +343,7 @@ class SideBuilder {
         elements: [
           section({
             label: this.tenant ? 'Person' : 'Account',
-            children: this.known(users, [...fields, ...more]).map(([name, label]) =>
-              field({ name: name as FieldName, label, cols: 4 }),
-            ),
+            children: this.personFields(users),
           }),
         ],
       }),
@@ -951,13 +974,78 @@ class SideBuilder {
   }
 
   /**
+   * What a person's page is headed by: the name with the username beside it ("Ada
+   * Lovelace (ada)"), the one of the two the row holds where it holds one, and the page's
+   * word, "Person" or "Account", where the reader is shown neither.
+   */
+  private personTitle(row: RecordData): string {
+    const name = typeof row['name'] === 'string' ? row['name'] : '';
+    const username = typeof row['username'] === 'string' ? row['username'] : '';
+    if (name !== '' && username !== '') {
+      return `${name} (${username})`;
+    }
+    return name || username || (this.tenant ? 'Person' : 'Account');
+  }
+
+  /**
+   * The fields of a person's page, each where the schema carries the field it reads. The
+   * page says the state as the list does (statesOf), on one line, drawn only where there
+   * is something to say, and whether the email address is confirmed (emailConfirmed). The
+   * fields those two read are held by the page's form and not drawn: a field the page
+   * says in words reads the form's values, and the form holds a field the page names.
+   */
+  private personFields(users: Resource): ConfigElement[] {
+    const drawn = (named: Named[]): ConfigElement[] =>
+      this.known(users, named).map(([name, label]) => field({ name: name as FieldName, label, cols: 4 }));
+    return [
+      ...drawn([
+        ['username', 'Username'],
+        ['name', 'Name'],
+        ['email', 'Email'],
+      ]),
+      ...(this.has(users, 'emailVerifiedAt')
+        ? [
+            computedDisplayField({
+              label: 'Email confirmed',
+              cols: 4,
+              calculatedValue: (values: RecordData | undefined) => emailConfirmed(values),
+              shouldRender: (values: RecordData | undefined) => emailConfirmed(values) !== '',
+            }),
+          ]
+        : []),
+      // The state, where the schema carries the field the list's State column is on.
+      ...(this.has(users, 'disabled')
+        ? [
+            computedDisplayField({
+              label: 'State',
+              cols: 4,
+              calculatedValue: (values: RecordData | undefined) => this.statesOf(values).join(', '),
+              shouldRender: (values: RecordData | undefined) => this.statesOf(values).length > 0,
+            }),
+          ]
+        : []),
+      ...drawn([
+        ['lastSignInAt', 'Last sign-in'],
+        ['cannotEnter', 'Cannot enter'],
+        ['createdAt', 'Created'],
+      ]),
+      // Held by the form for the words above, and not drawn.
+      ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) =>
+        field({ name: name as FieldName, cols: 4, shouldRender: false }),
+      ),
+    ];
+  }
+
+  /**
    * The roles a person holds, under the person's row: one list, each role saying where
    * it comes from. A role of the person's own says "Their own", carries the reason it
    * was given for beside when it ends, and is taken away here. A role that comes through
    * a group names the group and links to the group's page, where it is changed: the
    * group loses the role there, or the person leaves the group. Where the server's list
    * holds a person's own roles alone (a description from before the one list), the roles
-   * held through a group are a second list under it (rolesThroughGroupsOf).
+   * held through a group are a second list under it (rolesThroughGroupsOf). Give a role
+   * is offered above the list as well as in the person's menu (giveRole), the same
+   * dialog in both places.
    */
   private rolesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
@@ -1020,6 +1108,7 @@ class SideBuilder {
             },
           ],
         ]),
+        listMethods: this.present([[methods.assignRole, this.giveRole()]]),
         elements: [],
       });
     }
@@ -1064,6 +1153,7 @@ class SideBuilder {
           },
         ],
       ]),
+      listMethods: this.present([[methods.assignRole, this.giveRole()]]),
       elements: [],
     });
   }
@@ -1348,31 +1438,38 @@ class SideBuilder {
     });
   }
 
+  /**
+   * How Give a role is presented, in the person's menu and above the list of the
+   * person's roles. A tenant's method names the person's row; the whole application's
+   * takes the id of the person's account, which the person's row fills: the row offered
+   * on in the menu, and the row the list sits under above it.
+   */
+  private giveRole(): Omit<MethodPresentation, 'method'> {
+    const { methods } = this.side;
+    return this.tenant
+      ? {
+          label: 'Give a role',
+          icon: 'badge',
+          labels: periodWords,
+          throughDay: periodEnds,
+          ...this.rolesWhere('role', methods.assignRole),
+        }
+      : {
+          label: 'Give a role',
+          icon: 'badge',
+          fill: (row) => ({ userId: row['id'] }),
+          labels: { ...this.where(), ...periodWords },
+          throughDay: periodEnds,
+          ...this.rolesWhere('role', methods.assignRole),
+        };
+  }
+
   /** How the methods that run against a person are presented. */
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
     return this.present([
-      [
-        methods.assignRole,
-        this.tenant
-          ? {
-              label: 'Give a role',
-              icon: 'badge',
-              labels: periodWords,
-              throughDay: periodEnds,
-              ...this.rolesWhere('role', methods.assignRole),
-            }
-          : // The whole application's method takes the id of the person's account, which the row fills.
-            {
-              label: 'Give a role',
-              icon: 'badge',
-              fill: (row) => ({ userId: row['id'] }),
-              labels: { ...this.where(), ...periodWords },
-              throughDay: periodEnds,
-              ...this.rolesWhere('role', methods.assignRole),
-            },
-      ],
+      [methods.assignRole, this.giveRole()],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
       [methods.rename, { label: 'Change the username', icon: 'edit' }],
@@ -1785,6 +1882,42 @@ class SideBuilder {
     };
   }
 
+  /**
+   * The fields a person's state is said from on this side, each with the line a row
+   * says where the field is true, in the order the lines are said: Disabled; Must change
+   * password, where the side has a password method; and on a tenant's side that another
+   * tenant also holds the person, or that they hold a role in the whole application,
+   * which keeps Disable and Delete from the tenant's administrator as a shared person
+   * does.
+   */
+  private stateLines(): Named[] {
+    const password = this.side.methods.requirePasswordChange !== undefined;
+    return [
+      ['disabled', 'Disabled'],
+      ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
+      ...(this.tenant
+        ? ([
+            ['heldElsewhere', `Also in another ${this.tenantWord}`],
+            ['heldGlobally', 'Also holds a role in the whole application'],
+          ] as Named[])
+        : []),
+    ];
+  }
+
+  /**
+   * What a person's row says of their state, a line each (stateLines): a line for each
+   * field the row holds as true, so a field the reader's role leaves out of the row says
+   * nothing. Empty when all is well, and for no row.
+   */
+  private statesOf(row: RecordData | undefined): string[] {
+    if (!row) {
+      return [];
+    }
+    return this.stateLines()
+      .filter(([name]) => row[name] === true)
+      .map(([, line]) => line);
+  }
+
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
   private route(page: IdentityPage, lists: string): string {
     return this.options.routes?.[page] ?? `${this.base}-${lists}`;
@@ -2045,6 +2178,33 @@ function lastDay(end: unknown): string {
  * in the viewer's time zone. A role taken for an hour ends at a time, not on a day.
  */
 const dayAndTime = 'M/d/yyyy h:mm a';
+
+/**
+ * How a page writes the day of an instant, in the viewer's time zone and with the year,
+ * so a day of last year is not read as one of this year: "Nov 15, 2026".
+ */
+const dayWithYear = 'MMM d, yyyy';
+
+/**
+ * Whether a person's email address is confirmed, as their page says it: the day it was
+ * ("Nov 15, 2026"); "Not confirmed" beside an address with no such day; and nothing where
+ * the page holds neither, as a page holds a field the reader's role does not show, and
+ * before the page's form is made.
+ */
+function emailConfirmed(values: RecordData | undefined): string {
+  if (!values) {
+    return '';
+  }
+  const at = values['emailVerifiedAt'];
+  if (typeof at === 'string' || at instanceof Date) {
+    const instant = new Date(at);
+    if (!Number.isNaN(instant.getTime())) {
+      return format(instant, dayWithYear);
+    }
+  }
+  const email = values['email'];
+  return typeof email === 'string' && email !== '' ? 'Not confirmed' : '';
+}
 
 /**
  * When a role held for a set time ends and how long is left, as a list says it in one
