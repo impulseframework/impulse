@@ -1,6 +1,8 @@
 package authpkg
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -85,7 +87,21 @@ func TestMigrations_listIndexes(t *testing.T) {
 func TestMigrations_normalizedUsername(t *testing.T) {
 	t.Parallel()
 
-	const column = "  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE_AND_CASEFOLD(Username))) STORED,\n"
+	file := filepath.Join("..", "..", "..", "..", "session", "schema", "spanner", "migrations", "000002_SessionUsers.up.sql")
+	library, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%s) error = %v", file, err)
+	}
+	var columns []string
+	for _, line := range strings.SplitAfter(string(library), "\n") {
+		if strings.HasPrefix(line, "  NormalizedUsername ") {
+			columns = append(columns, line)
+		}
+	}
+	if len(columns) != 1 {
+		t.Fatalf("%s has %d lines of the NormalizedUsername column, want 1", file, len(columns))
+	}
+	column := columns[0]
 	for _, tt := range []struct {
 		name            string
 		usernameIsEmail bool
