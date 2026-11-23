@@ -4378,10 +4378,11 @@ address. In an application with a tenant record (`@tenant`) the generated manage
 declares four views per Auth, each a tenant record like any other (`@virtual`,
 `@permissionScope(domain)`, the tenant in a `domain` column), listed and read under the
 domain pair on the outlets that serve the Auth's management. The whole application's
-lists carry the names of their tables; a tenant's list is named for what it holds, with
-the Auth's name and the application's tenant record's before it. A tenant record whose
-name would give a list the name of one of the tables' declarations (a record named
-`Session` or `User`) is refused at generation:
+lists carry the names of their tables, and its lists of what is held (`CrewHeldRoles`,
+`CrewListedUsers`, `CrewListedGroups`) the Auth's name before what each lists; a tenant's
+list is named for what it holds, with the Auth's name and the application's tenant
+record's before it. A tenant record whose name would give a list one of those names (a
+record named `Session`, `User` or `Listed`) is refused at generation:
 
 - `CrewSectorUsers`, the tenant's people: one row per person who holds a role in
   the tenant or in every tenant, keyed by the account's id, with the columns of
@@ -4904,7 +4905,10 @@ grants each like any resource.
   `roles`, a line for each role the account holds ("Engineer", "Engineer in sector
   Anvil", "Pilot in every sector"; the role's name alone where the application has no
   tenants), and, where the schema holds the sign-in attempts table, `lockedUntil`: until
-  when the account's sign-in is locked by failed tries. The Accounts page lists it, it
+  when the account's sign-in is locked by failed tries. A line names the tenant its role
+  is held in by the name people call the tenant by, or by its key where the tenant record
+  marks no name, so a grant of `roles` shows those names whatever the reader is granted
+  on the tenant record, as a line of `CrewListedGroups` does. The Accounts page lists it, it
   filters by `username`, `name` and `email`, and the whole application's methods on a
   person name their person by its row. `CrewSessionUsers`, the users table's own list,
   stays: a picker of a person reads it.
