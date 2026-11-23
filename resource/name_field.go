@@ -2,6 +2,7 @@ package resource
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 
@@ -37,6 +38,10 @@ type NameField struct {
 	Table      string
 	KeyColumn  string
 	NameColumn string
+	// View says the pointed-to resource is a view: Table is its resource's name, and a
+	// statement reads the view's query in the table's place, with the view's
+	// parameters, from the views the decoder was handed (WithNameViews).
+	View bool
 	// TenantColumn is the pointed-to table's tenant column, which a lookup holds to the
 	// request's tenant; empty where the pointed-to resource belongs to no tenant. Where
 	// that resource reaches its tenant through other tables, TenantColumn is the column
@@ -69,8 +74,28 @@ func (n *NameField) GoLiteral() string {
 		path.WriteString(featuresLiteral(n.Features))
 	}
 
-	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q, TenantColumn: %q%s}",
-		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, n.TenantColumn, path.String())
+	view := ""
+	if n.View {
+		view = ", View: true"
+	}
+
+	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q%s, TenantColumn: %q%s}",
+		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, view, n.TenantColumn, path.String())
+}
+
+// NameViews maps a view's resource to the view, for the decoders whose names are read
+// from views (WithNameViews).
+type NameViews map[accesstypes.Resource]View
+
+// MergeNameViews returns one map holding every entry of its arguments, a later
+// argument's entry replacing an earlier one's.
+func MergeNameViews(sets ...NameViews) NameViews {
+	merged := make(NameViews)
+	for _, set := range sets {
+		maps.Copy(merged, set)
+	}
+
+	return merged
 }
 
 // featuresLiteral renders flags as the Features element of a Go composite literal,

@@ -95,6 +95,10 @@ type QueryDecoder[Resource Resourcer, Request any] struct {
 	// refused as any unknown field is and the default projection leaves it out. Nil
 	// hides every gated field.
 	features *FeatureSet
+	// nameViews are the views the decoder's names may be read from (WithNameViews),
+	// by resource: a name whose pointed-to resource is a view (NameField.View) is read
+	// from the view's query.
+	nameViews NameViews
 	// boxFields are the request fields the search box searches, in declaration
 	// order, and boxPIIFields those among them that are PII; boxPII says one of
 	// them, or a @searchAlso branch, is PII, so a filter carrying the box posts
@@ -112,6 +116,33 @@ type QueryDecoder[Resource Resourcer, Request any] struct {
 // stays hidden.
 func (d *QueryDecoder[Resource, Request]) WithFeatures(features *FeatureSet) *QueryDecoder[Resource, Request] {
 	d.features = features
+
+	return d
+}
+
+// WithNameViews hands the decoder the views its names may be read from; the generated
+// handlers hand every view that declares a name. It panics where a name of the
+// decoder's, in the request type's order, is read from a view the map holds no entry
+// for, or from a view whose query opens with a WITH clause, which the statement of the
+// list that shows the name cannot hold where the name is read. A decoder whose names
+// are all read from tables accepts any map, nil included.
+func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryDecoder[Resource, Request] {
+	var res Resource
+	for i := range d.names {
+		name := &d.names[i]
+		if !name.View {
+			continue
+		}
+		view, ok := views[name.Resource]
+		if !ok {
+			panic(noNameView(&name.NameField, res.Resource()))
+		}
+		query, _ := view.Subquery()
+		if withClause, _ := extractWithClause(query); withClause != "" {
+			panic(fmt.Sprintf("name field %s of %s is read from the view %s, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.", name.Field, res.Resource(), name.Resource))
+		}
+	}
+	d.nameViews = views
 
 	return d
 }
@@ -328,7 +359,7 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 // read the WITH table's rows. The names are checked in the request type's order.
 func refuseWithTableNamedAsNames[Resource Resourcer](names []requestName) error {
 	var res Resource
-	view, ok := any(res).(virtualQuerier)
+	view, ok := any(res).(View)
 	if !ok || len(names) == 0 {
 		return nil
 	}
@@ -518,6 +549,7 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 	qSet.collection = d.collection
 	qSet.jsonNames = d.requestFieldMapper.JSONNames()
 	qSet.names = d.queryNames(hidden)
+	qSet.nameViews = d.nameViews
 	qSet.SetFilterParser(parsedQuery.FilterParser)
 	qSet.filterFields = parsedQuery.FilterFields
 	qSet.filterNames = parsedQuery.FilterNames

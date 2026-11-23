@@ -34,12 +34,15 @@ type QuerySet[Resource Resourcer] struct {
 	// order whose id the person may not read (closeDeclaredOrder). filterNames are
 	// the names the request's filter names, each once, in first appearance: the
 	// statement tests each through the pointed-to table (name_filter.go), and
-	// each takes its grants as a name the request sorts by does.
+	// each takes its grants as a name the request sorts by does. nameViews are
+	// the decoder's views (WithNameViews), which a name read from a view is read
+	// through.
 	names       []requestName
 	shownNames  []accesstypes.Field
 	filterNames []accesstypes.Field
 	nameGrants  map[accesstypes.Field]accesstypes.Decision
 	closedNames map[accesstypes.Field]struct{}
+	nameViews   NameViews
 	// closedOrder are the fields of the declared order in force that the person
 	// may not read (closeDeclaredOrder): the statement reads each as NULL on
 	// every row (withClosedOrder), so the list comes in the order of the
@@ -205,7 +208,7 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 	var r Resource
 
 	switch t := any(r).(type) {
-	case virtualQuerier:
+	case View:
 		withClause, query, params, err := viewFromItem(r.Resource(), t)
 		if err != nil {
 			panic(err.Error())
@@ -222,7 +225,7 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 // lifted out to lead the statement, and the parameters the query binds. A parameter
 // whose name starts with an underscore is refused: that namespace is the statement's
 // own.
-func viewFromItem(res accesstypes.Resource, view virtualQuerier) (withClause, item string, params map[string]any, err error) {
+func viewFromItem(res accesstypes.Resource, view View) (withClause, item string, params map[string]any, err error) {
 	query, params := view.Subquery()
 	for name := range params {
 		if strings.HasPrefix(name, "_") {

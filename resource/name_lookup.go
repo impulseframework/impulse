@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -520,6 +521,10 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
 		}
 
+		query, err := q.nameViewQuery(&name.NameField, registry)
+		if err != nil {
+			return nil, err
+		}
 		alias := registry.alias()
 		var where ExpressionNode = &loweredComparisonNode{
 			left:  columnComparand(alias, name.KeyColumn),
@@ -534,7 +539,7 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 				return nil, err
 			}
 		}
-		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, alias: alias, column: name.NameColumn, where: where})
+		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, query: query, alias: alias, column: name.NameColumn, where: where})
 		sql, err := gen.generateLoweredComparand(&lookup, registry)
 		if err != nil {
 			return nil, errors.Wrapf(err, "name field %s", field)
@@ -546,6 +551,37 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	}
 
 	return rendered, nil
+}
+
+// nameViewQuery returns the query of the view a name is read from, "" where the
+// name is read from a table, and binds the view's parameters into the statement's
+// (bindView). A name read from a view the decoder was not handed is not read, and a
+// parameter of the view's whose name starts with an underscore is refused as a
+// list's own view's is (viewFromItem); so is one another view binds.
+func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry) (string, error) {
+	if !name.View {
+		return "", nil
+	}
+	view, ok := q.nameViews[name.Resource]
+	if !ok {
+		return "", errors.New(noNameView(name, q.Resource()))
+	}
+	query, params := view.Subquery()
+	for _, param := range slices.Sorted(maps.Keys(params)) {
+		if strings.HasPrefix(param, "_") {
+			return "", errors.Newf("Subquery params for %s can not start with an _", name.Resource)
+		}
+	}
+	if collision := registry.bindView(name.Resource, params); collision != "" {
+		return "", errors.Newf("named parameter collision: %s statement already contains named parameter %q", q.Resource(), collision)
+	}
+
+	return query, nil
+}
+
+// noNameView says a name is read from a view the decoder holds no entry for.
+func noNameView(name *NameField, res accesstypes.Resource) string {
+	return fmt.Sprintf("name field %s of %s is read from the view %s, and the decoder holds no view of that name: hand the application's views to the decoder (WithNameViews), which the generated handlers do; regenerate them", name.Field, res, name.Resource)
 }
 
 // nameGrantCondition joins the condition a name's grant is held under to the
