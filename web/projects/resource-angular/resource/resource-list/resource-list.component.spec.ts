@@ -2406,6 +2406,19 @@ describe('ResourceListComponent', () => {
       expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
     });
 
+    it('writes a commit made while a navigation is on its way that another supersedes once that other ends, never cancelling it', async () => {
+      await open('/');
+      const router = TestBed.inject(Router);
+      const superseded = router.navigateByUrl('/?tab=8');
+      fixture.componentInstance.onFilterChange([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+      const elsewhere = router.navigateByUrl('/?tab=9');
+      expect(await elsewhere).toBe(true);
+      expect(await superseded).toBe(false);
+      await settle();
+      expect(address().queryParamMap.get('tab')).toBe('9');
+      expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+    });
+
     const notOwning: { name: string; hand: () => void }[] = [
       { name: 'a list handed isRootList false', hand: () => fixture.componentRef.setInput('isRootList', false) },
       {

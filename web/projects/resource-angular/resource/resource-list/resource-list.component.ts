@@ -27,6 +27,7 @@ import {
   ActivatedRoute,
   Event as RouterEvent,
   NavigationCancel,
+  NavigationCancellationCode,
   NavigationEnd,
   NavigationError,
   NavigationSkipped,
@@ -1031,9 +1032,14 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * A navigation is over: a write of the address that waited for it is made now, from the
-   * filters as they stand, and the address of one that ended is taken.
+   * filters as they stand, and the address of one that ended is taken. A navigation
+   * canceled because another superseded it ends nothing: that other is on its way, and a
+   * write made now would cancel it, so the write waits for that one to be over.
    */
   private navigationOver(event: RouterEvent): void {
+    if (event instanceof NavigationCancel && event.code === NavigationCancellationCode.SupersededByNewNavigation) {
+      return;
+    }
     if (this.addressWriteWaiting) {
       this.addressWriteWaiting = false;
       this.navigateToFilters();
