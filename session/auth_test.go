@@ -3133,7 +3133,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 
-	t.Run("changing the password writes the new one on proof of the hash the old one matched and destroys the user's sessions in the one store call, then continues in a new session that records the password", func(t *testing.T) {
+	t.Run("changing the password writes the new one on proof of the hash the old one matched and destroys the user's sessions in the one store call; asked with no session of the user's, it starts none", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
@@ -3143,17 +3143,9 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		// the mark and ends the user's sessions with the write, in its one transaction;
 		// the mock refuses the write that names the user alone, and a destruction of the
 		// sessions as a call of its own, whose failure would leave the password changed
-		// and every session alive.
-		gomock.InOrder(
-			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil),
-			f.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
-				if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
-					t.Errorf("CreateSession() request = %+v", req)
-				}
-
-				return impulse.Must(impulse.NewUUID()), nil
-			}),
-		)
+		// and every session alive. It refuses a CreateSession too: the call holds no
+		// session of the user's to continue.
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil)
 
 		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
