@@ -180,8 +180,8 @@ refuses.
 
 A computed resource's list is ordered and filtered by its handler, over the rows' real
 values, so the server refuses a sort or a filter by a field unless the caller holds List on
-the field with no condition left once the request is checked (outright, or under conditions
-that read the time of the request alone, while one holds) (403, "You may not sort or filter
+the field with no condition left once the request is checked: outright, or under conditions
+that read the time of the request alone, while one holds (403, "You may not sort or filter
 hangar passes by the budget here."). The generated metadata marks such a resource:
 `ResourceMeta.computed` is `true`, and absent on a table and a view, whose sorts and
 filters run over what the caller may see. The permission digest says which fields the

@@ -363,8 +363,9 @@ on a denied field is a 403 like any filter on one), a conditionally granted fiel
 with its condition conjoined inside its match (`(condition AND SEARCH_SUBSTRING(…))`, so
 the search index still serves it, where an `eq` runs over the visible projection), a
 positional field renders bare, and a `@searchAlso` branch follows the child field's grant
-the same way; on a computed resource every searched field needs the caller's unconditional
-grant, as its sort and filter fields do. On Spanner a box whose fields come from one
+the same way; on a computed resource every searched field needs the caller's grant
+with no condition left once the request is checked, as its sort and filter fields
+do. On Spanner a box whose fields come from one
 search index renders inline; a box whose fields span several search indexes (a view
 projecting two tables' token columns) or whose resource declares `@searchAlso` branches
 reads the resource through one key set per term, a `UNION DISTINCT` of the matching keys
@@ -428,7 +429,8 @@ show — so the cursor carries what the statement ordered by (a concealing key's
 projection, `NULL` where the cell is masked) and the row data stays exactly what was
 selected. `index:"true"` stays the declaration of which fields may be filtered. A `@computed` resource's
 rows are judged in Go as its function yields them, and no statement renders a visible
-projection over them, so its sort and filter fields still require an unconditional grant.
+projection over them, so its sort and filter fields still require a grant with no condition
+left once the request is checked.
 
 The primary key sits outside these rules: it needs no field grant, is never masked, and
 its presence in a request keeps no row. So a request for the key alone (`columns=id`) has
@@ -4383,9 +4385,10 @@ judges the condition over each role the list answers (a computed resource's rows
 section 2); a request for the names alone and the list's count are trimmed the same way.
 Lodestar keeps one, which says nothing its methods' grants do not, to show a condition
 judged over a computed resource's rows. A caller filters by the fields they may read,
-and a computed list filters only by a field granted with no condition (section 2), so a
-role is granted `method` with the list: among the fields of a grant that carries no
-condition, or, beside a grant that carries one, as a grant of the field alone:
+and a computed list filters only by a field granted with no condition left once the
+request is checked (section 2), so a role is granted `method` with the list: among the
+fields of a grant that carries no condition, or, beside a grant that carries one, as a
+grant of the field alone:
 
 ```json
 "List": [
@@ -4998,8 +5001,8 @@ every policy store's schema holds it).
   application's administrator's, who reads the password in the whole application's
   list. Every field of that grant is under the condition, so a tenant's administrator
   cannot ask for the list sorted or filtered by one of them (a sort or filter field
-  needs an unconditional grant): the list comes in its declared order, the password
-  first.
+  needs a grant with no condition left once the request is checked): the list comes in
+  its declared order, the password first.
 - A token is revoked with the rest of its device authorization; a token that is expired
   or already revoked is not found (404).
 - A role is assigned in the global scope, in one domain, or in every domain, and must
