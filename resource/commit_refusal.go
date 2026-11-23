@@ -1,8 +1,6 @@
 package resource
 
 import (
-	"strings"
-
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -23,23 +21,27 @@ const (
 // bufferedPatches is the record a write transaction keeps of what it buffered: every
 // resource in first-buffered order, each with the patch types buffered for it. When
 // Spanner refuses the commit, the record is all the library knows about what the refusal
-// concerns, and the client message is composed from it alone: the resource names the
-// caller addressed, never the referencing table, the constraint, the index, the key, the
-// value, or a count.
+// concerns, and the client message is composed from it alone: it says the records the
+// transaction buffered in words, one by its struct's name ("This hangar") and several by
+// their resources' names ("One of the hangars or ships this request deletes"), and never
+// a resource's or a table's code name, the referencing table, the constraint, the index,
+// the key, the value, or a count.
 //
 // The change-event rows a tracked resource writes beside its patches are not recorded:
 // they are the library's own bookkeeping, never a resource the caller addressed, and
 // counting them would turn every tracked delete into the mixed shape.
 //
-// For the 404 of an update whose row is gone at the commit, the record also keeps each
+// So that one record is said as every record is said, the record also keeps each
 // resource's record label, from the first patch recorded for it that gives one
-// (recordLabeler), and how many creates, updates and create-or-updates it recorded in
-// all, so that one update is said as every record that is not there is said.
+// (recordLabeler), and how many deletes and how many creates, updates and
+// create-or-updates it recorded in all: one or several is counted over the patches, so
+// two deletes of one resource are several.
 type bufferedPatches struct {
 	order   []accesstypes.Resource
 	types   map[accesstypes.Resource]map[PatchType]bool
 	labels  map[accesstypes.Resource]string
 	written int
+	deleted int
 }
 
 // recordLabeler is how the record of buffered patches asks a patch for its record's
@@ -58,7 +60,7 @@ func newBufferedPatches() *bufferedPatches {
 }
 
 // record notes one buffered patch by its resource and patch type, its record's label
-// where it is the first of its resource to give one, and whether it writes.
+// where it is the first of its resource to give one, and whether it deletes or writes.
 func (b *bufferedPatches) record(patch PatchSetMetadata) {
 	if _, isEvent := patch.(*DataChangeEvent); isEvent {
 		return
@@ -73,7 +75,9 @@ func (b *bufferedPatches) record(patch PatchSetMetadata) {
 	if labeler, ok := patch.(recordLabeler); ok && b.labels[res] == "" {
 		b.labels[res] = labeler.recordLabel()
 	}
-	if patch.PatchType() != DeletePatchType {
+	if patch.PatchType() == DeletePatchType {
+		b.deleted++
+	} else {
 		b.written++
 	}
 }
@@ -107,24 +111,61 @@ func (b *bufferedPatches) writes() (writes []string, anyCreate bool) {
 	return writes, anyCreate
 }
 
+// deletedRecords is how a sentence about the buffered deletes says their records: "This
+// hangar" for one delete, the record by its struct's name in words, and "One of the
+// hangars or ships this request deletes" for several, the resources deletes returned in
+// words.
+func (b *bufferedPatches) deletedRecords(deletes []string) string {
+	return b.recordsInWords(deletes, b.deleted, "deletes")
+}
+
+// writtenRecords is how a sentence about the buffered writes says their records: "This
+// ship" for one write, the record by its struct's name in words, and "One of the ships or
+// missions this request adds or changes" for several, the resources writes returned in
+// words, with "changes" alone where no create was among them.
+func (b *bufferedPatches) writtenRecords(writes []string, anyCreate bool) string {
+	verb := "changes"
+	if anyCreate {
+		verb = "adds or changes"
+	}
+
+	return b.recordsInWords(writes, b.written, verb)
+}
+
+// recordsInWords says the records of resources, which count patches buffered: one by its
+// resource's record label in words ("This record" where no patch gave one), several by
+// the resources' names in words, each once in first-buffered order, as what this request
+// does to them.
+func (b *bufferedPatches) recordsInWords(resources []string, count int, verb string) string {
+	if count == 1 {
+		return "This " + recordInWords(b.labels[accesstypes.Resource(resources[0])])
+	}
+
+	things := make([]string, 0, len(resources))
+	for _, res := range resources {
+		things = append(things, inWords(res))
+	}
+
+	return "One of the " + eitherOf(things) + " this request " + verb
+}
+
 // referentialMessage composes the client message for a commit Spanner refused with
 // FailedPrecondition: a delete of a row other rows still reference, a write whose foreign
 // key names a row that does not exist, a required column left empty, or a string longer
-// than its column allows. Deletes on one resource, deletes on several, and writes each
-// have their own sentence; deletes and writes together, or a record with nothing in it,
-// fall back to a sentence that covers both causes, because at commit they cannot be told
-// apart.
+// than its column allows. Deletes and writes each have their own sentence, "This hangar
+// cannot be deleted while other records still refer to it." and "This ship refers to a
+// record that does not exist, or holds a value that is too long for its field."; deletes
+// and writes together, or a record with nothing in it, fall back to a sentence that
+// covers both causes, because at commit they cannot be told apart.
 func (b *bufferedPatches) referentialMessage() string {
 	deletes := b.deletes()
-	writes, _ := b.writes()
+	writes, anyCreate := b.writes()
 
 	switch {
-	case len(deletes) == 1 && len(writes) == 0:
-		return deletes[0] + ": this record cannot be deleted while other records still reference it."
-	case len(deletes) > 1 && len(writes) == 0:
-		return strings.Join(deletes, ", ") + ": a record cannot be deleted while other records still reference it."
+	case len(deletes) > 0 && len(writes) == 0:
+		return b.deletedRecords(deletes) + " cannot be deleted while other records still refer to it."
 	case len(writes) > 0 && len(deletes) == 0:
-		return strings.Join(writes, ", ") + ": a referenced record does not exist, or a value is too long for its field."
+		return b.writtenRecords(writes, anyCreate) + " refers to a record that does not exist, or holds a value that is too long for its field."
 	default:
 		return referentialRefusalFallback
 	}
@@ -133,7 +174,10 @@ func (b *bufferedPatches) referentialMessage() string {
 // alreadyExistsMessage composes the client message for a commit Spanner refused with
 // AlreadyExists: a create whose key is already taken, or a create or update that
 // duplicates a unique-index value. A record with a create cannot tell the two apart and
-// names both; a record of updates only can only have duplicated a unique value.
+// says both, "This ship already exists, or it has a value that must be unique and
+// another record already has it."; a record of updates only can only have duplicated a
+// unique value, "This client has a value that must be unique, and another record already
+// has it."
 func (b *bufferedPatches) alreadyExistsMessage() string {
 	writes, anyCreate := b.writes()
 
@@ -141,21 +185,22 @@ func (b *bufferedPatches) alreadyExistsMessage() string {
 	case len(writes) == 0:
 		return alreadyExistsFallback
 	case anyCreate:
-		return strings.Join(writes, ", ") + ": a record with this key or a unique value already exists."
+		return b.writtenRecords(writes, anyCreate) + " already exists, or it has a value that must be unique and another record already has it."
 	default:
-		return strings.Join(writes, ", ") + ": a unique value already exists on another record."
+		return b.writtenRecords(writes, anyCreate) + " has a value that must be unique, and another record already has it."
 	}
 }
 
 // outOfRangeMessage composes the client message for a commit Spanner refused with
-// OutOfRange: a write that violates a CHECK constraint.
+// OutOfRange: a write that violates a CHECK constraint, "This mission has a value that is
+// outside the range allowed."
 func (b *bufferedPatches) outOfRangeMessage() string {
-	writes, _ := b.writes()
+	writes, anyCreate := b.writes()
 	if len(writes) == 0 {
 		return outOfRangeFallback
 	}
 
-	return strings.Join(writes, ", ") + ": a value is outside the range the record allows."
+	return b.writtenRecords(writes, anyCreate) + " has a value that is outside the range allowed."
 }
 
 // notFoundError composes the error for a commit Spanner refused with NotFound. A record
@@ -163,8 +208,9 @@ func (b *bufferedPatches) outOfRangeMessage() string {
 // that is not there is said, "This client does not exist." for one update, the record by
 // its struct's name in words, and "One of the clients or pilots this request changes
 // does not exist." for several. A record with a create means an interleaved parent does
-// not exist, which is a referenced record: 409, as the referential write sentence says.
-// A record with nothing in it gets the sentence covering both causes at 409.
+// not exist, which is a record the write refers to: 409, "This refit task refers to a
+// record that does not exist." A record with nothing in it gets the sentence covering
+// both causes at 409.
 func (b *bufferedPatches) notFoundError(err error) error {
 	writes, anyCreate := b.writes()
 
@@ -172,16 +218,9 @@ func (b *bufferedPatches) notFoundError(err error) error {
 	case len(writes) == 0:
 		return httpio.NewConflictMessageWithError(err, notFoundFallback)
 	case anyCreate:
-		return httpio.NewConflictMessageWithError(err, strings.Join(writes, ", ")+": a referenced record does not exist.")
-	case b.written == 1:
-		return httpio.NewNotFoundMessageWithError(err, doesNotExist(b.labels[accesstypes.Resource(writes[0])]))
+		return httpio.NewConflictMessageWithError(err, b.writtenRecords(writes, anyCreate)+" refers to a record that does not exist.")
 	default:
-		things := make([]string, 0, len(writes))
-		for _, res := range writes {
-			things = append(things, inWords(res))
-		}
-
-		return httpio.NewNotFoundMessageWithError(err, "One of the "+eitherOf(things)+" this request changes does not exist.")
+		return httpio.NewNotFoundMessageWithError(err, b.writtenRecords(writes, anyCreate)+" does not exist.")
 	}
 }
 

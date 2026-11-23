@@ -18,8 +18,9 @@ import (
 // takes for one are one address there too. These cases pin it on both store shapes
 // over a table of pairs, each a stored address and an asked one.
 
-// Addresses is the sign-in flow's reads and claim of an address, each run in a
-// transaction of its own, as the flow runs them inside a sign-in's.
+// Addresses is the sign-in flow's reads and claim of an address, and its read of a
+// username, each run in a transaction of its own, as the flow runs them inside a
+// sign-in's.
 type Addresses interface {
 	// UserByEmailIn reads the user holding email, verified or not, or nil.
 	UserByEmailIn(ctx context.Context, email string) (*dbtype.User, error)
@@ -30,6 +31,8 @@ type Addresses interface {
 	// VerifyUserEmailIfHeldIn writes each of emails for userID in turn while the user
 	// holds held, all in one transaction, and reports whether each wrote.
 	VerifyUserEmailIfHeldIn(ctx context.Context, userID impulse.UUID, held *string, emails ...string) ([]bool, error)
+	// UserByUsernameIn reads the user named username, or nil.
+	UserByUsernameIn(ctx context.Context, username string) (*dbtype.User, error)
 }
 
 // NewAddresses returns an instance's Addresses over d.
@@ -112,6 +115,23 @@ func (a *addressesIn[Tx]) VerifyUserEmailIfHeldIn(ctx context.Context, userID im
 	}
 
 	return wrote, nil
+}
+
+func (a *addressesIn[Tx]) UserByUsernameIn(ctx context.Context, username string) (*dbtype.User, error) {
+	var user *dbtype.User
+	if err := a.d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+		var err error
+		user, err = a.d.UserByUsernameIn(ctx, tx, username)
+		if err != nil {
+			return errors.Wrap(err, "signinflow.Driver.UserByUsernameIn()")
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "signinflow.Driver.Transact()")
+	}
+
+	return user, nil
 }
 
 // foldPairs are the pairs the cases run over, all at lakeside.edu: a stored address,
@@ -216,20 +236,20 @@ func testAddressFoldUsernameIsEmail(ctx context.Context, t *testing.T, h *AuthHa
 			}
 			assertHeld(ctx, t, in, names, p.asked, holderIfOne, holderIfOne)
 
-			// The username fold is wider than the address fold: it normalizes and folds
-			// the case of every letter. Where it takes the asked address for the holder's
-			// username, no second user can be made under it, and the lookups above are all
-			// this store shows of the pair.
+			// A username that reads as an address is matched as an address is, so the
+			// lookup by name agrees with the lookups by address above.
 			named, err := in.Driver.UserByUserName(ctx, p.asked)
 			switch {
-			case err == nil && named.ID == holder.ID:
-				return
-			case err != nil && !httpio.HasNotFound(err):
-				t.Fatalf("UserByUserName() error = %v", err)
+			case p.one && err != nil:
+				t.Errorf("UserByUserName(%+q) error = %v, want the holder", p.asked, err)
+			case p.one && named.ID != holder.ID:
+				t.Errorf("UserByUserName(%+q) found user %v, want the holder", p.asked, named.ID)
+			case !p.one && !httpio.HasNotFound(err):
+				t.Errorf("UserByUserName(%+q) error = %v, want NotFound: it is another address than the holder's", p.asked, err)
 			}
 
-			// Otherwise a second user is made under the asked address exactly when it is
-			// not the stored one, and each then holds its own.
+			// A second user is made under the asked address exactly when it is not the
+			// stored one, and each then holds its own.
 			second, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: p.asked}, nil)
 			switch {
 			case p.one && !httpio.HasConflict(err):
