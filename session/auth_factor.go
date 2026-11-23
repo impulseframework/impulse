@@ -26,13 +26,18 @@ import (
 )
 
 // The second factor the library runs. A sign-in the policy holds for MFA
-// (signin.RequireMFA) waits as a pending identity; when the policy accepts the
-// library's email code (no factor named, or sessioninfo.MethodEmailCode among them),
-// the pending handlers mail the user a one-time code and complete the sign-in when the
-// person enters it, recording an email-code event. A sign-in whose connection attests
-// to a second factor (sessioninfo.Attestation), or whose browser is a trusted device of
-// the user, is never held: the attestation or the trusted-device event stands in for
-// the step.
+// (signin.RequireMFA) waits as a pending identity, and so does one the policy allows,
+// or any where the Auth has no policy, while the Auth's sign-in settings ask everyone
+// for a second factor (AuthAPI.SetSecondFactorRequired), held for the library's email
+// code. When the hold accepts that code (no factor named, or
+// sessioninfo.MethodEmailCode among them), the pending handlers mail the user a
+// one-time code and complete the sign-in when the person enters it, recording an
+// email-code event. A sign-in whose connection attests to a second factor
+// (sessioninfo.Attestation), or whose browser is a trusted device of the user, is never
+// held: the attestation or the trusted-device event stands in for the step. A browser
+// is remembered for the period the sign-in settings say (AuthAPI.SetRememberedBrowserDays),
+// and stands in only while it is inside both the end date written when it was
+// remembered and the period as it is now.
 //
 // The code goes to the address the account holds, which is its confirmed address from
 // the first code on: nothing puts an address on an account that holds a confirmed one
@@ -64,8 +69,6 @@ import (
 type factorSettings struct {
 	// codeTimeout is how long a mailed code is accepted.
 	codeTimeout time.Duration
-	// trustedPeriod is how long a remembered browser stands in for the factor.
-	trustedPeriod time.Duration
 	// trustedCookie names the cookie that carries the trusted device's token.
 	trustedCookie string
 }
@@ -73,7 +76,6 @@ type factorSettings struct {
 // The defaults of the second factor.
 const (
 	defaultEmailCodeTimeout    = 10 * time.Minute
-	defaultTrustedDevicePeriod = 30 * 24 * time.Hour
 	defaultTrustedDeviceCookie = "auth-trusted"
 	// emailCodeLength is the digits of a code: six, a million codes, guessed at most
 	// emailCodeAttempts times before the code dies.
@@ -85,15 +87,12 @@ const (
 	trustedTokenSize = 32
 )
 
-var defaultFactorSettings = factorSettings{codeTimeout: defaultEmailCodeTimeout, trustedPeriod: defaultTrustedDevicePeriod, trustedCookie: defaultTrustedDeviceCookie}
+var defaultFactorSettings = factorSettings{codeTimeout: defaultEmailCodeTimeout, trustedCookie: defaultTrustedDeviceCookie}
 
 // validate refuses settings the factor cannot run with.
 func (f *factorSettings) validate() error {
 	if f.codeTimeout <= 0 {
 		return errors.New("WithEmailCodeTimeout: the timeout must be positive")
-	}
-	if f.trustedPeriod <= 0 {
-		return errors.New("WithTrustedDevicePeriod: the period must be positive")
 	}
 
 	return nil
@@ -102,12 +101,6 @@ func (f *factorSettings) validate() error {
 // WithEmailCodeTimeout sets how long a mailed sign-in code is accepted. (default: 10m)
 func WithEmailCodeTimeout(d time.Duration) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.factors.codeTimeout = d }}
-}
-
-// WithTrustedDevicePeriod sets how long a browser the person asked to be remembered
-// after a second factor stands in for it. (default: 30 days)
-func WithTrustedDevicePeriod(d time.Duration) AuthOption {
-	return authOption{apply: func(s *authSettings) { s.factors.trustedPeriod = d }}
 }
 
 // WithTrustedDeviceCookieName sets the name of the cookie that carries a trusted
@@ -132,6 +125,10 @@ type emailCodeAnswer struct {
 	// CodeSent says a code stands, and CodeExpiresAt when it stops being accepted.
 	CodeSent      bool       `json:"codeSent"`
 	CodeExpiresAt *time.Time `json:"codeExpiresAt,omitempty"`
+	// RememberOffered says the page may offer to remember the browser: the sign-in
+	// settings remember browsers (their days are not 0). The pending status says it
+	// (emailCodeState); the answers of a code's sending leave it out.
+	RememberOffered bool `json:"rememberOffered,omitempty"`
 }
 
 // emailCodeState is the email code's state for the pending MFA wait p.
@@ -140,7 +137,11 @@ func (a *Auth[S, U, Tx]) emailCodeState(ctx context.Context, p *pendingState) (*
 	if err != nil && !httpio.HasNotFound(err) {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 	}
-	answer := &emailCodeAnswer{}
+	settings, err := a.storage.SignInSettings(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.SignInSettings()")
+	}
+	answer := &emailCodeAnswer{RememberOffered: settings.RememberDays() != 0}
 	// A code whose attempts are spent does not stand, though its row is live until the
 	// guess that took the last one consumes it: no guess is judged against it any more
 	// (verifyEmailCode), so the page asks for a new one, as it does where that guess's
@@ -992,18 +993,29 @@ func (a *Auth[S, U, Tx]) touchTrustedDevice(ctx context.Context, userID impulse.
 	}
 }
 
-// rememberDevice makes the browser a trusted device of userID for the trusted device
-// period: a row with the token's hash, and the user's entry in the cookie, beside the
-// other users' entries the browser carries (the oldest dropped at the cap). A failure
-// is logged; the session stands and the next sign-in asks for the factor again.
+// rememberDevice makes the browser a trusted device of userID for the period the
+// sign-in settings say now: a row with the token's hash, and the user's entry in the
+// cookie, beside the other users' entries the browser carries (the oldest dropped at
+// the cap). Where browsers are not remembered (0 days) it writes no row and no cookie.
+// A failure is logged; the session stands and the next sign-in asks for the factor
+// again.
 func (a *Auth[S, U, Tx]) rememberDevice(ctx context.Context, w http.ResponseWriter, userID impulse.UUID) {
+	settings, err := a.storage.SignInSettings(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.SignInSettings()"))
+
+		return
+	}
+	if settings.RememberDays() == 0 {
+		return
+	}
+	period := settings.RememberPeriod()
 	raw := make([]byte, trustedTokenSize)
 	if _, err := rand.Read(raw); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "rand.Read()"))
 
 		return
 	}
-	period := a.settings.factors.trustedPeriod
 	device := &sessionstorage.TrustedDevice{UserID: userID, TokenHash: hashPendingToken(raw), ExpiresAt: time.Now().Add(period)}
 	if err := a.storage.InsertTrustedDevice(ctx, device); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.InsertTrustedDevice()"))
@@ -1014,7 +1026,7 @@ func (a *Auth[S, U, Tx]) rememberDevice(ctx context.Context, w http.ResponseWrit
 	if d, ok := trustedDevicesOf(ctx); ok {
 		carried = d.entries
 	}
-	a.writeTrustedCookie(ctx, w, trustedEntriesWith(carried, userID, trustedEntry{Token: base64.RawURLEncoding.EncodeToString(raw), At: time.Now().Unix()}))
+	a.writeTrustedCookie(ctx, w, trustedEntriesWith(carried, userID, trustedEntry{Token: base64.RawURLEncoding.EncodeToString(raw), At: time.Now().Unix()}), period)
 }
 
 // trustedEntriesWith returns the entries a browser carries with userID's entry set to
@@ -1038,23 +1050,25 @@ func trustedEntriesWith(carried map[string]trustedEntry, userID impulse.UUID, en
 	return entries
 }
 
-// writeTrustedCookie writes the trusted device cookie holding entries, for the trusted
-// device period. Lax, so the cookie reaches the callback an external sign-in's
-// provider redirects the browser to, where the sign-in is decided.
-func (a *Auth[S, U, Tx]) writeTrustedCookie(ctx context.Context, w http.ResponseWriter, entries map[string]trustedEntry) {
+// writeTrustedCookie writes the trusted device cookie holding entries, for period: the
+// period the sign-in settings say at the write. Lax, so the cookie reaches the callback
+// an external sign-in's provider redirects the browser to, where the sign-in is decided.
+func (a *Auth[S, U, Tx]) writeTrustedCookie(ctx context.Context, w http.ResponseWriter, entries map[string]trustedEntry, period time.Duration) {
 	cval := cookie.NewValues()
 	if err := cval.Set(trustedDevicesKey, entries); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "cookie.Values.Set()"))
 
 		return
 	}
-	a.trustedCookies.Cookie().WritePersistentCookie(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain, true, http.SameSiteLaxMode, a.settings.factors.trustedPeriod, cval)
+	a.trustedCookies.Cookie().WritePersistentCookie(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain, true, http.SameSiteLaxMode, period, cval)
 }
 
 // dropTrustedEntry takes userID's entry out of the trusted device cookie the browser
 // carries, leaving the other users' entries as they are: the cookie is rewritten
-// without it, or deleted when nothing is left. A browser carrying no entry for the
-// user is left alone.
+// without it, for the period the sign-in settings say now, or deleted when nothing is
+// left or browsers are not remembered (0 days). A browser carrying no entry for the
+// user is left alone. A failure to read the settings is logged, and the cookie is left
+// as it is: the rows decide whether an entry stands in.
 func (a *Auth[S, U, Tx]) dropTrustedEntry(ctx context.Context, w http.ResponseWriter, userID impulse.NullUUID) {
 	d, ok := trustedDevicesOf(ctx)
 	if !ok {
@@ -1072,7 +1086,18 @@ func (a *Auth[S, U, Tx]) dropTrustedEntry(ctx context.Context, w http.ResponseWr
 
 		return
 	}
-	a.writeTrustedCookie(ctx, w, entries)
+	settings, err := a.storage.SignInSettings(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.SignInSettings()"))
+
+		return
+	}
+	if settings.RememberDays() == 0 {
+		a.trustedCookies.Cookie().Delete(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain)
+
+		return
+	}
+	a.writeTrustedCookie(ctx, w, entries, settings.RememberPeriod())
 }
 
 // pendingSendCode is Pending().SendCode().
@@ -1197,7 +1222,8 @@ func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error
 // VerifyEmailCode completes the pending identity when code is the one sent, recording
 // the email-code event itself (CompletePending takes no such event from an
 // application), and returns the session's id; with rememberDevice the browser is
-// remembered as a trusted device of the user. A refusal is a *sessioninfo.LoginRefusal.
+// remembered as a trusted device of the user, unless the sign-in settings say browsers
+// are not remembered. A refusal is a *sessioninfo.LoginRefusal.
 // A wrong code carries RefusedInvalidCode and leaves the code standing with one fewer
 // attempt. A code that expired, was used, took its last attempt or was mailed to an
 // address the account no longer holds, or one entered before any was sent, carries

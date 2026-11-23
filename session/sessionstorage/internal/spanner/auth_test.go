@@ -51,7 +51,10 @@ func authSources(schema drivertest.AuthSchema) []string {
 	}
 }
 
-func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSchema, cfg drivertest.AuthConfig) *drivertest.AuthInstance {
+func newAuthInstance(
+	ctx context.Context, t *testing.T, schema drivertest.AuthSchema,
+	cfg drivertest.AuthConfig, //nolint:gocritic // hugeParam: drivertest.AuthHarness.New takes the config as a value; every case writes it as a literal
+) *drivertest.AuthInstance {
 	t.Helper()
 
 	conn, err := prepareDatabase(ctx, t, authSources(schema)...)
@@ -82,19 +85,21 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		})
 	}
 
-	drivertest.SeedSignInMethod(ctx, t, d, cfg)
+	drivertest.SeedSignInMethod(ctx, t, d, &cfg)
+	drivertest.SeedSignInSettings(ctx, t, d, schema, &cfg)
 
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Client,
-		SignIn:        drivertest.NewSignIn(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		SignInByCode:  drivertest.NewSignInByCode(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		SignUpInvited: drivertest.NewSignUpInvited(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		Accept:        drivertest.NewAccept(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		LinkConfirmed: drivertest.NewLinkConfirmed(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		SignUp:        drivertest.NewSignUp(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignIn:        drivertest.NewSignIn(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignInByCode:  drivertest.NewSignInByCode(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignUpInvited: drivertest.NewSignUpInvited(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		Accept:        drivertest.NewAccept(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		LinkConfirmed: drivertest.NewLinkConfirmed(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignUp:        drivertest.NewSignUp(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
 		Addresses:     drivertest.NewAddresses(d),
 
 		ConfirmAddressByLink: drivertest.NewConfirmAddressByLink(d),
+		SignInSettingsIn:     drivertest.NewSignInSettingsIn(d),
 	}
 }
 

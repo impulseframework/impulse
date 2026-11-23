@@ -660,12 +660,15 @@ export interface PendingSignIn {
  * account holds none, and the page asks for one and posts it to `enrollEmail()` before a
  * code can be sent; `codeSent` says a code stands, mailed and not yet expired, used or out
  * of attempts, and `codeExpiresAt` is when it stops being accepted, as the server wrote it.
+ * `rememberOffered` says the page may offer to remember the browser: an administrator can
+ * turn remembering off.
  */
 export interface EmailCodeStep {
   readonly codeEmail: string;
   readonly enrollEmail: boolean;
   readonly codeSent: boolean;
   readonly codeExpiresAt?: string;
+  readonly rememberOffered: boolean;
 }
 
 /**
@@ -2258,5 +2261,6 @@ function emailCodeOf(value: unknown): EmailCodeStep | undefined {
     enrollEmail: state.enrollEmail === true,
     codeSent: state.codeSent === true,
     ...(codeExpiresAt === '' ? {} : { codeExpiresAt }),
+    rememberOffered: state.rememberOffered === true,
   };
 }

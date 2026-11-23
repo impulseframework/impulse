@@ -26,6 +26,7 @@ export const Resources = {
   FeatureFlags: 'FeatureFlags' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
+  MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
   MembersSectorHeldRoles: 'MembersSectorHeldRoles' as Resource,
   MembersSectorIdentities: 'MembersSectorIdentities' as Resource,
@@ -39,6 +40,8 @@ export const Resources = {
   MembersSessionTrustedDevices: 'MembersSessionTrustedDevices' as Resource,
   MembersSessionUsers: 'MembersSessionUsers' as Resource,
   MembersSessions: 'MembersSessions' as Resource,
+  MembersSignInMethods: 'MembersSignInMethods' as Resource,
+  MembersSignInSettings: 'MembersSignInSettings' as Resource,
   MembersUserRoles: 'MembersUserRoles' as Resource,
   MissionDocuments: 'MissionDocuments' as Resource,
   Missions: 'Missions' as Resource,
@@ -56,13 +59,16 @@ export const Methods = {
   EndMembersUserSessions: 'EndMembersUserSessions' as Method,
   RenameMembersSectorUser: 'RenameMembersSectorUser' as Method,
   RenameMembersUser: 'RenameMembersUser' as Method,
+  RequireMembersSecondFactor: 'RequireMembersSecondFactor' as Method,
   RevokeMembersSectorUserTrustedDevices: 'RevokeMembersSectorUserTrustedDevices' as Method,
   RevokeMembersUserTrustedDevices: 'RevokeMembersUserTrustedDevices' as Method,
+  SetMembersRememberedBrowsers: 'SetMembersRememberedBrowsers' as Method,
   SetMembersSectorUserEmail: 'SetMembersSectorUserEmail' as Method,
   SetMembersSectorUserName: 'SetMembersSectorUserName' as Method,
   SetMembersUserEmail: 'SetMembersUserEmail' as Method,
   SetMembersUserName: 'SetMembersUserName' as Method,
   StandDownMission: 'StandDownMission' as Method,
+  StopRequiringMembersSecondFactor: 'StopRequiringMembersSecondFactor' as Method,
   UnlinkMembersSectorSessionIdentity: 'UnlinkMembersSectorSessionIdentity' as Method,
   UnlinkMembersSessionIdentity: 'UnlinkMembersSessionIdentity' as Method,
   UnlockMembersSignIn: 'UnlockMembersSignIn' as Method,
@@ -222,6 +228,17 @@ export namespace MembersListedRoleGrants {
     role: 'MembersListedRoleGrants.role' as Resource,
     skipped: 'MembersListedRoleGrants.skipped' as Resource,
     updatedAt: 'MembersListedRoleGrants.updatedAt' as Resource,
+  };
+}
+
+export namespace MembersRememberLengths {
+  export const fieldName = {
+    days: 'days' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    days: 'MembersRememberLengths.days' as Resource,
+    name: 'MembersRememberLengths.name' as Resource,
   };
 }
 
@@ -558,6 +575,48 @@ export namespace MembersSessions {
   };
 }
 
+export namespace MembersSignInMethods {
+  export const fieldName = {
+    admits: 'admits' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    directoryGivesRoles: 'directoryGivesRoles' as FieldName,
+    label: 'label' as FieldName,
+    name: 'name' as FieldName,
+    openSignUp: 'openSignUp' as FieldName,
+    ownRule: 'ownRule' as FieldName,
+    says: 'says' as FieldName,
+    selfServiceReset: 'selfServiceReset' as FieldName,
+  };
+  export const resourceName = {
+    admits: 'MembersSignInMethods.admits' as Resource,
+    defaultRole: 'MembersSignInMethods.defaultRole' as Resource,
+    directoryGivesRoles: 'MembersSignInMethods.directoryGivesRoles' as Resource,
+    label: 'MembersSignInMethods.label' as Resource,
+    name: 'MembersSignInMethods.name' as Resource,
+    openSignUp: 'MembersSignInMethods.openSignUp' as Resource,
+    ownRule: 'MembersSignInMethods.ownRule' as Resource,
+    says: 'MembersSignInMethods.says' as Resource,
+    selfServiceReset: 'MembersSignInMethods.selfServiceReset' as Resource,
+  };
+}
+
+export namespace MembersSignInSettings {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    position: 'position' as FieldName,
+    rememberBrowserDays: 'rememberBrowserDays' as FieldName,
+    requireSecondFactor: 'requireSecondFactor' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    name: 'MembersSignInSettings.name' as Resource,
+    position: 'MembersSignInSettings.position' as Resource,
+    rememberBrowserDays: 'MembersSignInSettings.rememberBrowserDays' as Resource,
+    requireSecondFactor: 'MembersSignInSettings.requireSecondFactor' as Resource,
+    says: 'MembersSignInSettings.says' as Resource,
+  };
+}
+
 export namespace MembersUserRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -727,6 +786,10 @@ export namespace RenameMembersUser {
   };
 }
 
+export namespace RequireMembersSecondFactor {
+  export const fieldName = {};
+}
+
 export namespace RevokeMembersSectorUserTrustedDevices {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -736,6 +799,12 @@ export namespace RevokeMembersSectorUserTrustedDevices {
 export namespace RevokeMembersUserTrustedDevices {
   export const fieldName = {
     userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SetMembersRememberedBrowsers {
+  export const fieldName = {
+    length: 'length' as FieldName,
   };
 }
 
@@ -771,6 +840,10 @@ export namespace StandDownMission {
   export const fieldName = {
     missionId: 'missionId' as FieldName,
   };
+}
+
+export namespace StopRequiringMembersSecondFactor {
+  export const fieldName = {};
 }
 
 export namespace UnlinkMembersSectorSessionIdentity {

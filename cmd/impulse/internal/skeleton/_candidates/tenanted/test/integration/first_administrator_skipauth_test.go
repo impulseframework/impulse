@@ -71,7 +71,7 @@ func TestFirstAdministrator_invitedThroughADirectory(t *testing.T) {
 	}
 
 	// The invited person: the link, the sign-in through Google, and the second factor
-	// every session carries.
+	// the auth's sign-in setting requires.
 	t.Setenv("APP_GOOGLE_USERNAME", invitedAddress)
 	b := newBrowser(t, s)
 	if status, page := showInvitation(ctx, t, b, token); status != http.StatusOK {

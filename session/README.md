@@ -16,7 +16,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO (`session/internal/workos`): built and tested, in an internal package, so an application cannot import it
-- `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
+- `The second factor`: a session carries one while the Auth's sign-in settings require it of everyone, as they do until an administrator turns it off (`AuthAPI.SetSecondFactorRequired`), and whenever the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
 - `Open to sign-up, or invite only`: whether a person with no account and no invitation may sign in is one choice an administrator makes in the running application, for each sign-in method, kept in a table of the auth; every method is invite only until it is opened, and an open method gives a new person its default role. See "Open to sign-up, or invite only" under the Auth session.
 - `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to and, wherever the sign-in does not itself prove the invited address, only by a code mailed to that address, or carrying the tenant its acceptance makes, held to an organization's directory where the tenant is entered through its directory only; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password while an administrator has the password method open to it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `A person's first password`: a person who has only ever signed in through a directory chooses a password while signed in, with a code mailed to the address their account holds confirmed, so the password is tied to that mailbox. See "A person's first password".
@@ -1307,14 +1307,24 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 
 ### The second factor
 
-Every session carries a second factor when the sign-in policy asks for one: the policy
-answers `signin.RequireMFA(sessioninfo.MethodEmailCode)` for every sign-in (or
-`RequireMFA()`, which accepts any factor), and the library satisfies it one of three
-ways, in this order, before it holds the sign-in. The requirement is the policy's, so
-an application that wants no second factor sets none, and one whose rule varies by
-person or tenant writes the rule; what a connection can vouch for is the
-registration's, below, since it is a property of the sign-in method, not of the tenant
-the person reaches.
+Whether everyone is asked for a second factor is a setting of the running application,
+kept in the sign-in settings table (`SessionSignInSettings`: one row for the whole Auth,
+and no row means required). The library reads it in the sign-in's own transaction,
+wherever the sign-in policy is asked and after it: while the setting requires a second
+factor, a sign-in the policy allows, or any sign-in of an Auth with no policy, is held
+for the mailed code (`sessioninfo.MethodEmailCode`). A sign-in that already carries a
+second factor is not held by the setting: a completion that carries a step the
+application ran under a name of its own goes on, as one that carries the mailed code
+does. An administrator changes it with `AuthAPI.SetSecondFactorRequired`, or on the
+Sign-in page of an application with generated management, and the next sign-in follows
+it with no restart. A policy still answers `signin.RequireMFA(...)` for a rule of the
+application's own, and that hold stands whatever the setting says; so do the library's
+own: a super administrator is always asked, except at a sign-in through a method whose
+directory writes the roles, where the setting asks of them what it asks of anyone, and
+so is a tenant's administrator who signs in with a password to reach a directory-only
+tenant. The library satisfies a hold one of three ways, in this order, before it holds
+the sign-in. What a connection can vouch for is the registration's, below, since it is a
+property of the sign-in method, not of the tenant the person reaches.
 
 1. **The connection attests.** A sign-in's connection says what it can about a second
    factor (`sessioninfo.Identity.Attestation`), and the Auth records it as the
@@ -1338,7 +1348,14 @@ the person reaches.
 2. **The browser is a trusted device.** A person who entered the code may ask for the
    browser to be remembered (`rememberDevice`): the Auth keeps a row in the trusted
    devices table with the hash of an opaque token, and the browser the encrypted
-   `auth-trusted` cookie with the token, for `WithTrustedDevicePeriod` (30 days). A
+   `auth-trusted` cookie with the token, for the days the sign-in settings say when the
+   browser is remembered (`RememberBrowserDays`, 30 until an administrator changes it
+   with `AuthAPI.SetRememberedBrowserDays` or on the Sign-in page). The period is read
+   again at every sign-in: a browser stands in only while it is inside the end date
+   written when it was remembered and inside the period as it is now, so a shorter
+   period holds at once for browsers already remembered and a longer one lengthens none.
+   With 0, browsers are not remembered: none stands in, the pending status says
+   `rememberOffered` false, and a `rememberDevice` is ignored. A
    sign-in from that browser by that user satisfies a `RequireMFA` that accepts the
    email code (no factor named, or `MethodEmailCode` among them) and records a
    `trusted-device` event in the step's place; a `RequireMFA` for the application's

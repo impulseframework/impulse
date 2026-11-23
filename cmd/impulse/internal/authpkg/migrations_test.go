@@ -145,3 +145,34 @@ func TestMigrations_rowDeletionPolicies(t *testing.T) {
 		}
 	}
 }
+
+// TestMigrations_signInSettings holds the sign-in settings table beside the sign-in
+// methods table: the session library's SessionSignInSettings migration under the auth's
+// prefix, its one name held by its CHECK, and its DROP directly before the methods
+// table's.
+func TestMigrations_signInSettings(t *testing.T) {
+	t.Parallel()
+
+	var up, down strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+		down.WriteString(m.Down)
+	}
+	const table = `CREATE TABLE StaffSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_StaffSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);`
+	if !strings.Contains(up.String(), table) {
+		t.Errorf("the migrations lack %q", table)
+	}
+	if methods, settings := strings.Index(up.String(), "CREATE TABLE StaffSessionSignInMethods ("), strings.Index(up.String(), table); settings < methods {
+		t.Errorf("the sign-in settings table is created at %d, before the sign-in methods table at %d, want it directly after", settings, methods)
+	}
+	const drops = "DROP TABLE StaffSessionSignInSettings;\nDROP TABLE StaffSessionSignInMethods;"
+	if !strings.Contains(down.String(), drops) {
+		t.Errorf("the down migrations lack %q", drops)
+	}
+}

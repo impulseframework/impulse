@@ -55,12 +55,12 @@ describe("the library's pages over an auth's generated management", () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
-    // The crew's auth carries the choice of who may sign up, so it has the Sign-in page;
-    // the members' auth, whose roles a directory writes, has none. The crew's people
-    // make the sectors, so its pages hold the invitations that make one; the members'
-    // do not. The crew's roles are given by hand, so a person of the crew takes one for
-    // a set time on Break glass; nobody gives the members a role by hand, and they have
-    // no such page.
+    // Every auth has the Sign-in page, where whether everyone is asked for a second factor
+    // is set: the crew's, which also carries the choice of who may sign up, and the
+    // members', whose roles a directory writes. The crew's people make the sectors, so its
+    // pages hold the invitations that make one; the members' do not. The crew's roles are
+    // given by hand, so a person of the crew takes one for a set time on Break glass;
+    // nobody gives the members a role by hand, and they have no such page.
     expect(routes('Crew', 'global')).toEqual([
       'crew-accounts',
       'crew-groups',
@@ -82,6 +82,7 @@ describe("the library's pages over an auth's generated management", () => {
       'members-mailed-links',
       'members-sessions',
       'members-failed-sign-ins',
+      'members-sign-in',
     ]);
   });
 
@@ -93,6 +94,7 @@ describe("the library's pages over an auth's generated management", () => {
       ['Mailed links', ['members-mailed-links']],
       ['Sessions', ['members-sessions']],
       ['Failed sign-ins', ['members-failed-sign-ins']],
+      ['Sign-in', ['members-sign-in']],
     ]);
     // The description names the directory, in the words its sign-in button carries.
     const members = (apiDescriptor.identity ?? []).find((identity) => identity.auth === 'Members');

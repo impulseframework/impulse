@@ -16,8 +16,11 @@ import "slices"
 //
 // The same page carries a second choice, whether a person may ask for a link that
 // resets their own password (Set<Auth>SelfServiceReset), which is the password
-// method's and not sign-up's: every auth that declares the password method has the
-// list and that method, whether or not it carries the choice of who may sign up.
+// method's and not sign-up's: every auth that declares the password method has that
+// method, whether or not it carries the choice of who may sign up. And it carries what
+// every sign-in asks for (identity_signinsettings.go), which is every auth's, so every
+// auth whose schema holds the sign-in methods table has the list, also one with
+// neither choice.
 //
 // In an application with tenants a person who signs up holds no role of the whole
 // application: they create a tenant of their own, through the create-your-tenant route,
@@ -139,18 +142,18 @@ func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 
 // signUpSources are the source files of the Sign-in page of an instance's management:
 // the list of the auth's sign-in methods, and what an administrator chooses over it.
-// Two things are chosen there, each where the instance has it to choose. Who may sign
-// up (the method that opens a sign-in method and the one that makes it invite only
-// again, and without tenants the roles a default role is picked from) is chosen by an
-// instance that carries the choice (choosesSignUp). Whether people reset their own
-// password is chosen by every instance that declares the password method, whether or
-// not it carries the other choice: an auth whose people join a tenant somebody else
-// made has passwords to reset like any other. An instance with neither has no page.
+// Every instance whose schema holds the table has the list, since every auth has the
+// sign-in settings the page changes besides (signInSettingsSources); where the
+// instance has nothing of a method to choose, its rows say why. Two things are chosen
+// over the list, each where the instance has it to choose. Who may sign up (the method
+// that opens a sign-in method and the one that makes it invite only again, and without
+// tenants the roles a default role is picked from) is chosen by an instance that
+// carries the choice (choosesSignUp). Whether people reset their own password is
+// chosen by every instance that declares the password method, whether or not it
+// carries the other choice: an auth whose people join a tenant somebody else made has
+// passwords to reset like any other.
 func (r *resourceGenerator) signUpSources(inst *identityInstance) []identitySourceFile {
 	chooses := inst.choosesSignUp()
-	if !chooses && !inst.password {
-		return nil
-	}
 	needs := []identityTable{identitySignInMethods}
 	files := []identitySourceFile{
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + signInMethodSuffix)), template: identitySignInMethodListTemplate, needs: needs},

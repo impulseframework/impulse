@@ -94,6 +94,10 @@ const (
 	// DefaultSignInMethodsTable is the table an administrator's choice for each sign-in
 	// method is kept in (open to sign-up, or invite only), which every sign-in reads.
 	DefaultSignInMethodsTable = "SessionSignInMethods"
+	// DefaultSignInSettingsTable is the table an administrator's choice for the whole Auth
+	// is kept in (whether everyone is asked for a second factor, and how long a browser is
+	// remembered), which every sign-in reads.
+	DefaultSignInSettingsTable = "SessionSignInSettings"
 	// The tokens and device codes tables, read when a machine outlet names the Auth as
 	// the issuer of its tokens (Tokens in the generator program).
 	DefaultTokensTable      = "SessionTokens"
@@ -179,7 +183,8 @@ func parseAuths(rel string, src []byte, ownPkg string) (auths []Auth, unattached
 					File: rel, Line: fset.Position(call.Pos()).Line, Var: assignedName(call, body),
 					SessionTable: DefaultSessionTable, UserTable: DefaultUserTable,
 					IdentitiesTable: DefaultIdentitiesTable, PendingTable: DefaultPendingTable,
-					AttemptsTable: DefaultAttemptsTable, SignInMethodsTable: DefaultSignInMethodsTable, MailLinksTable: DefaultMailLinksTable,
+					AttemptsTable: DefaultAttemptsTable, SignInMethodsTable: DefaultSignInMethodsTable,
+					SignInSettingsTable: DefaultSignInSettingsTable, MailLinksTable: DefaultMailLinksTable,
 					TokensTable: DefaultTokensTable, DeviceCodesTable: DefaultDeviceCodesTable,
 					FactorCodesTable: DefaultFactorCodesTable, TrustedDevicesTable: DefaultTrustedDevicesTable, OptionsForwarded: call.Ellipsis.IsValid(),
 				}
@@ -787,6 +792,8 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 				auth.AttemptsTable = s
 			case "WithSignInMethodsTableName":
 				auth.SignInMethodsTable = s
+			case "WithSignInSettingsTableName":
+				auth.SignInSettingsTable = s
 			case "WithMailLinksTableName":
 				auth.MailLinksTable = s
 			case "WithTokensTableName":

@@ -31,13 +31,15 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable and
-	// signInMethodsTable name the group's tables; nil keeps the store's defaults.
+	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable,
+	// signInMethodsTable and signInSettingsTable name the group's tables; nil keeps the
+	// store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
 	signInAttemptsTable *string
 	mailLinksTable      *string
 	signInMethodsTable  *string
+	signInSettingsTable *string
 	// mail is how the Auth sends mail: NewAuth's argument, validated.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
@@ -149,6 +151,12 @@ func WithSignInMethodsTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.signInMethodsTable = &name }}
 }
 
+// WithSignInSettingsTableName sets the name of the group's sign-in settings table.
+// (default: SessionSignInSettings)
+func WithSignInSettingsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.signInSettingsTable = &name }}
+}
+
 // WithInvitationCookieName sets the name of the cookie that carries an invitation the
 // browser opened into the sign-in. (default: auth-invitation)
 func WithInvitationCookieName(name string) AuthOption {
@@ -205,6 +213,7 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
 		{option: "WithSignInMethodsTableName", name: settings.signInMethodsTable, set: storage.SetSignInMethodsTableName},
+		{option: "WithSignInSettingsTableName", name: settings.signInSettingsTable, set: storage.SetSignInSettingsTableName},
 		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
 		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
 		{option: "WithFactorCodesTableName", name: settings.factorCodesTable, set: storage.SetFactorCodesTableName},
@@ -486,7 +495,11 @@ func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Optio
 // known and before any session exists, for every sign-in method and for a session the
 // application starts for a user it authenticated itself (AuthAPI.StartAuthenticatedSession),
 // with signin.Allow, signin.Deny or signin.RequireMFA. Without a policy the library's
-// own checks decide. Set it after NewAuth and before serving the first request; a nil
+// own checks decide. After the policy, or in its place where there is none, the Auth's
+// sign-in settings are read: while they ask everyone for a second factor, a sign-in the
+// policy allows is held for the library's mailed code unless it already carries a
+// second factor (AuthAPI.SetSecondFactorRequired).
+// Set it after NewAuth and before serving the first request; a nil
 // policy, a second policy, or a policy set once the Auth is in use is a wiring
 // mistake and panics, as a misregistered sign-in method does.
 func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[Tx]) {
@@ -1063,8 +1076,9 @@ func (h *PendingHandlers) SendCode() http.HandlerFunc {
 // when code is the one sent: the session starts under a new ID, recording the
 // sign-in's events and an email-code event, and the address the code went to is
 // written on the user verified when it was not. With rememberDevice the browser is
-// remembered as a trusted device of the user for the trusted device period, so its
-// next sign-ins skip the factor. It answers as the password login does:
+// remembered as a trusted device of the user for the days the sign-in settings say
+// (AuthAPI.SetRememberedBrowserDays), so its next sign-ins skip the factor; while they
+// say 0, it is not remembered. It answers as the password login does:
 // {"mfaIsRequired": false}, or the policy's next wait. A wrong code is 401 with
 // {"code": "invalid_code"} and the code stands with one fewer attempt; a code entered
 // while none stands, because none was sent or the one sent expired, was used, took its

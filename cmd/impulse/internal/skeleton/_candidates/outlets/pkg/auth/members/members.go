@@ -23,12 +23,14 @@
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
-// Every session carries a second factor. A sign-in the password admitted, or a directory
-// the deployment does not administer, waits for the sign-in code the auth mails to the
-// person's verified address (a person who holds none gives one first), unless the
-// browser is one the person asked to be remembered after a code (the members-trusted
-// cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing. Every
+// Every session carries a second factor while the auth's sign-in setting requires one,
+// as it does until an administrator turns it off (the Sign-in page). While it is
+// required, a sign-in the password admitted, or a directory the deployment does not
+// administer, waits for the sign-in code the auth mails to the person's verified
+// address (a person who holds none gives one first), unless the browser is one the
+// person asked to be remembered after a code (the members-trusted cookie); a sign-in
+// through a directory the deployment administers, or whose token says a second factor
+// was passed, carries the directory's and is asked for nothing. Every
 // account a person signs in to has a confirmed address, so a person who comes through a
 // directory that does not vouch for theirs (Microsoft Entra ID vouches for none)
 // confirms one at their first sign-in with a code mailed to it, whatever the directory
@@ -53,7 +55,6 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/mail"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -87,15 +88,16 @@ const (
 	// each session records, the pending sign-ins that wait for a confirmation, the
 	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
 	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
-	// only, which a method with no row is), and the mail links: the invitations, address
-	// verifications and sign-ups the auth mails, each a single-use token its follower
-	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
-	// auth issues (the application tokens its people issue and the access and refresh
-	// tokens of the device grants they approve); the device codes: the device
-	// authorizations command-line clients wait on; and the second factor's tables: the
-	// sign-in codes mailed to people and the browsers they asked to be remembered. The
-	// names are spelled out in full so the tool's session-tables check, which reads the
-	// literals, finds their migrations.
+	// only, which a method with no row is), the sign-in settings (whether everyone is asked
+	// for a second factor, and how long a browser is remembered: with no row, required and
+	// 30 days), and the mail links: the invitations, address verifications and sign-ups
+	// the auth mails, each a single-use token its follower proves; the tokens: the bearer
+	// credentials of the machine outlets whose tokens this auth issues (the application
+	// tokens its people issue and the access and refresh tokens of the device grants they
+	// approve); the device codes: the device authorizations command-line clients wait on;
+	// and the second factor's tables: the sign-in codes mailed to people and the browsers
+	// they asked to be remembered. The names are spelled out in full so the tool's
+	// session-tables check, which reads the literals, finds their migrations.
 	sessionsTable       = "MembersSessions"
 	usersTable          = "MembersSessionUsers"
 	identitiesTable     = "MembersSessionIdentities"
@@ -103,6 +105,7 @@ const (
 	pendingTable        = "MembersSessionPendingSignIns"
 	attemptsTable       = "MembersSessionSignInAttempts"
 	methodsTable        = "MembersSessionSignInMethods"
+	signInSettingsTable = "MembersSessionSignInSettings"
 	mailLinksTable      = "MembersSessionMailLinks"
 	tokensTable         = "MembersSessionTokens"
 	deviceCodesTable    = "MembersSessionDeviceCodes"
@@ -333,7 +336,8 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // refuses to open without. Beside the role file's roles the engine defines one of the
 // framework's in every auth, Super Administrator (accesstypes.SuperAdministrator), held
 // for the whole application alone: its holder gives and takes any role of the auth, enters
-// every tenant, and signs in with a second factor whatever the sign-in rule asks.
+// every tenant, and signs in with a second factor whatever the auth's sign-in
+// setting says.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if access.IsNilCollection(settings.Collection) {
 		return nil, errors.New("members.Settings.Collection is nil: the permission engine holds every grant to the permission collection the release declares; pass the generated router's Collection(), or where the application has several sites the union of theirs (the configuration's Collection(), over access.UnionCollection)")
@@ -383,10 +387,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
 	// The Auth is built knowing who holds the Super Administrator role, which is why the
-	// permission engine opens first: a holder signs in with a second factor whatever the
-	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
-	// the library's own after the application's. The memberships are read outside the
-	// sign-in's transaction (resource.SignInRoles).
+	// permission engine opens first: a holder signs in with a second factor whatever
+	// the auth's sign-in setting says, held for the mailed code by a rule of the
+	// library's own. The memberships are read outside the sign-in's transaction
+	// (resource.SignInRoles).
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
@@ -398,6 +402,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
+		session.WithSignInSettingsTableName(signInSettingsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -445,9 +450,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// password and a second factor, and nobody else's reaches one whose declaration
 	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
-	// transaction's context as a nested transaction. A sign-in the rule admits then
-	// carries a second factor (requireSecondFactor).
-	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
+	// transaction's context as a nested transaction. Whether a sign-in the rule admits
+	// is then asked for a second factor is the auth's sign-in setting, which the session
+	// library reads at every sign-in.
+	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))
 
 	// The same rule, asked outside a sign-in, says whose password is disabled: a person
 	// the rule would refuse a sign-in with a password as directory only. Their account
@@ -563,17 +569,6 @@ func (a *Auth) Close() error {
 	}
 
 	return nil
-}
-
-// requireSecondFactor is the sign-in rule every session ends with: the second factor, the
-// sign-in code mailed to the person's address (sessioninfo.MethodEmailCode), unless the
-// sign-in carries one already, a remembered browser's token or the attestation of a
-// directory the deployment administers or whose token says a second factor was passed,
-// which the library takes before it asks. A sign-in the rule holds waits for the code
-// (?pending=mfa on the login page), where the person asks for it, enters it and may ask
-// for the browser to be remembered.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }
 
 // announcePolicy is the sending half of the engine's change signal: after a policy write

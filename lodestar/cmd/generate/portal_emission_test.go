@@ -152,9 +152,10 @@ func TestPortalTargetEmission(t *testing.T) {
 	// struct, and with them the resources Mission's declared pickers name, which follow
 	// Mission onto every outlet it serves, the library's FeatureFlags, which every
 	// session outlet serves, and the members auth's own tables, the one list of the
-	// roles its people hold and the lists a sector keeps of the members, declared by the
-	// generated management of the auth and served on its outlet) and the console emits
-	// every one.
+	// roles its people hold, the lists a sector keeps of the members and the lists of the
+	// auth's Sign-in page (its sign-in methods, what every sign-in asks for and the
+	// lengths a browser is remembered for), declared by the generated management of the
+	// auth and served on its outlet) and the console emits every one.
 	iface := regexp.MustCompile(`(?m)^export interface (\w+) \{`)
 	portalIfaces := iface.FindAllStringSubmatch(read("web/portal/src/app/core/service/zz_gen_resources.ts"), -1)
 	var names []string
@@ -166,7 +167,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		}
 		names = append(names, m[1])
 	}
-	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersRoles,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,MembersListedRoleGrants,FeatureFlags"
+	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersRoles,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,MembersListedRoleGrants,MembersRememberLengths,MembersSignInMethods,MembersSignInSettings,FeatureFlags"
 	if strings.Join(names, ",") != want {
 		t.Errorf("portal resource interfaces = %v, want %s", names, want)
 	}

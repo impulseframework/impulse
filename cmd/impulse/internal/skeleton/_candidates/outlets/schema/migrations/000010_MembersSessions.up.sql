@@ -156,6 +156,21 @@ CREATE TABLE MembersSessionSignInMethods (
     UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The sign-in settings: what an administrator chose, in the running application, for the
+-- whole auth. The table holds at most one row, the Auth's, under the one name it takes
+-- ('auth'). RequireSecondFactor says everyone is asked for a second factor when they sign
+-- in, and RememberBrowserDays for how many days a browser a person asked to be remembered
+-- skips the code, 0 for browsers that are not remembered. An Auth with no row requires
+-- the second factor and remembers a browser for 30 days, so the table starts empty.
+-- UpdatedAt takes the commit time.
+CREATE TABLE MembersSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_MembersSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
 -- The mail links: the single-use links the auth mails. A row is one link: an invitation
 -- to an address, carrying the roles its acceptance gives and the place they are held in
 -- (TenantId for one tenant, EveryTenant for every tenant, neither for the whole

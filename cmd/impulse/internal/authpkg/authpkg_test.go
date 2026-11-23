@@ -572,9 +572,8 @@ func TestFiles_signedInHook(t *testing.T) {
 // TestFiles_passwordDisabledCheck holds that an auth package sets the check that says
 // whose password the tenants' sign-in settings disable wherever it sets the tenant
 // policy, directly after the policy and over the same reader, with and without tenant
-// directories and with and without AdmitWithoutTenant, and sets none where its sign-in
-// rule is the second factor alone: an application without tenants has no tenant to
-// disable a password.
+// directories and with and without AdmitWithoutTenant, and sets none where it sets no
+// sign-in rule: an application without tenants has no tenant to disable a password.
 func TestFiles_passwordDisabledCheck(t *testing.T) {
 	t.Parallel()
 	const policy = "\tauthSession.SetSignInPolicy(signin.TenantPolicy("
@@ -605,7 +604,7 @@ func TestFiles_passwordDisabledCheck(t *testing.T) {
 		{name: "no tenant directories, a person who holds no tenant admitted", spec: tenants(false, true), want: true},
 		{name: "no tenant directories, a person who holds no tenant refused", spec: tenants(false, false), want: true},
 		{
-			name: "an application without tenants, whose rule is the second factor alone",
+			name: "an application without tenants, which sets no sign-in rule",
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
 		},
 	}
@@ -789,6 +788,46 @@ func TestFiles_tenantMaker(t *testing.T) {
 	}
 }
 
+// TestFiles_noSecondFactorRule holds that no auth package the template writes carries a
+// sign-in rule of its own for the second factor: whether everyone is asked for one is the
+// auth's sign-in setting, which the session library reads at every sign-in. An auth of an
+// application with tenants sets the tenant policy alone, and one without tenants sets no
+// rule.
+func TestFiles_noSecondFactorRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		policy    *TenantPolicy
+		wantRules int
+	}{
+		{
+			name:   "an auth of an application with tenants",
+			policy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}, wantRules: 1,
+		},
+		{name: "an auth of an application without tenants", wantRules: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: tt.policy}
+			files, err := Files(spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", spec.Name, err)
+			}
+			for name, data := range files {
+				if strings.Contains(string(data), "requireSecondFactor") {
+					t.Errorf("%s names requireSecondFactor, want no rule of the package's own for the second factor", name)
+				}
+			}
+			if got := strings.Count(string(files["staff.go"]), "authSession.SetSignInPolicy("); got != tt.wantRules {
+				t.Errorf("staff.go sets the sign-in rule %d times, want %d", got, tt.wantRules)
+			}
+		})
+	}
+}
+
 // TestFiles_tenantDirectories pins what an auth carries of a tenant's directory. In an
 // application with tenant directories the auth whose roles the application assigns
 // carries the directory reader, refuses a nil one and sets the directory admission. In
@@ -808,7 +847,7 @@ func TestFiles_tenantDirectories(t *testing.T) {
 	everywhere := []string{
 		"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
 		"\tif settings.TenantDeclarations == nil {\n",
-		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
+		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n",
 		"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n",
 		"\tTenantMaker identity.TenantMaker\n",
 		"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",

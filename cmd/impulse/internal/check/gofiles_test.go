@@ -88,12 +88,12 @@ func TestChecksReadTheGoFilesTheGoToolReads(t *testing.T) {
 			},
 		},
 		{
-			name:    "second-factor: a policy call in a scratch file is no second call on the Auth",
+			name:    "second-factor: requireSecondFactor in a scratch file is not carried by the package",
 			check:   secondFactor{},
-			files:   map[string]string{staffFile: fmt.Sprintf(ruledAuth, "\ts.SetSignInPolicy(requireSecondFactor)", secondFactorFunc)},
+			files:   map[string]string{staffFile: fmt.Sprintf(ruledAuth, "\ts.SetSignInPolicy(signin.TenantPolicy(nil, nil))", "")},
 			dir:     staffDir,
-			scratch: fmt.Sprintf(ruledAuth, "\ts.SetSignInPolicy(signin.TenantPolicy(nil, nil))", ""),
-			want:    Result{Name: secondFactorName, Status: Pass, Summary: "1 auth(s) end their sign-in rule with the second factor: staff"},
+			scratch: fmt.Sprintf(ruledAuth, "\ts.SetSignInPolicy(requireSecondFactor)", secondFactorFunc),
+			want:    Result{Name: secondFactorName, Status: Pass, Summary: "1 auth(s) leave the second factor to the sign-in setting: staff"},
 		},
 		{
 			name:    "gofmt: a scratch file is not held to the formatting",

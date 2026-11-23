@@ -13,9 +13,10 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/auth/staff"
 )
 
-// The second factor every session carries, as the login page completes it: the sign-in
-// code the auth mails to the person's address, which a browser the person asked to be
-// remembered stands in for. The helpers here sign a login in through it.
+// The second factor the auth's sign-in setting requires, as the login page completes
+// it: the sign-in code the auth mails to the person's address, which a browser the
+// person asked to be remembered stands in for. The helpers here sign a login in through
+// it.
 
 // signIn primes the XSRF handshake and signs a login in the way a person does, failing
 // the test on refusal: the password, then the second factor. The login's first sign-in

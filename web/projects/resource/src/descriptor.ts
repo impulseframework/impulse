@@ -273,6 +273,13 @@ export interface IdentityLists {
   readonly sessions?: string;
   readonly signInAttempts?: string;
   readonly signInMethods?: string;
+  /**
+   * What every sign-in asks for, as two lines above the methods: whether everyone is
+   * asked for a second factor, then for how long a remembered browser skips it.
+   */
+  readonly signInSettings?: string;
+  /** The lengths of time a browser can be remembered for, which the second line's action picks from. */
+  readonly rememberLengths?: string;
   readonly signUpRoles?: string;
   /**
    * The groups of people, where the Auth keeps them: a tenant's own on its side. A row
@@ -353,6 +360,9 @@ export interface IdentityMethods {
   readonly openSignUp?: string;
   readonly makeInviteOnly?: string;
   readonly setSelfServiceReset?: string;
+  readonly requireSecondFactor?: string;
+  readonly stopRequiringSecondFactor?: string;
+  readonly setRememberedBrowsers?: string;
   readonly createGroup?: string;
   readonly describeGroup?: string;
   readonly deleteGroup?: string;

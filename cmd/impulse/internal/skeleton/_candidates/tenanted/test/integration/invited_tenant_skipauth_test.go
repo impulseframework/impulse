@@ -75,7 +75,8 @@ func TestInvitedTenant_acceptedThroughADirectory(t *testing.T) {
 	}
 
 	// Accepted through the Workspace: the same link, followed again, then the sign-in
-	// through the google registration and the second factor every session carries.
+	// through the google registration and the second factor the auth's sign-in setting
+	// requires.
 	t.Setenv("APP_GOOGLE_USERNAME", emberFounder)
 	founder = newBrowser(t, s)
 	if status, page := showInvitation(ctx, t, founder, token); status != http.StatusOK {

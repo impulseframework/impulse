@@ -193,7 +193,7 @@ func testTrustedDeviceCount(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 	count := func(userID impulse.UUID) int {
 		t.Helper()
-		n, err := in.Driver.TrustedDeviceCount(ctx, userID, time.Now())
+		n, err := in.Driver.TrustedDeviceCount(ctx, userID, time.Now(), longBeforeAnyDevice())
 		if err != nil {
 			t.Fatalf("TrustedDeviceCount() error = %v", err)
 		}

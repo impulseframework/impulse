@@ -65,6 +65,15 @@
               "resource": "SetStaffSelfServiceReset"
             },
             {
+              "resource": "RequireStaffSecondFactor"
+            },
+            {
+              "resource": "StopRequiringStaffSecondFactor"
+            },
+            {
+              "resource": "SetStaffRememberedBrowsers"
+            },
+            {
               "resource": "InviteStaffUser"
             },
             {
@@ -207,6 +216,21 @@
                 "ownRule",
                 "says",
                 "selfServiceReset"
+              ]
+            },
+            {
+              "resource": "StaffSignInSettings",
+              "fields": [
+                "position",
+                "rememberBrowserDays",
+                "requireSecondFactor",
+                "says"
+              ]
+            },
+            {
+              "resource": "StaffRememberLengths",
+              "fields": [
+                "days"
               ]
             },
             {
