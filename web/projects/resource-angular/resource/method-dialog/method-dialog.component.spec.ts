@@ -387,6 +387,16 @@ describe('MethodDialogComponent', () => {
     expect((o.fixture.nativeElement as HTMLElement).querySelector('.says')).toBeNull();
   });
 
+  it("draws each input in the field's own frame, with no section's box around it", async () => {
+    const o = await open(
+      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1' } },
+      scriptedTransport(),
+    );
+    const inputs = [...(o.fixture.nativeElement as HTMLElement).querySelectorAll('impulse-resource-field')];
+    expect(inputs).toHaveLength(3);
+    expect(inputs.filter((input) => input.closest('.resource-layout-container'))).toEqual([]);
+  });
+
   it('asks the question from the label where the page gives none', async () => {
     const o = await open(
       { method: 'DisableCrewSectorUser', label: 'Disable', preset: { userId: 'u-1' } },

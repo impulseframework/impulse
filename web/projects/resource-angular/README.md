@@ -208,6 +208,8 @@ A list offers the methods that run against its rows, with nothing configured. A 
 
 A method's presentation can say what the method does. `says` is one line the method's dialog draws at its top, above what it asks: the library's Invite says "The person is mailed a link. They sign in or sign up with it, and are then given the roles."
 
+In an action's dialog (a method's, and the dialog of an `rpc` button) each input is drawn in the field's own frame, with no box around it. A record's page and its create form draw a section's box around a field that stands in no section, as before.
+
 The pages over an Auth's people are built by the library. Where the server's management of an Auth is generated (`GenerateIdentity`), the generated API description names its lists and methods by what each is (the `identity` block), and `identityRoutes` from `@impulseframework/resource-angular/identity-pages` turns that into routes of the library's own list and row pages:
 
 A page of the whole application's side is headed by what it lists ("Accounts", "Groups", "Mailed links", "Sessions", "Failed sign-ins", "Sign-in"), with the Auth's label before it ("Crew accounts") only where the description carries the management of more than one Auth.

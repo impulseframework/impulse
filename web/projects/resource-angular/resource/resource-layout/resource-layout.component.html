@@ -48,8 +48,10 @@
   } @else {
     @if (parentElement.type === 'field') {
       <div
-        class="section-elements dense-1 resource-layout-container"
-        [class]="layoutNestingDepth() % 2 === 0 ? 'resource-layout-container-even' : 'resource-layout-container-odd'">
+        class="section-elements dense-1"
+        [class.resource-layout-container]="framed()"
+        [class.resource-layout-container-even]="framed() && layoutNestingDepth() % 2 === 0"
+        [class.resource-layout-container-odd]="framed() && layoutNestingDepth() % 2 !== 0">
         <impulse-resource-field
           [meta]="meta()"
           [fieldClass]="fieldClass()"
