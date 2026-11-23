@@ -220,7 +220,7 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 	}{
 		{name: "no reason", body: fmt.Sprintf(`{"domain":%q,"role":"Engineer","length":"1 hour"}`, anvil)},
 		{name: "a reason of spaces alone", body: taking("Engineer", "1 hour", "   "), says: "say why you need the role"},
-		{name: "a reason of two lines", body: taking("Engineer", "1 hour", "Inspecting\nthe hangar"), says: "one line of plain text"},
+		{name: "a reason of two lines", body: taking("Engineer", "1 hour", "Inspecting\nthe hangar"), says: "The reason is one line of plain text, and this one holds a line break or a character that cannot be shown. Type it again as one line."},
 		{name: "a length that is not offered", body: taking("Engineer", "2 days", why), says: "a longer need is an ordinary role with an end"},
 		{name: "the Super Administrator role", body: fmt.Sprintf(`{"domain":%q,"role":%q,"length":"1 hour","reason":%q}`, anvil, accesstypes.SuperAdministrator, why)},
 	} {

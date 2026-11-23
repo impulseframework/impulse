@@ -30,6 +30,11 @@ import (
 // last given with, and a role given again with none carries none. Nothing edits a reason
 // by itself.
 
+// PeriodNeverCountsMessage is what a person is told of a period that ends at or before
+// its start: the sentence carries neither time, and the refusal's cause
+// (accesstypes.Period.Validate's error) keeps both, for the server's log.
+const PeriodNeverCountsMessage = "The period ends at or before its start, so it would never count. Give an end that is after the start."
+
 // ValidatePeriod refuses a period an assignment of role cannot carry: one that ends at
 // or before its start, which would never count, and any period on the Super
 // Administrator role. There is always a super administrator, and an end could leave
@@ -39,10 +44,10 @@ import (
 // that writes the row in a transaction of its own (UserManager.Membership).
 func ValidatePeriod(role accesstypes.Role, period accesstypes.Period) error {
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, PeriodNeverCountsMessage)
 	}
 	if role == accesstypes.SuperAdministrator && !period.IsZero() {
-		return httpio.NewBadRequestMessagef("the %s role takes no end and no start: there is always a super administrator, and a period could leave none. Give the role with no period, and remove it when it is no longer wanted", roleInWords(role))
+		return httpio.NewBadRequestMessagef("The %s role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted.", roleInWords(role))
 	}
 
 	return nil

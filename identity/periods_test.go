@@ -205,8 +205,8 @@ func TestManager_AssignRoleFor(t *testing.T) {
 			period: accesstypes.Period{Start: current.End, End: current.Start}, wantErr: "not after its start",
 		},
 		{name: "a period that is over already", role: "Reader", scope: alphaScope, period: ended, wantErr: "take it away to end it now"},
-		{name: "an end on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{End: current.End}, wantErr: "takes no end"},
-		{name: "a start on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{Start: upcoming.Start}, wantErr: "takes no end"},
+		{name: "an end on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{End: current.End}, wantErr: "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted."},
+		{name: "a start on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{Start: upcoming.Start}, wantErr: "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

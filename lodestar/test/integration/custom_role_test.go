@@ -54,8 +54,8 @@ func TestCustomRole_undeclaredGrantIsSkipped(t *testing.T) {
 		access.GrantRow{Permission: accesstypes.Read, Resource: declared},
 		access.GrantRow{Permission: accesstypes.List, Resource: undeclared},
 	)
-	const refused = "List on Ledgers cannot be given to a role: this release declares no List on Ledgers. " +
-		"A role is given a permission the application declares on a resource or a field; check the permission and the name"
+	const refused = "List on Ledgers cannot be given to a role, because this release declares no List on Ledgers. " +
+		"A role is given a permission the application declares on a resource or a field, so check the permission and the name."
 	if !httpio.HasBadRequest(err) || httpio.Message(err) != refused {
 		t.Fatalf("access.UserManager.AddRoleGrants() with a resource the release does not declare, error = %v, want a bad request saying %q", err, refused)
 	}

@@ -333,7 +333,7 @@ func TestManager_TakeRole(t *testing.T) {
 		},
 		{
 			name: "the Super Administrator role is not taken", ctx: asDana, scope: globalScope, role: accesstypes.SuperAdministrator, length: TakeOneHour, reason: why,
-			refused: httpio.HasBadRequest, wantSays: "takes no end", wantAsked: []string{"give " + membershipText(&super)},
+			refused: httpio.HasBadRequest, wantSays: "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted.", wantAsked: []string{"give " + membershipText(&super)},
 		},
 	}
 	for _, tt := range tests {

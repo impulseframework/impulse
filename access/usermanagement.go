@@ -70,7 +70,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 
 	for _, user := range users {
 		if user == "" {
-			return httpio.NewBadRequestMessage("user cannot be empty string")
+			return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 		}
 
 		if err := u.giveUserRole(ctx, scope, user, role, accesstypes.Period{}, ""); err != nil {
@@ -119,7 +119,7 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 	}
 
 	if user == "" {
-		return httpio.NewBadRequestMessage("user cannot be empty string")
+		return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 	}
 
 	for _, role := range roles {
@@ -252,7 +252,7 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 	defer span.End()
 
 	if len(scopes) == 0 {
-		return nil, httpio.NewBadRequestMessage("at least one scope is required")
+		return nil, httpio.NewBadRequestMessage("No place is named. Name the whole application or at least one tenant to read the permissions in.")
 	}
 
 	userPermissions := make(accesstypes.UserPermissionCollection)
@@ -269,14 +269,18 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 }
 
 // roleCaseTwin is the refusal of a custom role's name that differs only in case
-// from a custom role already held: the name asked, the role held and the scope
-// it is held in.
-const roleCaseTwin = "role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held"
+// from a custom role already held: the name asked, the role held as it is spelled,
+// and where it is held in words (placeInWords).
+const roleCaseTwin = "The name %q differs only in upper and lower case from the role %q, which is held %s. A directory tells role names apart without regard to case, so choose a name that differs by more."
+
+// roleCaseTwinCause is roleCaseTwin's cause, for the server's log: the name asked,
+// the role held and the scope it is held in.
+const roleCaseTwinCause = "role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held"
 
 // defaultRoleCaseTwin is the refusal of a custom role's name that differs only
 // in case from one of the release's default roles: the name asked and the
 // default role.
-const defaultRoleCaseTwin = "role %q differs only in case from %q, one of the release's default roles; a directory names roles without regard to case, so one spelling is held"
+const defaultRoleCaseTwin = "The name %q differs only in upper and lower case from %q, one of the application's built-in roles. A directory tells role names apart without regard to case, so choose a name that differs by more."
 
 // AddRole creates a custom role held in scope, with the description saying
 // what it is for. The scope is an opaque partition label: its validity is
@@ -291,19 +295,28 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 	defer announce()
 
 	if role == "" {
-		return httpio.NewBadRequestMessage("role cannot be empty string")
+		return httpio.NewBadRequestMessage("The role has no name. Give it one.")
 	}
 	if !roleNamePattern.MatchString(string(role)) {
-		return httpio.NewBadRequestMessagef("role %s: %s", string(role), roleNameRule)
+		return httpio.NewBadRequestMessageWithErrorf(
+			errors.Newf("role %s: %s", string(role), roleNameRule),
+			"The name %q cannot be used for a role. A role's name is letters and digits and starts with a capital letter, such as Administrator or TenantAdministrator.", string(role),
+		)
 	}
 	if strings.TrimSpace(description) == "" {
-		return httpio.NewBadRequestMessagef("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role))
+		return httpio.NewBadRequestMessageWithError(
+			errors.Newf("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role)),
+			"The role has no description. Say what it is for in one or two plain sentences.",
+		)
 	}
 	if isSuperAdministratorName(role) {
-		return httpio.NewConflictMessagef("role %s: %s; choose another name", string(role), superAdministratorReserved)
+		return httpio.NewConflictMessageWithErrorf(
+			errors.Newf("role %s: %s; choose another name", string(role), superAdministratorReserved),
+			"The name %q is reserved for the Super administrator role, which every application has. Choose another name.", string(role),
+		)
 	}
 	if u.defaults.exists(scope, role) {
-		return httpio.NewConflictMessagef("role %q is one of the release's default roles; a custom role cannot take its name", string(role))
+		return httpio.NewConflictMessagef("The application has a built-in role named %q. Choose another name.", string(role))
 	}
 
 	// A name is taken under any spelling: a directory names roles without regard
@@ -315,7 +328,7 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 		return err
 	}
 	if roleDoesExist && held == role {
-		return httpio.NewConflictMessagef("role %q already exists", string(role))
+		return httpio.NewConflictMessagef("A role named %q already exists. Choose another name.", string(role))
 	}
 	if roleDoesExist {
 		return u.caseTwinRefusal(ctx, scope, role, held)
@@ -336,7 +349,10 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 				return cmp.Or(cmp.Compare(aDomain, bDomain), cmp.Compare(a.Name, b.Name))
 			})
 
-			return httpio.NewConflictMessagef(roleCaseTwin, string(role), string(twin.Name), twin.Scope)
+			return httpio.NewConflictMessageWithErrorf(
+				errors.Newf(roleCaseTwinCause, string(role), string(twin.Name), twin.Scope),
+				roleCaseTwin, string(role), string(twin.Name), placeInWords(twin.Scope),
+			)
 		}
 	}
 
@@ -345,7 +361,10 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 	if err := u.store.addRole(ctx, scope, role, description); err != nil {
 		var twin *policy.CaseTwinError
 		if errors.As(err, &twin) {
-			return httpio.NewConflictMessagef(roleCaseTwin, string(role), string(twin.Held.Name), twin.Held.Scope)
+			return httpio.NewConflictMessageWithErrorf(
+				errors.Newf(roleCaseTwinCause, string(role), string(twin.Held.Name), twin.Held.Scope),
+				roleCaseTwin, string(role), string(twin.Held.Name), placeInWords(twin.Held.Scope),
+			)
 		}
 
 		return err
@@ -373,7 +392,10 @@ func (u *userManager) caseTwinRefusal(ctx context.Context, scope accesstypes.Pol
 		}
 	}
 
-	return httpio.NewConflictMessagef(roleCaseTwin, string(role), string(held), place)
+	return httpio.NewConflictMessageWithErrorf(
+		errors.Newf(roleCaseTwinCause, string(role), string(held), place),
+		roleCaseTwin, string(role), string(held), placeInWords(place),
+	)
 }
 
 // Roles returns the roles that exist in scope, sorted by name, each with its
@@ -437,27 +459,30 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 	defer announce()
 
 	if u.defaults.exists(scope, role) {
-		return false, httpio.NewBadRequestMessagef("role %q is one of the release's default roles; it cannot be deleted", string(role))
+		return false, httpio.NewBadRequestMessageWithError(
+			errors.Newf("role %q is one of the release's default roles; it cannot be deleted", string(role)),
+			"The role "+roleInWords(role)+" is one of the application's built-in roles, so it cannot be deleted.",
+		)
 	}
 
 	if hasUsers, err := u.hasUsersAssigned(ctx, scope, role); err != nil {
 		return false, errors.Wrap(err, "client.hasUsersAssigned()")
 	} else if hasUsers {
-		return false, httpio.NewBadRequestMessagef("Users assigned to the role. You cannot delete a role that has users assigned")
+		return false, httpio.NewBadRequestMessage("People hold this role. Take it away from them first, then delete it.")
 	}
 
 	deleted, err := u.store.deleteRole(ctx, scope, role)
 	if errors.Is(err, policy.ErrHeldByGroup) {
-		return false, httpio.NewBadRequestMessagef("A group holds the role, now or for a period that has not begun yet. You cannot delete a role a group holds: take it away from the group first")
+		return false, httpio.NewBadRequestMessage("A group holds this role, now or for a period that has not begun yet. Take it away from the group first, then delete it.")
 	}
 	if errors.Is(err, policy.ErrHeldInDomain) {
-		return false, httpio.NewBadRequestMessageWithError(err, "A person or a group holds the role in a tenant, now or for a period that has not begun yet. You cannot delete a role that is held in a tenant: take it away there first")
+		return false, httpio.NewBadRequestMessageWithError(err, "A person or a group holds this role in a tenant, now or for a period that has not begun yet. Take it away there first, then delete it.")
 	}
 	if errors.Is(err, policy.ErrStillAssigned) {
 		// The listing above reads who holds the role now: what stands in the way is
 		// an assignment whose period has not begun, or one given while the delete
 		// ran, after the listing read.
-		return false, httpio.NewBadRequestMessagef("Users are assigned to the role, now or for a period that has not begun yet. You cannot delete a role that has users assigned")
+		return false, httpio.NewBadRequestMessage("People hold this role, now or for a period that has not begun yet. Take it away from them first, then delete it.")
 	}
 	if err != nil {
 		return false, err
@@ -601,7 +626,7 @@ func grantRefusal(role accesstypes.Role, err error) error {
 func requireResources(rows []GrantRow) error {
 	for _, row := range rows {
 		if row.Resource == "" {
-			return httpio.NewBadRequestMessage("resource cannot be empty string")
+			return httpio.NewBadRequestMessage("No resource is named. Name the resource the permission is given on.")
 		}
 	}
 
@@ -675,12 +700,12 @@ func (b *brokenRule) badRequest(role accesstypes.Role, permission accesstypes.Pe
 	switch b.part {
 	case noRoleActionPart:
 		return httpio.NewBadRequestMessagef(
-			"%s on %s cannot be given to a role: %s. Nothing asks for a grant of it, so the grant would do nothing",
+			"%s on %s cannot be given to a role, because %s. Nothing asks for a grant of it, so the grant would do nothing.",
 			permission, asked, plainText(b.reason),
 		)
 	case namesPart:
 		return httpio.NewBadRequestMessagef(
-			"%s on %s cannot be given to a role: %s. A role is given a permission the application declares on a resource or a field; check the permission and the name",
+			"%s on %s cannot be given to a role, because %s. A role is given a permission the application declares on a resource or a field, so check the permission and the name.",
 			permission, asked, plainText(b.reason),
 		)
 	case conditionPart:
@@ -702,7 +727,7 @@ func (b *brokenRule) badRequest(role accesstypes.Role, permission accesstypes.Pe
 func (u *userManager) requireDeclaredPermission(permission accesstypes.Permission) error {
 	if err := unlistedName(u.collection.List(), &policy.Grant{Perm: permission}); err != nil {
 		return httpio.NewBadRequestMessagef(
-			"%s cannot be given to a role: %s. A role is given a permission the application declares; check the permission's name",
+			"%s cannot be given to a role, because %s. A role is given a permission the application declares, so check the permission's name.",
 			permission, plainText(err),
 		)
 	}
@@ -722,7 +747,7 @@ func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Policy
 		return err
 	}
 	if resource == "" {
-		return httpio.NewBadRequestMessage("resource cannot be empty string")
+		return httpio.NewBadRequestMessage("No resource is named. Name the resource the permission is given on.")
 	}
 	if err := u.requireDeclared(scope, role, []GrantRow{{Permission: permission, Resource: resource, Condition: condition}}); err != nil {
 		return err
@@ -976,7 +1001,10 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 	case 1:
 		return matches[0], true, nil
 	default:
-		return "", false, httpio.NewConflictMessagef("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches)
+		return "", false, httpio.NewConflictMessageWithErrorf(
+			errors.Newf("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches),
+			"The name %q matches %d roles held %s that differ only in upper and lower case. A directory tells role names apart without regard to case, so rename all but one.", name, len(matches), placeInWords(scope),
+		)
 	}
 }
 
@@ -990,7 +1018,7 @@ func refuseSuperAdministratorOutsideGlobal(scope accesstypes.PolicyScope, role a
 		return nil
 	}
 
-	return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a tenant or in every tenant: give it with no tenant named", roleInWords(role))
+	return httpio.NewBadRequestMessagef("The %s role is held for the whole application alone, never in a tenant or in every tenant. Give it with no tenant named.", roleInWords(role))
 }
 
 // roleExists reports whether role exists in scope under exactly that spelling:
@@ -1060,7 +1088,10 @@ func customRoleScopeBy(ctx context.Context, scope accesstypes.PolicyScope, role 
 // domain is changed where it is held, not through one domain.
 func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if u.defaults.exists(scope, role) {
-		return httpio.NewBadRequestMessagef("role %q is one of the release's default roles; its grants are the release's. Copy them into a custom role to change them", string(role))
+		return httpio.NewBadRequestMessageWithError(
+			errors.Newf("role %q is one of the release's default roles; its grants are the release's. Copy them into a custom role to change them", string(role)),
+			"The role "+roleInWords(role)+" is one of the application's built-in roles, and its grants are fixed. Copy them into a custom role to change them.",
+		)
 	}
 
 	exists, err := u.store.roleExists(ctx, scope, role)

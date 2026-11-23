@@ -266,20 +266,20 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed", description: aDescription},
 		{
 			name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription,
-			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("differs only in case from %q, one of the release's default roles", string(domainDefault)),
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("The name %q differs only in upper and lower case from %q, one of the application's built-in roles. A directory tells role names apart without regard to case, so choose a name that differs by more.", strings.ToUpper(string(domainDefault)), string(domainDefault)),
 		},
 		{
 			name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription,
-			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("the role %q held in scope %s;", "Zed", tenant1Policy),
+			wantErr: httpio.HasConflict, wantMessage: `The name "ZED" differs only in upper and lower case from the role "Zed", which is held in a tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`,
 		},
 		{
 			name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription,
-			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("the role %q held in scope %s;", "Everywhere", everyDomainPolicy),
+			wantErr: httpio.HasConflict, wantMessage: `The name "EVERYWHERE" differs only in upper and lower case from the role "Everywhere", which is held in every tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`,
 		},
 		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "ZED", description: aDescription},
 		{
 			name: "a name differing only in case from a custom role one domain holds is refused in every domain", scope: everyDomainPolicy, role: "ZED", description: aDescription,
-			wantErr: httpio.HasConflict, wantMessage: `differs only in case from the role "Zed"`,
+			wantErr: httpio.HasConflict, wantMessage: `The name "ZED" differs only in upper and lower case from the role "Zed", which is held in a tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`,
 		},
 		{name: "a name one domain holds in the same spelling is free in every domain", scope: everyDomainPolicy, role: "Zed", description: aDescription},
 	}
@@ -343,7 +343,7 @@ func Test_userManager_defaults_AddRole_storeRefusesCaseTwin(t *testing.T) {
 	if !httpio.HasConflict(err) {
 		t.Fatalf("AddRole() error = %v, want a conflict", err)
 	}
-	if got, want := httpio.Message(err), fmt.Sprintf(roleCaseTwin, "Newrole", "NEWROLE", everyDomainPolicy); got != want {
+	if got, want := httpio.Message(err), `The name "Newrole" differs only in upper and lower case from the role "NEWROLE", which is held in every tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`; got != want {
 		t.Errorf("AddRole() message = %q, want %q", got, want)
 	}
 }
