@@ -90,7 +90,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// The rules' sentences say the tenant's directory as each auth's sign-in
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
-	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword)
+	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).CountedBy(resource.DirectoryCounter{Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders})
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -191,5 +191,5 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 // with them, so it says what turning the switch on takes of the caller in the words
 // the method refuses in.
 func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
+	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).CountedBy(resource.DirectoryCounter{Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders}), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
 }

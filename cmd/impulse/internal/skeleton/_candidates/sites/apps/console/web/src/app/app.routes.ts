@@ -11,9 +11,8 @@ import {
   tenantGuard,
 } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
-import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
+import { identityRoutes, tenantSignInRoute } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
-import { tenantSignInRoute } from '@components/ui/sign-in/sign-in.routes';
 import { tenantsConfig } from './configs/tenants.config';
 
 // The dashboard is every place's first page (provideFrame's home): outside every tenant it
@@ -96,7 +95,7 @@ export const routes: Routes = [
           // application.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'domain' }).map(underTenant),
           // Who may enter the tenant: its directories and whether they are the only way in.
-          tenantSignInRoute(),
+          tenantSignInRoute(apiDescriptor, { auth: 'Staff' }),
           ...frameRoutes(),
           { path: '**', redirectTo: 'dashboard' },
         ],

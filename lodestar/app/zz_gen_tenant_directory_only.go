@@ -90,7 +90,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// The rules' sentences say the sector's directory as each auth's sign-in
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
-	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword)
+	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryCounter{Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders}, resource.DirectoryCounter{Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders})
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -192,5 +192,5 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 // with them, so it says what turning the switch on takes of the caller in the words
 // the method refuses in.
 func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword), a.UserPermissions, router.Domain, "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly")
+	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryCounter{Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders}, resource.DirectoryCounter{Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders}), a.UserPermissions, router.Domain, "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly")
 }

@@ -45,13 +45,10 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 	t.Parallel()
 
 	const src = "web/console/src/app/"
-	// directoryFiles exist with tenant directories alone.
+	// directoryFiles exist with tenant directories alone. The tenant's Sign-in settings
+	// page is the library's in both applications, and no file of either's own.
 	directoryFiles := []string{
 		"pkg/resources/tenant_directories.go",
-		src + "components/ui/sign-in/sign-in.routes.ts",
-		src + "components/ui/sign-in/tenant-sign-in.component.ts",
-		src + "components/ui/sign-in/tenant-sign-in.component.html",
-		src + "components/ui/sign-in/tenant-sign-in.component.spec.ts",
 	}
 	// directory are fragments of files both applications have, held with tenant
 	// directories alone.
@@ -66,8 +63,8 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 		},
 		"pkg/config/data.go":              {"app.NewTenantDirectoryReader()"},
 		src + "configs/tenants.config.ts": {"Tenants.fieldName.directoryOnly", "Directory only"},
-		src + "app.menus.ts":              {"tenantSignInPage", "label: 'Tenant',"},
-		src + "app.routes.ts":             {"tenantSignInRoute", "sign-in.routes"},
+		src + "app.menus.ts":              {"tenantSignInPage(apiDescriptor, { auth: 'Staff' })", "label: 'Tenant',"},
+		src + "app.routes.ts":             {"tenantSignInRoute(apiDescriptor, { auth: 'Staff' })"},
 	}
 	// everywhere are fragments both applications hold: what tenancy is without a
 	// tenant's directory.
@@ -116,7 +113,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with change tracking and no directory-only switch, since no tenant has a directory",
 			"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) with the password-disabled check beside it (signin.PasswordsDisabledByTenants over the same reader, through resource.OutsideSignIn)",
 			"pkg/config/data.go: dataConfig.staffSettings passes the declaration reader (app.NewTenantDeclarationReader()) and what makes a tenant from an accepted invitation (app.NewTenantMaker(tenants, liveService), over the roster built ahead of the auth) to the staff auth",
-			"web/console/src/app/components/ui/new-tenant/ and web/console/src/app/configs/tenants.config.ts: the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference, without the directory-only column and field, which the record does not carry; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher. No tenant sign-in page was written: that page is where a tenant's directory is set and what it is made the only way in of, and no tenant has one",
+			"web/console/src/app/components/ui/new-tenant/ and web/console/src/app/configs/tenants.config.ts: the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference, without the directory-only column and field, which the record does not carry; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher. No Sign-in settings page is placed: that page is where a tenant's directory is set and what it is made the only way in of, and no tenant has one",
 			"web/console/src/app/app.menus.ts: the tenant menus ahead of the others, as the reference's: Tenants (All tenants, in the place outside every tenant) and People (the tenant's side of the auth's people), each showing in its place only, and no menu for Sign-in settings, since no tenant has a directory to set there; Feature flags, whose address has no tenant in it, is a page of the place outside every one",
 			"ran go generate ./..., which emitted the Tenant resource, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 		},
@@ -143,6 +140,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			}
 			directories := !tt.tenancy.NoDirectories
 			a, ch := tenancyOverTheBase(t, tt.tenancy)
+			wantNoSignInPageOfItsOwn(t, a)
 			for _, rel := range directoryFiles {
 				_, err := os.Stat(a.Abs(rel))
 				if got := err == nil; got != directories {
@@ -169,7 +167,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 				}
 			}
 			for _, line := range slices.Concat(ch.Did, ch.Skipped) {
-				if !directories && (strings.Contains(line, "TenantDirector") || strings.Contains(line, "sign-in page (who may enter")) {
+				if !directories && (strings.Contains(line, "TenantDirector") || strings.Contains(line, "draws the tenant's Sign-in settings page")) {
 					t.Errorf("the change says %q of an application whose tenants have no directories", line)
 				}
 			}
@@ -458,11 +456,9 @@ func TestTenancyBrowser_noDirectoriesInTheRecordsWords(t *testing.T) {
 		"listColumns: [{ id: ServiceAreas.fieldName.name }],\n",
 		"changes\n// its name. A ",
 	}, []string{"directoryOnly", "Directory only", "directories only"})
-	wantContains(t, a, src+"app.menus.ts", []string{"      label: 'Service areas',", "resourcePage(tenantsConfig, resourceMeta)"}, []string{"tenantSignInPage", "sign-in.routes", "label: 'Service area',"})
-	wantContains(t, a, src+"app.routes.ts", []string{"resourceRoutes(tenantsConfig, resourceMeta)"}, []string{"tenantSignInRoute", "sign-in.routes", "directory-only flag"})
-	if _, err := os.Stat(a.Abs(src + "components/ui/sign-in")); err == nil {
-		t.Error("the tenant's sign-in page was written for an application whose tenants have no directories")
-	}
+	wantContains(t, a, src+"app.menus.ts", []string{"      label: 'Service areas',", "resourcePage(tenantsConfig, resourceMeta)"}, []string{"tenantSignIn", "label: 'Service area',"})
+	wantContains(t, a, src+"app.routes.ts", []string{"resourceRoutes(tenantsConfig, resourceMeta)"}, []string{"tenantSignIn", "directory-only flag"})
+	wantNoSignInPageOfItsOwn(t, a)
 }
 
 // Test_forTenants holds the cuts to the reference: every stretch an application whose

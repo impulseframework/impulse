@@ -50,9 +50,39 @@ export interface DirectoryOnlyCondition {
   toDo?: string;
 }
 
+/**
+ * How many people hold a role in a tenant (`seated`), and how many of them the tenant's
+ * directory-only switch keeps out (`outside`): the people who have never signed in
+ * through the tenant's directory, counted as the warning that turns the switch on counts
+ * them.
+ */
+export interface DirectoryOnlyCount {
+  seated: number;
+  outside: number;
+}
+
 /** A tenant's directory-only switch as it stands, and what turning it on takes of the person asking. */
 export interface DirectoryOnlyState {
   directoryOnly: boolean;
+  /** The tenant's directory as people know it, on or off; absent for a tenant with no directory. */
+  directory?: string;
+  /**
+   * The role a person gets the first time they sign in through the tenant's directory, in
+   * words; absent where the tenant admits the directory's people by invitation only.
+   */
+  defaultRole?: string;
+  /**
+   * Whether the accounts of the person asking have a password method: turning the switch
+   * on asks them for a password, and an administrator of the tenant who has one still
+   * enters while it is on.
+   */
+  passwords?: boolean;
+  /** A sentence that says how the person asking signed in. */
+  signedIn?: string;
+  /** The organization's directory the person asking is signed in through, as people know it. */
+  sessionDirectory?: string;
+  /** How many people hold a role in the tenant and how many of them the switch keeps out. */
+  people?: DirectoryOnlyCount;
   /**
    * What turning the switch on takes of the person asking, in the order the server
    * checks. Absent while the switch is on and for a tenant with no directory, which is

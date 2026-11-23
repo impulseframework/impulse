@@ -3477,11 +3477,22 @@ tenant that is directory only already has nothing to turn on, so the read names 
 condition for either. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
-skeletons' Sign-in page runs each through the library's method dialog
+library's Sign-in settings page runs each through its method dialog
 (`openMethodDialog`), which draws the warning with its list of people and the typed
 word, and turning the flag off is a plain confirmation. The page offers the method that
-turns it on only where the tenant has a directory, and shows the read's conditions
-beside it.
+turns it on only where the tenant has a directory and the person meets every condition
+of the read, and shows in its place each condition they do not meet.
+
+The read also says what a page of the tenant's sign-in settings shows
+(`DirectoryOnlyState`): `Directory`, the tenant's directory as people know it;
+`DefaultRole`, the role a person gets the first time they sign in through it, in words;
+`Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
+that says how the caller signed in; `SessionDirectory`, the organization's directory the
+caller is signed in through; and `People`, how many people hold a role in the tenant
+(`Seated`) and how many of them the switch keeps out (`Outside`), counted as the warning
+counts them. The generated rules are told who counts (`CountedBy`): each auth's identity
+client answers how many people the tenant seats (`SeatedCount`) and who the switch keeps
+out (`DirectoryOutsiders`).
 
 The tenant's own list of its people (section 21) is made from who holds a role in the
 tenant, never from who can sign in, so a person the flag keeps out stays in it with

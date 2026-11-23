@@ -81,6 +81,10 @@ type identityTenant struct {
 	// the application declares none: the two methods that say how a tenant admits its
 	// directory's people are served on the session outlets among them.
 	directoryOutlets []string
+	// directories is the directories record's struct name (@tenantDirectory), "" where
+	// the application declares none: a tenant's side of the API description names it,
+	// for the page of a tenant's sign-in settings (pageLists).
+	directories string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -333,7 +337,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, directories, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
@@ -345,7 +349,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 
 	return &identityTenant{
 		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
-		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets,
+		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets, directories: directories,
 		invitation: invitation, unreadable: unreadable,
 	}, nil
 }

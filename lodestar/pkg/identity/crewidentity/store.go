@@ -802,6 +802,27 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
+// SeatedCount counts the people of the Crew auth who hold a role in the
+// sector, in it or in every sector: the rows of the sector's own list of its people
+// (CrewSectorUser) for it, one row a person, the list DirectoryOutsiders reads, in the
+// caller's transaction. The read of the sector's directory-only switch says it beside
+// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
+// page that shows the switch says how many of the sector's people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := crewresources.NewCrewSectorUserQuery().
+		AddColumns(crewresources.NewCrewSectorUserColumns().ID()).
+		Where(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "crewresources.CrewSectorUserQuery.List()")
+		}
+		seated++
+	}
+
+	return seated, nil
+}
+
 // DirectoryAdministrators lists the people of the Crew auth who are the sector's own
 // administrators and have a password: the people who enter the sector with it and a
 // code mailed to them while it is directory only, the one way in beside its directory.
