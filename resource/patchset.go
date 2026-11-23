@@ -598,13 +598,15 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// The row as the transaction's earlier patches left it (rowImage).
+	before := p.imageBefore(txn)
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
 	p.recordWrittenRow(txn)
 
 	if p.querySet.rMeta.trackChanges {
-		if err := p.bufferUpdateWithDataChangeEvent(ctx, txn, event); err != nil {
+		if err := p.bufferUpdateWithDataChangeEvent(ctx, txn, event, before); err != nil {
 			return err
 		}
 	}
@@ -642,13 +644,15 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 		return err
 	}
 
+	// The row as the transaction's earlier patches left it (rowImage).
+	before := p.imageBefore(txn)
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
 	p.recordWrittenRow(txn)
 
 	if p.querySet.rMeta.trackChanges {
-		if err := p.bufferInsertOrUpdateWithDataChangeEvent(ctx, txn, event); err != nil {
+		if err := p.bufferInsertOrUpdateWithDataChangeEvent(ctx, txn, event, before); err != nil {
 			return err
 		}
 	}
@@ -736,6 +740,8 @@ func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWr
 		return err
 	}
 
+	// The row as the transaction's earlier patches left it (rowImage).
+	before := p.imageBefore(txn)
 	if err := txn.BufferMap(p, nil); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
@@ -743,7 +749,7 @@ func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWr
 	p.recordDelete(ctx, txn)
 
 	if p.querySet.rMeta.trackChanges {
-		if err := p.bufferDeleteWithDataChangeEvent(ctx, txn, event); err != nil {
+		if err := p.bufferDeleteWithDataChangeEvent(ctx, txn, event, before); err != nil {
 			return err
 		}
 	}
@@ -762,9 +768,9 @@ func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(ctx context.Context
 
 // bufferInsertOrUpdateWithDataChangeEvent buffers the record of what an insert-or-update
 // writes: what it changes in the row that is there, or, where the row is not there, every
-// value of the row it creates.
-func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
-	changeSet, where, err := p.updateChangeSet(ctx, txn)
+// value of the row it creates. before is the row's image before the write (imageBefore).
+func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string, before *rowImage) error {
+	changeSet, where, err := p.updateChangeSet(ctx, txn, before)
 	if err != nil {
 		// The reader answers a row that is not there with its 404 (recordNotFound).
 		if !httpio.HasNotFound(err) {
@@ -787,9 +793,10 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 // that changes nothing, because every field it sets holds that value already, is no
 // error and writes no record: a request repeated after a timeout, a task a queue delivers
 // twice and a sync that runs again find the row as they asked, on a resource that keeps
-// change records exactly as on one that does not.
-func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
-	changeSet, _, err := p.updateChangeSet(ctx, txn)
+// change records exactly as on one that does not. before is the row's image before the
+// write (imageBefore).
+func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string, before *rowImage) error {
+	changeSet, _, err := p.updateChangeSet(ctx, txn, before)
 	if err != nil {
 		return err
 	}
@@ -800,8 +807,16 @@ func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context
 	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
 }
 
-func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
-	changeSet, err := p.jsonDeleteSet(ctx, txn)
+// bufferDeleteWithDataChangeEvent buffers the record of a delete: every value the row
+// held. before is the row's image before the write (imageBefore). A row an earlier patch
+// of the transaction deleted is not there: the delete stays buffered, as it does on a
+// resource that keeps no change records, and writes no second record.
+func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string, before *rowImage) error {
+	if before != nil && before.state == rowDeleted {
+		return nil
+	}
+
+	changeSet, err := p.jsonDeleteSet(ctx, txn, before)
 	if err != nil {
 		return err
 	}
@@ -855,21 +870,22 @@ func (p *PatchSet[Resource]) insertChangeSet() (map[accesstypes.Field]DiffElem, 
 	return changeSet, nil
 }
 
-// updateChangeSet reads the stored row and answers what the patch changes on it: the
-// fields whose stored value differs from the one the patch sets, and none when every
-// field holds its value already. where is the row's WHERE clause, for the server's log.
-func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteTransaction) (changeSet map[accesstypes.Field]DiffElem, where string, err error) {
+// updateChangeSet answers what the patch changes on the row as it stood before the write
+// (oldRow, from before, the row's image before the write): the fields whose old value
+// differs from the one the patch sets, and none when every field holds its value
+// already. where is the row's WHERE clause, for the server's log.
+func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteTransaction, before *rowImage) (changeSet map[accesstypes.Field]DiffElem, where string, err error) {
 	stmt, err := p.querySet.stmt(txn.DBType())
 	if err != nil {
 		return nil, "", errors.Wrap(err, "QuerySet.SpannerStmt()")
 	}
 
-	oldValues, err := newReader[Resource](txn).Read(ctx, stmt)
+	old, err := p.oldRow(ctx, txn, stmt, before)
 	if err != nil {
-		return nil, "", errors.Wrap(err, "Reader[Resource].Read()")
+		return nil, "", err
 	}
 
-	changeSet, err = p.diff(&oldValues.Data, secretKeysOf(txn))
+	changeSet, err = p.diffValues(old, secretKeysOf(txn))
 	if err != nil {
 		return nil, "", errors.Wrap(err, "Diff()")
 	}
@@ -877,51 +893,44 @@ func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteT
 	return changeSet, stmt.resolvedWhereClause, nil
 }
 
-func (p *PatchSet[Resource]) jsonDeleteSet(ctx context.Context, txn ReadWriteTransaction) (map[accesstypes.Field]DiffElem, error) {
+// jsonDeleteSet answers a delete's change set: every value the row held before the write
+// (oldRow, from before, the row's image before the write).
+func (p *PatchSet[Resource]) jsonDeleteSet(ctx context.Context, txn ReadWriteTransaction, before *rowImage) (map[accesstypes.Field]DiffElem, error) {
 	stmt, err := p.deleteQuerySet(txn.DBType()).stmt(txn.DBType())
 	if err != nil {
 		return nil, errors.Wrap(err, "PatchSet.deleteQuerySet().SpannerStmt()")
 	}
 
-	oldValues, err := newReader[Resource](txn).Read(ctx, stmt)
+	old, err := p.oldRow(ctx, txn, stmt, before)
 	if err != nil {
-		return nil, errors.Wrap(err, "Reader.Read()")
+		return nil, err
 	}
 
-	changeSet, err := p.deleteChangeSet(&oldValues.Data)
-	if err != nil {
-		return nil, errors.Wrap(err, "Diff()")
-	}
-
-	return changeSet, nil
+	return p.deleteValues(old), nil
 }
 
+// deleteChangeSet answers the change set of a delete of the row old holds, a resource
+// struct or a pointer to one (deleteValues).
 func (p *PatchSet[Resource]) deleteChangeSet(old any) (map[accesstypes.Field]DiffElem, error) {
-	oldValue := reflect.ValueOf(old)
-	if oldValue.Kind() == reflect.Pointer {
-		oldValue = oldValue.Elem()
+	values, err := fieldValues(old)
+	if err != nil {
+		return nil, err
 	}
 
-	oldType := reflect.TypeOf(old)
-	if oldType.Kind() == reflect.Pointer {
-		oldType = oldType.Elem()
-	}
+	return p.deleteValues(values), nil
+}
 
-	if kind := oldType.Kind(); kind != reflect.Struct {
-		return nil, errors.Newf("Patcher.Diff(): old must be of kind struct, found kind %s", kind.String())
-	}
-
-	oldMap := map[accesstypes.Field]DiffElem{}
-	for _, field := range reflect.VisibleFields(oldType) {
-		// field.Name comes from the old struct's own field list, not from a request.
-		// nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
-		oldValue := oldValue.FieldByName(field.Name)
-		if oldValue.IsValid() && !oldValue.IsZero() {
-			oldMap[accesstypes.Field(field.Name)] = p.change(accesstypes.Field(field.Name), oldValue.Interface(), nil)
+// deleteValues answers the change set of a delete of a row whose fields hold old: each
+// field whose value is neither nil nor its type's zero value, old, with no new value.
+func (p *PatchSet[Resource]) deleteValues(old map[accesstypes.Field]reflect.Value) map[accesstypes.Field]DiffElem {
+	changeSet := map[accesstypes.Field]DiffElem{}
+	for field, value := range old {
+		if value.IsValid() && !value.IsZero() {
+			changeSet[field] = p.change(field, value.Interface(), nil)
 		}
 	}
 
-	return oldMap, nil
+	return changeSet
 }
 
 // Resolve returns a map with the keys set to the database struct tags found on databaseType, and the values set to the values in patchSet.
@@ -978,34 +987,23 @@ func (p *PatchSet[Resource]) Diff(old any) (map[accesstypes.Field]DiffElem, erro
 // diff is Diff with the secret keys of the transaction the patch is written in, nil
 // when there are none.
 func (p *PatchSet[Resource]) diff(old any, keys *SecretKeys) (map[accesstypes.Field]DiffElem, error) {
-	oldValue := reflect.ValueOf(old)
-	oldType := reflect.TypeOf(old)
-
-	if oldValue.Kind() == reflect.Pointer {
-		oldValue = oldValue.Elem()
+	values, err := fieldValues(old)
+	if err != nil {
+		return nil, err
 	}
 
-	if oldType.Kind() == reflect.Pointer {
-		oldType = oldType.Elem()
-	}
+	return p.diffValues(values, keys)
+}
 
-	if kind := oldType.Kind(); kind != reflect.Struct {
-		return nil, errors.Newf("Patcher.Diff(): old must be of kind struct, found kind %s", kind.String())
-	}
-
-	oldMap := map[accesstypes.Field]any{}
-	for _, field := range reflect.VisibleFields(oldType) {
-		// field.Name comes from the old struct's own field list, not from a request.
-		// nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
-		oldMap[accesstypes.Field(field.Name)] = oldValue.FieldByName(field.Name).Interface()
-	}
-
+// diffValues is diff of a row whose fields hold old, each by its name.
+func (p *PatchSet[Resource]) diffValues(old map[accesstypes.Field]reflect.Value, keys *SecretKeys) (map[accesstypes.Field]DiffElem, error) {
 	diff := map[accesstypes.Field]DiffElem{}
 	for field, newV := range p.Data() {
-		oldV, foundInOld := oldMap[field]
+		oldValue, foundInOld := old[field]
 		if !foundInOld {
 			return nil, errors.Newf("Patcher.Diff(): field %s in patchSet does not exist in old", field)
 		}
+		oldV := heldValue(oldValue)
 
 		if p.querySet.rMeta.secret(field) {
 			changed, err := p.secretChanged(keys, field, oldV, newV)

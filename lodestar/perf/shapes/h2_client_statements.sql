@@ -1,0 +1,2 @@
+-- Change history: the client portal's statements for the client contact of the cast in Anvil, the route's statement (lodestar/app/client_statements.go) with its parameters bound to literals.
+SELECT e.RowId, m.Title, e.EventTime, e.EventSource, e.ChangeSet FROM DataChangeEvents e JOIN Missions m ON m.Id = e.RowId JOIN ClientContacts c ON c.ClientId = m.ClientId WHERE e.TableName = 'Missions' AND m.SectorId = 'a1111111-1111-4111-8111-111111111111' AND c.UserId = 'f1000000-0000-4000-8000-000000000001' ORDER BY e.EventTime DESC, e.RowId, e.Sequence DESC LIMIT 200

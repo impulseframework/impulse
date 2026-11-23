@@ -1,10 +1,13 @@
 // Package main loads synthetic volume over the seeded Lodestar world for reading real
 // query plans: sectors with wings, squadrons, memberships, hangars, and ships; missions
 // spread over every sector, Anvil included, and assigned across each sector's squadrons;
-// sorties and droid reports on top. Rows are written as batched insert mutations, never
-// DDL, in foreign-key order, from deterministic identifiers, so a second run collides on
-// its keys rather than doubling the world, and a bootstrap -reset removes it all. It
-// reaches the database the way the bootstrap does: the environment names the target.
+// sorties and droid reports on top, and ten change records for each mission and each
+// ship, spread over the past year, so the readers of the change history are read at
+// volume too. Rows are written as batched insert mutations, never DDL, in foreign-key
+// order, from deterministic identifiers, so a second run collides on its keys rather than
+// doubling the world, and a bootstrap -reset removes it all. The change records are
+// synthetic: they are for reading plans and do not add up to their rows. It reaches the
+// database the way the bootstrap does: the environment names the target.
 //
 // It only makes sense against a real instance, where the optimizer's plans are real; on
 // the emulator it merely fills tables.
@@ -26,7 +29,9 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/config"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // scale is one preset of the synthetic world's size.
@@ -61,6 +66,12 @@ const (
 	reportsPerShip = 2
 	certifiedEvery = 2 // every other mission requires a certification
 	daySpread      = 360
+
+	// The change history: historyPerRow records for each mission and each ship,
+	// historyStep apart, each said to come from historySource.
+	historyPerRow = 10
+	historyStep   = 35 * 24 * time.Hour
+	historySource = "cmd/volume"
 )
 
 // Column names the rows share, and the statuses the mix names more than once.
@@ -132,6 +143,7 @@ func run(ctx context.Context, s scale, parallel int) error {
 		{"Missions", w.missions},
 		{"Sorties", w.sorties},
 		{"DroidReports", w.droidReports},
+		{"DataChangeEvents", w.history},
 	} {
 		started := time.Now()
 		if err := step.load(ctx); err != nil {
@@ -542,4 +554,125 @@ func (w *world) droidReports(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// history writes the change history of every mission and every ship of every sector,
+// Anvil included: historyPerRow records for each row (missionHistory, shipHistory), all
+// timed from one now.
+func (w *world) history(ctx context.Context) error {
+	now := time.Now().UTC()
+	add := func(events []resource.DataChangeEvent) error {
+		for _, event := range events {
+			m, err := spanner.InsertStruct(string(event.Resource()), event)
+			if err != nil {
+				return errors.Wrap(err, "spanner.InsertStruct()")
+			}
+			if err := w.loader.add(ctx, m); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	for sector := range w.sectorIDs() {
+		for i := range w.s.missionsPerSector {
+			if err := add(w.missionHistory(now, sector, i)); err != nil {
+				return err
+			}
+		}
+	}
+	// A ship's running number is the one ships gives it.
+	n := 0
+	for sector := range w.sectorIDs() {
+		for hangar := range w.s.hangarsPerSector {
+			for i := range w.s.shipsPerHangar {
+				n++
+				if err := add(w.shipHistory(now, sector, hangar, i, n)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// historyRecords is the number of change records the history step writes at the
+// world's scale: historyPerRow for each mission and each ship.
+func (w *world) historyRecords() int {
+	sectors := w.s.sectors + 1
+
+	return historyPerRow * sectors * (w.s.missionsPerSector + w.s.hangarsPerSector*w.s.shipsPerHangar)
+}
+
+// missionHistory is the change history of mission i of a sector: its create, which sets
+// its title, status and hazard, then a change of its hazard each step.
+func (w *world) missionHistory(now time.Time, sector, i int) []resource.DataChangeEvent {
+	const hazardField accesstypes.Field = "Hazard"
+	n := sector*w.s.missionsPerSector + i
+	hazard := func(k int) int64 {
+		return int64(1 + (i+k)%5)
+	}
+	events := make([]resource.DataChangeEvent, 0, historyPerRow)
+	for k := range historyPerRow {
+		changeSet := map[accesstypes.Field]resource.DiffElem{hazardField: {Old: hazard(k - 1), New: hazard(k)}}
+		if k == 0 {
+			changeSet = map[accesstypes.Field]resource.DiffElem{
+				"Title":     {New: fmt.Sprintf("Volume mission %d in %s", i, w.sectorNames()[sector])},
+				"StatusID":  {New: statusOpen},
+				hazardField: {New: hazard(0)},
+			}
+		}
+		events = append(events, historyEvent(now, "Missions", missionID(sector, i), w.sectorIDs()[sector], n, k, changeSet))
+	}
+
+	return events
+}
+
+// shipHistory is the change history of ship i of a sector's hangar, whose running number
+// is n: its create, which sets its registry and name, then a refit's new name each step.
+func (w *world) shipHistory(now time.Time, sector, hangar, i, n int) []resource.DataChangeEvent {
+	name := func(k int) string {
+		if k == 0 {
+			return fmt.Sprintf("Volume ship %07d", n)
+		}
+
+		return fmt.Sprintf("Volume ship %07d, refit %d", n, k)
+	}
+	events := make([]resource.DataChangeEvent, 0, historyPerRow)
+	for k := range historyPerRow {
+		changeSet := map[accesstypes.Field]resource.DiffElem{"Name": {Old: name(k - 1), New: name(k)}}
+		if k == 0 {
+			changeSet = map[accesstypes.Field]resource.DiffElem{
+				"Registry": {New: fmt.Sprintf("VOL-%07d", n)},
+				"Name":     {New: name(0)},
+			}
+		}
+		events = append(events, historyEvent(now, "Ships", shipID(sector, hangar, i), w.sectorIDs()[sector], n, k, changeSet))
+	}
+
+	return events
+}
+
+// historyEvent is record k of the change history of the row of table whose key is rowID
+// and whose running number in its table is n: the first record of its transaction,
+// carrying the row's sector, timed historyStep after record k-1, so a row's records spread
+// over the past year, the newest more than an hour before now, and the rows' records
+// interleave by the day and the minute.
+func historyEvent(now time.Time, table accesstypes.Resource, rowID, sectorID string, n, k int, changeSet map[accesstypes.Field]resource.DiffElem) resource.DataChangeEvent {
+	at := now.Add(-time.Hour -
+		time.Duration(n%35)*24*time.Hour -
+		time.Duration(n%1440)*time.Minute -
+		time.Duration(historyPerRow-1-k)*historyStep)
+
+	return resource.DataChangeEvent{
+		TableName:   table,
+		RowID:       rowID,
+		Sequence:    1,
+		EventTime:   at,
+		EventSource: historySource,
+		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
+		TenantID:    sectorID,
+	}
 }
