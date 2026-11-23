@@ -82,7 +82,7 @@ func (r *TenantDirectoryRules) directoryRow(ctx context.Context, txn ReadWriteTr
 		return nil, errTenantDirectoryUnsupportedDatabase
 	}
 	g := newSQLGenerator(Spanner)
-	seat, secondFactor := "''", "FALSE"
+	seat, secondFactor := "''", sqlFalse
 	if r.columns.DefaultSeatColumn != "" {
 		seat = fmt.Sprintf("COALESCE(%s, '')", g.quoteIdentifier(r.columns.DefaultSeatColumn))
 	}

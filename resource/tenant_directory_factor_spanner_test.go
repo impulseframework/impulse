@@ -264,8 +264,11 @@ func TestTenantDirectoryRules_vouch(t *testing.T) {
 
 				return err
 			})
+			if err != nil {
+				return nil, errors.Wrap(err, "resource.Client.ExecuteFunc()")
+			}
 
-			return got, err
+			return got, nil
 		}
 		got, err := read(stationRules())
 		if err != nil {

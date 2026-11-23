@@ -588,7 +588,7 @@ func NewTenantDirectoryReader(columns *TenantDeclarationColumns) signin.Director
 		if columns.DefaultSeatColumn != "" {
 			seat = fmt.Sprintf("COALESCE(%s, '')", g.quoteIdentifier(columns.DefaultSeatColumn))
 		}
-		secondFactor := "FALSE"
+		secondFactor := sqlFalse
 		if columns.SecondFactorColumn != "" {
 			secondFactor = g.quoteIdentifier(columns.SecondFactorColumn)
 		}
