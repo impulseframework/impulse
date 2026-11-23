@@ -197,6 +197,9 @@ export class AccountPageComponent {
   readonly signInThrough = computed(() => joinedByOr(this.account.otherSignIns()));
   /** The Sign-in line's hint. */
   readonly signInHint = computed(() => {
+    if (this.account.passwordDisabled()) {
+      return 'It is your only way in. Your organization does not sign in with a password here.';
+    }
     if (this.account.holdsPassword()) {
       return 'You can also sign in with your password.';
     }

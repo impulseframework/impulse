@@ -690,9 +690,11 @@ server whose list names no such paths serves none, and both calls throw saying s
 
 A page offers the removal only where it can happen. Where the methods list names
 `signInMeans`, `signInMeans()` reads what the signed-in person signs in with: `{ password,
-directories }`, whether they hold a password and the sign-in methods of the login page that
-a directory sign-in linked to them goes through, each by its registration `name` and the
-`label` its button carries. It answers `undefined` where the server names no such path or
+directories, directoryAddress, passwordDisabled }`, whether they hold a password and the
+sign-in methods of the login page that a directory sign-in linked to them goes through, each
+by its registration `name` and the `label` its button carries. `passwordDisabled` is true
+where the server says a password does not sign the person in, because their organization
+signs in through its directory only: a page then shows no password at all. It answers `undefined` where the server names no such path or
 answers anything else, and a page then offers what the methods list offers. The server's
 refusals stand whatever a page hides.
 
