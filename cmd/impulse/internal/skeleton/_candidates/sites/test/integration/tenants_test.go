@@ -21,8 +21,7 @@ import (
 // exist, by an invitation sent from the console and its first sign-in (makeTenant), so
 // its founder is among the people who held roles in it alone. The tenant's directory and
 // the rows of its own tables go with it in the same request: the directory through the
-// record's generated delete, the rows by the delete rule on the table's key to the
-// tenant table.
+// record's generated delete, the rows in code, each through its resource's own delete.
 func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	t.Parallel()
 

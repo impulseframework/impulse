@@ -83,6 +83,30 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 		},
 		Under: []resource.DeleteKind{
 			{
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Readings",
+				Words:    resource.DeleteWords{One: "reading", Many: "readings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+			{
 				Resource: "TenantDirectories",
 				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
 				Key:      []string{"Id"},

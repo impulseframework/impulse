@@ -101,7 +101,6 @@ func (Client) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
 					},
 				},
-				RemovedWith: []string{"Sectors"},
 			},
 			{
 				Resource: "Missions",
@@ -114,7 +113,6 @@ func (Client) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
 					},
 				},
-				RemovedWith: []string{"Sectors"},
 			},
 		},
 	}

@@ -44,7 +44,6 @@ func (ShipClass) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ClassId"}, Table: "ShipClasses", References: []string{"Id"}},
 					},
 				},
-				RemovedWith: []string{"Hangars", "Sectors"},
 			},
 		},
 	}

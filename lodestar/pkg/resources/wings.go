@@ -8,15 +8,15 @@ type (
 	// structural fail-closed enforcement: a resource-only grant exposes nothing beyond
 	// the primary key.
 	//
-	// A wing's squadrons go with it, and their memberships with them: each reaches its
-	// sector through the wing, and every link of a table's way to its sector carries the
-	// delete rule, so the database removes them with the wing, whether the sector is
-	// deleted or the wing alone, past their own Delete grants and with no change event.
+	// A wing's delete is declared (@deleteCascade): its squadrons go with it, with their
+	// memberships and the hangar passes they hold, each through its own delete, and a
+	// mission assigned to one of its squadrons refuses it.
 	//
 	// Demonstrates: @domain, fail-closed.bare-resource.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(Squadron, SquadronMembership, HangarPass, refusedBy: Mission)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Wing struct {

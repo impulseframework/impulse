@@ -25,15 +25,17 @@ type (
 	// lead's grant names all four (pkg/deploy pins that no role raises the warning, and
 	// test/integration/required_on_create_test.go runs the lead's create).
 	//
-	// A sortie goes with its mission and its expenses go with it, by the delete rule on
-	// each link of their way to the sector: the database removes them with the row they
-	// reach, whoever may delete that row and whatever state the sortie is in, and no
-	// change event is written for them.
+	// A sortie goes with its mission and its expenses go with it, in code: the mission's
+	// delete and the sortie's own (@deleteCascade, below) take each row through its own
+	// delete. Whoever deletes must be allowed to delete each row, an expense's delete rule
+	// is asked, so a penalty refuses the delete of its sortie and of its mission, and each
+	// row's change event is written.
 	//
 	// Demonstrates: @stateRoot, @domain.join-path, create-under-parent, warning.required-field.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(SortieExpense)
 	// @order(LaunchedAt desc)
 	// @page(default: 10, max: 100)
 	Sortie struct {

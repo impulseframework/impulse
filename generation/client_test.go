@@ -551,7 +551,7 @@ func sharedColumnTable(columns []string, keys ...foreignKeyMeta) *tableMetadata 
 	}
 	for _, key := range keys {
 		for _, column := range key.Columns {
-			table.Columns[column] = columnMeta{IsForeignKey: true, ReferencedTable: "Wrong", ReferencedColumn: "Wrong", DeleteRule: "NO ACTION"}
+			table.Columns[column] = columnMeta{IsForeignKey: true, ReferencedTable: "Wrong", ReferencedColumn: "Wrong"}
 		}
 	}
 

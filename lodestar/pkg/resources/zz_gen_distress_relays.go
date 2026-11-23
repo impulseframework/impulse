@@ -73,7 +73,6 @@ func (DistressRelay) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"AnswersRelayId", "SectorId"}, Table: "DistressRelays", References: []string{"Id", "SectorId"}, MayBeEmpty: true},
 					},
 				},
-				RemovedWith: []string{"Sectors"},
 			},
 		},
 	}

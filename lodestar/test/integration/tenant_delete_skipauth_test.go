@@ -355,8 +355,8 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 			t.Errorf("%s holds %d row(s) after the delete, want %d: Ember's alone is gone", table, n, rowsBefore[table]-1)
 		}
 	}
-	// So did the rows that reach Ember through another row, each by the rule on every
-	// link of its way, and the rows of the same tables that are other sectors' stand.
+	// So did the rows that reach Ember through another row, each through its kind's own
+	// delete, and the rows of the same tables that are other sectors' stand.
 	for _, row := range throughEmber {
 		if n := rowsWhere(ctx, t, s, row.table, row.column, row.value); n != 0 {
 			t.Errorf("%s holds %d row(s) of Ember after the delete, want none: a row that reaches its sector through another row goes with the sector", row.table, n)

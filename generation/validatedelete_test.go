@@ -18,7 +18,7 @@ func deleteFixtureTables() map[string]*tableMetadata {
 		return columnMeta{IsPrimaryKey: true, OrdinalPosition: ordinal, KeyOrdinalPosition: ordinal}
 	}
 	foreignKey := func(table string) columnMeta {
-		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id", DeleteRule: "NO ACTION", OrdinalPosition: 1}
+		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id", OrdinalPosition: 1}
 	}
 	to := func(column, table string) []foreignKeyMeta {
 		return []foreignKeyMeta{{Name: "FK_" + column, Columns: []string{column}, ReferencedTable: table, ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"}}
