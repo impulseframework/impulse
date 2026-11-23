@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/generation/parser"
 )
 
 // declarationResources extracts the named tenantfixture structs and resolves the
@@ -241,6 +242,21 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 			structs: []string{"Harbor", "Bollard"},
 			wantErr: "struct Bollard field Rank: @directoryDefaultSeat on a second column; field Seat carries it already",
 		},
+		{
+			name:    "@directorySecondFactor off the directories record is refused",
+			structs: []string{"Harbor", "HarborDirectory", "Gangway"},
+			wantErr: "struct Gangway field Vouched: @directorySecondFactor on a resource that is not the directories record; a tenant's word for its directory's second factor is the @tenantDirectory record's column, so annotate the record's struct @tenantDirectory first",
+		},
+		{
+			name:    "@directorySecondFactor on a column that is not a BOOL is refused",
+			structs: []string{"Harbor", "Capstan"},
+			wantErr: "struct Capstan field Vouched: @directorySecondFactor on a string column; a tenant's word for its directory's second factor is a BOOL, true when the tenant says its directory asks its people for one",
+		},
+		{
+			name:    "@directorySecondFactor on a second column is refused naming the first",
+			structs: []string{"Harbor", "Cleat"},
+			wantErr: "struct Cleat field Asks: @directorySecondFactor on a second column; field Vouched carries it already",
+		},
 	}
 
 	for _, tt := range tests {
@@ -285,6 +301,13 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 			if directories.DirectoryDefaultSeatField == nil || directories.DirectoryDefaultSeatField.Name() != "DefaultSeat" {
 				t.Errorf("%s.DirectoryDefaultSeatField = %v, want DefaultSeat", directories.Name(), directories.DirectoryDefaultSeatField)
 			}
+			// Nor the tenant's word for its directory's second factor: the tenant's own
+			// methods say it and take it back.
+			if directories.DirectorySecondFactorField == nil || directories.DirectorySecondFactorField.Name() != "AsksSecondFactor" {
+				t.Errorf("%s.DirectorySecondFactorField = %v, want AsksSecondFactor", directories.Name(), directories.DirectorySecondFactorField)
+			} else if !directories.DirectorySecondFactorField.IsOutputOnly() {
+				t.Errorf("%s.%s is writable by the wire, want it output-only: the tenant's own methods say it", directories.Name(), directories.DirectorySecondFactorField.Name())
+			}
 			if !directories.SignalsTenants() || !record.SignalsTenants() {
 				t.Error("both records' write paths keep the roster current")
 			}
@@ -292,6 +315,37 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 				t.Errorf("%s.DirectoryOnlyField = %v", record.Name(), record.DirectoryOnlyField)
 			}
 		})
+	}
+}
+
+// Test_setDirectorySecondFactorColumn_aColumnTheSchemaDoesNotHold pins the refusal of
+// the tenant's word on a field the resource does not carry as a column. Capture refuses
+// a spanner tag naming no column before the annotations are read, so the setter is
+// asked directly, of a directories record that carries no columns.
+func Test_setDirectorySecondFactorColumn_aColumnTheSchemaDoesNotHold(t *testing.T) {
+	t.Parallel()
+
+	pStruct := fixtureStructs(loadFixture(t, "tenantfixture"))["HarborDirectory"]
+	if pStruct == nil {
+		t.Fatal("the tenantfixture holds no HarborDirectory")
+	}
+	var field *parser.Field
+	for _, f := range pStruct.Fields() {
+		if f.Name() == "AsksSecondFactor" {
+			field = f
+		}
+	}
+	if field == nil {
+		t.Fatal("HarborDirectory holds no AsksSecondFactor field")
+	}
+	res := &resourceInfo{TypeInfo: pStruct.TypeInfo, IsTenantDirectory: true}
+
+	want := "struct HarborDirectory field AsksSecondFactor: @directorySecondFactor on a column the schema does not hold"
+	if err := res.setDirectorySecondFactorColumn(field); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("setDirectorySecondFactorColumn() error = %v, want %q", err, want)
+	}
+	if res.DirectorySecondFactorField != nil {
+		t.Errorf("DirectorySecondFactorField = %v, want none", res.DirectorySecondFactorField)
 	}
 }
 
@@ -307,17 +361,22 @@ func Test_declarationColumns(t *testing.T) {
 		want    *tenantDeclarationColumns
 	}{
 		{
-			name:    "the record's flag and the directories record's columns",
+			name:    "the record's flag and the directories record's columns, the seat and the tenant's word among them",
 			structs: []string{"Harbor", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
 			name:    "a record without the flag names no directory-only column",
 			structs: []string{"Sector", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
+			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
-			name:    "a directories record without the seat column names none",
+			name:    "a directories record with the tenant's word and no seat column names the key and the word's column",
+			structs: []string{"Harbor", "Landing"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
+		},
+		{
+			name:    "a directories record with neither the seat column nor the tenant's word names neither, nor the key",
 			structs: []string{"Harbor", "Breakwater"},
 			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Breakwaters", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 		},
@@ -401,7 +460,25 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"patch.SetHarborID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
 				"if err := patch.Buffer(ctx, txn, eventSource...); err != nil {",
 			},
-			wantNotContains: []string{"DefaultSeatColumn", "AdministratorRoles", "harborDirectoryRules"},
+			wantNotContains: []string{"DefaultSeatColumn", "DirectoriesKeyColumn", "SecondFactorColumn", "a second factor of its own", "AdministratorRoles", "harborDirectoryRules"},
+		},
+		{
+			name: "the tenant's word for its directory's second factor, with no seat column",
+			data: &tenantsData{
+				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Landing", SecondFactor: "AsksSecondFactor",
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
+				Directory:           harborDirectoryWrite(),
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+			},
+			wantContains: []string{
+				`DirectoriesKeyColumn: "Id",`,
+				`SecondFactorColumn: "AsksSecondFactor",`,
+				"with no default seat (the record carries no @directoryDefaultSeat column",
+				"// and with whether the harbor says the directory asks its people for a second\n// factor of its own (Landing.AsksSecondFactor),\n// read in the sign-in's own transaction.",
+			},
+			wantNotContains: []string{"DefaultSeatColumn"},
 		},
 		{
 			// An application whose tenants have no directories hands its auths the same

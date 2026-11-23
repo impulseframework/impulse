@@ -244,7 +244,9 @@ type (
 
 	// HarborDirectory is the well-formed directories record: tenant-scoped through the
 	// bare @domain column, which holds the harbor's id, with its method and connection
-	// columns and the default seat a stranger it vouches for gets at their first sign-in.
+	// columns, the default seat a stranger it vouches for gets at their first sign-in,
+	// and the harbor's word that its directory asks its people for a second factor of
+	// its own.
 	//
 	// @resource
 	// @permissionScope(domain)
@@ -259,6 +261,26 @@ type (
 		Connection string `spanner:"Connection"`
 		// @directoryDefaultSeat
 		DefaultSeat *string `spanner:"DefaultSeat"`
+		// @directorySecondFactor
+		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
+	}
+
+	// Landing is a well-formed directories record with the harbor's word for its
+	// directory's second factor and without the default seat column.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Landing struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directorySecondFactor
+		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
 	}
 
 	// Breakwater is a well-formed directories record without the default seat column:
@@ -408,6 +430,56 @@ type (
 		Seat string `spanner:"Seat"`
 		// @directoryDefaultSeat
 		Rank string `spanner:"Rank"`
+	}
+
+	// Gangway declares @directorySecondFactor on a resource that is not the directories
+	// record.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Gangway struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directorySecondFactor
+		Vouched bool `spanner:"Vouched"`
+	}
+
+	// Capstan is a directories record whose word for its directory's second factor is a
+	// string.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Capstan struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directorySecondFactor
+		Vouched string `spanner:"Vouched"`
+	}
+
+	// Cleat is a directories record declaring @directorySecondFactor on two columns.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Cleat struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directorySecondFactor
+		Vouched bool `spanner:"Vouched"`
+		// @directorySecondFactor
+		Asks bool `spanner:"Asks"`
 	}
 
 	// Pier declares @directoryOnly on a resource that is not the tenant record.

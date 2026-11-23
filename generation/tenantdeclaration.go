@@ -23,7 +23,9 @@ import (
 // Google Workspace by its domain, a Microsoft Entra tenant by its tenant id), and
 // naming, when the record carries the column, the default seat (@directoryDefaultSeat:
 // the role a person is seated with in the tenant at their first sign-in through the
-// directory, NULL where the tenant admits a stranger from it by invitation only). A
+// directory, NULL where the tenant admits a stranger from it by invitation only) and,
+// when the record carries that column, the tenant's word that its directory asks its
+// people for a second factor of its own (@directorySecondFactor, a BOOL). A
 // tenant has one directory and a directory is one tenant's: the schema holds both with
 // a unique index each, which the generator requires, and the generated write paths
 // refuse each first (resource.TenantDirectoryRules). A directory is never typed in:
@@ -39,9 +41,10 @@ import (
 // (tenantDeleteTree).
 
 // resolveTenantDeclaration reads a table-backed struct's declaration annotations:
-// @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection
-// and @directoryDefaultSeat on its fields, each refused where it cannot mean anything,
-// and the record's @tenantName, the name the tenant list carries, beside them.
+// @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection,
+// @directoryDefaultSeat and @directorySecondFactor on its fields, each refused where it
+// cannot mean anything, and the record's @tenantName, the name the tenant list carries,
+// beside them.
 // The rules that read across structs (one directories record, the record it belongs
 // to) run once every struct is extracted (rejectSecondTenantDirectory,
 // validateTenantDeclaration). The scope and the tenant record resolve first.
@@ -90,6 +93,10 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			if err := res.setDirectorySeatColumn(field); err != nil {
 				return err
 			}
+		case fieldAnnotations.Has(directorySecondFactorKeyword):
+			if err := res.setDirectorySecondFactorColumn(field); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -133,6 +140,28 @@ func (r *resourceInfo) setDirectorySeatColumn(field *parser.Field) error {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directoryDefaultSeatKeyword)
 	}
 	r.DirectoryDefaultSeatField.IsDirectoryDefaultSeat = true
+
+	return nil
+}
+
+// setDirectorySecondFactorColumn records the directories record's column saying the
+// tenant says its directory asks its people for a second factor of its own
+// (@directorySecondFactor), refusing it off the record, on a column that is not a BOOL,
+// and declared twice.
+func (r *resourceInfo) setDirectorySecondFactorColumn(field *parser.Field) error {
+	switch {
+	case !r.IsTenantDirectory:
+		return errors.Newf("struct %s field %s: @%s on a resource that is not the directories record; a tenant's word for its directory's second factor is the @%s record's column, so annotate the record's struct @%s first", r.Name(), field.Name(), directorySecondFactorKeyword, tenantDirectoryKeyword, tenantDirectoryKeyword)
+	case !isBoolKinded(field.GoType()):
+		return errors.Newf("struct %s field %s: @%s on a %s column; a tenant's word for its directory's second factor is a BOOL, true when the tenant says its directory asks its people for one", r.Name(), field.Name(), directorySecondFactorKeyword, field.Type())
+	case r.DirectorySecondFactorField != nil:
+		return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already", r.Name(), field.Name(), directorySecondFactorKeyword, r.DirectorySecondFactorField.Name())
+	}
+	r.DirectorySecondFactorField = r.fieldNamed(field.Name())
+	if r.DirectorySecondFactorField == nil {
+		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directorySecondFactorKeyword)
+	}
+	r.DirectorySecondFactorField.IsDirectorySecondFactor = true
 
 	return nil
 }
@@ -487,7 +516,8 @@ func (r *resourceInfo) DirectoryTenantWord() string {
 // tenantDeclarationColumns is the declaration as the generated constructors hand it to
 // resource.WithTenantDeclarations, resource.NewTenantDeclarationReader and
 // resource.NewTenantDirectoryReader: the column names behind the record's annotated
-// fields, the default seat's empty where the record carries none.
+// fields, the default seat's and the tenant's word's empty where the record carries
+// none.
 type tenantDeclarationColumns struct {
 	DirectoryOnly        string
 	DirectoriesTable     string
@@ -496,6 +526,7 @@ type tenantDeclarationColumns struct {
 	ConnectionColumn     string
 	DirectoriesKeyColumn string
 	DefaultSeatColumn    string
+	SecondFactorColumn   string
 }
 
 // declarationColumns reads the declaration's columns off the record, nil when the
@@ -514,9 +545,14 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 	if record.DirectoryOnlyField != nil {
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
-	if directories.DirectoryDefaultSeatField != nil {
+	if directories.DirectoryDefaultSeatField != nil || directories.DirectorySecondFactorField != nil {
 		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
+	}
+	if directories.DirectoryDefaultSeatField != nil {
 		columns.DefaultSeatColumn = spannerColumn(directories.DirectoryDefaultSeatField)
+	}
+	if directories.DirectorySecondFactorField != nil {
+		columns.SecondFactorColumn = spannerColumn(directories.DirectorySecondFactorField)
 	}
 
 	return columns

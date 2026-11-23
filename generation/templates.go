@@ -1754,9 +1754,14 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	TenantColumn:     {{ printf "%q" .Declaration.TenantColumn }},
 	MethodColumn:     {{ printf "%q" .Declaration.MethodColumn }},
 	ConnectionColumn: {{ printf "%q" .Declaration.ConnectionColumn }},
-	{{- if .Declaration.DefaultSeatColumn }}
+	{{- if .Declaration.DirectoriesKeyColumn }}
 	DirectoriesKeyColumn: {{ printf "%q" .Declaration.DirectoriesKeyColumn }},
+	{{- end }}
+	{{- if .Declaration.DefaultSeatColumn }}
 	DefaultSeatColumn: {{ printf "%q" .Declaration.DefaultSeatColumn }},
+	{{- end }}
+	{{- if .Declaration.SecondFactorColumn }}
+	SecondFactorColumn: {{ printf "%q" .Declaration.SecondFactorColumn }},
 	{{- end }}
 }
 {{- end }}
@@ -1823,6 +1828,10 @@ func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWri
 {{- else }}
 // with no default seat (the record carries no @directoryDefaultSeat column, so every
 // {{ .RecordLower }} admits a stranger its directory vouches for by invitation only),
+{{- end }}
+{{- if .SecondFactor }}
+// and with whether the {{ .RecordLower }} says the directory asks its people for a second
+// factor of its own ({{ .Directories }}.{{ .SecondFactor }}),
 {{- end }}
 // read in the sign-in's own transaction. The application hands it to the auth whose
 // people enter {{ .RecordLower }}s, beside the hook that gives the default role (the

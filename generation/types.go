@@ -1503,13 +1503,17 @@ type resourceInfo struct {
 	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
 	// naming the role a person is seated with at their first sign-in through the
 	// directory, nil where the record carries none and every tenant admits a stranger
-	// from its directory by invitation only. Its generated write paths hold a row to the
-	// rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
+	// from its directory by invitation only. DirectorySecondFactorField
+	// (@directorySecondFactor) is the BOOL column saying the tenant says its directory
+	// asks its people for a second factor of its own, nil where the record carries none
+	// and no tenant vouches for its directory. Its generated write paths hold a row to
+	// the rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
 	// instance's tenant roster current, as the record's do.
-	IsTenantDirectory         bool
-	DirectoryMethodField      *resourceField
-	DirectoryConnectionField  *resourceField
-	DirectoryDefaultSeatField *resourceField
+	IsTenantDirectory          bool
+	DirectoryMethodField       *resourceField
+	DirectoryConnectionField   *resourceField
+	DirectoryDefaultSeatField  *resourceField
+	DirectorySecondFactorField *resourceField
 	// declaration is the tenant record's declaration of who may enter a tenant, set
 	// once the directories record is known to belong to it (validateTenantDeclaration);
 	// nil on every other resource and on a record whose package declares none.
@@ -1953,6 +1957,13 @@ type resourceField struct {
 	// record's own write paths show the column and never write it.
 	IsDirectoryDefaultSeat bool
 
+	// IsDirectorySecondFactor marks the directories record's column saying the tenant
+	// vouches for its directory's own second factor (@directorySecondFactor): it decodes
+	// output-only, on create and on update, since the tenant's administrator says so with
+	// the two methods the generator writes in the tenant's scope, the one that says it
+	// behind a warning. The record's own write paths show the column and never write it.
+	IsDirectorySecondFactor bool
+
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
 	// TypeScript interface and metadata), read by the file route's frame for itself.
@@ -2299,7 +2310,9 @@ func (f *resourceField) IsOutputOnly() bool {
 	// rules, so the record's global write paths cannot. And the directories
 	// record's default seat: the tenant's own methods set and clear it, the
 	// one that sets it behind a warning and the rule of who may give the role.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly || f.IsDirectoryDefaultSeat {
+	// And the directories record's word for its directory's second factor: the
+	// tenant's own methods say it and take it back.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly || f.IsDirectoryDefaultSeat || f.IsDirectorySecondFactor {
 		return true
 	}
 
@@ -2564,115 +2577,117 @@ func fileStem(name string) string {
 }
 
 const (
-	resourceKeyword             string = "resource"             // Designates a struct as a resource
-	virtualKeyword              string = "virtual"              // Designates a struct as a virtual resource
-	computedKeyword             string = "computed"             // Designates a struct as a computed resource
-	rpcKeyword                  string = "rpc"                  // Designates a struct as an RPC method; max: bounds its request body, log: and trace: declare its words: @rpc(max: 8MB, log: onEvent, trace: off)
-	enumerateKeyword            string = "enumerate"            // Generate constants based on existing values in Spanner DB (from inserts in migrations directory)
-	suppressKeyword             string = "suppress"             // Suppresses generation of specified handler types or routes for a resource
-	defaultsCreateTypeKeyword   string = "defaultsCreateType"   // Specifies a type to call "Defaults()" on for setting defaults on resource creation
-	defaultsUpdateTypeKeyword   string = "defaultsUpdateType"   // Specifies a type to call "Defaults()" on for setting defaults on resource update
-	validateCreateTypeKeyword   string = "validateCreateType"   // Specifies a type to call "Validate()" on for validating a resource on creation
-	validateUpdateTypeKeyword   string = "validateUpdateType"   // Specifies a type to call "Validate()" on for validating a resource on update
-	validateDeleteTypeKeyword   string = "validateDeleteType"   // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
-	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
-	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
-	manualAddPermissionKeyword  string = "manualAddPermission"  // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
-	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
-	permissionScopeKeyword      string = "permissionScope"      // Declares the permission scope (global or domain) all of a resource's registrations use
-	outletKeyword               string = "outlet"               // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
-	orderKeyword                string = "order"                // Declares the order a list takes when the request states none; the primary key is appended
-	pageKeyword                 string = "page"                 // Declares the default and maximum page size of a list
-	attributeKeyword            string = "attribute"            // Declares an attribute binding on its anchor field: a column binding, or a join-path binding via a FK
-	domainKeyword               string = "domain"               // Declares the structural tenancy binding on its anchor field (bare, or via: a FK path to the tenant key)
-	subjectSetKeyword           string = "subjectSet"           // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column, or on a column its who: part names
-	subjectValueKeyword         string = "subjectValue"         // Declares subject-side scalar vocabulary (threshold comparisons) anchored on a unique user-id column
-	stateKeyword                string = "state"                // Marks a resource's state column (FK to its state enum table) and declares the initial state
-	stateRootKeyword            string = "stateRoot"            // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
-	transitionKeyword           string = "transition"           // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
-	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
-	callerEntersKeyword         string = "callerEnters"         // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter), or, for a method that names no row, each struct the annotation names
-	notOnOwnAccountKeyword      string = "notOnOwnAccount"      // Declares that the row an RPC method names does not offer it to the person whose account the row is: @notOnOwnAccount(ID) names the row's field that holds the account's id
-	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
-	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
-	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning, or @warning(typed: open) where a person types a word first; its Warning method writes the consequence of a call, and the dialog holds its confirm button until the server has answered and the word, where there is one, is typed
-	rowsOfKeyword               string = "rowsOf"               // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
-	changedByKeyword            string = "changedBy"            // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
-	typescriptKeyword           string = "typescript"           // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
-	fileKeyword                 string = "file"                 // Declares a file served under the resource's read route: on the store-key field, @file[(segment[, name: Field, type: Field, log: word, trace: setting])]; on a keyed @computed struct, @file[(segment[, log: word, trace: setting])] rendered by <Name><Segment>
-	featureKeyword              string = "feature"              // Gates a resource, a field or an RPC method behind a feature flag, by the flag's constant: @feature(Debriefs)
-	tenantKeyword               string = "tenant"               // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
-	directoryOnlyKeyword        string = "directoryOnly"        // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
-	tenantNameKeyword           string = "tenantName"           // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
-	nameKeyword                 string = "name"                 // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
-	tenantDirectoryKeyword      string = "tenantDirectory"      // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
-	directoryMethodKeyword      string = "directoryMethod"      // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
-	directoryConnectionKeyword  string = "directoryConnection"  // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
-	directoryDefaultSeatKeyword string = "directoryDefaultSeat" // Marks the directories record's string column naming the role a stranger the directory vouches for is seated with at their first sign-in, NULL where the tenant admits them by invitation only
-	formerlyKeyword             string = "formerly"             // Declares a field's or a method's former name, answered beside the current one while older applications still send it: @formerly(Title)
-	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
-	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
-	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
-	rowWordKeyword              string = "rowWord"              // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
-	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
-	roleOfKeyword               string = "roleOf"               // Marks a string field, or a list of strings, that holds the name of a role of the auth named: a list writes it in words and filters it by picking a role: @roleOf(Staff)
+	resourceKeyword              string = "resource"              // Designates a struct as a resource
+	virtualKeyword               string = "virtual"               // Designates a struct as a virtual resource
+	computedKeyword              string = "computed"              // Designates a struct as a computed resource
+	rpcKeyword                   string = "rpc"                   // Designates a struct as an RPC method; max: bounds its request body, log: and trace: declare its words: @rpc(max: 8MB, log: onEvent, trace: off)
+	enumerateKeyword             string = "enumerate"             // Generate constants based on existing values in Spanner DB (from inserts in migrations directory)
+	suppressKeyword              string = "suppress"              // Suppresses generation of specified handler types or routes for a resource
+	defaultsCreateTypeKeyword    string = "defaultsCreateType"    // Specifies a type to call "Defaults()" on for setting defaults on resource creation
+	defaultsUpdateTypeKeyword    string = "defaultsUpdateType"    // Specifies a type to call "Defaults()" on for setting defaults on resource update
+	validateCreateTypeKeyword    string = "validateCreateType"    // Specifies a type to call "Validate()" on for validating a resource on creation
+	validateUpdateTypeKeyword    string = "validateUpdateType"    // Specifies a type to call "Validate()" on for validating a resource on update
+	validateDeleteTypeKeyword    string = "validateDeleteType"    // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
+	primarykeyKeyword            string = "primarykey"            // Designates a field as (part of) the primary key in a Computed or Virtual Resource
+	manualAddResourceKeyword     string = "manualAddResource"     // Declares a manual permission registration on an accesstypes.Resource constant
+	manualAddPermissionKeyword   string = "manualAddPermission"   // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
+	manualAddResourceSetKeyword  string = "manualAddResourceSet"  // Declares that hand-written handlers register this resource's permission Sets for the given handler types
+	permissionScopeKeyword       string = "permissionScope"       // Declares the permission scope (global or domain) all of a resource's registrations use
+	outletKeyword                string = "outlet"                // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
+	orderKeyword                 string = "order"                 // Declares the order a list takes when the request states none; the primary key is appended
+	pageKeyword                  string = "page"                  // Declares the default and maximum page size of a list
+	attributeKeyword             string = "attribute"             // Declares an attribute binding on its anchor field: a column binding, or a join-path binding via a FK
+	domainKeyword                string = "domain"                // Declares the structural tenancy binding on its anchor field (bare, or via: a FK path to the tenant key)
+	subjectSetKeyword            string = "subjectSet"            // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column, or on a column its who: part names
+	subjectValueKeyword          string = "subjectValue"          // Declares subject-side scalar vocabulary (threshold comparisons) anchored on a unique user-id column
+	stateKeyword                 string = "state"                 // Marks a resource's state column (FK to its state enum table) and declares the initial state
+	stateRootKeyword             string = "stateRoot"             // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
+	transitionKeyword            string = "transition"            // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
+	targetKeyword                string = "target"                // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
+	callerEntersKeyword          string = "callerEnters"          // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter), or, for a method that names no row, each struct the annotation names
+	notOnOwnAccountKeyword       string = "notOnOwnAccount"       // Declares that the row an RPC method names does not offer it to the person whose account the row is: @notOnOwnAccount(ID) names the row's field that holds the account's id
+	answersKeyword               string = "answers"               // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
+	uploadKeyword                string = "upload"                // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
+	warningKeyword               string = "warning"               // Declares an RPC method that warns before it runs: @warning, or @warning(typed: open) where a person types a word first; its Warning method writes the consequence of a call, and the dialog holds its confirm button until the server has answered and the word, where there is one, is typed
+	rowsOfKeyword                string = "rowsOf"                // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
+	changedByKeyword             string = "changedBy"             // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
+	typescriptKeyword            string = "typescript"            // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
+	fileKeyword                  string = "file"                  // Declares a file served under the resource's read route: on the store-key field, @file[(segment[, name: Field, type: Field, log: word, trace: setting])]; on a keyed @computed struct, @file[(segment[, log: word, trace: setting])] rendered by <Name><Segment>
+	featureKeyword               string = "feature"               // Gates a resource, a field or an RPC method behind a feature flag, by the flag's constant: @feature(Debriefs)
+	tenantKeyword                string = "tenant"                // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
+	directoryOnlyKeyword         string = "directoryOnly"         // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
+	tenantNameKeyword            string = "tenantName"            // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
+	nameKeyword                  string = "name"                  // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
+	tenantDirectoryKeyword       string = "tenantDirectory"       // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
+	directoryMethodKeyword       string = "directoryMethod"       // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
+	directoryConnectionKeyword   string = "directoryConnection"   // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
+	directoryDefaultSeatKeyword  string = "directoryDefaultSeat"  // Marks the directories record's string column naming the role a stranger the directory vouches for is seated with at their first sign-in, NULL where the tenant admits them by invitation only
+	directorySecondFactorKeyword string = "directorySecondFactor" // Marks the directories record's BOOL column saying the tenant says its directory asks its people for a second factor of its own, so a sign-in through the directory is not asked for the application's mailed code
+	formerlyKeyword              string = "formerly"              // Declares a field's or a method's former name, answered beside the current one while older applications still send it: @formerly(Title)
+	scheduleKeyword              string = "schedule"              // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
+	searchAlsoKeyword            string = "searchAlso"            // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
+	listAcrossTenantsKeyword     string = "listAcrossTenants"     // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	rowWordKeyword               string = "rowWord"               // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
+	classKeyword                 string = "class"                 // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
+	roleOfKeyword                string = "roleOf"                // Marks a string field, or a list of strings, that holds the name of a role of the auth named: a list writes it in words and filters it by picking a role: @roleOf(Staff)
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
 	return map[string]genlang.KeywordOpts{
-		resourceKeyword:             {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		virtualKeyword:              {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		computedKeyword:             {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		rpcKeyword:                  {genlang.ScanStruct: genlang.Exclusive},
-		enumerateKeyword:            {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		suppressKeyword:             {genlang.ScanStruct: genlang.ArgsRequired},
-		defaultsCreateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		defaultsUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		validateCreateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		validateUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		validateDeleteTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		deleteCascadeKeyword:        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
-		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
-		manualAddPermissionKeyword:  {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
-		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},
-		permissionScopeKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		outletKeyword:               {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
-		orderKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		pageKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		attributeKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		domainKeyword:               {genlang.ScanField: genlang.Exclusive},
-		subjectSetKeyword:           {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
-		subjectValueKeyword:         {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
-		stateKeyword:                {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		stateRootKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		transitionKeyword:           {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
-		callerEntersKeyword:         {genlang.ScanStruct: genlang.Exclusive},
-		notOnOwnAccountKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		warningKeyword:              {genlang.ScanStruct: genlang.Exclusive},
-		rowsOfKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		changedByKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		typescriptKeyword:           {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		fileKeyword:                 {genlang.ScanField: genlang.Exclusive, genlang.ScanStruct: genlang.Exclusive},
-		featureKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		tenantKeyword:               {genlang.ScanStruct: genlang.Exclusive},
-		directoryOnlyKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		tenantNameKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		nameKeyword:                 {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		tenantDirectoryKeyword:      {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		directoryMethodKeyword:      {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		directoryConnectionKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		directoryDefaultSeatKeyword: {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		formerlyKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
-		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		rowWordKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		classKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
-		roleOfKeyword:               {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		resourceKeyword:              {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		virtualKeyword:               {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		computedKeyword:              {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		rpcKeyword:                   {genlang.ScanStruct: genlang.Exclusive},
+		enumerateKeyword:             {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		suppressKeyword:              {genlang.ScanStruct: genlang.ArgsRequired},
+		defaultsCreateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		defaultsUpdateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateCreateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateUpdateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateDeleteTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		deleteCascadeKeyword:         {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		primarykeyKeyword:            {genlang.ScanField: genlang.NoArgs},
+		manualAddResourceKeyword:     {genlang.ScanConstant: genlang.ArgsRequired},
+		manualAddPermissionKeyword:   {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
+		manualAddResourceSetKeyword:  {genlang.ScanStruct: genlang.ArgsRequired},
+		permissionScopeKeyword:       {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		outletKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
+		orderKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		pageKeyword:                  {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		attributeKeyword:             {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		domainKeyword:                {genlang.ScanField: genlang.Exclusive},
+		subjectSetKeyword:            {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
+		subjectValueKeyword:          {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
+		stateKeyword:                 {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		stateRootKeyword:             {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		transitionKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		targetKeyword:                {genlang.ScanField: genlang.Exclusive},
+		callerEntersKeyword:          {genlang.ScanStruct: genlang.Exclusive},
+		notOnOwnAccountKeyword:       {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		answersKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		uploadKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		warningKeyword:               {genlang.ScanStruct: genlang.Exclusive},
+		rowsOfKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		changedByKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		typescriptKeyword:            {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		fileKeyword:                  {genlang.ScanField: genlang.Exclusive, genlang.ScanStruct: genlang.Exclusive},
+		featureKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		tenantKeyword:                {genlang.ScanStruct: genlang.Exclusive},
+		directoryOnlyKeyword:         {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantNameKeyword:            {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		nameKeyword:                  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantDirectoryKeyword:       {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		directoryMethodKeyword:       {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		directoryConnectionKeyword:   {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		directoryDefaultSeatKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		directorySecondFactorKeyword: {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		formerlyKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		scheduleKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		searchAlsoKeyword:            {genlang.ScanStruct: genlang.ArgsRequired},
+		listAcrossTenantsKeyword:     {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		rowWordKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		classKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
+		roleOfKeyword:                {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 	}
 }
 

@@ -266,6 +266,7 @@ type tenantsData struct {
 	NoDirectories       bool
 	Directories         string
 	DefaultSeat         string
+	SecondFactor        string
 	Directory           *tenantDirectoryWrite
 	Word                string
 	ResourcePackage     string
@@ -386,6 +387,9 @@ func (r *resourceGenerator) generateTenants() error {
 		data.Directories = tenant.declaration.Directories.Name()
 		if field := tenant.declaration.Directories.DirectoryDefaultSeatField; field != nil {
 			data.DefaultSeat = field.Name()
+		}
+		if field := tenant.declaration.Directories.DirectorySecondFactorField; field != nil {
+			data.SecondFactor = field.Name()
 		}
 		data.Directory = tenantDirectoryWriteData(tenant)
 		data.Word = r.directoryTenantWord(tenant)
