@@ -620,7 +620,7 @@ describe("identityPages, the whole application's side", () => {
       });
     });
 
-    it('is no page of an auth whose description names no sign-in methods: a directory that gives the roles has nothing to choose', () => {
+    it('is no page of an auth whose description names no sign-in methods', () => {
       const built = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });
       expect(built.map((page) => page.page?.label)).toEqual(['Accounts']);
     });
