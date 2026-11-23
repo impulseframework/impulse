@@ -801,6 +801,28 @@ describe("identityPages, the whole application's side", () => {
     ]);
   });
 
+  it("offers Give a role above the list of a person's roles as well as in the person's menu, filled from the person", () => {
+    const roles = children(people)[0];
+    expect(methodsOf(roles.listMethods)).toEqual([['AssignCrewRole', 'Give a role']]);
+    // The method names no row: the list's button fills the id of the account from the
+    // person the list sits under, as the menu fills it from the person's row.
+    const above = presentation(roles.listMethods, 'AssignCrewRole');
+    expect(above.fill?.({ id: 'u-1' })).toEqual({ userId: 'u-1' });
+    // The menu still opens with the same offer, under the same words.
+    expect(methodsOf(list(people).rowMethods)[0]).toEqual(['AssignCrewRole', 'Give a role']);
+    const menu = presentation(list(people).rowMethods, 'AssignCrewRole');
+    expect([above.icon, above.labels, above.throughDay, above.hidden]).toEqual([
+      menu.icon,
+      menu.labels,
+      menu.throughDay,
+      menu.hidden,
+    ]);
+    expect(narrowed(above, 'role')({ domain: 's-1' })).toBe(narrowed(menu, 'role')({ domain: 's-1' }));
+    // Where a directory writes the roles, nobody is given one by hand.
+    const [membersPeople] = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });
+    expect(children(membersPeople)[0].listMethods).toEqual([]);
+  });
+
   it('where the sector record marks no name there is none to read, and a row shows the key after the word', () => {
     // The key is all such an application has for a sector: nobody is refused a name here.
     const unnamed = (resource: Resource): ResourceMeta =>
@@ -1052,6 +1074,19 @@ describe("identityPages, a tenant's side", () => {
       'Take Night shift lead away from ada?',
     );
     expect(children(people).map((child) => child.title)).toEqual(['Roles held here', 'Sign-in identities']);
+  });
+
+  it("offers Give a role above the list of the roles a person holds here, run against the person's row", () => {
+    const roles = children(people)[0];
+    expect(methodsOf(roles.listMethods)).toEqual([['AssignCrewSectorRole', 'Give a role']]);
+    // The method names the person's row, so the button is drawn where the server's answer
+    // for the person lists it, and nothing is filled.
+    const above = presentation(roles.listMethods, 'AssignCrewSectorRole');
+    expect(above.fill).toBeUndefined();
+    expect(methodsOf(list(people).rowMethods)[0]).toEqual(['AssignCrewSectorRole', 'Give a role']);
+    const menu = presentation(list(people).rowMethods, 'AssignCrewSectorRole');
+    expect([above.icon, above.labels, above.throughDay]).toEqual([menu.icon, menu.labels, menu.throughDay]);
+    expect(narrowed(above, 'role')({})).toBe('method:eq:AssignCrewSectorRole');
   });
 
   it('offers Withdraw on an invitation that still stands, and Invite above the list', () => {

@@ -1043,7 +1043,9 @@ class SideBuilder {
    * a group names the group and links to the group's page, where it is changed: the
    * group loses the role there, or the person leaves the group. Where the server's list
    * holds a person's own roles alone (a description from before the one list), the roles
-   * held through a group are a second list under it (rolesThroughGroupsOf).
+   * held through a group are a second list under it (rolesThroughGroupsOf). Give a role
+   * is offered above the list as well as in the person's menu (giveRole), the same
+   * dialog in both places.
    */
   private rolesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
@@ -1106,6 +1108,7 @@ class SideBuilder {
             },
           ],
         ]),
+        listMethods: this.present([[methods.assignRole, this.giveRole()]]),
         elements: [],
       });
     }
@@ -1150,6 +1153,7 @@ class SideBuilder {
           },
         ],
       ]),
+      listMethods: this.present([[methods.assignRole, this.giveRole()]]),
       elements: [],
     });
   }
@@ -1434,31 +1438,38 @@ class SideBuilder {
     });
   }
 
+  /**
+   * How Give a role is presented, in the person's menu and above the list of the
+   * person's roles. A tenant's method names the person's row; the whole application's
+   * takes the id of the person's account, which the person's row fills: the row offered
+   * on in the menu, and the row the list sits under above it.
+   */
+  private giveRole(): Omit<MethodPresentation, 'method'> {
+    const { methods } = this.side;
+    return this.tenant
+      ? {
+          label: 'Give a role',
+          icon: 'badge',
+          labels: periodWords,
+          throughDay: periodEnds,
+          ...this.rolesWhere('role', methods.assignRole),
+        }
+      : {
+          label: 'Give a role',
+          icon: 'badge',
+          fill: (row) => ({ userId: row['id'] }),
+          labels: { ...this.where(), ...periodWords },
+          throughDay: periodEnds,
+          ...this.rolesWhere('role', methods.assignRole),
+        };
+  }
+
   /** How the methods that run against a person are presented. */
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
     return this.present([
-      [
-        methods.assignRole,
-        this.tenant
-          ? {
-              label: 'Give a role',
-              icon: 'badge',
-              labels: periodWords,
-              throughDay: periodEnds,
-              ...this.rolesWhere('role', methods.assignRole),
-            }
-          : // The whole application's method takes the id of the person's account, which the row fills.
-            {
-              label: 'Give a role',
-              icon: 'badge',
-              fill: (row) => ({ userId: row['id'] }),
-              labels: { ...this.where(), ...periodWords },
-              throughDay: periodEnds,
-              ...this.rolesWhere('role', methods.assignRole),
-            },
-      ],
+      [methods.assignRole, this.giveRole()],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
       [methods.rename, { label: 'Change the username', icon: 'edit' }],
