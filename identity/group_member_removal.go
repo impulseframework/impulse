@@ -72,20 +72,20 @@ func (m *Manager) judgeGroupMemberRemoval(ctx context.Context, txn resource.Read
 		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
 	}
 	elsewhere := slices.ContainsFunc(places, func(place GroupPlace) bool { return place.ID != groupID })
-	removal := &placeRemoval{last: len(own) == 0 && !elsewhere}
-	if removal.last {
+	last := len(own) == 0 && !elsewhere
+	var managing accesstypes.Domain
+	var managed bool
+	if last {
 		var tenant accesstypes.Domain
 		if i := slices.IndexFunc(places, func(place GroupPlace) bool { return place.ID == groupID }); i >= 0 {
 			tenant, _ = tenantOf(places[i].Kind, places[i].Axis, places[i].Domain)
 		}
-		managing, managed, err := m.managedElsewhere(ctx, txn, userID, tenant)
-		if err != nil {
+		if managing, managed, err = m.managedElsewhere(ctx, txn, userID, tenant); err != nil {
 			return nil, err
 		}
-		removal.deletes, removal.managedBy = !managed, managing
 	}
 
-	return removal, nil
+	return &placeRemoval{last: last, deletes: last && !managed, managedBy: managing}, nil
 }
 
 // GroupMemberRemovalWarning answers the warning before the person is taken out of the

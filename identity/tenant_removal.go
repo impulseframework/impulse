@@ -89,7 +89,7 @@ func (m *Manager) JudgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 	if err := m.refuseImpersonatorAsSubject(ctx, userID, removingYourselfAct(m.tenantWord)); err != nil {
 		return nil, err
 	}
-	removal, _, err := m.judgeTenantRemoval(ctx, txn, userID, domain)
+	removal, _, _, err := m.judgeTenantRemoval(ctx, txn, userID, domain)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (m *Manager) RemoveFromTenant(ctx context.Context, txn resource.ReadWriteTr
 	if err := m.refuseImpersonatorAsSubject(ctx, userID, removingYourselfAct(m.tenantWord)); err != nil {
 		return false, err
 	}
-	removal, judged, err := m.judgeTenantRemoval(ctx, txn, userID, domain)
+	removal, judged, managedBy, err := m.judgeTenantRemoval(ctx, txn, userID, domain)
 	if err != nil {
 		return false, err
 	}
@@ -156,7 +156,7 @@ func (m *Manager) RemoveFromTenant(ctx context.Context, txn resource.ReadWriteTr
 		return false, err
 	}
 	if removal.ManagedElsewhere {
-		if err := m.logManagedElsewhere(ctx, txn, userID, judged.managedBy); err != nil {
+		if err := m.logManagedElsewhere(ctx, txn, userID, managedBy); err != nil {
 			return false, err
 		}
 	}
@@ -227,46 +227,49 @@ func removingYourselfAct(tenantWord string) string {
 }
 
 // judgeTenantRemoval is the judgment JudgeTenantRemoval answers and RemoveFromTenant acts
-// on, each refusal ending it with nothing written: the removal as the warning reads it, and
-// the rows that go (judgeLeaving, whose refusal is a person's own leaving's and is not
-// read here). The real person behind a session that acts as someone else is refused
+// on, each refusal ending it with nothing written: the removal as the warning reads it, the
+// rows that go (judgeLeaving, whose refusal is a person's own leaving's and is not read
+// here), and the tenant that manages the account where it stays for that
+// (managedElsewhere). The real person behind a session that acts as someone else is refused
 // before it, by the method that asks it.
-func (m *Manager) judgeTenantRemoval(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain) (*TenantRemoval, *leaving, error) {
+func (m *Manager) judgeTenantRemoval(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain,
+) (removal *TenantRemoval, judged *leaving, managedBy accesstypes.Domain, err error) {
 	if m.actorIs(ctx, userID) {
 		if m.administrators == nil {
-			return nil, nil, httpio.NewForbiddenMessagef(removingYourselfUnnamedMessage, m.tenantWord)
+			return nil, nil, "", httpio.NewForbiddenMessagef(removingYourselfUnnamedMessage, m.tenantWord)
 		}
 
-		return nil, nil, httpio.NewForbiddenMessagef(removingYourselfMessage, m.tenantWord)
+		return nil, nil, "", httpio.NewForbiddenMessagef(removingYourselfMessage, m.tenantWord)
 	}
 	if m.callerIs(ctx, userID) {
-		return nil, nil, httpio.NewForbiddenMessagef(removingViewedAsMessage, m.tenantWord)
+		return nil, nil, "", httpio.NewForbiddenMessagef(removingViewedAsMessage, m.tenantWord)
 	}
 	if domain == "" {
-		return nil, nil, httpio.NewBadRequestMessagef(noTenantToRemoveFromMessage, m.tenantWord)
+		return nil, nil, "", httpio.NewBadRequestMessagef(noTenantToRemoveFromMessage, m.tenantWord)
 	}
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.Username()")
+		return nil, nil, "", errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return nil, nil, accountNotFound(userID)
+		return nil, nil, "", accountNotFound(userID)
 	}
 	holds, err := m.readTenantHolds(ctx, txn, userID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	held, err := m.tenantsHeld(ctx, txn, holds)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	roles, in := held[domain]
 	if !in {
-		return nil, nil, httpio.NewNotFoundMessagef(nothingToRemoveMessage, m.tenantWord)
+		return nil, nil, "", httpio.NewNotFoundMessagef(nothingToRemoveMessage, m.tenantWord)
 	}
-	judged, err := m.judgeLeaving(ctx, txn, holds, domain)
+	judged, err = m.judgeLeaving(ctx, txn, holds, domain)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	// A leaving that would delete the account leaves it standing where another tenant
 	// manages it: the rows in the tenant go, and nothing outside it.
@@ -274,23 +277,23 @@ func (m *Manager) judgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 	if judged.deletesAccount {
 		managing, elsewhere, err := m.managedElsewhere(ctx, txn, userID, domain)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 		if elsewhere {
-			judged.deletesAccount, judged.endedMemberships, judged.endedPlaces, judged.managedBy = false, nil, nil, managing
-			managedElsewhere = true
+			judged.deletesAccount, judged.endedMemberships, judged.endedPlaces = false, nil, nil
+			managedElsewhere, managedBy = true, managing
 		}
 	}
 	inGroups, err := m.refuseRemovingFromTenant(ctx, txn, holds, userID, domain)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	stays, err := m.staysInTenant(ctx, txn, holds, domain)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 
-	return &TenantRemoval{Username: username, Roles: roles, InGroups: inGroups, DeletesAccount: judged.deletesAccount, ManagedElsewhere: managedElsewhere, Stays: stays}, judged, nil
+	return &TenantRemoval{Username: username, Roles: roles, InGroups: inGroups, DeletesAccount: judged.deletesAccount, ManagedElsewhere: managedElsewhere, Stays: stays}, judged, managedBy, nil
 }
 
 // refuseRemovingFromTenant holds what a removal takes in the tenant, of what has not

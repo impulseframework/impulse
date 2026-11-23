@@ -119,26 +119,22 @@ func (m *Manager) judgeRoleRemoval(ctx context.Context, txn resource.ReadWriteTr
 	if err != nil {
 		return nil, err
 	}
-	removal := &roleRemoval{
-		ended: ended,
-		kept:  kept,
-		last:  !slices.ContainsFunc(kept, func(k access.MembershipKey) bool { return k != *key }),
-	}
-	if removal.last {
+	last := !slices.ContainsFunc(kept, func(k access.MembershipKey) bool { return k != *key })
+	var managing accesstypes.Domain
+	var elsewhere bool
+	if last {
 		// The membership's tenant, and none for a role held for the whole application or
 		// in every tenant.
 		var tenant accesstypes.Domain
 		if _, held := tenantScope(key); held {
 			tenant = accesstypes.Domain(key.Domain)
 		}
-		managing, elsewhere, err := m.managedElsewhere(ctx, txn, userID, tenant)
-		if err != nil {
+		if managing, elsewhere, err = m.managedElsewhere(ctx, txn, userID, tenant); err != nil {
 			return nil, err
 		}
-		removal.deletes, removal.managedBy = !elsewhere, managing
 	}
 
-	return removal, nil
+	return &roleRemoval{ended: ended, kept: kept, last: last, deletes: last && !elsewhere, managedBy: managing}, nil
 }
 
 // RoleRemovalWarning answers the warning before the person's membership of the role in
