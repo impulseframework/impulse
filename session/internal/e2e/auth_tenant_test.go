@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session"
@@ -28,6 +29,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/oidctest"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -161,6 +163,7 @@ type tenantApp[Tx any] struct {
 	*authApp[Tx]
 	entra, google *oidctest.FakeIDP
 	roles         *tenantRoles
+	store         *sessionstorage.Auth[Tx]
 }
 
 func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opts ...signin.TenantPolicyOption) *tenantApp[Tx] {
@@ -215,7 +218,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 
 	return &tenantApp[Tx]{
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
-		entra:   entraIDP, google: googleIDP, roles: roles,
+		entra:   entraIDP, google: googleIDP, roles: roles, store: store,
 	}
 }
 
@@ -324,6 +327,10 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantStaff[Tx],
 		},
 		{
+			name: "the store answers the directories an account signs in through with the tenants that declare each, read by the Auth's directory reader; a nil reader and an account with no link answer none",
+			run:  seamTenantUserDirectories[Tx],
+		},
+		{
 			name: "an account created ahead that has never signed in is linked through the directory of the one tenant it belongs to and through no other: its name through another directory is refused as a stranger's, a global role's holder included",
 			run:  seamTenantFirstLink[Tx],
 		},
@@ -426,6 +433,34 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
 
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusOK, "")
+}
+
+// seamTenantUserDirectories is the scenario "the store answers the directories an account signs in through".
+func seamTenantUserDirectories[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantApp(ctx, t, be)
+	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
+	kim := a.seed(ctx, t, "kim@lakeside.edu")
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	assertRedirect(t, a.entraSignIn(ctx, a.browser(t), azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	pat, err := a.api.UserByUsername(ctx, "pat@lakeside.edu")
+	if err != nil {
+		t.Fatalf("UserByUsername(pat) error = %v", err)
+	}
+
+	want := []sessioninfo.UserDirectory{{Method: lakesideEntra.Method, Connection: lakesideEntra.Connection, Tenants: []accesstypes.Domain{tenantLakeside}}}
+	got, err := a.store.UserDirectories(ctx, pat.ID, be.rows.directoryLookup)
+	if err != nil {
+		t.Fatalf("UserDirectories(pat) error = %v", err)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("UserDirectories(pat) (-want +got):\n%s", diff)
+	}
+	if got, err := a.store.UserDirectories(ctx, pat.ID, nil); err != nil || len(got) != 0 {
+		t.Errorf("UserDirectories(pat) with no reader = %v, %v, want none", got, err)
+	}
+	if got, err := a.store.UserDirectories(ctx, kim, be.rows.directoryLookup); err != nil || len(got) != 0 {
+		t.Errorf("UserDirectories(kim), a password and no link, = %v, %v, want none", got, err)
+	}
 }
 
 // seamTenantConnectionNotInTenant is the scenario "a sign-in through a directory is refused only when every tenant of the person is directory only and none has it".

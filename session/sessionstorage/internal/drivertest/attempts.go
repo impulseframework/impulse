@@ -149,6 +149,48 @@ func testSignInAttemptsWindowAndLockPass(ctx context.Context, t *testing.T, h *A
 	}
 }
 
+// testSignInAttemptsEndsAt checks the column the row's removal is counted from: EndsAt is
+// the end of the row's window or of its lock, whichever is later, worked out by the
+// database and written by no store. A row removed a day after it never ends a lock
+// early.
+func testSignInAttemptsEndsAt(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	now := time.Now().Truncate(time.Microsecond)
+
+	tests := []struct {
+		name  string
+		limit dbtype.SignInAttemptLimit
+		want  time.Time
+	}{
+		{
+			name:  "a row with no lock ends with its window",
+			limit: dbtype.SignInAttemptLimit{Failures: 3, Window: 15 * time.Minute, Lock: time.Hour},
+			want:  now.Add(15 * time.Minute),
+		},
+		{
+			name:  "a lock that ends after the window ends the row",
+			limit: dbtype.SignInAttemptLimit{Failures: 1, Window: 15 * time.Minute, Lock: time.Hour},
+			want:  now.Add(time.Hour),
+		},
+		{
+			name:  "a lock that ends before the window leaves the window's end",
+			limit: dbtype.SignInAttemptLimit{Failures: 1, Window: time.Hour, Lock: 10 * time.Minute},
+			want:  now.Add(time.Hour),
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name := fmt.Sprintf("pat%d@lakeside.edu", i)
+			if _, err := in.Driver.RecordSignInFailure(ctx, name, now, tt.limit); err != nil {
+				t.Fatalf("RecordSignInFailure() error = %v", err)
+			}
+			if got := h.AttemptsEndsAt(ctx, t, in.Raw, name); !got.Equal(tt.want) {
+				t.Errorf("EndsAt = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func testSignInAttemptsCleared(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	now := time.Now()

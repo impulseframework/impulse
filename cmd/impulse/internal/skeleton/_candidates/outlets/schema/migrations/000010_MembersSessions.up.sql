@@ -30,6 +30,10 @@ CREATE INDEX MembersSessionsByUserId ON MembersSessions(UserId);
 
 CREATE INDEX MembersSessionsByProviderSessionId ON MembersSessions(ProviderSessionId);
 
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE MembersSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
+
 -- The identity links: which provider subject is which person. A user holds one row per
 -- registration they have signed in through, keyed uniquely so a subject links to one
 -- person, and deleting the person deletes the links.
@@ -116,14 +120,21 @@ CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSig
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
 -- row is keyed by the submitted name, never by the user row, so an unknown name is
 -- counted exactly as a known one; a success, an MFA completion or a password change
--- deletes it. WindowEndsAt and LockedUntil are deadlines, written as given.
+-- deletes it. WindowEndsAt and LockedUntil are deadlines, written as given. EndsAt is the
+-- moment the row stops counting: the end of its window or of its lock, whichever is
+-- later, worked out by the database.
 CREATE TABLE MembersSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE MembersSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The sign-in methods: what an administrator chose, in the running application, for one
 -- sign-in method of the auth, keyed by the name the method is registered under. OpenSignUp
@@ -197,6 +208,9 @@ CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, Cons
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no tenant is not in it.
 CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE MembersSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 -- The tokens: the bearer credentials of the machine outlets whose tokens the members auth
 -- issues. A row is one credential: an application token a person issued to a program of

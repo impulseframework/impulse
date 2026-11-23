@@ -11,8 +11,9 @@ import (
 )
 
 // How a session ends, as the session library keeps it. A session ends by its Expired
-// column, stamped with the commit's time, and the row stays. A session established as
-// someone or something else has an impersonation record beside it, and the record is the
+// column, stamped with the commit's time, and the row stays until the session table
+// removes it, 30 days after its last activity. A session established as someone or
+// something else has an impersonation record beside it, and the record is the
 // authority: the library refuses a session whose record has ended whatever the session
 // row says. So every rule here that ends a session ends its record with it, with the
 // reason the library gives an administrator's act (Revoked), and none deletes a row.
@@ -83,7 +84,8 @@ func (m *Manager) EndImpersonation(ctx context.Context, txn resource.ReadWriteTr
 // Shared rule: the session library's DestroyUserSessions. One thing it does is left to
 // the library: a record still standing beside a session of the user that had ended
 // before (the state a browser that never came back leaves) is ended there the next time
-// that browser returns, and stands for nothing until then, since its session is refused.
+// that browser returns, and stands for nothing until then, since its session is refused,
+// and is never ended once the session's row is removed, 30 days after its last activity.
 func (m *Manager) EndUserSessions(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

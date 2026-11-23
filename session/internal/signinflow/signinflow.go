@@ -194,7 +194,9 @@ type Rules[Tx any] struct {
 	SignUp SignUpSeater[Tx]
 	// Directories reads the declaration of the directory an identity came through at a
 	// person's first sign-in through it, nil for none, and Seat seats the person with
-	// the default seat the declaration names, nil for none; see standardRule. OnlyIn
+	// the default seat the declaration names, nil for none; see standardRule. It also
+	// reads, for the sign-in policy, which tenants declare the directories the user's
+	// identity links came through (sessioninfo.SignInUser.Directories). OnlyIn
 	// reports whether a tenant is the only place a person holds anything, nil for
 	// none: with Directories it decides a first link made on a name alone; see
 	// linkUser.
@@ -2032,6 +2034,68 @@ func declaredDirectory[Tx any](ctx context.Context, tx Tx, identity *sessioninfo
 	return declared, nil
 }
 
+// userDirectoriesIn reads, inside tx, the organizations' directories userID's identity
+// links came through, each with the tenants read answers as declaring it: what a
+// sign-in tells its policy (sessioninfo.SignInUser.Directories). The links are read
+// oldest first and each directory is listed once, by its oldest link; a link that came
+// through no organization's directory (a password, a personal account) is not listed
+// and asks read nothing. A nil read reads nothing and answers nothing.
+func userDirectoriesIn[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, read signin.DirectoryReader[Tx],
+) ([]sessioninfo.UserDirectory, error) {
+	if read == nil {
+		return nil, nil
+	}
+	links, err := d.IdentitiesByUserIn(ctx, tx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.IdentitiesByUserIn()")
+	}
+
+	var directories []sessioninfo.UserDirectory
+	listed := make(map[signin.Directory]bool, len(links))
+	for _, link := range links {
+		directory := signin.Directory{Method: link.Method, Connection: link.Connection}
+		if !directory.Organization() || listed[directory] {
+			continue
+		}
+		listed[directory] = true
+		declared, err := read(ctx, tx, directory)
+		if err != nil {
+			return nil, errors.Wrap(err, "signin.DirectoryReader()")
+		}
+		var tenants []accesstypes.Domain
+		for _, declaration := range declared {
+			tenants = append(tenants, declaration.Tenant)
+		}
+		directories = append(directories, sessioninfo.UserDirectory{Method: directory.Method, Connection: directory.Connection, Tenants: tenants})
+	}
+
+	return directories, nil
+}
+
+// UserDirectories reads the organizations' directories userID's identity links came
+// through, each with the tenants read answers as declaring it, as a sign-in reads them
+// for its policy, in one transaction of its own that writes nothing: for a question
+// asked outside a sign-in. A nil read opens no transaction and answers nothing.
+func UserDirectories[Tx any](ctx context.Context, d Driver[Tx], userID impulse.UUID, read signin.DirectoryReader[Tx]) ([]sessioninfo.UserDirectory, error) {
+	if read == nil {
+		return nil, nil
+	}
+
+	var directories []sessioninfo.UserDirectory
+	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+		var err error
+		directories, err = userDirectoriesIn(ctx, d, tx, userID, read)
+
+		return err
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.Transact()")
+	}
+
+	return directories, nil
+}
+
 // defaultSeats are the seats the declarations of a directory give a person at their
 // first sign-in through it: the default seat of each tenant that names one.
 func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
@@ -2657,7 +2721,17 @@ func decideAndInsert[Tx any](
 
 		var decide func(ctx context.Context) (*signin.Decision, error)
 		if policy != nil {
-			decide = func(ctx context.Context) (*signin.Decision, error) { return policy(ctx, tx, req) }
+			decide = func(ctx context.Context) (*signin.Decision, error) {
+				// The policy is told which tenants declare the directories the account
+				// signs in through, read in this run of the transaction.
+				directories, err := userDirectoriesIn(ctx, d, tx, req.UserID, rules.Directories)
+				if err != nil {
+					return nil, err
+				}
+				req.User.Directories = directories
+
+				return policy(ctx, tx, req)
+			}
 		}
 		v, err = decideSignIn(ctx, req, user, decide, trusted)
 		if err != nil {

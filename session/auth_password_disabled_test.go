@@ -13,10 +13,12 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -25,19 +27,21 @@ import (
 const passwordDisabledSentence = "Your organization does not sign in with a password here, so there is none to choose. Keep signing in the way your organization has set up"
 
 // passwordCheck is a password-disabled check that answers disabled, or fails with err,
-// and records whom it was asked about.
+// and records whom it was asked about and the directories it was handed.
 type passwordCheck struct {
 	mu       sync.Mutex
 	disabled bool
 	err      error
 	asked    []impulse.UUID
+	handed   [][]sessioninfo.UserDirectory
 }
 
 // check is the check the Auth is given (SetPasswordDisabledCheck).
-func (c *passwordCheck) check(_ context.Context, userID impulse.UUID) (bool, error) {
+func (c *passwordCheck) check(_ context.Context, userID impulse.UUID, directories []sessioninfo.UserDirectory) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.asked = append(c.asked, userID)
+	c.handed = append(c.handed, directories)
 
 	return c.disabled, c.err
 }
@@ -50,6 +54,40 @@ func (c *passwordCheck) askedAbout() []impulse.UUID {
 	return c.asked
 }
 
+// handedDirectories are the directories the check was handed, one entry for each time
+// it was asked, in order.
+func (c *passwordCheck) handedDirectories() [][]sessioninfo.UserDirectory {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.handed
+}
+
+// lakesideDirectories is what the store answers for the directories of an account that
+// signs in through Lakeside's Entra tenant, which Lakeside declares.
+var lakesideDirectories = []sessioninfo.UserDirectory{
+	{Method: sessioninfo.MethodAzure, Connection: "tid-lakeside", Tenants: []accesstypes.Domain{"lakeside"}},
+}
+
+// setDirectoryAdmission sets a directory admission on a: a reader that answers no
+// declaration and a hook that seats nobody. The tests that use it read only whether
+// the Auth holds one.
+func setDirectoryAdmission(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+	a.SetDirectoryAdmission(
+		func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) {
+			return nil, nil
+		},
+		DirectorySeatedHook[mockTx]{
+			Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+				return nil, nil
+			},
+			OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) {
+				return false, nil
+			},
+		},
+	)
+}
+
 // TestAuth_SetPasswordDisabledCheck proves the password-disabled check is set once,
 // before the Auth serves: anything else is a wiring mistake and panics in words.
 func TestAuth_SetPasswordDisabledCheck(t *testing.T) {
@@ -59,7 +97,7 @@ func TestAuth_SetPasswordDisabledCheck(t *testing.T) {
 	tests := []struct {
 		name    string
 		prepare func(f *authFixture)
-		check   func(ctx context.Context, userID impulse.UUID) (bool, error)
+		check   func(ctx context.Context, userID impulse.UUID, directories []sessioninfo.UserDirectory) (bool, error)
 		want    string
 	}{
 		{
@@ -226,6 +264,68 @@ func TestAuth_SignInMeans_passwordDisabled(t *testing.T) {
 		}
 	})
 
+	t.Run("an Auth with a directory admission hands the check the directories the store reads for the account", func(t *testing.T) {
+		t.Parallel()
+		a, store := signInMeansAuth(t)
+		setDirectoryAdmission(a)
+		check := &passwordCheck{disabled: true}
+		a.SetPasswordDisabledCheck(check.check)
+		store.EXPECT().User(gomock.Any(), userID).Return(person(false), nil)
+		store.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return(googleLink, nil)
+		store.EXPECT().UserDirectories(gomock.Any(), userID, gomock.Not(gomock.Nil())).Return(lakesideDirectories, nil)
+
+		got, err := a.API().SignInMeans(context.Background(), userID)
+		if err != nil {
+			t.Fatalf("SignInMeans() error = %v", err)
+		}
+		if !got.PasswordDisabled {
+			t.Error("SignInMeans().PasswordDisabled = false, want true where the check says so")
+		}
+		if diff := cmp.Diff([][]sessioninfo.UserDirectory{lakesideDirectories}, check.handedDirectories()); diff != "" {
+			t.Errorf("directories the check was handed mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("an Auth with no directory admission hands the check none, and the store is not asked for them", func(t *testing.T) {
+		t.Parallel()
+		a, store := signInMeansAuth(t)
+		check := &passwordCheck{}
+		a.SetPasswordDisabledCheck(check.check)
+		store.EXPECT().User(gomock.Any(), userID).Return(person(false), nil)
+		store.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return(googleLink, nil)
+		// The store is given no UserDirectories: the mock fails the test on a call.
+
+		if _, err := a.API().SignInMeans(context.Background(), userID); err != nil {
+			t.Fatalf("SignInMeans() error = %v", err)
+		}
+		if diff := cmp.Diff([][]sessioninfo.UserDirectory{nil}, check.handedDirectories()); diff != "" {
+			t.Errorf("directories the check was handed mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a failure to read the account's directories fails the read, and the check is not asked", func(t *testing.T) {
+		t.Parallel()
+		a, store := signInMeansAuth(t)
+		setDirectoryAdmission(a)
+		check := &passwordCheck{}
+		a.SetPasswordDisabledCheck(check.check)
+		store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
+		store.EXPECT().User(gomock.Any(), userID).Return(person(true), nil).AnyTimes()
+		store.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return(googleLink, nil).AnyTimes()
+		store.EXPECT().UserDirectories(gomock.Any(), userID, gomock.Not(gomock.Nil())).Return(nil, errors.New("links blip")).Times(2)
+
+		rr := ownRead(t, a)
+		if rr.Code != http.StatusInternalServerError || strings.Contains(rr.Body.String(), "directories") || strings.Contains(rr.Body.String(), "passwordDisabled") {
+			t.Errorf("SignInMeans() with a failing read of the directories = %d %s, want 500 and nothing of the person's means", rr.Code, rr.Body.String())
+		}
+		if got, err := a.API().SignInMeans(context.Background(), userID); err == nil || got != nil {
+			t.Errorf("AuthAPI.SignInMeans() with a failing read of the directories = %v, %v, want no means and the error", got, err)
+		}
+		if asked := check.askedAbout(); len(asked) != 0 {
+			t.Errorf("the check was asked about %v, want never once the read of the directories failed", asked)
+		}
+	})
+
 	t.Run("an Auth with no check answers false", func(t *testing.T) {
 		t.Parallel()
 		a, store := signInMeansAuth(t)
@@ -316,6 +416,70 @@ func TestAuth_FirstPassword_passwordDisabled(t *testing.T) {
 		}
 		if diff := cmp.Diff([]impulse.UUID{userID, userID}, check.askedAbout()); diff != "" {
 			t.Errorf("whom the check was asked about mismatch (-want +got):\n%s", diff)
+		}
+		// The Auth sets no directory admission: the check is handed no directories, and
+		// the store is not asked for them.
+		if diff := cmp.Diff([][]sessioninfo.UserDirectory{nil, nil}, check.handedDirectories()); diff != "" {
+			t.Errorf("directories the check was handed mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("an Auth with a directory admission hands the check the directories the store reads for the account", func(t *testing.T) {
+		t.Parallel()
+		userID, sessionID := newIDs()
+		f, recorder, _ := newMailFixture(t, gomock.NewController(t))
+		setDirectoryAdmission(f.auth)
+		check := &passwordCheck{disabled: true}
+		f.auth.SetPasswordDisabledCheck(check.check)
+		f.expectSession(sessionID, directoryPerson(userID))
+		f.store.EXPECT().UserDirectories(gomock.Any(), userID, gomock.Not(gomock.Nil())).Return(lakesideDirectories, nil).Times(2)
+
+		rr := f.asUser(f.auth.FirstPassword().SendCode(), sessionID, nil, nil)
+		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), passwordDisabledSentence) {
+			t.Errorf("SendCode() for a person whose password is disabled = %d %s, want 403 with %q", rr.Code, rr.Body.String(), passwordDisabledSentence)
+		}
+		rr = f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": "123456", "password": chosenPassword}, nil)
+		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), passwordDisabledSentence) {
+			t.Errorf("Set() for a person whose password is disabled = %d %s, want 403 with %q", rr.Code, rr.Body.String(), passwordDisabledSentence)
+		}
+		if got := len(recorder.Messages()); got != 0 {
+			t.Errorf("%d messages were sent, want none", got)
+		}
+		if diff := cmp.Diff([][]sessioninfo.UserDirectory{lakesideDirectories, lakesideDirectories}, check.handedDirectories()); diff != "" {
+			t.Errorf("directories the check was handed mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a failure to read the account's directories fails the request, with nothing mailed or written", func(t *testing.T) {
+		t.Parallel()
+		userID, sessionID := newIDs()
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		setDirectoryAdmission(f.auth)
+		check := &passwordCheck{}
+		f.auth.SetPasswordDisabledCheck(check.check)
+		f.expectSession(sessionID, directoryPerson(userID))
+		f.store.EXPECT().UserDirectories(gomock.Any(), userID, gomock.Not(gomock.Nil())).Return(nil, errors.New("links blip")).Times(2)
+		// The store is given no SetFirstUserPassword: the mock fails the test on a call.
+
+		rr := f.asUser(f.auth.FirstPassword().SendCode(), sessionID, nil, nil)
+		if rr.Code != http.StatusInternalServerError {
+			t.Errorf("SendCode() with a failing read of the directories = %d %s, want 500", rr.Code, rr.Body.String())
+		}
+		rr = f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": "123456", "password": chosenPassword}, nil)
+		if rr.Code != http.StatusInternalServerError {
+			t.Errorf("Set() with a failing read of the directories = %d %s, want 500", rr.Code, rr.Body.String())
+		}
+		if got := len(recorder.Messages()); got != 0 {
+			t.Errorf("%d messages were sent, want none", got)
+		}
+		links.mu.Lock()
+		inserted := len(links.rows)
+		links.mu.Unlock()
+		if inserted != 0 {
+			t.Errorf("%d mail link rows were inserted, want none", inserted)
+		}
+		if asked := check.askedAbout(); len(asked) != 0 {
+			t.Errorf("the check was asked about %v, want never once the read of the directories failed", asked)
 		}
 	})
 
