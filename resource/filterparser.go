@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/shopspring/decimal"
 )
@@ -219,6 +220,11 @@ type Condition struct {
 	// search is the box behind a *:search condition: its terms, the fields it searches
 	// and the child branches. Nil on every other condition.
 	search *searchCondition
+	// name is, on a condition on a name field, the name field's Go name: the
+	// statement tests the id beside it against the pointed-to table's rows
+	// (name_filter.go), and Field is that table's name column. "" on every other
+	// condition.
+	name accesstypes.Field
 }
 
 // IsSearch reports whether the condition is the search box, *:search:"…".
@@ -356,6 +362,10 @@ type FilterFieldInfo struct {
 	// order is the field's position in the request struct: the box lists its fields in
 	// declaration order.
 	order int
+	// nameKey is, on a name field (a request field marked nameof), the id field it
+	// stands beside; its column is the pointed-to table's name column. "" on every
+	// field of the resource's own.
+	nameKey accesstypes.Field
 }
 
 // ColumnName returns the column name for the given DBType.
@@ -652,6 +662,9 @@ func (p *FilterParser) parseConditionToken(dbType DBType) (ExpressionNode, error
 		Field:    field,
 		Operator: operator,
 	}
+	if fieldInfo.nameKey != "" {
+		condition.name = accesstypes.Field(fieldInfo.GOFieldName)
+	}
 	target := conditionField{jsonName: jsonFieldNameStr, fieldType: fieldInfo.FieldType, kind: fieldInfo.Kind, zone: p.zoneFor(&fieldInfo)}
 
 	switch condition.Operator {
@@ -862,7 +875,9 @@ func (p *FilterParser) boxFields(dbType DBType) []searchField {
 	infos := make([]*FilterFieldInfo, 0, len(p.jsonToFieldInfo))
 	seen := make(map[string]struct{}, len(p.jsonToFieldInfo))
 	for _, info := range p.jsonToFieldInfo {
-		if !info.Search.JoinsBox() {
+		// The box searches the resource's own columns: a name lives in another
+		// table, whatever its search tag says.
+		if !info.Search.JoinsBox() || info.nameKey != "" {
 			continue
 		}
 		// A renamed field is listed under both names; the box names it once, by its

@@ -47,14 +47,14 @@ func (lookupPass) NameFields() []NameField {
 
 // lookupPassRequest is lookupPass's list request type as the generator writes it.
 type lookupPassRequest struct {
-	ID           string  `json:"id"           index:"true"        perm:"-"`
+	ID           string  `json:"id"           index:"true" perm:"-"`
 	SectorID     string  `json:"sectorId"     index:"true"`
 	SquadronID   *string `json:"squadronId"   index:"true"`
 	LevelID      string  `json:"levelId"      index:"true"`
-	SquadronName *string `json:"squadronName" nameof:"SquadronID"`
-	LevelName    *string `json:"levelName"    nameof:"LevelID"`
+	SquadronName *string `json:"squadronName" index:"true" nameof:"SquadronID" search:"token=Name_Search;index=SquadronsSearch;role=text;contains"`
+	LevelName    *string `json:"levelName"    index:"true" nameof:"LevelID"`
 	CrewID       *string `json:"crewId"       index:"true"`
-	CrewName     *string `json:"crewName"     nameof:"CrewID"`
+	CrewName     *string `json:"crewName"     index:"true" nameof:"CrewID"`
 }
 
 const (
@@ -323,7 +323,7 @@ func (flaggedPass) NameFields() []NameField {
 type flaggedPassRequest struct {
 	ID           string  `json:"id"           index:"true"        perm:"-"`
 	SquadronID   *string `json:"squadronId"   feature:"squadrons" index:"true"`
-	SquadronName *string `json:"squadronName" nameof:"SquadronID"`
+	SquadronName *string `json:"squadronName" index:"true"        nameof:"SquadronID"`
 }
 
 // decodeFlagged decodes a list request for sector-1's flagged passes, which the
@@ -370,6 +370,7 @@ func TestNameLookup_hiddenID(t *testing.T) {
 		{name: "F2 no columns named: ordered by the name, which no row carries", target: "/?limit=2"},
 		{name: "F3 the name as a column is an unknown column", target: "/?columns=id,squadronName&limit=2", wantErr: "unknown column: squadronName"},
 		{name: "F3 the name as a sort is an unknown sort field", target: "/?columns=id&sort=squadronName&limit=2", wantErr: "unknown sort field: squadronName"},
+		{name: "F3 the name in a filter is not filterable", target: "/?columns=id&filter=squadronName:eq:Red&limit=2", wantErr: "'squadronName' is not filterable"},
 	}
 
 	for _, tt := range tests {

@@ -23,8 +23,12 @@ type parsedQueryParams struct {
 	SortFields   []SortField
 	FilterParser func(DBType) (ExpressionNode, error)
 	// FilterFields names the resource fields the filter expression touches, so
-	// the read checks can require an unconditional grant on each of them.
+	// the read checks can require an unconditional grant on each of them; a name
+	// the filter names counts as the id field it stands beside. FilterNames are
+	// the name fields the filter names, each looked up through the pointed-to
+	// table under its own grant.
 	FilterFields []accesstypes.Field
+	FilterNames  []accesstypes.Field
 	// SearchBox says the filter carries the search box, and SearchFields names the
 	// resource's own fields it searches, in declaration order; a field the caller
 	// cannot read drops out at the read checks instead of refusing the request.
@@ -133,9 +137,14 @@ func (d *QueryDecoder[Resource, Request]) visibleFilterFields(hidden map[accesst
 	}
 	visible := make(map[jsonFieldName]FilterFieldInfo, len(d.filterParserFields))
 	for name, info := range d.filterParserFields {
-		if _, isHidden := hidden[accesstypes.Field(info.GOFieldName)]; !isHidden {
-			visible[name] = info
+		if _, isHidden := hidden[accesstypes.Field(info.GOFieldName)]; isHidden {
+			continue
 		}
+		// A name follows its id: beside a hidden id it is unknown, as the id is.
+		if _, idHidden := hidden[info.nameKey]; info.nameKey != "" && idHidden {
+			continue
+		}
+		visible[name] = info
 	}
 
 	return visible
@@ -195,12 +204,21 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 		return nil, errors.Wrap(err, "NewFieldMapper()")
 	}
 
-	filterParserFields, err := newFilterParserFields(reflect.TypeOf(req), resSet.ResourceMetadata())
+	names, err := requestNames[Resource](reflect.TypeOf(req))
 	if err != nil {
 		return nil, err
 	}
 
-	names, err := requestNames[Resource](reflect.TypeOf(req))
+	// A name is a field to filter by only beside an id the request type carries,
+	// as it is a column to ask for only there (visibleNames).
+	requestFields := mapper.Fields()
+	filterNames := make([]requestName, 0, len(names))
+	for i := range names {
+		if slices.Contains(requestFields, names[i].Key) {
+			filterNames = append(filterNames, names[i])
+		}
+	}
+	filterParserFields, err := newFilterParserFields(reflect.TypeOf(req), resSet.ResourceMetadata(), filterNames)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +257,9 @@ func searchBoxFields(fields map[jsonFieldName]FilterFieldInfo) (boxFields, piiFi
 	infos := make([]FilterFieldInfo, 0, len(fields))
 	seen := make(map[string]struct{}, len(fields))
 	for _, info := range fields {
-		if !info.Search.JoinsBox() {
+		// The box searches the resource's own columns: a name lives in another
+		// table, whatever its search tag says.
+		if !info.Search.JoinsBox() || info.nameKey != "" {
 			continue
 		}
 		if _, dup := seen[info.GOFieldName]; dup {
@@ -402,6 +422,7 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 	qSet.names = d.visibleNames(nil)
 	qSet.SetFilterParser(parsedQuery.FilterParser)
 	qSet.filterFields = parsedQuery.FilterFields
+	qSet.filterNames = parsedQuery.FilterNames
 	qSet.searchBox = parsedQuery.SearchBox
 	qSet.searchFields = parsedQuery.SearchFields
 	qSet.keyFields = d.keyFields
@@ -500,6 +521,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 	var sortFields []SortField
 	var filterParser func(DBType) (ExpressionNode, error)
 	var filterFields []accesstypes.Field
+	var filterNames []accesstypes.Field
 	var searchBox bool
 	var searchFields []accesstypes.Field
 	var err error
@@ -549,7 +571,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 		if _, err := filterParser(goFieldNames); err != nil {
 			return nil, err
 		}
-		filterFields = d.filterFields(filterStr)
+		filterFields, filterNames = d.filterFields(filterStr)
 		if d.hasSearchBox(filterStr) {
 			searchBox = true
 			searchFields = d.visibleBoxFields(hidden)
@@ -596,6 +618,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 		SortFields:   sortFields,
 		FilterParser: filterParser,
 		FilterFields: filterFields,
+		FilterNames:  filterNames,
 		SearchBox:    searchBox,
 		SearchFields: searchFields,
 		Page:         page,
@@ -810,19 +833,26 @@ func errSearchBoxInURL() error {
 	return httpio.NewBadRequestMessagef("cannot filter on sensitive field in URL: the search box searches a sensitive field; send the filter in the request body")
 }
 
-// filterFields names the resource fields a filter expression touches, in first
-// appearance order without repeats. parseQuery has parsed the expression before
-// asking, so every condition names a filterable field and none is skipped.
-func (d *QueryDecoder[Resource, Request]) filterFields(filterStr string) []accesstypes.Field {
-	var fields []accesstypes.Field
+// filterFields names the resource fields a filter expression touches, and the
+// name fields it names, each in first appearance order without repeats. A name
+// counts among the fields as the id field it stands beside, whose grant covers
+// it. parseQuery has parsed the expression before asking, so every condition
+// names a filterable field and none is skipped.
+func (d *QueryDecoder[Resource, Request]) filterFields(filterStr string) (fields, names []accesstypes.Field) {
 	for _, fieldInfo := range d.filterConditionFields(filterStr) {
 		field := accesstypes.Field(fieldInfo.GOFieldName)
+		if fieldInfo.nameKey != "" {
+			if !slices.Contains(names, field) {
+				names = append(names, field)
+			}
+			field = fieldInfo.nameKey
+		}
 		if !slices.Contains(fields, field) {
 			fields = append(fields, field)
 		}
 	}
 
-	return fields
+	return fields, names
 }
 
 // filterConditionFields walks the filter's tokens and returns the filterable
@@ -847,7 +877,13 @@ func (d *QueryDecoder[Resource, Request]) filterConditionFields(filterStr string
 	}
 }
 
-func newFilterParserFields[Resource Resourcer](reqType reflect.Type, resourceMetadata *Metadata[Resource]) (map[jsonFieldName]FilterFieldInfo, error) {
+// newFilterParserFields builds the table of the request type's fields a filter may
+// name, by wire name. A name field (marked nameof) is one where it carries a
+// filter tag and names holds it: its column is the pointed-to table's name
+// column on every database, and a condition on it is tested through that table
+// (name_filter.go). A name names does not hold stays out, so a filter naming it
+// is refused as not filterable.
+func newFilterParserFields[Resource Resourcer](reqType reflect.Type, resourceMetadata *Metadata[Resource], names []requestName) (map[jsonFieldName]FilterFieldInfo, error) {
 	fields := make(map[jsonFieldName]FilterFieldInfo)
 
 	for structField := range reqType.Fields() {
@@ -867,13 +903,25 @@ func newFilterParserFields[Resource Resourcer](reqType reflect.Type, resourceMet
 		}
 
 		dbColumnNames := make(map[DBType]string)
-		for _, dbType := range dbTypes() {
-			cacheEntry, found := resourceMetadata.dbFieldMap(dbType)[accesstypes.Field(goStructFieldName)]
-			if !found {
+		var nameKey accesstypes.Field
+		if _, isName := structField.Tag.Lookup(nameOfTagKey); isName {
+			held := slices.IndexFunc(names, func(n requestName) bool { return n.Field == accesstypes.Field(goStructFieldName) })
+			if held < 0 {
 				continue
 			}
+			nameKey = names[held].Key
+			for _, dbType := range dbTypes() {
+				dbColumnNames[dbType] = names[held].NameColumn
+			}
+		} else {
+			for _, dbType := range dbTypes() {
+				cacheEntry, found := resourceMetadata.dbFieldMap(dbType)[accesstypes.Field(goStructFieldName)]
+				if !found {
+					continue
+				}
 
-			dbColumnNames[dbType] = cacheEntry.ColumnName
+				dbColumnNames[dbType] = cacheEntry.ColumnName
+			}
 		}
 
 		fieldType := structField.Type
@@ -908,6 +956,7 @@ func newFilterParserFields[Resource Resourcer](reqType reflect.Type, resourceMet
 			Positional:    structField.Tag.Get(maskingTagKey) == maskingPositional,
 			Search:        search,
 			order:         structField.Index[0],
+			nameKey:       nameKey,
 		}
 		fields[jsonFieldName(jsonFieldNameStr)] = info
 		// A filter naming the field's former wire name is the same condition on the
