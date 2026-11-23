@@ -14,23 +14,24 @@ const (
 {{- if .ForTenant }}
 //
 // It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
-// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there, and what the tenant may do to a person who
-// also holds a role outside it is the role file's to say, in a condition on the
-// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
+// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who is no
+// row of that list is not found there, and whether the tenant may do this to a person is
+// the role file's to say, in a condition on the method's grant that reads the facts of
+// the row: managedHere says this tenant manages the person's account.
 {{- end }}`
 
 	// identityTenantResetNote is the paragraph the tenant's method that mails a reset
-	// link adds to its comment. It leaves nothing to a condition of the role file: a
-	// tenant's administrator sends the link to any person of the tenant.
+	// link adds to its comment. It is the role file's condition that keeps the link from
+	// a person another tenant's directory manages.
 	identityTenantResetNote = `
 {{- if .ForTenant }}
 //
 // It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
-// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there. Every person of the tenant may be sent the
-// link, whoever else they hold a role with: it goes to the person's own mailbox and
-// changes nothing until they use it, so its grant needs no condition on the row.
+// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who is no
+// row of that list is not found there. The link goes to the person's own mailbox and
+// changes nothing until they use it, so a tenant that does not manage the account may
+// still send it; the role file's condition on the grant keeps it from a person another
+// tenant's directory manages (managedHere = true OR managedByAnotherDirectory = false).
 {{- end }}`
 
 	// identityTenantInvitationNote is the paragraph a tenant's method that names an
@@ -50,10 +51,10 @@ const (
 //
 // It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
 // row of {{ .TenantIdentity }}, the tenant's own list of its people's identities. An
-// identity of a person who holds no role in the tenant is not found there, and what the
-// tenant may do to a person who also holds a role outside it is the role file's to say,
-// in a condition on the method's grant that reads the facts of the row (heldElsewhere,
-// heldGlobally).
+// identity of a person who is no row of the tenant's list of people is not found there,
+// and whether the tenant may do this to a person is the role file's to say, in a
+// condition on the method's grant that reads the facts of the row: managedHere says
+// this tenant manages the person's account.
 {{- end }}`
 
 	// identityTenantScope is the annotation that makes a method a tenant's.

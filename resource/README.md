@@ -4337,12 +4337,16 @@ the Auth's name and the application's tenant record's before it. A tenant record
 name would give a list the name of one of the tables' declarations (a record named
 `Session` or `User`) is refused at generation:
 
-- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in
-  the tenant or in every tenant, keyed by the account's id, with the columns of
-  `CrewSessionUsers`. A person who holds a role in two tenants is a row in each. Two
-  facts: `heldElsewhere` (the person also holds a role outside this tenant's own: in
-  another tenant, or in every tenant) and `heldGlobally` (the person holds a role for
-  the whole application).
+- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
+  tenant or in every tenant, and, where the tenant has a directory, per person who signs
+  in through it, keyed by the account's id, with the columns of `CrewSessionUsers`. A
+  person who holds a role in two tenants is a row in each. Six facts: `heldElsewhere`
+  (the person also holds a role outside this tenant's own: in another tenant, or in
+  every tenant), `heldGlobally` (the person holds a role for the whole application),
+  `heldHere` (the person holds something in this tenant itself), `heldInEveryTenant`
+  (the person holds a role in every tenant at once), `managedHere` (this tenant manages
+  the person's account) and `managedByAnotherDirectory` (the person signs in through
+  another tenant's directory, and that tenant manages the account).
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not
@@ -4353,12 +4357,19 @@ name would give a list the name of one of the tables' declarations (a record nam
   invitation stands (not accepted, not withdrawn, not expired), and `role`, the roles
   it gives: a list, so a condition that reads it is judged once for each role and holds
   only when it holds for every one (section 2, `@attribute` on a list column).
-- `CrewSectorIdentities`, the identities of the tenant's people: one row per
-  identity link of a person of the first list, keyed by the link's id, with the columns
-  of `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
-  vouched for), the person's `userId` and `username`, and the person's two facts,
-  `heldElsewhere` and `heldGlobally`. The identity of a person who holds a role in two
-  tenants is a row in each. A person's page lists their identities by `userId`.
+- `CrewSectorIdentities`, the identities of the tenant's people: one row per identity
+  link of a person of the first list, keyed by the link's id, with the columns of
+  `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
+  vouched for), the person's `userId` and `username`, and four of the person's facts,
+  `heldElsewhere`, `heldGlobally`, `managedHere` and `managedByAnotherDirectory`. The
+  identity of a person who holds a role in two tenants is a row in each. A person's page
+  lists their identities by `userId`.
+
+One party manages each account, and the lists say which. The tenant whose directory a
+person signs in through manages their account. A person who signs in through no tenant's
+directory, and holds something in one tenant and nothing anywhere else, is managed by
+that tenant. Every other account is the application's own administrators' to manage.
+`managedHere` is true on the row of the tenant that manages the account.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
 it by name, and the role file says what a tenant's administrator sees of a person who is
@@ -4413,10 +4424,12 @@ those of the tenant, at any size of the application. (Read through an index by u
 when a membership named its person by username, the people took 0.45 s at 50,000 and the
 roles and identities longer.) The invitations read their own page from the index (26 rows
 at any size).
-Three costs are worth knowing. A filter on `heldElsewhere` or `heldGlobally`,
-or a grant on the list whose condition reads one and so holds every row to it, costs two
-index reads for each person of the tenant (seconds at 50,000 people; a condition on a
-field costs them for the page's rows alone). A row of the roles held is keyed by the
+Three costs are worth knowing. A filter on one of the person's facts (`heldElsewhere`,
+`heldGlobally`, `managedHere`, `managedByAnotherDirectory`), or a grant on the list
+whose condition reads one and so holds every row to it, costs index reads for each
+person of the tenant (two for where a person holds roles, and the person's identities
+besides for who manages them; seconds at 50,000 people; a condition on a field costs
+them for the page's rows alone). A row of the roles held is keyed by the
 user's id and the role, two columns the database looks up, so a read of one row, and the
 check a method makes of the role it names, reads the one person's memberships (2 to 4 ms
 and three rows at 50,000 people; a key that joined the two in one value could not be
@@ -4915,8 +4928,9 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   request after the end. The sign-in rule and the session's list of tenants read what a
   person holds at the moment, and so do a tenant's list of its people
   (`CrewSectorUsers`) and the list of the identities of those people: a person whose
-  only role in a tenant has ended, or has not begun, is not one of its people. The two
-  facts about a person (`heldElsewhere`, `heldGlobally`) read what has not ended.
+  only role in a tenant has ended, or has not begun, is not one of its people. The
+  facts about where a person holds roles (`heldElsewhere`, `heldGlobally`, `heldHere`,
+  `heldInEveryTenant`), and `managedHere`, which reads them, read what has not ended.
 - The lists of roles and of places carry the period (`startsAt`, `endsAt`) under a
   field grant of their own, leave out a row that has ended and show one that has not
   begun, where it is given another period or taken away: `CrewSectorUserRoles`, the

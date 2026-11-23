@@ -19,14 +19,16 @@ import (
 
 func (h *Handlers) CrewSectorSignInWays() http.HandlerFunc {
 	type crewSectorSignInWay struct {
-		UserID        impulse.UUID `json:"userId"        allow_filter:"true" perm:"-"`
-		Way           string       `json:"way"           perm:"-"`
-		Password      bool         `json:"password"`
-		Method        string       `json:"method"`
-		Connection    string       `json:"connection"`
-		Through       string       `json:"through"`
-		HeldElsewhere bool         `json:"heldElsewhere"`
-		HeldGlobally  bool         `json:"heldGlobally"`
+		UserID                    impulse.UUID `json:"userId"                    allow_filter:"true" perm:"-"`
+		Way                       string       `json:"way"                       perm:"-"`
+		Password                  bool         `json:"password"`
+		Method                    string       `json:"method"`
+		Connection                string       `json:"connection"`
+		Through                   string       `json:"through"`
+		HeldElsewhere             bool         `json:"heldElsewhere"`
+		HeldGlobally              bool         `json:"heldGlobally"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 	}
 
 	type response []map[string]any
@@ -86,6 +88,10 @@ func (h *Handlers) CrewSectorSignInWays() http.HandlerFunc {
 					rmap["heldElsewhere"] = rec.HeldElsewhere
 				case "HeldGlobally":
 					rmap["heldGlobally"] = rec.HeldGlobally
+				case "ManagedHere":
+					rmap["managedHere"] = rec.ManagedHere
+				case "ManagedByAnotherDirectory":
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			}
 			resp = append(resp, rmap)

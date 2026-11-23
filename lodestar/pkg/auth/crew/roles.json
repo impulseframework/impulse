@@ -1499,6 +1499,8 @@
                 "heldGlobally",
                 "heldHere",
                 "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
                 "outsideDirectory",
                 "cannotEnter"
               ]
@@ -1561,7 +1563,9 @@
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ]
             },
             {
@@ -1857,6 +1861,8 @@
                 "heldGlobally",
                 "heldHere",
                 "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
                 "cannotEnter"
               ]
             },
@@ -1904,7 +1910,9 @@
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ]
             },
             {

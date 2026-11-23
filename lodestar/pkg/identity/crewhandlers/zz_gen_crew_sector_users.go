@@ -34,6 +34,8 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
 		HeldHere                  bool         `json:"heldHere"                  index:"true"`
 		HeldInEveryTenant         bool         `json:"heldInEveryTenant"         index:"true"`
+		ManagedHere               bool         `json:"managedHere"               index:"true"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory" index:"true"`
 		OutsideDirectory          bool         `json:"outsideDirectory"          index:"true"`
 		CannotEnter               *string      `json:"cannotEnter"`
 		AdministratorWithPassword bool         `json:"administratorWithPassword" index:"true"`
@@ -135,6 +137,14 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 					if !row.Masked("heldInEveryTenant") {
 						rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
 					}
+				case "ManagedHere":
+					if !row.Masked("managedHere") {
+						rmap["managedHere"] = rec.ManagedHere
+					}
+				case "ManagedByAnotherDirectory":
+					if !row.Masked("managedByAnotherDirectory") {
+						rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
+					}
 				case "OutsideDirectory":
 					if !row.Masked("outsideDirectory") {
 						rmap["outsideDirectory"] = rec.OutsideDirectory
@@ -184,6 +194,8 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 		HeldGlobally              bool         `json:"heldGlobally"`
 		HeldHere                  bool         `json:"heldHere"`
 		HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 		OutsideDirectory          bool         `json:"outsideDirectory"`
 		CannotEnter               *string      `json:"cannotEnter"`
 		AdministratorWithPassword bool         `json:"administratorWithPassword"`
@@ -272,6 +284,14 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 			case "HeldInEveryTenant":
 				if !row.Masked("heldInEveryTenant") {
 					rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+				}
+			case "ManagedHere":
+				if !row.Masked("managedHere") {
+					rmap["managedHere"] = rec.ManagedHere
+				}
+			case "ManagedByAnotherDirectory":
+				if !row.Masked("managedByAnotherDirectory") {
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			case "OutsideDirectory":
 				if !row.Masked("outsideDirectory") {

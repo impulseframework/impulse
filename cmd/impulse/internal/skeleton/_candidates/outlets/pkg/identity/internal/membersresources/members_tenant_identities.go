@@ -12,17 +12,18 @@ import (
 
 type (
 	// MembersTenantIdentity is one way a person of one Tenant signs in to the
-	// Members auth through a directory: a row for each identity of a person who holds a
-	// role in the tenant or in every tenant, with the columns of MembersSessionIdentity and the
+	// Members auth through a directory: a row for each identity of a person of
+	// MembersTenantUser, with the columns of MembersSessionIdentity and the
 	// person's username. An account is one row for the whole application, so the identity
 	// of a person who holds a role in two tenants is a row in each: the identity's id is
 	// the key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	// Tenant is the link's own column, the organization its directory vouched for, and is
 	// not the row's tenant.
 	//
-	// HeldElsewhere and HeldGlobally are the two facts of the person's row in
-	// MembersTenantUser, under the same names (heldElsewhere, heldGlobally): an identity is
-	// the account's, so what a tenant may see and do of one is what it may of the account.
+	// HeldElsewhere, HeldGlobally, ManagedHere and ManagedByAnotherDirectory are four
+	// facts of the person's row in MembersTenantUser, under the same names (heldElsewhere,
+	// heldGlobally, managedHere, managedByAnotherDirectory): an identity is the account's,
+	// so what a tenant may see and do of one is what it may of the account.
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -48,14 +49,24 @@ type (
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
 		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
+		// @attribute(managedHere)
+		ManagedHere bool `spanner:"ManagedHere" index:"true"`
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool `spanner:"ManagedByAnotherDirectory" index:"true"`
 	}
 )
 
 // membersTenantIdentityQuery selects the identities of the people of every tenant:
 // the people as MembersTenantUser selects them, each joined to the rows of
 // MembersSessionIdentities that link to the account, through the table's index on the
-// user, which carries the columns the list shows.
+// user, which carries the columns the list shows. Who manages the account is read as
+// MembersTenantUser reads it, over the columns of that select.
 const membersTenantIdentityQuery = `
+SELECT
+  * EXCEPT (HeldHere, ThroughHere, ThroughAnother),
+  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+FROM (
 SELECT
   i.Id AS Id,
   t.DomainId AS DomainId,
@@ -89,7 +100,33 @@ SELECT
     SELECT 1 FROM MembersGroupMembers gm JOIN MembersGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
-  )) AS HeldGlobally
+  )) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM MembersGroupMembers gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM MembersGroups hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
+      )
+  )) AS HeldHere,
+  EXISTS (
+    SELECT 1 FROM MembersSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM MembersSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId != t.DomainId
+    )
+  ) AS ThroughAnother
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles m
@@ -124,9 +161,14 @@ FROM (
   WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.TenantId AS DomainId, dl.UserId AS UserId
+  FROM TenantDirectories dr
+  JOIN MembersSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection
 ) t
 JOIN MembersSessionUsers u ON u.Id = t.UserId
 JOIN MembersSessionIdentities i ON i.UserId = u.Id
+) p
 `
 
 // Subquery is the query the rows are read from.

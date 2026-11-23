@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1154,6 +1155,18 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				// The sentence speaks of the tenant's directory and never says its connection.
 				`'Has not signed in through this sector\'s directory, so cannot enter while this sector is directory only',`,
 				"NULL) AS CannotEnter",
+				// Who manages the account: the tenant whose directory the person signs in
+				// through, and else the one tenant the person holds something in alone. The
+				// two facts of whose directory are read over the select and are no columns.
+				"ManagedHere bool `spanner:\"ManagedHere\" index:\"true\"`",
+				"ManagedByAnotherDirectory bool `spanner:\"ManagedByAnotherDirectory\" index:\"true\"`",
+				"const crewSectorUserQuery = `\nSELECT\n  * EXCEPT (ThroughHere, ThroughAnother),\n  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,\n  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory\nFROM (\nSELECT\n",
+				"  EXISTS (\n    SELECT 1 FROM CrewSessionIdentities li\n    WHERE li.UserId = u.Id AND EXISTS (\n      SELECT 1 FROM SectorDirectories ld\n      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId = t.DomainId\n    )\n  ) AS ThroughHere,\n",
+				"  EXISTS (\n    SELECT 1 FROM CrewSessionIdentities li\n    WHERE li.UserId = u.Id AND EXISTS (\n      SELECT 1 FROM SectorDirectories ld\n      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId != t.DomainId\n    )\n  ) AS ThroughAnother,\n",
+				// A person who signs in through the tenant's directory is one of its people,
+				// whatever they hold.
+				"  UNION DISTINCT\n  SELECT dr.SectorId AS DomainId, dl.UserId AS UserId\n  FROM SectorDirectories dr\n  JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection\n) t\nJOIN CrewSessionUsers u ON u.Id = t.UserId\n",
+				"LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id\n) p\n`",
 			},
 			// A connection is a key, for a Microsoft Entra tenant an id: no sentence is made of it.
 			wantNotContains: []string{"CONCAT(", "through ', td.Connection"},
@@ -1163,8 +1176,11 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			data: data(directory, identityUsers, identityMemberships),
 			wantContains: []string{
 				"(td.SectorId IS NOT NULL AND NOT EXISTS (\n    SELECT 1 FROM CrewUserRoles sa",
+				// Nobody signs in through a directory: the tenant manages the account of the
+				// person it holds alone, and no directory manages anyone's.
+				"const crewSectorUserQuery = `\nSELECT\n  *,\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\n",
 			},
-			wantNotContains: []string{"CrewSessionIdentities di"},
+			wantNotContains: []string{"CrewSessionIdentities di", "ThroughHere", "ThroughAnother", "SectorDirectories dr"},
 		},
 		{
 			name: "an auth with no password method keeps nobody's way in: the list reads no password and no administrator",
@@ -1208,10 +1224,11 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		{
 			name:            "a tenant record that declares no switch",
 			data:            withPassword(data(nil, identityUsers, identityMemberships, identityIdentities)),
-			wantContains:    []string{"HeldGlobally bool ", "return crewSectorUserQuery, nil"},
-			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles", "AdministratorWithPassword"},
+			wantContains:    []string{"HeldGlobally bool ", "return crewSectorUserQuery, nil", "(HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\n"},
+			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles", "AdministratorWithPassword", "ThroughHere", "SectorDirectories"},
 		},
 	}
+	joinWord := regexp.MustCompile(`\bJOIN\b`)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -1225,6 +1242,13 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				t.Fatalf("the rendered list does not parse: %v\n%s", err, out)
 			}
 			assertContains(t, "the people's list", string(out), tt.wantContains, tt.wantNotContains)
+			// Spanner refuses a query of more than twenty joins. The list that declares
+			// the switch, has the password method and keeps groups holds the most.
+			query := string(out)[strings.Index(string(out), "const crewSectorUserQuery = `"):]
+			query = query[:strings.Index(query, "\n`")]
+			if joins := len(joinWord.FindAllString(query, -1)); joins > 20 {
+				t.Errorf("the people's list holds %d joins, more than the twenty Spanner allows:\n%s", joins, query)
+			}
 		})
 	}
 
