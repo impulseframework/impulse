@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
 	"go.uber.org/mock/gomock"
 )
 
@@ -76,9 +78,23 @@ func signUpInvitedSeatsNobody(t *testing.T, f *authFixture, cookies []*http.Cook
 	return pendingID, after
 }
 
+// madeBy is the account a sign-up through an invitation had the store make with its
+// sign-in, as the store reads it after: the id the sign-in carried, the username chosen
+// and the invited address.
+func madeBy(t *testing.T, f *authFixture) *sessionstorage.SessionUser {
+	t.Helper()
+
+	if f.signedIn == nil || f.signedIn.newAccount == nil {
+		t.Fatal("SignIn() given no account to make, want the sign-up's")
+	}
+	account := f.signedIn.newAccount
+
+	return &sessionstorage.SessionUser{ID: account.ID.UUID, Username: account.Username, Email: account.Email}
+}
+
 func authInvitedTenantSignIn(t *testing.T) {
 	t.Parallel()
-	userID, sessionID := newIDs()
+	_, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: lakesideTenant, RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatal(err)
@@ -89,8 +105,8 @@ func authInvitedTenantSignIn(t *testing.T) {
 	pendingID, cookies := signUpInvitedSeatsNobody(t, f, cookies)
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
-	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
+	// The store makes the account with the acceptance: the mocked store expects no
+	// CreateUser.
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 		req.Invitation.Accepted = true
 	}, nil)
@@ -103,7 +119,7 @@ func authInvitedTenantSignIn(t *testing.T) {
 		t.Fatalf("VerifyCode() set the cookie %+v, want the tenant the invitation seated the person in carried to the session read, out of the page's reach", c)
 	}
 
-	f.expectSession(sessionID, created)
+	f.expectSession(sessionID, madeBy(t, f))
 	read := sessionRead(f, sessionID, carried(rr))
 	if got := decoded(t, read)["invitedTenant"]; got != lakesideTenant {
 		t.Errorf("the first session read answers invitedTenant = %v, want %s", got, lakesideTenant)
@@ -150,7 +166,7 @@ func authInvitedTenantByHand(t *testing.T) {
 // (Invitation.MadeTenantID), and the first session read names that tenant.
 func authInvitedTenantMade(t *testing.T) {
 	t.Parallel()
-	userID, sessionID := newIDs()
+	_, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}); err != nil {
 		t.Fatal(err)
@@ -159,11 +175,10 @@ func authInvitedTenantMade(t *testing.T) {
 	pendingID, cookies := signUpInvitedSeatsNobody(t, f, cookies)
 	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
-	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 		// What the store and the application's hook leave on the invitation: accepted,
-		// and the tenant the hook made.
+		// and the tenant the hook made. The store makes the account with the acceptance:
+		// the mocked store expects no CreateUser.
 		req.Invitation.Accepted = true
 		req.Invitation.MadeTenantID = lakesideTenant
 	}, nil)
@@ -176,7 +191,7 @@ func authInvitedTenantMade(t *testing.T) {
 		t.Fatalf("VerifyCode() set the cookie %+v, want the tenant the invitation made carried to the session read, out of the page's reach", c)
 	}
 
-	f.expectSession(sessionID, created)
+	f.expectSession(sessionID, madeBy(t, f))
 	read := sessionRead(f, sessionID, carried(rr))
 	if got := decoded(t, read)["invitedTenant"]; got != lakesideTenant {
 		t.Errorf("the first session read answers invitedTenant = %v, want %s, the tenant the invitation made", got, lakesideTenant)
@@ -219,22 +234,24 @@ func authInvitedTenantNone(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		request  InvitationRequest
-		accepted bool
+		name    string
+		request InvitationRequest
+		// died says the invitation had died by the sign-in: the store refuses it and
+		// makes no account.
+		died bool
 	}{
-		{name: "an invitation into the application", request: InvitationRequest{RoleNames: []string{"Teacher"}}, accepted: true},
-		{name: "an invitation that had died by the sign-in", request: InvitationRequest{TenantID: lakesideTenant, RoleNames: []string{"Teacher"}}},
+		{name: "an invitation into the application", request: InvitationRequest{RoleNames: []string{"Teacher"}}},
+		{name: "an invitation that had died by the sign-in", request: InvitationRequest{TenantID: lakesideTenant, RoleNames: []string{"Teacher"}}, died: true},
 		{
 			name:    "an invitation that makes a tenant, accepted by a hook that named none",
-			request: InvitationRequest{NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}, accepted: true,
+			request: InvitationRequest{NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}},
 		},
 	}
 	for i := range tests {
 		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			userID, sessionID := newIDs()
+			_, sessionID := newIDs()
 			f, recorder, links := newMailFixture(t, gomock.NewController(t))
 			request := tt.request
 			request.Email = "pat@lakeside.edu"
@@ -245,20 +262,33 @@ func authInvitedTenantNone(t *testing.T) {
 			pendingID, cookies := signUpInvitedSeatsNobody(t, f, cookies)
 			expectFactorCode(f, &pendingState{ID: pendingID})
 			f.expectConsume(pendingID)
-			created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
-			f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
-			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-				req.Invitation.Accepted = tt.accepted
-			}, nil)
+			// The store makes the account with the acceptance, or makes none: the mocked
+			// store expects no CreateUser.
+			if tt.died {
+				f.expectSignIn(impulse.NilUUID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, signinflow.InvitationEnded)
+				})
+			} else {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+					req.Invitation.Accepted = true
+				}, nil)
+			}
 
 			rr := f.enterCode(cookies, standingCode)
-			if rr.Code != http.StatusOK {
-				t.Fatalf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
-			}
 			if c := cookieNamed(rr, invitedTenantCookie); c != nil {
 				t.Errorf("VerifyCode() set the cookie %+v, want none: no tenant was entered by the invitation", c)
 			}
-			f.expectSession(sessionID, created)
+			if tt.died {
+				if refusalCode(t, rr) != sessioninfo.RefusedInvitationExpired || cookieNamed(rr, internalcookie.AuthCookieName) != nil {
+					t.Errorf("VerifyCode() = %d %s, want the invitation_expired refusal and no session", rr.Code, rr.Body.String())
+				}
+
+				return
+			}
+			if rr.Code != http.StatusOK {
+				t.Fatalf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
+			}
+			f.expectSession(sessionID, madeBy(t, f))
 			if got, told := decoded(t, sessionRead(f, sessionID, carried(rr)))["invitedTenant"]; told {
 				t.Errorf("the session read answers invitedTenant = %v, want none", got)
 			}

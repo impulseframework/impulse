@@ -702,6 +702,16 @@ type SignInRules[Tx any] struct {
 	// sign-in policy decides. SignIn sets CodeAddress.Written once the transaction that
 	// wrote the address has committed.
 	CodeAddress *CodeAddress
+	// NewAccount is the account a sign-up with a password through an invitation makes,
+	// given by the sign-in that completes the sign-up's wait with the code mailed to the
+	// invited address and by no other (nil). SignIn writes it in the transaction that
+	// consumes the invitation and runs the acceptor: the account, the consumption and
+	// what the invitation gives are committed together or not at all. The row names its
+	// ID, which is the request's UserID, and holds the invited address, confirmed. An
+	// invitation that is no longer live refuses the sign-in (invitation_expired), an
+	// address or a username another account holds is a Conflict, and an acceptor that
+	// fails ends the sign-in with its error; none of them leaves an account.
+	NewAccount *InsertSessionUser
 }
 
 // SignIn implements AuthStore.
@@ -719,7 +729,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
 		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
 		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress, WaitedOn: rules.WaitedOn,
-		CodeAddress: rules.CodeAddress,
+		CodeAddress: rules.CodeAddress, NewAccount: rules.NewAccount,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

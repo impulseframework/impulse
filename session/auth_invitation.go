@@ -659,16 +659,19 @@ func (a *Auth[S, U, Tx]) accountFree(ctx context.Context, insert *sessionstorage
 	return nil
 }
 
-// invitedSignUpAttempt makes the account of the sign-up through an invitation p holds,
-// once the code mailed to the invited address was entered (email is where the code
-// went), and returns the account's first sign-in, which accepts the invitation. The
-// account is made from what the sign-up kept in the pending cookie (heldSignUp) and
-// holds the invited address, verified: the code is what proved it. Nothing is made
-// where the browser no longer carries what the sign-up kept, or carries another
-// invitation than the one it was started for (answered as a wait that ran out), where
-// the invitation is no longer live (invitation_expired), or where the code was mailed
-// to another address than the invited one (answered as a code that died). The wait is
-// consumed before the account is made, so it completes once.
+// invitedSignUpAttempt returns the sign-in that makes the account of the sign-up
+// through an invitation p holds, once the code mailed to the invited address was
+// entered (email is where the code went). The account is not made here: the sign-in
+// carries it (signInAttempt.newAccount), and the store writes it in the transaction
+// that consumes the invitation and runs the acceptance hook, so an invitation that is
+// withdrawn, used or runs out at that moment, and a hook that refuses, leave no
+// account. The account is what the sign-up kept in the pending cookie (heldSignUp),
+// under an id chosen here, and holds the invited address, verified: the code is what
+// proved it. Nothing is carried where the browser no longer holds what the sign-up
+// kept, or holds another invitation than the one it was started for (answered as a
+// wait that ran out), where the invitation is no longer live (invitation_expired), or
+// where the code was mailed to another address than the invited one (answered as a
+// code that died). The wait is consumed before the sign-in, so it completes once.
 func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingState, email string) (*signInAttempt, error) {
 	held, ok := heldSignUpOf(ctx)
 	if !ok {
@@ -689,18 +692,21 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 	if err := a.consumePending(ctx, p); err != nil {
 		return nil, err
 	}
-	insert := &sessionstorage.InsertSessionUser{Username: held.Username, PasswordHash: held.PasswordHash, Email: &inv.Email, EmailVerified: true}
-	if inv.Name != "" {
-		insert.Name = &inv.Name
-	}
-	user, err := a.storage.CreateUser(ctx, insert, nil)
+	id, err := impulse.NewUUID()
 	if err != nil {
-		return nil, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+	account := &sessionstorage.InsertSessionUser{
+		ID: impulse.NullUUIDFromUUID(id), Username: held.Username, PasswordHash: held.PasswordHash, Email: &inv.Email, EmailVerified: true,
+	}
+	if inv.Name != "" {
+		account.Name = &inv.Name
 	}
 
-	// The account's first sign-in rests on the password it was just made with, records
-	// the code after the password, and is the invitation's acceptance or it is nothing.
-	at, err := a.passwordAttempt(user)
+	// The account's first sign-in rests on the password the sign-up chose, records the
+	// code after the password, and makes the account with the invitation's acceptance or
+	// makes nothing.
+	at, err := a.passwordAttempt(&sessionstorage.SessionUser{ID: id, Username: account.Username, PasswordHash: account.PasswordHash})
 	if err != nil {
 		return nil, err
 	}
@@ -709,6 +715,7 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 	at.events = append(pendingEvents(p), sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
 	at.returnURL, at.fromPending = p.ReturnURL, true
 	at.codeInvitation = impulse.NullUUIDFromUUID(inv.ID)
+	at.newAccount = account
 
 	return at, nil
 }
