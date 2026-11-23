@@ -1352,6 +1352,7 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
           'heldGlobally',
           'heldHere',
           'heldInEveryTenant',
+          'managedHere',
         )
       : resourceMeta(resource);
   const [people] = identityPages(removing, removingMetas, { auth: 'Crew', scope: 'domain' });
@@ -1480,14 +1481,21 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(stateOf(list(accounts))({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([]);
   });
 
-  it('reads with each person whether they hold something in the sector itself, and does not draw it', () => {
-    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldInEveryTenant', 'heldGlobally', 'heldHere']);
+  it('reads with each person whether they hold something in the sector itself and whether the sector manages the account, and draws neither', () => {
+    expect(hiddenColumns(list(people))).toEqual([
+      'heldElsewhere',
+      'heldInEveryTenant',
+      'heldGlobally',
+      'heldHere',
+      'managedHere',
+    ]);
     expect(pageFields(people).filter(([, , drawn]) => drawn === false)).toEqual([
       ['field', 'disabled', false],
       ['field', 'heldElsewhere', false],
       ['field', 'heldInEveryTenant', false],
       ['field', 'heldGlobally', false],
       ['field', 'heldHere', false],
+      ['field', 'managedHere', false],
     ]);
   });
 });

@@ -333,13 +333,14 @@ class SideBuilder {
             ['cannotEnter', 'Cannot enter'],
           ]),
           // Read with each row and not drawn: what the State column says besides Disabled,
-          // and on a tenant's side whether the person holds something in the tenant itself.
+          // and on a tenant's side whether the person holds something in the tenant itself
+          // and whether the tenant manages the account.
           ...[
             ...this.known(
               users,
               this.stateLines().filter(([name]) => name !== 'disabled'),
             ).map(([name]) => name),
-            ...this.heldHere(users),
+            ...this.tenantFacts(users),
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
@@ -1143,7 +1144,7 @@ class SideBuilder {
       // Held by the form for the words above and for the methods offered, and not drawn.
       ...[
         ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) => name),
-        ...this.heldHere(users),
+        ...this.tenantFacts(users),
       ].map((name) => field({ name: name as FieldName, cols: 4, shouldRender: false })),
     ];
   }
@@ -2063,12 +2064,14 @@ class SideBuilder {
   }
 
   /**
-   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * The fields a tenant's side reads with a person and does not draw besides the State's:
    * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered. Only where the list has it.
+   * the tenant is offered, and whether the tenant manages the account (managedHere), by
+   * which Delete is drawn beside the removal (deleteBesideRemoval). Each only where the
+   * list has it.
    */
-  private heldHere(resource: Resource): string[] {
-    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
+  private tenantFacts(resource: Resource): string[] {
+    return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
