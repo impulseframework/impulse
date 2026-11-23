@@ -1886,11 +1886,11 @@ with nothing gone where it cannot be made whole:
   is looked for under the rows found, each row counted once, and the delete answers in
   the same counted sentence before any row is checked, asked about or deleted.
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
-  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind
-  and the grant's condition against the row, what a session that acts as someone else is
-  asked about a row that decides what a person may do
-  (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the kind's delete
-  rule, its change record where the kind is tracked, and the release of its stored
+  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
+  what a session that acts as someone else is asked about a row that decides what a
+  person may do (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the
+  grant's condition against the row, the kind's delete rule, its change record where
+  the kind is tracked, and the release of its stored
   files. One row that may not go stops the whole delete. One thing a kind's own route
   asks is not asked here yet: a kind behind a feature flag (`@feature`) goes with the
   record while its flag is off.
@@ -5563,7 +5563,9 @@ own, outside any request, has no caller and is the application's act):
   someone else, so you cannot remove your own client contact record."), before any
   question is asked, and nothing is deleted. A mask that refuses the row's own delete
   refuses the record's delete too. A delete an application runs trusted, with no caller,
-  asks neither.
+  asks neither: an action that deletes such a record in its own body takes the rows
+  under it unasked, and an application closes that by refusing the action by name in
+  the kind's mask (`accesstypes.RefuseAction(action)`).
 
   A row that goes with its tenant is a limit of its own. A tenant's delete takes every
   row under the tenant on the grant to delete the tenant: no grant is asked on a row,

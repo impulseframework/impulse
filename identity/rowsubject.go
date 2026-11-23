@@ -65,7 +65,10 @@ import (
 // row of a set they are in, is refused whole, in the sentence the row's own removal is
 // refused with, and nothing is deleted. A mask that refuses the row's own delete
 // refuses the record's delete too, since each taken row is checked against the caller's
-// grants. A delete an application runs trusted, with no caller, asks neither.
+// grants. A delete an application runs trusted, with no caller, asks neither: an action
+// that deletes such a record in its own body takes the rows under it unasked, and an
+// application closes that by refusing the action by name in the kind's mask
+// (accesstypes.RefuseAction).
 //
 // A row that goes with its tenant is a limit of its own. A tenant's delete takes every
 // row under the tenant on the grant to delete the tenant: no grant is asked on a row,

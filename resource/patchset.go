@@ -674,7 +674,10 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 // may go before it removes any, so the two never disagree about a row: a delete that
 // takes the row with a record it is under (deleteTaken). byRule says a refusal is the
 // row's own reason, the registered question's or the rule's, whose sentence is passed
-// on, and not the grants'.
+// on, and not the grants'. What the generated code asks comes ahead of the conditions,
+// as on the resource's own route, which asks it once the operation is decoded: a caller
+// who holds the grant, and whose condition would refuse the row, reads that question's
+// sentence where it refuses, by either way to the row.
 func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTransaction) (byRule bool, err error) {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
 		return false, err

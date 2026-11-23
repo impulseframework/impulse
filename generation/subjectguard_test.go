@@ -370,3 +370,31 @@ func Test_subjectGuard_generatedWrites(t *testing.T) {
 		})
 	}
 }
+
+// Test_resourceInfo_SubjectFunction pins which records' files carry the function their
+// questions are written in: every record that decides what a person may do, but for a
+// generated management's record with no generated write, which nothing would call.
+func Test_resourceInfo_SubjectFunction(t *testing.T) {
+	t.Parallel()
+
+	guarded, noWrite := []subjectReadThrough{{Fact: "teams"}}, []HandlerType{PatchHandler}
+	tests := []struct {
+		name string
+		res  *resourceInfo
+		want bool
+	}{
+		{name: "an application's record", res: &resourceInfo{subjectReadThroughs: guarded}, want: true},
+		{name: "an application's record with no generated write", res: &resourceInfo{subjectReadThroughs: guarded, SuppressedHandlers: noWrite}, want: true},
+		{name: "a management's record with a generated write", res: &resourceInfo{subjectReadThroughs: guarded, identity: &identityInstance{}}, want: true},
+		{name: "a management's record with no generated write", res: &resourceInfo{subjectReadThroughs: guarded, identity: &identityInstance{}, SuppressedHandlers: noWrite}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.res.SubjectFunction(); got != tt.want {
+				t.Errorf("resourceInfo.SubjectFunction() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
