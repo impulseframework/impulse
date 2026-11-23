@@ -207,7 +207,13 @@ describe("the library's pages over an auth's generated management", () => {
             expect(known, `${list.primaryResource}.${column.id}`).toContain(column.id);
           }
           for (const element of list.elements) {
-            for (const child of (element as unknown as { children: { name: string }[] }).children) {
+            for (const child of (element as unknown as { children: { type: string; name?: string }[] }).children) {
+              // What the page computes from the person's fields (the State, whether the email
+              // address is confirmed) names no field of its own: the fields it reads are
+              // children of the section too, each held to the metadata here.
+              if (child.type === 'computedDisplayField') {
+                continue;
+              }
               expect(known, `${list.primaryResource}.${child.name}`).toContain(child.name);
             }
           }

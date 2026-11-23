@@ -964,6 +964,86 @@ describe('a text cut short', () => {
     });
   });
 
+  describe('a cell that draws a list a line each', () => {
+    const lines = ['Disabled', 'Also in another sector'];
+    const quiet = ['Must change password', 'Also in another sector'];
+
+    beforeEach(() => {
+      fixture.componentRef.setInput('rowData', [
+        { callSign: 'Anvil 1', state: lines },
+        { callSign: 'Anvil 2', state: quiet },
+      ]);
+      fixture.componentRef.setInput('columnDefs', [{ id: 'callSign' }, { id: 'state', lines: true }]);
+      fixture.detectChanges();
+    });
+
+    /** The line at `index` of the State cell of row `row`. */
+    const lineOf = (row: number, index: number): HTMLElement => {
+      return cell(row, 1).querySelectorAll<HTMLElement>('.cell-line')[index];
+    };
+    /** A key pressed with the focus somewhere on the page, outside the list. */
+    const press = async (key: string): Promise<void> => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      await settle();
+    };
+
+    it('offers its lines whole, a comma between them, while the pointer is on a line that is cut and on one that fits', async () => {
+      const fits = measured(lineOf(0, 0), 60, 136);
+      const cut = measured(lineOf(0, 1), 160, 136);
+      await pointerOnto(cut);
+      expect(tooltip()).toBe('Disabled, Also in another sector');
+
+      cut.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: fits }));
+      await pointerOnto(fits);
+      expect(tooltip()).toBe('Disabled, Also in another sector');
+
+      await pointerOff(fits);
+      expect(tooltip()).toBeNull();
+    });
+
+    it('offers nothing while every line fits, and its lines once one of them is cut', async () => {
+      const first = measured(lineOf(1, 0), 150, 200);
+      measured(lineOf(1, 1), 160, 200);
+      await pointerOnto(first);
+      expect(tooltip()).toBeNull();
+      await pointerOnto(cell(1, 1));
+      expect(tooltip()).toBeNull();
+
+      measured(lineOf(1, 0), 150, 136);
+      measured(lineOf(1, 1), 160, 136);
+      await pointerOnto(first);
+      expect(tooltip()).toBe('Must change password, Also in another sector');
+    });
+
+    it('is a stop of the Tab key where a line is cut, and no stop where every line fits', async () => {
+      measured(lineOf(0, 0), 60, 136);
+      measured(lineOf(0, 1), 160, 136);
+      measured(lineOf(1, 0), 150, 200);
+      measured(lineOf(1, 1), 160, 200);
+
+      await press('Tab');
+      expect(cell(0, 1).getAttribute('tabindex')).toBe('0');
+      expect(cell(1, 1).hasAttribute('tabindex')).toBe(false);
+    });
+
+    it('takes the focus where a line is cut and shows its lines whole there, as under the pointer', async () => {
+      measured(lineOf(0, 0), 60, 136);
+      measured(lineOf(0, 1), 160, 136);
+      await press('Tab');
+
+      const held = cell(0, 1);
+      held.focus();
+      expect(document.activeElement).toBe(held);
+      held.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextFrame();
+      expect(tooltip()).toBe('Disabled, Also in another sector');
+
+      held.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await settle();
+      expect(tooltip()).toBeNull();
+    });
+  });
+
   describe('where the whole pixels call it a fit', () => {
     // jsdom has no measure of a text's own width; a browser's is put in its place.
     const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };

@@ -87,7 +87,14 @@ import {
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
-import { filledMethods, offeredAs, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
+import {
+  filledMethods,
+  inNamedOrder,
+  offeredAs,
+  OfferedMethod,
+  parentOffers,
+  rowMethods,
+} from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -1265,12 +1272,15 @@ export class ResourceListComponent implements OnInit {
   /** The menu entries of one row: the methods it offers, each opening the method's dialog over the row. */
   private rowActions(row: RecordData, methods: readonly string[], filled: readonly string[]): RowAction[] {
     const presentations = this.methodPresentations();
-    const offeredHere = [
-      ...rowMethods(row, methods, this.store.methodMeta, presentations),
-      ...filledMethods(row, this.config().primaryResource, presentations, this.store.methodMeta, (method) =>
-        filled.includes(method),
-      ),
-    ];
+    const offeredHere = inNamedOrder(
+      [
+        ...rowMethods(row, methods, this.store.methodMeta, presentations),
+        ...filledMethods(row, this.config().primaryResource, presentations, this.store.methodMeta, (method) =>
+          filled.includes(method),
+        ),
+      ],
+      presentations,
+    );
     // A method the page presents more than once may be offered twice on one row: each
     // entry after the first carries its position, so the menu tells them apart.
     return offeredHere.map((method, index) => {
