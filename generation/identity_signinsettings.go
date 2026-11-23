@@ -376,7 +376,7 @@ import (
 
 // StopRequiring{{ .Auth }}SecondFactor stops asking everyone who signs in to the
 // {{ .Auth }} auth for a second factor: from the commit on, a sign-in the application's
-// rule allows gets its session with a password alone. A super administrator is still
+// rule allows gets its session with no code. A super administrator is still
 // asked, except where a directory writes the auth's roles, and so is anyone the
 // application's rule holds for a factor of its own. It lowers what a sign-in needs for
 // every account at once, so the method declares a warning: the page shows it before
