@@ -468,7 +468,8 @@ export interface EnumeratedConfigOptions {
    * else the first display column ascending, since every paged request carries an order.
    * Over a computed source a sort by a field the digest lists as `conditional` for the
    * person is not sent, and the picker pages by the key where that field is the display
-   * column.
+   * column. A sort by a name field of the source (the name beside an id it holds) is not
+   * sent where the person may not list that name.
    */
   sorts?: FieldSort[];
   listDisplay?: FieldName[];
