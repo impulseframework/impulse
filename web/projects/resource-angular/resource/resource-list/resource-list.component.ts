@@ -121,6 +121,7 @@ import {
   noRecordsFound,
   queryableMeta,
   refuseKeylessConfig,
+  refuseNameColumns,
   refuseWriteOnlyColumns,
   roleQuestionField,
   rolesQuestion,
@@ -1680,6 +1681,9 @@ export class ResourceListComponent implements OnInit {
     // A column over a write-only field would be a 400 from the server and an empty cell
     // otherwise: a configuration error, raised here naming the resource and the field.
     refuseWriteOnlyColumns(this.config().primaryResource, this.config().listColumns ?? [], this.meta());
+    // A column on a name field names nothing a grant lists: the column belongs on the id
+    // beside it, which the refusal names.
+    refuseNameColumns(this.config().primaryResource, this.config().listColumns ?? [], this.meta());
     // A list across tenants needs the resource declared for it, and reads alone: a
     // page asking for what it cannot do is refused here, naming the resource.
     refuseAcrossTenantsConfig(this.config().primaryResource, this.config(), this.store.client);

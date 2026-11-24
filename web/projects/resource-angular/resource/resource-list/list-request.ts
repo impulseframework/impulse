@@ -27,7 +27,34 @@ import {
 
 // The list page's pure parts around the server's page: which columns the server filters,
 // where the page sits after a turn, what an empty table says, and what a page refuses: a
-// key-less resource's page size or row expansion, and a column over a write-only field.
+// key-less resource's page size or row expansion, a column over a write-only field, and a
+// column on a name field.
+
+/**
+ * Refuses a list configuration naming a generated name field (`nameFields`) as a column,
+ * shown or hidden. A column is on the id: the list asks for the name beside it, draws it,
+ * and sorts and filters by it. A column on the name field itself names nothing the
+ * person's grants list, so it is a configuration error, thrown when the page is built
+ * naming the resource, the name field and the id to put the column on.
+ */
+export function refuseNameColumns(
+  resource: Resource,
+  columns: readonly ColumnConfig[],
+  meta: ResourceMeta | undefined,
+): void {
+  const named = new Map((meta?.nameFields ?? []).map((name) => [name.fieldName, name.of]));
+  if (named.size === 0) {
+    return;
+  }
+  for (const column of columns) {
+    const of = named.get(column.id);
+    if (of !== undefined) {
+      throw new Error(
+        `${resource}: listColumns names ${column.id}, the name beside ${of}. Put the column on ${of}: the list shows the name there, and sorts and filters by it`,
+      );
+    }
+  }
+}
 
 /**
  * Refuses a list configuration naming a write-only field as a column. The server never

@@ -20,6 +20,7 @@ import {
   positionAfter,
   queryableMeta,
   refuseKeylessConfig,
+  refuseNameColumns,
   refuseWriteOnlyColumns,
   roleQuestionField,
   rolesQuestion,
@@ -850,6 +851,50 @@ describe('refuseWriteOnlyColumns', () => {
     it(tt.name, () => {
       const call = (): void => {
         refuseWriteOnlyColumns('DistressCalls' as Resource, tt.columns, tt.meta);
+      };
+      if (tt.wantThrows) {
+        expect(call).toThrow(tt.wantThrows);
+      } else {
+        expect(call).not.toThrow();
+      }
+    });
+  }
+});
+
+describe('refuseNameColumns', () => {
+  const passes: ResourceMeta = {
+    route: 'hangar-passes',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('squadronId'), field('levelId')],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId' }],
+  } as ResourceMeta;
+  const unnamed: ResourceMeta = { route: 'hangar-passes', fields: [field('id'), field('squadronId')] };
+  const column = (id: string, hidden?: boolean): ColumnConfig =>
+    (hidden ? { id, hidden } : { id }) as unknown as ColumnConfig;
+  const refusal =
+    /^HangarPasses: listColumns names squadronName, the name beside squadronId\. Put the column on squadronId: the list shows the name there, and sorts and filters by it$/;
+
+  const cases: { name: string; meta: ResourceMeta | undefined; columns: ColumnConfig[]; wantThrows?: RegExp }[] = [
+    {
+      name: 'a column on a name field is refused, naming the id to put it on',
+      meta: passes,
+      columns: [column('levelId'), column('squadronName')],
+      wantThrows: refusal,
+    },
+    {
+      name: 'a hidden column on a name field is refused too',
+      meta: passes,
+      columns: [column('squadronName', true)],
+      wantThrows: refusal,
+    },
+    { name: 'the column on the id passes', meta: passes, columns: [column('squadronId'), column('levelId')] },
+    { name: 'metadata with no name field passes every column', meta: unnamed, columns: [column('squadronName')] },
+    { name: 'no metadata passes', meta: undefined, columns: [column('squadronName')] },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      const call = (): void => {
+        refuseNameColumns('HangarPasses' as Resource, tt.columns, tt.meta);
       };
       if (tt.wantThrows) {
         expect(call).toThrow(tt.wantThrows);
