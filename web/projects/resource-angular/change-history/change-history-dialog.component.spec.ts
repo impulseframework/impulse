@@ -13,7 +13,7 @@ import {
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { dayAndMinuteFormat } from '@impulseframework/resource-angular/types';
+import { MOMENT_CELL_FORMAT } from '@impulseframework/resource-angular/types';
 import { format } from 'date-fns';
 
 import { notNamedFor } from '../auth-frame/frame-testing';
@@ -141,8 +141,8 @@ const buttonsOf = (fixture: ComponentFixture<ChangeHistoryDialogComponent>): str
   Array.from(element(fixture).querySelectorAll('button')).map((button) => button.textContent?.trim() ?? '');
 const emptyOf = (fixture: ComponentFixture<ChangeHistoryDialogComponent>): string | undefined =>
   element(fixture).querySelector('tr.no-records-row')?.textContent?.trim();
-/** A moment as the pop-up writes it, in the zone the spec runs in. */
-const writtenAt = (at: string): string => format(new Date(at), dayAndMinuteFormat);
+/** A moment of this year as the pop-up writes it, as every list does, in the zone the spec runs in. */
+const writtenAt = (at: string): string => format(new Date(at), MOMENT_CELL_FORMAT);
 const queries = (transport: ScriptedTransport): string[] =>
   transport.requests.map((request) => new URL(request.url, 'http://lodestar.test').search);
 
@@ -354,7 +354,7 @@ describe('openChangeHistory', () => {
     openChangeHistory(dialog, data, { width: '400px' });
 
     expect(opened).toEqual([
-      { component: ChangeHistoryDialogComponent, config: { width: '760px', maxWidth: '95vw', data } },
+      { component: ChangeHistoryDialogComponent, config: { width: '960px', maxWidth: '95vw', data } },
       { component: ChangeHistoryDialogComponent, config: { width: '400px', maxWidth: '95vw', data } },
     ]);
   });

@@ -1,8 +1,12 @@
 import { MatDialog, MatDialogConfig, MatDialogRef } from '@angular/material/dialog';
 import { ChangeHistoryDialogComponent, ChangeHistoryDialogData } from './change-history-dialog.component';
 
-/** The pop-up's default size, wider than a flag's for its five columns; a config passed to openChangeHistory overrides any of it. */
-const changeHistoryDefaults: MatDialogConfig = { width: '760px', maxWidth: '95vw' };
+/**
+ * The pop-up's default size: on a desk's screen, room for each of its columns at the
+ * narrowest it is drawn, so the table scrolls sideways only on a narrower screen. A
+ * config passed to openChangeHistory overrides any of it.
+ */
+const changeHistoryDefaults: MatDialogConfig = { width: '960px', maxWidth: '95vw' };
 
 /**
  * Opens one record's history over the page: each change, newest first, with when, by

@@ -5,7 +5,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { ChangedField, ChangeHistoryPage, ChangeHistoryQuery, ChangeRecord } from '@impulseframework/resource';
 import { AppGridComponent } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig, dayAndMinuteFormat, FieldName, RecordData } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, FieldName, momentFormat, RecordData } from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
 
 /** A field the pop-up names by the label its page gives it. */
@@ -68,10 +68,10 @@ function written(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** A moment to the minute, or as it came where it cannot be read as one. */
+/** A moment as every list writes one (momentFormat), or as it came where it cannot be read as one. */
 function writtenAt(at: string): string {
   const moment = parseISO(at);
-  return isValid(moment) ? format(moment, dayAndMinuteFormat) : at;
+  return isValid(moment) ? format(moment, momentFormat(moment, Date.now())) : at;
 }
 
 /**
