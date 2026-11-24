@@ -681,16 +681,16 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // tenancy is laid in; the command names the Google method as a way for an invited person
 // to sign in and nothing more; and the application is held to all the second is.
 //
-// The first eight cost about twenty-five minutes and under eight gigabytes on a machine
-// whose Go caches and emulator image are warm: each command regenerates against the
-// emulator (about twenty-five seconds), each application runs its tests as it is made
-// (about as long; the fifth and the four with no password sign-in twice, the sixth three
-// times), and the rest is each application's build, vet and lint runs and the four
-// development runs. Of the ones whose tenants have no directories, the second took about
-// five minutes in a run of its own, the eighth about four and the ninth about seven.
+// It costs about forty minutes and under eight gigabytes on a machine whose Go caches and
+// emulator image are warm: each command regenerates against the emulator (about
+// twenty-five seconds), each application runs its tests as it is made (about as long; the
+// fifth and the four with no password sign-in twice, the second, the sixth and the eighth
+// three times, the ninth four), and the rest is each application's build, vet and lint
+// runs and the four development runs. In a run of its own the second takes about five
+// minutes, the eighth about four and the ninth about seven.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
-		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about twenty-five minutes", runAuthored)
+		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about forty minutes", runAuthored)
 	}
 	if _, err := osexec.LookPath("golangci-lint"); err != nil {
 		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
