@@ -93,10 +93,10 @@ func storedChangeRecords(t *testing.T, db *spanner.Client, id string) []storedCh
 		var record storedChangeRecord
 		var changeSet string
 		if err := row.Columns(&record.at, &record.sequence, &changeSet); err != nil {
-			return err
+			return errors.Wrap(err, "row.Columns()")
 		}
 		if err := json.Unmarshal([]byte(changeSet), &record.changeSet); err != nil {
-			return err
+			return errors.Wrap(err, "json.Unmarshal()")
 		}
 		records = append(records, record)
 

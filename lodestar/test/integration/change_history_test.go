@@ -8,6 +8,7 @@ package integration
 // reader whose grant carries no condition.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -106,16 +107,16 @@ func readHistory(t *testing.T, h http.Handler, user accesstypes.User, target str
 	return page
 }
 
-// patchAnvil writes one consolidated operation on an Anvil record as user, holding the
-// answer to 200.
-func patchAnvil(t *testing.T, h http.Handler, user accesstypes.User, op, rest, value string) {
+// patchAnvil writes one consolidated operation on an Anvil record as the marshal,
+// holding the answer to 200.
+func patchAnvil(t *testing.T, h http.Handler, op, rest, value string) {
 	t.Helper()
 
 	operation := fmt.Sprintf(`{"op":%q,"path":%q}`, op, opPath(anvil, rest))
 	if value != "" {
 		operation = fmt.Sprintf(`{"op":%q,"path":%q,"value":%s}`, op, opPath(anvil, rest), value)
 	}
-	status, body := doRequestAs(t, h, user, http.MethodPatch, "/console/api/resources", "["+operation+"]")
+	status, body := doRequestAs(t, h, "marshal", http.MethodPatch, "/console/api/resources", "["+operation+"]")
 	assertStatus(t, status, http.StatusOK, body)
 }
 
@@ -123,7 +124,7 @@ func patchAnvil(t *testing.T, h http.Handler, user accesstypes.User, op, rest, v
 func createMission(t *testing.T, h http.Handler, db *initiator.SpannerDB, title string) string {
 	t.Helper()
 
-	patchAnvil(t, h, "marshal", "add", "missions", fmt.Sprintf(`{"clientId":%q,"kindId":"rescue","title":%q,"hazard":2,"fee":100,"deadline":%q}`, clientHalvardID, title, deadline(365)))
+	patchAnvil(t, h, "add", "missions", fmt.Sprintf(`{"clientId":%q,"kindId":"rescue","title":%q,"hazard":2,"fee":100,"deadline":%q}`, clientHalvardID, title, deadline(365)))
 	stmt := spanner.NewStatement("SELECT Id FROM Missions WHERE Title = @title")
 	stmt.Params["title"] = title
 	var id string
@@ -157,8 +158,8 @@ func TestChangeHistory_newestFirst(t *testing.T) {
 
 	_, db, h := demoWorld(t)
 	id := createMission(t, h, db, "History of three")
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"title":"History of three, renamed"}`)
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"fee":250}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"title":"History of three, renamed"}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"fee":250}`)
 
 	page := readHistory(t, h, "marshal", missionHistory(id, ""))
 	if len(page.Changes) != 3 || page.Next != "" {
@@ -211,7 +212,7 @@ func TestChangeHistory_pages(t *testing.T) {
 	id := createMission(t, h, db, "History of many")
 	const changes = 55
 	for i := range changes {
-		patchAnvil(t, h, "marshal", "patch", "missions/"+id, fmt.Sprintf(`{"title":"Pass %d"}`, i))
+		patchAnvil(t, h, "patch", "missions/"+id, fmt.Sprintf(`{"title":"Pass %d"}`, i))
 	}
 
 	first := readHistory(t, h, "marshal", missionHistory(id, ""))
@@ -246,9 +247,9 @@ func TestChangeHistory_field(t *testing.T) {
 
 	_, db, h := demoWorld(t)
 	id := createMission(t, h, db, "History of a field")
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"notes":"Bring spares."}`)
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"title":"History of a field, renamed"}`)
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"notes":"Bring more spares."}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"notes":"Bring spares."}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"title":"History of a field, renamed"}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"notes":"Bring more spares."}`)
 
 	for _, tt := range []struct {
 		field string
@@ -282,8 +283,8 @@ func TestChangeHistory_grantLeavesFieldOut(t *testing.T) {
 
 	_, db, h := demoWorld(t)
 	id := createMission(t, h, db, "History without notes")
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"notes":"Quiet run."}`)
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"title":"History without notes, renamed"}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"notes":"Quiet run."}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"title":"History without notes, renamed"}`)
 
 	page := readHistory(t, h, "quartermaster", missionHistory(id, ""))
 	if len(page.Changes) != 3 {
@@ -316,7 +317,7 @@ func TestChangeHistory_maskedCell(t *testing.T) {
 	provesGrant(t, crew.Roles(), "Archivist", "Read", "Missions", "state = 'completed'")
 
 	id := createMission(t, h, db, "History of a fee")
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"fee":900}`)
+	patchAnvil(t, h, "patch", "missions/"+id, `{"fee":900}`)
 	setMissionStatus(t, db, id, "failed")
 
 	failed := readHistory(t, h, "archivist", missionHistory(id, ""))
@@ -358,8 +359,8 @@ func TestChangeHistory_deleted(t *testing.T) {
 
 	_, db, h := demoWorld(t)
 	id := createMission(t, h, db, "History of a delete")
-	patchAnvil(t, h, "marshal", "patch", "missions/"+id, `{"hazard":1}`)
-	patchAnvil(t, h, "marshal", "remove", "missions/"+id, "")
+	patchAnvil(t, h, "patch", "missions/"+id, `{"hazard":1}`)
+	patchAnvil(t, h, "remove", "missions/"+id, "")
 
 	page := readHistory(t, h, "marshal", missionHistory(id, ""))
 	if len(page.Changes) != 3 {
@@ -374,7 +375,7 @@ func TestChangeHistory_deleted(t *testing.T) {
 	for _, user := range []accesstypes.User{"cadet", "archivist"} {
 		status, body := doRequestAs(t, h, user, http.MethodGet, missionHistory(id, ""), "")
 		assertStatus(t, status, http.StatusNotFound, body)
-		if string(body) != string(never) {
+		if !bytes.Equal(body, never) {
 			t.Errorf("%s is told %s of the deleted mission, want what a mission that never was says: %s", user, body, never)
 		}
 	}
@@ -398,7 +399,7 @@ func TestChangeHistory_otherTenant(t *testing.T) {
 	assertStatus(t, status, http.StatusNotFound, never)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, missionHistory(missionBeaconID, ""), "")
 	assertStatus(t, status, http.StatusNotFound, body)
-	if string(body) != string(never) {
+	if !bytes.Equal(body, never) {
 		t.Errorf("another sector's mission is answered %s, want what a mission that never was is: %s", body, never)
 	}
 }

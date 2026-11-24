@@ -242,7 +242,7 @@ func TestSecretField(t *testing.T) {
 	if err := db.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		var set string
 		if err := row.Column(0, &set); err != nil {
-			return err
+			return fmt.Errorf("reading a change set: %w", err)
 		}
 		records++
 		leaks("a change record", []byte(set))
