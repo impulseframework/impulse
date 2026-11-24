@@ -4993,10 +4993,12 @@ grants each like any resource.
   `live`, whether a request that carries the session is still accepted (not ended, used
   within the Auth's session timeout, and its impersonation record, where it has one,
   neither ended nor past its time). A session that is neither `live` nor `expired` timed
-  out. The Sessions page and the list of live sessions under an account list it, it
-  filters by `id`, `userId`, `username`, `expired`, `live` and `updatedAt`, and the method
-  that ends a session names its session by its row. `CrewSessions`, the sessions table's
-  own list, stays.
+  out. `live` judges the session alone: a request is also refused where the session names
+  no account, or its account is disabled or gone, and disabling or deleting an account
+  ends its sessions. The Sessions page and the list of live sessions under an account list
+  it, it filters by `id`, `userId`, `username`, `expired`, `live` and `updatedAt`, and the
+  method that ends a session names its session by its row. `CrewSessions`, the sessions
+  table's own list, stays.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",

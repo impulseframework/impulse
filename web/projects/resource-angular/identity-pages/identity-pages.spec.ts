@@ -1943,7 +1943,7 @@ describe('identityPages, the sessions where the server says which are live', () 
       ['authenticatedAt', 'Signed in'],
       ['updatedAt', 'Last active'],
     ]);
-    expect(live.emptyMessage).toBe('This person is not signed in anywhere.');
+    expect(live.emptyMessage).toBe('This person has no live session.');
     expect(methodsOf(live.rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
   });
 
@@ -2123,9 +2123,6 @@ describe('identityPages, the people lists say what each person holds, and a lock
   });
 });
 
-// An Auth that keeps groups of people: the description names the groups, the people in
-// them, the roles they hold and the roles each person holds through one, on each side,
-// with the methods that manage them.
 // Where the accounts list says how many devices each person trusts, a person's page says
 // the number beside the last sign-in. A tenant's people list does not say it, and its
 // page draws none.
@@ -2155,6 +2152,9 @@ describe('identityPages, how many devices a person trusts', () => {
   });
 });
 
+// An Auth that keeps groups of people: the description names the groups, the people in
+// them, the roles they hold and the roles each person holds through one, on each side,
+// with the methods that manage them.
 describe('identityPages, an Auth that keeps groups', () => {
   const groupMetas: Record<string, ResourceMeta> = {
     ...metas,

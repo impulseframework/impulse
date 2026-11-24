@@ -1614,7 +1614,7 @@ class SideBuilder {
       filter: () => 'live:eq:true',
       showViewButton: false,
       collapsible: false,
-      emptyMessage: 'This person is not signed in anywhere.',
+      emptyMessage: 'This person has no live session.',
       listColumns: this.columns(resource, sessionColumns),
       more: (person) => {
         const username = person?.['username'];

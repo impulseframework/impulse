@@ -394,10 +394,13 @@ func (noSessionAPI) TenantName(accesstypes.Domain) string {
 	return ""
 }
 
-// SessionTimeout answers ten minutes, the session library's own default: this suite
-// sets none.
+// SessionTimeout answers the served stack's timeout. The generated list of an auth's
+// sessions holds one timeout for the process, the one the identity client built last was
+// given, and the suites that serve a session manager run beside this one: answering their
+// length keeps what that list says on the served stack from turning on which client was
+// built last.
 func (noSessionAPI) SessionTimeout() time.Duration {
-	return 10 * time.Minute
+	return servedSessionTimeout
 }
 
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
