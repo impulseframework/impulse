@@ -1752,6 +1752,23 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "CrewListedSessions",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
+				Tags: []resource.TagData{
+					{Name: "authenticatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "expired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "id"},
+					{Name: "live", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "userId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+				},
+				Order:     []accesstypes.Tag{"updatedAt"},
+				QueryKeys: []accesstypes.Tag{"userId", "username", "expired", "live", "updatedAt"},
+			},
+			{
 				Name:        "CrewListedUsers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
@@ -1768,6 +1785,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "passwordChangeRequired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "roles", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "trustedDevices", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				Attributes: []resource.AttributeData{
@@ -2152,7 +2170,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "EndCrewSession",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "CrewSessions",
+				Target:      "CrewListedSessions",
 			},
 			{
 				Name:        "EndCrewSessionImpersonation",
@@ -2170,7 +2188,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "EndMembersSession",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "MembersSessions",
+				Target:      "MembersListedSessions",
 			},
 			{
 				Name:        "EndMembersUserSessions",
@@ -2308,6 +2326,23 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "MembersListedSessions",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
+				Tags: []resource.TagData{
+					{Name: "authenticatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "expired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "id"},
+					{Name: "live", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "userId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+				},
+				Order:     []accesstypes.Tag{"updatedAt"},
+				QueryKeys: []accesstypes.Tag{"userId", "username", "expired", "live", "updatedAt"},
+			},
+			{
 				Name:        "MembersListedUsers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
@@ -2324,6 +2359,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "passwordChangeRequired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "roles", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "trustedDevices", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				Attributes: []resource.AttributeData{

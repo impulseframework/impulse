@@ -31,6 +31,7 @@ func (h *Handlers) StaffListedUsers() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		Roles                  []string     `json:"roles"`
 		LockedUntil            *time.Time   `json:"lockedUntil"`
+		TrustedDevices         int64        `json:"trustedDevices"`
 		ManagedByTenant        bool         `json:"managedByTenant"        index:"true"`
 		ManagingTenant         *string      `json:"managingTenant"         index:"true"`
 	}
@@ -119,6 +120,10 @@ func (h *Handlers) StaffListedUsers() http.HandlerFunc {
 					if !row.Masked("lockedUntil") {
 						rmap["lockedUntil"] = rec.LockedUntil
 					}
+				case "TrustedDevices":
+					if !row.Masked("trustedDevices") {
+						rmap["trustedDevices"] = rec.TrustedDevices
+					}
 				case "ManagedByTenant":
 					if !row.Masked("managedByTenant") {
 						rmap["managedByTenant"] = rec.ManagedByTenant
@@ -161,6 +166,7 @@ func (h *Handlers) StaffListedUser() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		Roles                  []string     `json:"roles"`
 		LockedUntil            *time.Time   `json:"lockedUntil"`
+		TrustedDevices         int64        `json:"trustedDevices"`
 		ManagedByTenant        bool         `json:"managedByTenant"`
 		ManagingTenant         *string      `json:"managingTenant"`
 	}
@@ -236,6 +242,10 @@ func (h *Handlers) StaffListedUser() http.HandlerFunc {
 			case "LockedUntil":
 				if !row.Masked("lockedUntil") {
 					rmap["lockedUntil"] = rec.LockedUntil
+				}
+			case "TrustedDevices":
+				if !row.Masked("trustedDevices") {
+					rmap["trustedDevices"] = rec.TrustedDevices
 				}
 			case "ManagedByTenant":
 				if !row.Masked("managedByTenant") {

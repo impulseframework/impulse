@@ -172,6 +172,7 @@
                 "lastSignInAt",
                 "roles",
                 "lockedUntil",
+                "trustedDevices",
                 "managedByTenant",
                 "managingTenant"
               ]
@@ -182,6 +183,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -495,6 +508,7 @@
                 "lastSignInAt",
                 "roles",
                 "lockedUntil",
+                "trustedDevices",
                 "managedByTenant",
                 "managingTenant"
               ]
@@ -505,6 +519,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"

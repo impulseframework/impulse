@@ -13,13 +13,15 @@ import (
 
 // EndCrewSession ends one session of the Crew auth: the next request that
 // carries it is refused. A session established as someone or something else ends with
-// its impersonation record; a session that has ended already is left as it is.
+// its impersonation record; a session that has ended already is left as it is. It names
+// the session by its row of CrewListedSession, the list a page shows, so a row of that
+// list offers it.
 //
 // @rpc
 // @outlet(default)
 // @answers(204)
 type EndCrewSession struct {
-	// @target(CrewSession)
+	// @target(CrewListedSession)
 	SessionID impulse.UUID
 }
 

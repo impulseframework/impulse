@@ -104,6 +104,17 @@ export interface MembersListedIdentities {
   managingTenant?: string;
 }
 
+export interface MembersListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  expired?: boolean;
+  live?: boolean;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface MembersListedUsers {
   id: string;
   username?: string;
@@ -116,6 +127,7 @@ export interface MembersListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  trustedDevices?: number;
   managedByTenant?: boolean;
   managingTenant?: string;
 }
@@ -630,6 +642,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
     ],
   },
+  [Resources.MembersListedSessions]: {
+    route: 'members-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.MembersListedUsers]: {
     route: 'members-listed-users',
     live: true,
@@ -646,6 +673,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
     ],
@@ -1221,6 +1249,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MembersListedGroups]: PermissionScopes.global,
   [Resources.MembersListedGroupRoles]: PermissionScopes.global,
   [Resources.MembersListedIdentities]: PermissionScopes.global,
+  [Resources.MembersListedSessions]: PermissionScopes.global,
   [Resources.MembersListedUsers]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,
   [Resources.MembersSessions]: PermissionScopes.global,

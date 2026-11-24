@@ -27,6 +27,12 @@ type (
 	// under its id (session.AccountAttemptKeys with no address). It is no filter key
 	// either.
 	//
+	// TrustedDevices (trustedDevices) is how many browsers are remembered for the account
+	// and skip the second factor right now: the ones not forgotten, not past their time,
+	// and remembered within the days the auth's sign-in settings say, none where browsers
+	// are not remembered. It is what the session library counts for the person's own
+	// account page (sessionstorage.AuthStore.TrustedDeviceCount). It is no filter key.
+	//
 	// One party manages each account: the tenant whose directory the person signs in
 	// through; otherwise the one tenant the person holds something in, where they hold
 	// nothing anywhere else; otherwise the application's own administrators.
@@ -56,8 +62,9 @@ type (
 		CreatedAt              time.Time    `spanner:"CreatedAt"`
 		LastSignInAt           *time.Time   `spanner:"LastSignInAt"`
 		// @roleOf(Members)
-		Roles       []string   `spanner:"Roles"`
-		LockedUntil *time.Time `spanner:"LockedUntil"`
+		Roles          []string   `spanner:"Roles"`
+		LockedUntil    *time.Time `spanner:"LockedUntil"`
+		TrustedDevices int64      `spanner:"TrustedDevices"`
 		// @attribute(managedByTenant)
 		ManagedByTenant bool `spanner:"ManagedByTenant" index:"true"`
 		// @attribute(managingTenant)
@@ -93,6 +100,10 @@ SELECT
   (SELECT MAX(la.LockedUntil) FROM MembersSessionSignInAttempts la
    WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
      AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
+  (SELECT COUNT(*) FROM MembersSessionTrustedDevices td
+   WHERE td.UserId = u.Id AND td.RevokedAt IS NULL
+     AND td.ExpiresAt > CURRENT_TIMESTAMP()
+     AND td.CreatedAt > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL IFNULL((SELECT ss.RememberBrowserDays FROM MembersSessionSignInSettings ss), 30) DAY)) AS TrustedDevices,
   (SELECT MIN(mt.DomainId) FROM (
     SELECT DomainId, (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
   (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory

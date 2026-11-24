@@ -627,7 +627,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "EndStaffSession",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffSessions",
+				Target:      "StaffListedSessions",
 			},
 			{
 				Name:        "EndStaffUserSessions",
@@ -1019,6 +1019,23 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "StaffListedSessions",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
+				Tags: []resource.TagData{
+					{Name: "authenticatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "expired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "id"},
+					{Name: "live", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "userId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+				},
+				Order:     []accesstypes.Tag{"updatedAt"},
+				QueryKeys: []accesstypes.Tag{"userId", "username", "expired", "live", "updatedAt"},
+			},
+			{
 				Name:        "StaffListedUsers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
@@ -1035,6 +1052,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "passwordChangeRequired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "roles", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "trustedDevices", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				Attributes: []resource.AttributeData{

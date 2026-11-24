@@ -397,6 +397,14 @@ type (
 	// under its id (session.AccountAttemptKeys with no address). It is no filter key
 	// either.
 	{{- end }}
+	{{- if .CountsTrustedDevices }}
+	//
+	// TrustedDevices (trustedDevices) is how many browsers are remembered for the account
+	// and skip the second factor right now: the ones not forgotten, not past their time,
+	// and remembered within the days the auth's sign-in settings say, none where browsers
+	// are not remembered. It is what the session library counts for the person's own
+	// account page (sessionstorage.AuthStore.TrustedDeviceCount). It is no filter key.
+	{{- end }}
 	{{- if .HasTenant }}
 	//
 	// One party manages each account: the {{ .TenantWord }} whose directory the person signs in
@@ -436,6 +444,9 @@ type (
 		{{- if .CountsFailedSignIns }}
 		LockedUntil *time.Time ` + "`spanner:\"LockedUntil\"`" + `
 		{{- end }}
+		{{- if .CountsTrustedDevices }}
+		TrustedDevices int64 ` + "`spanner:\"TrustedDevices\"`" + `
+		{{- end }}
 		{{- if .HasTenant }}
 		// @attribute(managedByTenant)
 		ManagedByTenant bool ` + "`spanner:\"ManagedByTenant\" index:\"true\"`" + `
@@ -469,7 +480,8 @@ SELECT
     WHERE hr.UserId = u.Id
     ORDER BY Line
   ) AS Roles{{ if .CountsFailedSignIns }},
-{{ .LockedUntil "u" }}{{ end }}{{ if .HasTenant }},
+{{ .LockedUntil "u" }}{{ end }}{{ if .CountsTrustedDevices }},
+{{ .TrustedDevices "u" }}{{ end }}{{ if .HasTenant }},
 ` + identityManagingTenant + `{{ end }}
 FROM {{ .Tables.Users }} u{{ if .HasTenant }}
 ) p{{ end }}

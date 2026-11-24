@@ -103,6 +103,9 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	// administrator signs in only to a caller who enters the tenants the person
 	// administers, read by the engine's own names, the ones the methods refuse by.
 	staffresources.SetStaffSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// The list of the auth's sessions says which are live by the timeout the Auth judges a
+	// request by.
+	staffresources.SetStaffListedSessionTimeout(sessions.SessionTimeout())
 
 	return &Client{manager: manager}, nil
 }

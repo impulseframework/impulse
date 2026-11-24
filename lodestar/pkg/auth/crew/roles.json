@@ -154,6 +154,7 @@
                 "lastSignInAt",
                 "roles",
                 "lockedUntil",
+                "trustedDevices",
                 "managedByTenant",
                 "managingTenant"
               ]
@@ -164,6 +165,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -204,6 +217,7 @@
                 "lastSignInAt",
                 "roles",
                 "lockedUntil",
+                "trustedDevices",
                 "managedByTenant",
                 "managingTenant"
               ]
@@ -214,6 +228,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -649,6 +675,7 @@
                 "lastSignInAt",
                 "roles",
                 "lockedUntil",
+                "trustedDevices",
                 "managedByTenant",
                 "managingTenant"
               ]
@@ -659,6 +686,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -690,6 +729,7 @@
                 "lastSignInAt",
                 "roles",
                 "lockedUntil",
+                "trustedDevices",
                 "managedByTenant",
                 "managingTenant"
               ]
@@ -700,6 +740,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"

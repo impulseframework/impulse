@@ -12,6 +12,7 @@ export interface NotificationAction {
 }
 
 export interface CreateNotificationMessage {
+  /** How long the notice shows, in milliseconds, from when it was last raised or updated; thirty seconds when absent. A persistent notice has no time. */
   duration?: number;
   message: string;
   link: string;
@@ -24,6 +25,7 @@ export interface CreateNotificationMessage {
 
 export interface NotificationMessage {
   id: number;
+  /** How long the notice shows, in milliseconds, from when it was last raised or updated; thirty seconds when absent. A persistent notice has no time. */
   duration?: number;
   message: string;
   link: string;

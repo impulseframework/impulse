@@ -182,6 +182,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserUserID",
 		"staffListedGroupID",
 		"staffListedIdentityID",
+		"staffListedSessionID",
 		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
@@ -379,6 +380,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/staff-listed-identities/testStaffListedIdentityID", method: http.MethodPost,
 			handlerFunc: "StaffListedIdentity",
 			parameters:  map[string]string{"staffListedIdentityID": "testStaffListedIdentityID"},
+		},
+		{
+			url: "/api/staff-listed-sessions", method: http.MethodGet,
+			handlerFunc: "StaffListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-sessions", method: http.MethodPost,
+			handlerFunc: "StaffListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet,
+			handlerFunc: "StaffListedSession",
+			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost,
+			handlerFunc: "StaffListedSession",
+			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
 		},
 		{
 			url: "/api/staff-listed-users", method: http.MethodGet,
@@ -1378,6 +1399,14 @@ func (s *generatedHandlersStub) StaffListedIdentity() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) StaffListedSessions() http.HandlerFunc {
+	return s.record("StaffListedSessions")
+}
+
+func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
+	return s.record("StaffListedSession")
 }
 
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {

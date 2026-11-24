@@ -80,6 +80,14 @@ func (a *App) CrewListedIdentity() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedIdentity()
 }
 
+func (a *App) CrewListedSessions() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSessions()
+}
+
+func (a *App) CrewListedSession() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSession()
+}
+
 func (a *App) CrewListedUsers() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedUsers()
 }
@@ -560,6 +568,14 @@ func (a *App) MembersListedIdentities() http.HandlerFunc {
 
 func (a *App) MembersListedIdentity() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersListedIdentity()
+}
+
+func (a *App) MembersListedSessions() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSessions()
+}
+
+func (a *App) MembersListedSession() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSession()
 }
 
 func (a *App) MembersListedUsers() http.HandlerFunc {

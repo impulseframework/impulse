@@ -1618,11 +1618,11 @@ email address and no secret), giving the Super Administrator role and the roles
 list for the whole application and its second in every tenant (the auth's `New` hands
 both to its identity client, `identity.WithFirstAdministratorRoles`). The person opens the link and signs in by a method of
 the auth: with the password method they choose a password there and enter the code mailed to
-the address, and through a directory the invitation is what ties the sign-in to the roles,
-whoever else the directory admits and however many organizations the method is open to,
-the address the directory gives being held to the invited one; a person whose directory
-gives none (Microsoft, unless the registration is set up to send it) enters a code mailed
-to the invited address. No account is created
+the address; through a directory they sign in and enter a code mailed to the invited
+address, except where the directory vouches for the address it gives (Google does, for a
+Gmail or Google Workspace address), which must then be the invited one, and the invitation
+is what ties the sign-in to the roles, whoever else the directory admits and however many
+organizations the method is open to. No account is created
 ahead of the person and no password is generated, so no secret exists that somebody
 would have to read. Every release runs the step: an invitation that stands is left as it
 is, one that ran out (seven days) is replaced, and one for an address the placement no

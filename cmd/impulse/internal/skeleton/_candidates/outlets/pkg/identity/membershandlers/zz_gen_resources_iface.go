@@ -15,10 +15,10 @@ type Resourcer interface {
 		membersresources.MembersGroupRole | membersresources.MembersGroupUser |
 		membersresources.MembersHeldRole | membersresources.MembersListedGroup |
 		membersresources.MembersListedGroupRole | membersresources.MembersListedIdentity |
-		membersresources.MembersListedUser | membersresources.MembersRole |
-		membersresources.MembersRoleGrant | membersresources.MembersSession |
-		membersresources.MembersSessionAuthEvent | membersresources.MembersSessionIdentity |
-		membersresources.MembersSessionMailLink |
+		membersresources.MembersListedSession | membersresources.MembersListedUser |
+		membersresources.MembersRole | membersresources.MembersRoleGrant |
+		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
+		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod |
 		membersresources.MembersSessionSignInSetting | membersresources.MembersSessionToken |

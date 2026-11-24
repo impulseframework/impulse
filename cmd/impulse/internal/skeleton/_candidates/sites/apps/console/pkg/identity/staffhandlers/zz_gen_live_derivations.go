@@ -62,6 +62,10 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 			{Name: resources.TenantDirectory{}.Resource()},
 		}},
+		// StaffListedSessions: the tables its query reads.
+		{Resource: staffresources.StaffListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSession{}.Resource(), Global: true},
+		}},
 		// StaffListedUsers: the tables its query reads.
 		{Resource: staffresources.StaffListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
@@ -69,6 +73,8 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInSetting{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionTrustedDevice{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 			{Name: resources.TenantDirectory{}.Resource()},

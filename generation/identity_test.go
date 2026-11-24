@@ -393,6 +393,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/unlock_crew_sign_in.go",
 		"crewidentity/withdraw_crew_invitation.go",
 		"internal/crewresources/crew_held_roles.go",
+		"internal/crewresources/crew_listed_sessions.go",
 		"internal/crewresources/crew_listed_users.go",
 		"internal/crewresources/crew_role_grants.go",
 		"internal/crewresources/crew_roles.go",
@@ -411,6 +412,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_user_roles.go",
 		"internal/crewresources/resources.go",
 		"internal/membersresources/members_held_roles.go",
+		"internal/membersresources/members_listed_sessions.go",
 		"internal/membersresources/members_listed_users.go",
 		"internal/membersresources/members_roles.go",
 		"internal/membersresources/members_session_users.go",
@@ -494,6 +496,9 @@ func Test_prepareIdentity(t *testing.T) {
 			"var signInWords = map[string]string{\n\t\"password\": \"Password\",\n\t\"google\":   \"" + fleetDirectory + "\",\n}",
 			"func signInThrough(way *identity.SignInWay) string {",
 		},
+		// A page lists the sessions from the list that says which are live, so the method
+		// that ends one names its session by a row of it.
+		"crewidentity/end_crew_session.go":                       {"// @answers(204)\ntype EndCrewSession struct {\n\t// @target(CrewListedSession)\n\tSessionID impulse.UUID\n}", "client.manager.EndSession(ctx, txn, m.SessionID)"},
 		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewListedUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},

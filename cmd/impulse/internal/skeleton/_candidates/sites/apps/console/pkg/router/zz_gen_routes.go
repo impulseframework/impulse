@@ -38,6 +38,7 @@ const (
 	StaffGroupUserUserID            httpio.ParamType = "staffGroupUserUserID"
 	StaffListedGroupID              httpio.ParamType = "staffListedGroupID"
 	StaffListedIdentityID           httpio.ParamType = "staffListedIdentityID"
+	StaffListedSessionID            httpio.ParamType = "staffListedSessionID"
 	StaffListedUserID               httpio.ParamType = "staffListedUserID"
 	StaffSessionID                  httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID          httpio.ParamType = "staffSessionIdentityID"
@@ -237,6 +238,9 @@ type GeneratedHandlers interface {
 	StaffListedIdentity() http.HandlerFunc
 
 	StaffListedRoleGrants() http.HandlerFunc
+
+	StaffListedSessions() http.HandlerFunc
+	StaffListedSession() http.HandlerFunc
 
 	StaffListedUsers() http.HandlerFunc
 	StaffListedUser() http.HandlerFunc
@@ -573,6 +577,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
 	bounded.Get("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 	bounded.Post("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+
+	staffListedSessionsHandler := h.StaffListedSessions()
+	bounded.Get("/api/staff-listed-sessions", staffListedSessionsHandler)
+	bounded.Post("/api/staff-listed-sessions", staffListedSessionsHandler)
+
+	staffListedSessionHandler := h.StaffListedSession()
+	bounded.Get("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
+	bounded.Post("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
 
 	staffListedUsersHandler := h.StaffListedUsers()
 	bounded.Get("/api/staff-listed-users", staffListedUsersHandler)
