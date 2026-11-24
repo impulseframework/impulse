@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -21,6 +22,7 @@ func (a *App) Tenants() http.HandlerFunc {
 	type tenant struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
@@ -72,6 +74,10 @@ func (a *App) Tenants() http.HandlerFunc {
 					if !row.Masked("name") {
 						rmap["name"] = rec.Name
 					}
+				case "CreatedAt":
+					if !row.Masked("createdAt") {
+						rmap["createdAt"] = rec.CreatedAt
+					}
 				case "DirectoryOnly":
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
@@ -101,6 +107,7 @@ func (a *App) Tenant() http.HandlerFunc {
 	type response struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
@@ -139,6 +146,10 @@ func (a *App) Tenant() http.HandlerFunc {
 			case "Name":
 				if !row.Masked("name") {
 					rmap["name"] = rec.Name
+				}
+			case "CreatedAt":
+				if !row.Masked("createdAt") {
+					rmap["createdAt"] = rec.CreatedAt
 				}
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {

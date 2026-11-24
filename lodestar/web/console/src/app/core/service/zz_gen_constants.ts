@@ -2472,6 +2472,7 @@ export namespace SectorPilots {
 
 export namespace Sectors {
   export const fieldName = {
+    chartedAt: 'chartedAt' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
     established: 'established' as FieldName,
     id: 'id' as FieldName,
@@ -2479,6 +2480,7 @@ export namespace Sectors {
     region: 'region' as FieldName,
   };
   export const resourceName = {
+    chartedAt: 'Sectors.chartedAt' as Resource,
     directoryOnly: 'Sectors.directoryOnly' as Resource,
     established: 'Sectors.established' as Resource,
     id: 'Sectors.id' as Resource,

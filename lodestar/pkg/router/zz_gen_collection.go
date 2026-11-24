@@ -2722,6 +2722,7 @@ func Collection() *resource.GeneratedCollection {
 					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
 				},
 				Tags: []resource.TagData{
+					{Name: "chartedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "established", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},

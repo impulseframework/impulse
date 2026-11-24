@@ -416,6 +416,7 @@ export interface StaffUserRoles {
 export interface Tenants {
   id: string;
   name?: string;
+  createdAt?: Date;
   directoryOnly?: boolean;
 }
 
@@ -1166,6 +1167,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
   },

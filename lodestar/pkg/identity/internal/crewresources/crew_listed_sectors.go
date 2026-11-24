@@ -14,19 +14,19 @@ import (
 
 type (
 	// CrewListedSector is one sector as the whole application's list shows it: a row of
-	// Sectors with the record's own fields, and four facts no table holds.
+	// Sectors with the record's own fields, and three facts no table holds.
 	// People is how many people hold something in the sector itself right now: a role of
 	// their own, a place in one of its groups, or a sign-in through its directory.
 	// A person who is there only through a role held in every sector, or through a group
-	// kept for the whole application, is not counted. Since is when the first role in it was
-	// given, which is when it was made; nothing for one nobody ever held a role in.
+	// kept for the whole application, is not counted.
 	// Directory is the kind of directory its people sign in through, with the domain of a
 	// Google Workspace; the name a sign-in registration gives an organization is not said,
 	// since a query does not read the registrations, and a Microsoft Entra tenant's id is
 	// never said.
 	// Administrators names each person who holds one of the roles the auth's permission
 	// engine names as a sector administrator's in the sector itself, by a role of their
-	// own or through one of its groups. The list filters by the name. It is a view over the
+	// own or through one of its groups. Since is when the
+	// sector was made: the record's ChartedAt, which it marks @tenantSince. The list filters by the name. It is a view over the
 	// record's table, so a row opens, is changed and is deleted as the record's own.
 	//
 	// @virtual
@@ -49,8 +49,8 @@ type (
 	}
 )
 
-// crewListedSectorQuery selects every sector, each with the people it holds, when its
-// first role was given, its directory and its administrators.
+// crewListedSectorQuery selects every sector, each with the people it holds, when it
+// was made, its directory and its administrators.
 const crewListedSectorQuery = `
 SELECT
   s.Id AS Id,
@@ -75,9 +75,7 @@ SELECT
     JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection
     WHERE dr.SectorId = s.Id
   ) p) AS People,
-  (SELECT MIN(f.CreatedAt)
-   FROM CrewUserRoles f
-   WHERE f.Kind = 'domain' AND f.Axis = '' AND f.DomainId = s.Id) AS Since,
+  s.ChartedAt AS Since,
   (SELECT CASE d.Method
       WHEN 'google' THEN IF(IFNULL(d.Connection, '') = '', 'Google Workspace', CONCAT('Google Workspace ', d.Connection))
       WHEN 'azure' THEN 'Microsoft Entra tenant'

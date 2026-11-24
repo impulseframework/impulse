@@ -873,6 +873,7 @@ export interface Sectors {
   name?: string;
   region?: string;
   established?: Date;
+  chartedAt?: Date;
   directoryOnly?: boolean;
 }
 
@@ -2445,6 +2446,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
+      { fieldName: 'chartedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
   },

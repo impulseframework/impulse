@@ -6,6 +6,7 @@ package resources
 import (
 	"context"
 	"iter"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/go-playground/errors/v5"
@@ -458,6 +459,7 @@ type sectorRead struct {
 	Name          string       `json:"name"`
 	Region        string       `json:"region"`
 	Established   civil.Date   `json:"established"`
+	ChartedAt     time.Time    `json:"chartedAt"`
 	DirectoryOnly bool         `json:"directoryOnly"`
 }
 
@@ -471,6 +473,7 @@ type sectorWrite struct {
 	Name          string       `json:"name"`
 	Region        string       `json:"region"`
 	Established   civil.Date   `json:"established"`
+	ChartedAt     time.Time    `json:"-"`
 	DirectoryOnly bool         `json:"-"`
 }
 
@@ -596,6 +599,7 @@ func (c *SectorColumns) All() *SectorColumns {
 		"Name",
 		"Region",
 		"Established",
+		"ChartedAt",
 		"DirectoryOnly",
 	}
 
@@ -622,6 +626,12 @@ func (c *SectorColumns) Region() *SectorColumns {
 
 func (c *SectorColumns) Established() *SectorColumns {
 	c.fields = append(c.fields, "Established")
+
+	return c
+}
+
+func (c *SectorColumns) ChartedAt() *SectorColumns {
+	c.fields = append(c.fields, "ChartedAt")
 
 	return c
 }
@@ -734,6 +744,10 @@ func (c *sectorSort) Established() *SectorSort {
 	return c.addField("Established")
 }
 
+func (c *sectorSort) ChartedAt() *SectorSort {
+	return c.addField("ChartedAt")
+}
+
 func (c *sectorSort) DirectoryOnly() *SectorSort {
 	return c.addField("DirectoryOnly")
 }
@@ -817,6 +831,7 @@ func (p *SectorCreatePatch) Enforce(caller *resource.Caller) *SectorCreatePatch 
 }
 
 func (p *SectorCreatePatch) registerDefaultFuncs() {
+	p.patchSet.RegisterDefaultCreateFunc("ChartedAt", resource.CommitTimestamp)
 }
 
 func (p *SectorCreatePatch) ID() impulse.UUID {
@@ -871,6 +886,22 @@ func (p *SectorCreatePatch) Established() civil.Date {
 
 func (p *SectorCreatePatch) EstablishedIsSet() bool {
 	return p.patchSet.IsSet("Established")
+}
+
+func (p *SectorCreatePatch) SetChartedAt(v time.Time) *SectorCreatePatch {
+	p.patchSet.Set("ChartedAt", v)
+
+	return p
+}
+
+func (p *SectorCreatePatch) ChartedAt() time.Time {
+	v, _ := p.patchSet.Get("ChartedAt").(time.Time)
+
+	return v
+}
+
+func (p *SectorCreatePatch) ChartedAtIsSet() bool {
+	return p.patchSet.IsSet("ChartedAt")
 }
 
 func (p *SectorCreatePatch) SetDirectoryOnly(v bool) *SectorCreatePatch {
@@ -1027,6 +1058,22 @@ func (p *SectorUpdatePatch) Established() civil.Date {
 
 func (p *SectorUpdatePatch) EstablishedIsSet() bool {
 	return p.patchSet.IsSet("Established")
+}
+
+func (p *SectorUpdatePatch) SetChartedAt(v time.Time) *SectorUpdatePatch {
+	p.patchSet.Set("ChartedAt", v)
+
+	return p
+}
+
+func (p *SectorUpdatePatch) ChartedAt() time.Time {
+	v, _ := p.patchSet.Get("ChartedAt").(time.Time)
+
+	return v
+}
+
+func (p *SectorUpdatePatch) ChartedAtIsSet() bool {
+	return p.patchSet.IsSet("ChartedAt")
 }
 
 func (p *SectorUpdatePatch) SetDirectoryOnly(v bool) *SectorUpdatePatch {

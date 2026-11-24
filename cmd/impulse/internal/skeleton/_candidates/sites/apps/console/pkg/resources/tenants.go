@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"time"
+
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -66,6 +68,11 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `spanner:"Name"`
+		// CreatedAt is when the tenant was made: the database writes it with the row, at the
+		// commit that makes the tenant, whichever way it is made, and nothing changes it
+		// afterward. The list of tenants says it as Since.
+		// @tenantSince
+		CreatedAt time.Time `spanner:"CreatedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 		// DirectoryOnly says the tenant's people enter through its directory only: no
 		// other sign-in reaches the tenant, and the flag closes this tenant alone. The
 		// switch is the tenant's own: the tenant's administrator (TenantAdministrator)

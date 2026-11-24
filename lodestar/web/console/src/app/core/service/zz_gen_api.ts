@@ -2007,6 +2007,7 @@ export const apiDescriptor = defineApiDescriptor({
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
       tenantDirectoryOnlyField: 'directoryOnly',
+      tenantSinceField: 'chartedAt',
       sides: [
         {
           scope: 'global',
@@ -2026,6 +2027,7 @@ export const apiDescriptor = defineApiDescriptor({
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
       tenantDirectoryOnlyField: 'directoryOnly',
+      tenantSinceField: 'chartedAt',
       rolesFrom: 'Company directory',
       sides: [
         {

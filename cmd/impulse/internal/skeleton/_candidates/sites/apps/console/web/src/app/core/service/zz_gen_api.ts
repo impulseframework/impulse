@@ -815,6 +815,7 @@ export const apiDescriptor = defineApiDescriptor({
       tenant: 'Tenant',
       tenantResource: Resources.Tenants,
       tenantDirectoryOnlyField: 'directoryOnly',
+      tenantSinceField: 'createdAt',
       sides: [
         {
           scope: 'global',

@@ -3,15 +3,16 @@
 package integration
 
 // listed_sectors_test: the whole fleet's list of its sectors, as the crew's generated
-// management serves it (CrewListedSectors): every sector with its own fields and four facts
-// no table holds. People is how many people hold something in the sector itself right now:
-// a role of their own, a place in one of its groups or a sign-in through its directory;
-// a role held in every sector and a group kept for the whole fleet count for nobody. Since
-// is when the first role in the sector was given. Directory is the kind of directory its
-// people sign in through, with a Google Workspace's domain and never another kind's
-// connection. Administrators names each person who holds a sector administrator's role in
-// the sector itself, by a role of their own or through one of its groups, by name, and by
-// username where the account has none.
+// management serves it (CrewListedSectors): every sector with its own fields, the day it
+// was charted, and three facts no table holds. People is how many people hold something in
+// the sector itself right now: a role of their own, a place in one of its groups or a
+// sign-in through its directory; a role held in every sector and a group kept for the whole
+// fleet count for nobody. Since is when the sector was charted, the record's ChartedAt, and
+// stays when roles are given and taken away. Directory is the kind of directory its people
+// sign in through, with a Google Workspace's domain and never another kind's connection.
+// Administrators names each person who holds a sector administrator's role in the sector
+// itself, by a role of their own or through one of its groups, by name, and by username
+// where the account has none.
 //
 // The facts are read off the tables, so the suites write the rows they read straight into
 // the database, as the lists' other suites write a row whose period is over
@@ -32,7 +33,6 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
-	initiator "github.com/impulseframework/impulse/db"
 )
 
 // listedSectorsPath is the route of the whole fleet's list of its sectors.
@@ -112,13 +112,15 @@ func (w *listedWorld) apply(ctx context.Context, mutations ...*spanner.Mutation)
 	}
 }
 
-// sector writes a sector with no role in it, and answers its id.
-func (w *listedWorld) sector(ctx context.Context, name string) string {
+// sector writes a sector with no role in it, charted at the moment given, and answers its
+// id.
+func (w *listedWorld) sector(ctx context.Context, name string, charted time.Time) string {
 	w.t.Helper()
 
 	id := newID(w.t)
 	w.apply(ctx, spanner.InsertMap("Sectors", map[string]any{
 		"Id": id, "Name": name, "Region": "Outer frontier", "Established": civil.Date{Year: 2226, Month: time.October, Day: 2},
+		"ChartedAt": charted,
 	}))
 
 	return id
@@ -177,15 +179,6 @@ func (w *listedWorld) group(ctx context.Context, sector, name, role string, memb
 	w.apply(ctx, mutations...)
 }
 
-// createdAt reads when the membership's row was written.
-func createdAt(ctx context.Context, t *testing.T, db *initiator.SpannerDB, scope accesstypes.PolicyScope, role, user string) time.Time {
-	t.Helper()
-
-	key := access.NewMembershipKey(scope, accesstypes.User(user), accesstypes.Role(role))
-
-	return readColumn[time.Time](ctx, t, db, "CrewUserRoles", spanner.Key{key.Kind, key.Axis, key.Domain, role, user}, "CreatedAt")
-}
-
 // TestListedSectors holds the facts of the list: who People counts and who it does not,
 // what Since is and that it stays when roles are given and taken, what Directory says of
 // each kind of directory, and who Administrators names, in what words and in what order;
@@ -199,10 +192,12 @@ func TestListedSectors(t *testing.T) {
 	hour := time.Hour
 	now := time.Now().UTC()
 
-	// Driftmoor: its administrator by a role of their own (two, given in one act), a
-	// person in one of its groups, a person whose only role there has ended, a person whose
-	// only role there has not begun, and a crew member who holds a role in every sector.
-	driftmoor := w.sector(ctx, "Driftmoor")
+	// Driftmoor, charted at a moment of its own: its administrator by a role of their own
+	// (two, given in one act today), a person in one of its groups, a person whose only role
+	// there has ended, a person whose only role there has not begun, and a crew member who
+	// holds a role in every sector.
+	charted := time.Date(2026, time.February, 3, 9, 30, 0, 0, time.UTC)
+	driftmoor := w.sector(ctx, "Driftmoor", charted)
 	in := accesstypes.DomainPolicyScope(accesstypes.Domain(driftmoor))
 	drifter, deckie, lapsed, early, roamer := w.account(ctx, "drifter", ""), w.account(ctx, "deckie", ""), w.account(ctx, "lapsed", ""), w.account(ctx, "early", ""), w.account(ctx, "roamer", "Roamer Reyes")
 	w.apply(ctx, membership(in, "SectorMarshal", drifter, time.Time{}, time.Time{}), membership(in, "SectorCrew", drifter, time.Time{}, time.Time{}))
@@ -220,9 +215,8 @@ func TestListedSectors(t *testing.T) {
 	if got := cell[float64](t, row, "people"); got != 2 {
 		t.Errorf("Driftmoor's people = %v, want 2: its administrator and the person in its group", got)
 	}
-	first := createdAt(ctx, t, w.db, in, "SectorMarshal", drifter)
-	if got := sinceOf(t, row); !got.Equal(first) {
-		t.Errorf("Driftmoor's since = %v, want when its first role was given, %v", got, first)
+	if got := sinceOf(t, row); !got.Equal(charted) {
+		t.Errorf("Driftmoor's since = %v, want the moment it was charted, %v", got, charted)
 	}
 	if got := administratorsOf(t, row); !slices.Equal(got, []string{"drifter"}) {
 		t.Errorf("Driftmoor's administrators = %v, want the one by a role of their own, by username: drifter (the one who holds it in every sector is none of them)", got)
@@ -231,17 +225,22 @@ func TestListedSectors(t *testing.T) {
 		t.Errorf("Driftmoor, which has no directory, says the directory %v", row["directory"])
 	}
 
-	// Since stays when a later role is given, and when one of the first person's two roles
-	// is taken away while the other, given in the same act, stands.
+	// Since stays when a later role is given, and when every role the first person holds
+	// there is taken away while another person's stands.
 	w.apply(ctx, membership(in, "Pilot", deckie, time.Time{}, time.Time{}))
-	key := access.NewMembershipKey(in, accesstypes.User(drifter), "SectorCrew")
-	w.apply(ctx, spanner.Delete("CrewUserRoles", spanner.Key{key.Kind, key.Axis, key.Domain, "SectorCrew", drifter}))
-	if got := sinceOf(t, listedSectorRow(t, w.h, "governor", driftmoor)); !got.Equal(first) {
-		t.Errorf("Driftmoor's since after a later role and a removal = %v, want it as it was, %v", got, first)
+	var removals []*spanner.Mutation
+	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
+		key := access.NewMembershipKey(in, accesstypes.User(drifter), accesstypes.Role(role))
+		removals = append(removals, spanner.Delete("CrewUserRoles", spanner.Key{key.Kind, key.Axis, key.Domain, role, drifter}))
+	}
+	w.apply(ctx, removals...)
+	if got := sinceOf(t, listedSectorRow(t, w.h, "governor", driftmoor)); !got.Equal(charted) {
+		t.Errorf("Driftmoor's since after a later role and its first person's removal = %v, want it as it was, %v", got, charted)
 	}
 
-	// Quietfall: nobody holds anything there.
-	quietfall := w.sector(ctx, "Quietfall")
+	// Quietfall, charted at another moment: nobody holds anything there.
+	quietCharted := time.Date(2026, time.April, 17, 14, 0, 0, 0, time.UTC)
+	quietfall := w.sector(ctx, "Quietfall", quietCharted)
 	row = listedSectorRow(t, w.h, "governor", quietfall)
 	if row == nil {
 		t.Fatal("the list holds no row for Quietfall")
@@ -249,8 +248,8 @@ func TestListedSectors(t *testing.T) {
 	if got := cell[float64](t, row, "people"); got != 0 {
 		t.Errorf("Quietfall's people = %v, want 0", got)
 	}
-	if got := sinceOf(t, row); !got.IsZero() {
-		t.Errorf("Quietfall's since = %v, want nothing: nobody ever held a role there", got)
+	if got := sinceOf(t, row); !got.Equal(quietCharted) {
+		t.Errorf("Quietfall's since = %v, want the moment it was charted, %v, though nobody ever held a role there", got, quietCharted)
 	}
 	if got := administratorsOf(t, row); len(got) != 0 {
 		t.Errorf("Quietfall's administrators = %v, want none", got)
@@ -259,7 +258,7 @@ func TestListedSectors(t *testing.T) {
 	// Directories: a Google Workspace by its domain, a Microsoft Entra tenant by its kind
 	// alone. A person who signs in through the sector's directory and holds no role there
 	// is one of its people.
-	galeport, hazebrook := w.sector(ctx, "Galeport"), w.sector(ctx, "Hazebrook")
+	galeport, hazebrook := w.sector(ctx, "Galeport", now), w.sector(ctx, "Hazebrook", now)
 	const entra = "7c3e9a41-5d2b-4f8e-9b61-2a4d8c0e1f37"
 	signer := w.account(ctx, "signer", "")
 	w.apply(ctx,
@@ -285,7 +284,7 @@ func TestListedSectors(t *testing.T) {
 	// Keelhaven: an administrator by a role of their own, with no name; one through the
 	// sector's group, by name; and the crew member who holds the role in every sector, who
 	// is none of them. Two administrators, in alphabetical order.
-	keelhaven := w.sector(ctx, "Keelhaven")
+	keelhaven := w.sector(ctx, "Keelhaven", now)
 	there := accesstypes.DomainPolicyScope(accesstypes.Domain(keelhaven))
 	keeper, abel := w.account(ctx, "keeper", ""), w.account(ctx, "abel", "Abel Keel")
 	w.apply(ctx, membership(there, "SectorMarshal", keeper, time.Time{}, time.Time{}))
@@ -334,10 +333,12 @@ func TestListedSectors(t *testing.T) {
 // sector, on the served stack: a sector invited and not yet made is a row of the
 // invitations that stand and no row of the list of sectors; once the invited person has
 // signed in for the first time, it is no invitation that stands and is a row of the list,
-// with that person its one person and among its administrators.
+// with that person its one person and among its administrators, and since the moment the
+// database wrote into its row when it was made.
 func TestListedSectorsInvitedThenMade(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
+	began := time.Now()
 	s := newServed(ctx, t)
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
@@ -385,7 +386,11 @@ func TestListedSectorsInvitedThenMade(t *testing.T) {
 	if got := administratorsOf(t, row); !slices.Contains(got, username) {
 		t.Errorf("Northwind's administrators = %v, want the person who accepted its invitation among them", got)
 	}
-	if sinceOf(t, row).IsZero() {
-		t.Error("Northwind's since is nothing, though its first administrator was seated when it was made")
+	charted := readColumn[time.Time](ctx, t, s.db, "Sectors", spanner.Key{text(row, "id")}, "ChartedAt")
+	if got := sinceOf(t, row); !got.Equal(charted) {
+		t.Errorf("Northwind's since = %v, want the moment its row holds, %v", got, charted)
+	}
+	if charted.Before(began) {
+		t.Errorf("Northwind was charted at %v, before the test began at %v: the database did not write the moment it was made", charted, began)
 	}
 }

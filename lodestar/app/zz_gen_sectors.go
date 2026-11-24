@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/impulseframework/impulse"
@@ -24,6 +25,7 @@ func (a *App) Sectors() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
@@ -83,6 +85,10 @@ func (a *App) Sectors() http.HandlerFunc {
 					if !row.Masked("established") {
 						rmap["established"] = rec.Established
 					}
+				case "ChartedAt":
+					if !row.Masked("chartedAt") {
+						rmap["chartedAt"] = rec.ChartedAt
+					}
 				case "DirectoryOnly":
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
@@ -114,6 +120,7 @@ func (a *App) Sector() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
@@ -160,6 +167,10 @@ func (a *App) Sector() http.HandlerFunc {
 			case "Established":
 				if !row.Masked("established") {
 					rmap["established"] = rec.Established
+				}
+			case "ChartedAt":
+				if !row.Masked("chartedAt") {
+					rmap["chartedAt"] = rec.ChartedAt
 				}
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {

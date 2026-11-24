@@ -1256,11 +1256,13 @@ export namespace TenantDirectories {
 
 export namespace Tenants {
   export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
     id: 'id' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
+    createdAt: 'Tenants.createdAt' as Resource,
     directoryOnly: 'Tenants.directoryOnly' as Resource,
     id: 'Tenants.id' as Resource,
     name: 'Tenants.name' as Resource,

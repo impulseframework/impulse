@@ -135,6 +135,9 @@ CREATE TABLE Sectors (
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
+  -- When the sector was charted: the time of the commit that made the row, written by the
+  -- record's create and never changed. The crew's list of sectors says it as Since.
+  ChartedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   -- The sector's people enter through its directory only: no other sign-in reaches a
   -- sector whose flag is true, a password included. Half of what the sector declares
   -- about who may enter it; the other half is its row of SectorDirectories.
