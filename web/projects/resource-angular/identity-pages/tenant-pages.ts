@@ -280,7 +280,9 @@ function waitingAbove(waiting: ListViewConfig, words: TenantWords): ListViewConf
 
 /**
  * The button on a tenant's row that opens the tenant, where it is one of the person's
- * places; where it is not, a notice says why nothing opened.
+ * places. Where it is not, a notice says why nothing opened: for a tenant the person holds
+ * a seat in and this sign-in cannot enter, the server's reason, as the place switcher
+ * shows it; for any other, that the person holds no role in it.
  */
 function openButton(fields: RecordFields, words: TenantWords): RowButton {
   return {
@@ -292,6 +294,16 @@ function openButton(fields: RecordFields, words: TenantWords): RowButton {
       const place = id === '' ? undefined : places.places().find((candidate) => candidate.id === id);
       if (place) {
         void places.open(place);
+        return;
+      }
+      const closed = id === '' ? undefined : places.closed().find((candidate) => candidate.id === id);
+      if (closed) {
+        injector.get(NotificationService).addGlobalNotification({
+          message: closed.reason,
+          type: AlertType.INFO,
+          duration: 8000,
+          link: '',
+        });
         return;
       }
       const named = fields.name ? row[fields.name] : undefined;

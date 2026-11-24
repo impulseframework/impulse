@@ -7,7 +7,7 @@ import {
   Resource,
   ResourceMeta,
 } from '@impulseframework/resource';
-import { pageDataKey, Place, PlaceService } from '@impulseframework/resource-angular/auth-frame';
+import { ClosedPlace, pageDataKey, Place, PlaceService } from '@impulseframework/resource-angular/auth-frame';
 import {
   AlertType,
   ColumnConfig,
@@ -339,8 +339,15 @@ describe('tenantsPage and tenantsRoute', () => {
 
   describe('the button that opens a tenant', () => {
     const driftmoor: Place = { id: 'a1', label: 'Driftmoor' };
-    const run = (row: RecordData, held: Place[]) => {
-      const places = { places: () => held, open: vi.fn(() => Promise.resolve(true)) };
+    // A sector that seats the person and admits only people who sign in through its own
+    // directory: closed to this sign-in, with the server's reason.
+    const bastion: ClosedPlace = {
+      id: 'c3',
+      label: 'Bastion Prime',
+      reason: 'The bastion admits only people who sign in through its own directory. You signed in with a password.',
+    };
+    const run = (row: RecordData, held: Place[], closed: ClosedPlace[] = []) => {
+      const places = { places: () => held, closed: () => closed, open: vi.fn(() => Promise.resolve(true)) };
       const notices: CreateNotificationMessage[] = [];
       const notifications = {
         addGlobalNotification: (notice: CreateNotificationMessage) => notices.push(notice),
@@ -364,13 +371,27 @@ describe('tenantsPage and tenantsRoute', () => {
     });
 
     it('opens nothing and says why where the tenant is none of the places of the person', () => {
-      const { open, notices } = run({ id: 'b2', name: 'Quietfall' }, [driftmoor]);
+      const { open, notices } = run({ id: 'b2', name: 'Quietfall' }, [driftmoor], [bastion]);
       expect(open).not.toHaveBeenCalled();
       expect(notices).toEqual([
         {
           message: 'You hold no role in Quietfall, so you cannot open it.',
           type: AlertType.INFO,
           duration: 5000,
+          link: '',
+        },
+      ]);
+    });
+
+    it("opens nothing and says the server's reason, word for word, where the tenant seats the person and is closed to this sign-in", () => {
+      const { open, notices } = run({ id: 'c3', name: 'Bastion' }, [driftmoor], [bastion]);
+      expect(open).not.toHaveBeenCalled();
+      expect(notices).toEqual([
+        {
+          message:
+            'The bastion admits only people who sign in through its own directory. You signed in with a password.',
+          type: AlertType.INFO,
+          duration: 8000,
           link: '',
         },
       ]);
