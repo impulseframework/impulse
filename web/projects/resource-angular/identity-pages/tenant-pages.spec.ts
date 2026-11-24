@@ -395,6 +395,8 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(invitations.primaryResource).toBe(invited);
     expect(invitations.title).toBe('Invited sectors, waiting for a first sign-in');
     expect(invitations.emptyMessage).toBe('No invitation is waiting.');
+    // Drawn only while an invitation waits, and not asked of a person who may not list them.
+    expect(invitations.hiddenWhenEmpty).toBe(true);
     expect(invitations).not.toHaveProperty('listMethods');
     expect(invitations.listColumns).toBe(own.listColumns);
     expect(invitations.rowMethods).toBe(own.rowMethods);

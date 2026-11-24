@@ -1137,6 +1137,17 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   emptyMessage?: string;
   /**
+   * Whether a list drawn above or below a page's own list is left out of the page while it
+   * has no row to show: for a list that says something only now and then (the invitations
+   * still waiting, above the tenants). Such a list is drawn only while its latest answer
+   * holds a row. It is not asked at all of a person whose roles do not let them list it, so
+   * nobody is shown a refusal for a list they did not open. It is read when the page opens
+   * and again when the page's lists read again, so it appears with its first row and leaves
+   * with its last. On the list a page is built on, and on a list under a row, it does
+   * nothing: those say `emptyMessage`. Default false.
+   */
+  hiddenWhenEmpty?: boolean;
+  /**
    * A link under the list to where the rest of it is: for a list that shows a part (a
    * person's live sessions) of what another page lists whole (every session of theirs).
    * It is asked with the row the list is under and drawn after the rows, or after the one
@@ -1237,6 +1248,8 @@ export interface ListViewConfig extends BaseConfig {
   notice?: (rows: RecordData[]) => string | undefined;
   /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */
   emptyMessage?: string;
+  /** Whether the list stays out of the page while it has no row; see ListViewConfigOptions.hiddenWhenEmpty. */
+  hiddenWhenEmpty: boolean;
   /** The link under the list; see ListViewConfigOptions.more. */
   more?: (parent: RecordData | undefined) => ListLink | undefined;
   /** The buttons every row carries; see ListViewConfigOptions.rowButtons. */
@@ -1296,6 +1309,7 @@ export const listViewConfigDefaults = {
   },
   showRowCount: true,
   showSearchBox: true,
+  hiddenWhenEmpty: false,
 } satisfies ListViewConfig;
 
 export type ViewType = 'OneToOne' | 'OneToMany';

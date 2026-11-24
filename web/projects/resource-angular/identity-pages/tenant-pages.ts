@@ -276,13 +276,15 @@ function waitingList(
 
 /**
  * The waiting invitations as the tenants page draws them above its list: their columns
- * and Withdraw as they are, under a title of their own and with no method above them.
+ * and Withdraw as they are, under a title of their own and with no method above them,
+ * drawn only while an invitation waits.
  */
 function waitingAbove(waiting: ListViewConfig, words: TenantWords): ListViewConfig {
   const above: ListViewConfig = {
     ...waiting,
     title: `Invited ${words.many}, waiting for a first sign-in`,
     emptyMessage: 'No invitation is waiting.',
+    hiddenWhenEmpty: true,
   };
   delete above.listMethods;
   return above;
