@@ -4283,7 +4283,7 @@ POST <prefix>/disable-crew-user               {"userId"}                       E
 POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewListedUsers
 POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewListedUsers
 POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
-POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions
+POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions (declares a warning)
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewListedIdentities
 POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
@@ -5226,7 +5226,8 @@ every policy store's schema holds it).
   someone else, each with its impersonation record. Ending all of a user's sessions is
   the same act without the disable.
 - One session ends by its id; an impersonated session also ends by its record, which is
-  then closed as revoked.
+  then closed as revoked. Before it runs, the method says what it does (Warning): for the
+  session the caller is using, that ending it signs them out.
 - A password change is required only of a user who has a password (400 otherwise): a
   person with none would be shut out with no way back in. Whether a user has one is
   asked of the database, never read into a row.

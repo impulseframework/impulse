@@ -1786,14 +1786,13 @@ class SideBuilder {
     ]);
   }
 
-  /** How the method that ends one session is presented. */
+  /**
+   * How the method that ends one session is presented. It asks no question of its own:
+   * the method declares a warning, so the dialog asks the server, whose words say when
+   * the session is the reader's own.
+   */
   private onSession(): MethodPresentation[] {
-    return this.present([
-      [
-        this.side.methods.endSession,
-        { label: 'End the session', icon: 'logout', confirm: 'End this session? The browser or device is signed out.' },
-      ],
-    ]);
+    return this.present([[this.side.methods.endSession, { label: 'End the session', icon: 'logout' }]]);
   }
 
   /**

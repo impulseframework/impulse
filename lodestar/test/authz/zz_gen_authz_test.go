@@ -4186,6 +4186,14 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "EndCrewSession warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/end-crew-session",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "EndCrewSessionImpersonation denied",
 			method:       http.MethodPost,
 			target:       "/console/api/end-crew-session-impersonation",
@@ -4261,6 +4269,14 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "EndMembersSession warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/end-members-session",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "EndMembersSession (portal) denied",
 			method:       http.MethodPost,
 			target:       "/portal/api/end-members-session",
@@ -4273,6 +4289,14 @@ Content-Type: application/json
 			target:       "/portal/api/end-members-session",
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "EndMembersSession (portal) warning denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/end-members-session",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{

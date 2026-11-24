@@ -501,7 +501,16 @@ func Test_prepareIdentity(t *testing.T) {
 		},
 		// A page lists the sessions from the list that says which are live, so the method
 		// that ends one names its session by a row of it.
-		"crewidentity/end_crew_session.go":                       {"// @answers(204)\ntype EndCrewSession struct {\n\t// @target(CrewListedSession)\n\tSessionID impulse.UUID\n}", "client.manager.EndSession(ctx, txn, m.SessionID)"},
+		// It asks first, in the server's words: ending the session the request arrived on
+		// signs the caller out, and the warning says so.
+		"crewidentity/end_crew_session.go": {
+			"// @answers(204)\n// @warning\ntype EndCrewSession struct {\n\t// @target(CrewListedSession)\n\tSessionID impulse.UUID\n}", "client.manager.EndSession(ctx, txn, m.SessionID)",
+			"func (m *EndCrewSession) Warning(ctx context.Context, _ resource.ReadWriteTransaction, _ *Client) (*resource.Warning, error) {",
+			"if sessioninfo.IDFromCtx(ctx) == m.SessionID {",
+			`Consequence: "This is the session you are using. Ending it signs you out.",`, `Confirm:     "End the session and sign out",`,
+			`Consequence: "The browser or device this session is on is signed out.",`, `Confirm:     "End the session",`,
+			"// Before it runs, the method says what it does (Warning): for the session the caller\n// is using, that ending it signs them out.",
+		},
 		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewListedUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},

@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // EndMembersSession ends one session of the Members auth: the next request that
@@ -17,12 +18,33 @@ import (
 // the session by its row of MembersListedSession, the list a page shows, so a row of that
 // list offers it.
 //
+// Before it runs, the method says what it does (Warning): for the session the caller
+// is using, that ending it signs them out.
+//
 // @rpc
 // @outlet(portal, default)
 // @answers(204)
+// @warning
 type EndMembersSession struct {
 	// @target(MembersListedSession)
 	SessionID impulse.UUID
+}
+
+// Warning says what ending the session does, in the words the person confirms: where
+// it is the session the request arrived on, that ending it signs them out. It writes
+// nothing.
+func (m *EndMembersSession) Warning(ctx context.Context, _ resource.ReadWriteTransaction, _ *Client) (*resource.Warning, error) {
+	if sessioninfo.IDFromCtx(ctx) == m.SessionID {
+		return &resource.Warning{
+			Consequence: "This is the session you are using. Ending it signs you out.",
+			Confirm:     "End the session and sign out",
+		}, nil
+	}
+
+	return &resource.Warning{
+		Consequence: "The browser or device this session is on is signed out.",
+		Confirm:     "End the session",
+	}, nil
 }
 
 // Execute buffers the end of the session into the caller's transaction.

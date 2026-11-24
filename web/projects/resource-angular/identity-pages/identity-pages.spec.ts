@@ -1117,6 +1117,9 @@ describe("identityPages, the whole application's side", () => {
     expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: ['Clerk'] })).toBe('The whole application');
     expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: [] })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+    // Ending a session asks in the server's words, which say when it is the reader's own,
+    // so the page asks no question of its own.
+    expect(presentation(list(sessions).rowMethods, 'EndCrewSession').confirm).toBeUndefined();
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
     expect(methodsOf(list(attempts).rowMethods)).toEqual([['UnlockCrewSignIn', 'Unlock']]);
     expect(methodsOf(children(people)[2].rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
