@@ -21,7 +21,7 @@ func (a *App) SquadronMemberships() http.HandlerFunc {
 	type squadronMembership struct {
 		SquadronID   impulse.UUID `json:"squadronId"   index:"true"        perm:"-"`
 		UserID       string       `json:"userId"       index:"true"        perm:"-"`
-		SquadronName *string      `json:"squadronName" nameof:"SquadronID" index:"true"`
+		SquadronName *string      `json:"squadronName" nameof:"SquadronID" index:"true"        search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 		UserName     *string      `json:"userName"     nameof:"UserID"     allow_filter:"true"`
 	}
 

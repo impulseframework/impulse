@@ -21,7 +21,7 @@ func (a *App) Squadrons() http.HandlerFunc {
 	type squadron struct {
 		ID        impulse.UUID `json:"id"        index:"true"    perm:"-"`
 		WingID    impulse.UUID `json:"wingId"    index:"true"`
-		Name      string       `json:"name"      index:"true"`
+		Name      string       `json:"name"      index:"true"    search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 		Callsigns []string     `json:"callsigns"`
 		WingName  *string      `json:"wingName"  nameof:"WingID" index:"true"`
 	}
@@ -111,9 +111,9 @@ func (a *App) Squadrons() http.HandlerFunc {
 
 func (a *App) Squadron() http.HandlerFunc {
 	type response struct {
-		ID        impulse.UUID `json:"id"        index:"true"    perm:"-"`
+		ID        impulse.UUID `json:"id"        index:"true"                                                                              perm:"-"`
 		WingID    impulse.UUID `json:"wingId"`
-		Name      string       `json:"name"`
+		Name      string       `json:"name"      search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 		Callsigns []string     `json:"callsigns"`
 		WingName  *string      `json:"wingName"  nameof:"WingID"`
 	}

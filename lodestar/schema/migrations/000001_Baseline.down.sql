@@ -4,6 +4,7 @@ DROP ROLE migrations_reader;
 DROP INDEX HangarsBySectorIdNameLower;
 DROP INDEX MissionsBySectorIdClientId;
 DROP SEARCH INDEX MissionsSearch;
+DROP SEARCH INDEX SquadronsSearch;
 DROP SEARCH INDEX ClientContactsSearch;
 DROP SEARCH INDEX ClientsSearch;
 DROP INDEX MembersSessionTrustedDevicesByUser;

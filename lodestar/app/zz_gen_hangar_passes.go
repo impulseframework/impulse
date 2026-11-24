@@ -31,7 +31,7 @@ func (a *App) HangarPasses() http.HandlerFunc {
 		SectorName   *string          `json:"sectorName"   nameof:"SectorID"   index:"true"`
 		HangarName   *string          `json:"hangarName"   nameof:"HangarID"   index:"true"        search:"lower=Name_Lower"`
 		UserName     *string          `json:"userName"     nameof:"UserID"     allow_filter:"true"`
-		SquadronName *string          `json:"squadronName" nameof:"SquadronID" index:"true"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID" index:"true"        search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 		GroupName    *string          `json:"groupName"    nameof:"GroupID"    index:"true"`
 		LevelName    *string          `json:"levelName"    nameof:"LevelID"    index:"true"`
 	}

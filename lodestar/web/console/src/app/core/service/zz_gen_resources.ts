@@ -1851,7 +1851,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'hangarName', of: 'hangarId', filterable: 'always', search: ['startswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always' }, { fieldName: 'groupName', of: 'groupId', filterable: 'always' }, { fieldName: 'levelName', of: 'levelId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'hangarName', of: 'hangarId', filterable: 'always', search: ['startswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'groupName', of: 'groupId', filterable: 'always' }, { fieldName: 'levelName', of: 'levelId', filterable: 'always' }],
   },
   [Resources.MembersHeldRoles]: {
     route: 'members-held-roles',
@@ -2204,7 +2204,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],
     searchFields: ['title'],
-    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always' }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',
@@ -2264,7 +2264,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'wingName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
     ],
-    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.PilotCertifications]: {
     route: 'pilot-certifications',
@@ -2423,9 +2423,10 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'wingId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Wings },
-      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 },
     ],
+    searchFields: ['name'],
     nameFields: [{ fieldName: 'wingName', of: 'wingId', filterable: 'always' }],
   },
   [Resources.SquadronMemberships]: {
@@ -2437,7 +2438,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSectorUsers },
     ],
-    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always' }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }],
   },
   [Resources.SquadronRosters]: {
     route: 'sectors/{sectorID}/squadron-rosters',

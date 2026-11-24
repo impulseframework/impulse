@@ -23,7 +23,7 @@ func (a *App) PilotAssignments() http.HandlerFunc {
 		UserID       string       `json:"userId"       index:"true"        perm:"-"`
 		SectorID     impulse.UUID `json:"sectorId"     index:"true"`
 		WingName     string       `json:"wingName"     index:"true"`
-		SquadronName *string      `json:"squadronName" nameof:"SquadronID" index:"true"`
+		SquadronName *string      `json:"squadronName" nameof:"SquadronID" index:"true" search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 	}
 
 	type response []map[string]any

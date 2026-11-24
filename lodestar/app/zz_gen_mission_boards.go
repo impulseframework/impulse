@@ -30,7 +30,7 @@ func (a *App) MissionBoards() http.HandlerFunc {
 		Deadline     time.Time        `json:"deadline"     index:"true"`
 		DaysLeft     int64            `json:"daysLeft"     allow_filter:"true"`
 		ClientName   *string          `json:"clientName"   nameof:"ClientID"   index:"true"`
-		SquadronName *string          `json:"squadronName" nameof:"SquadronID" index:"true"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID" index:"true"                                                        search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 		KindName     *string          `json:"kindName"     nameof:"KindID"     index:"true"`
 		StatusName   *string          `json:"statusName"   nameof:"StatusID"   index:"true"`
 	}

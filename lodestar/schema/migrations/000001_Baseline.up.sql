@@ -423,6 +423,7 @@ CREATE TABLE Squadrons (
   -- column back to NULL. Spanner cannot index an ARRAY column, so the field carries no
   -- allow_filter and no list filters or sorts by it.
   Callsigns ARRAY<STRING(16)>,
+  Name_Search TOKENLIST AS (TOKENIZE_SUBSTRING(Name, relative_search_types => ['value_prefix', 'value_suffix'])) HIDDEN,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX SquadronsByName ON Squadrons(Name);
@@ -1592,6 +1593,8 @@ CREATE INDEX MembersSessionTrustedDevicesByUser ON MembersSessionTrustedDevices(
 CREATE SEARCH INDEX ClientsSearch ON Clients(Name_Search, ContactName_Search, ContactEmail_Search);
 
 CREATE SEARCH INDEX ClientContactsSearch ON ClientContacts(DisplayName_Search) STORING (ClientId);
+
+CREATE SEARCH INDEX SquadronsSearch ON Squadrons(Name_Search);
 
 CREATE SEARCH INDEX MissionsSearch ON Missions(Title_Search, Deadline_Search) PARTITION BY SectorId;
 
