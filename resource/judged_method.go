@@ -23,29 +23,34 @@ import (
 // decision. The request's own check (gateFor) and the row's Execute answer
 // (checkCapabilityPermissions) both ask it, so the two cannot disagree.
 func judgedDecisions(ctx context.Context, perms UserPermissions, collection *GeneratedCollection, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
-	if perm != accesstypes.Execute || collection == nil {
-		return perms.Check(ctx, env, scope, perm, resources...)
-	}
-
 	judging := make(map[accesstypes.Resource]accesstypes.Resource)
-	asked := make([]accesstypes.Resource, 0, len(resources))
-	for _, res := range resources {
-		ask := res
-		if by, judged := collection.JudgedBy(res); judged {
-			judging[res] = by
-			ask = by
-		}
-		if !slices.Contains(asked, ask) {
-			asked = append(asked, ask)
+	if perm == accesstypes.Execute && collection != nil {
+		for _, res := range resources {
+			if by, judged := collection.JudgedBy(res); judged {
+				judging[res] = by
+			}
 		}
 	}
-	if len(judging) == 0 {
-		return perms.Check(ctx, env, scope, perm, resources...)
+	asked := resources
+	if len(judging) > 0 {
+		asked = make([]accesstypes.Resource, 0, len(resources))
+		for _, res := range resources {
+			ask := res
+			if by, judged := judging[res]; judged {
+				ask = by
+			}
+			if !slices.Contains(asked, ask) {
+				asked = append(asked, ask)
+			}
+		}
 	}
 
 	engine, err := perms.Check(ctx, env, scope, perm, asked...)
 	if err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck // each caller wraps it, as it wrapped the engine's own call before
+	}
+	if len(judging) == 0 {
+		return engine, nil
 	}
 
 	decisions := make(accesstypes.Decisions, len(resources))

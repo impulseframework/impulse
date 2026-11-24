@@ -716,13 +716,22 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	if err := g.refuseJudgedBy(); err != nil {
 		return nil, err
 	}
-	for _, permission := range data.Permissions {
-		if err := g.addPermission(permission); err != nil {
-			return nil, err
-		}
+	if err := g.addPermissions(data.Permissions); err != nil {
+		return nil, err
 	}
 
 	return g, nil
+}
+
+// addPermissions adds the permissions the collection's data declares with no resource.
+func (g *GeneratedCollection) addPermissions(permissions []accesstypes.Permission) error {
+	for _, permission := range permissions {
+		if err := g.addPermission(permission); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // addResourceDeclarations stores what one CollectionResource declares beyond

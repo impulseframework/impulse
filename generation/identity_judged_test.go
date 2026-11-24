@@ -35,9 +35,7 @@ func judgedFixtureInstances(t *testing.T) (*resourceGenerator, []*identityInstan
 // role is given, each with the method whose grant judges it: sending an invitation again
 // on each side the instance writes it, judged by the invitation of the same side, and
 // nothing where the instance invites nobody.
-func Test_identityInstance_judgedMethods(t *testing.T) {
-	// The resources package is written relative to the working directory, which belongs
-	// to the whole process: no t.Parallel here.
+func Test_identityInstance_judgedMethods(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	t.Chdir(t.TempDir())
 
 	judgedOf := func(instances []*identityInstance) map[string][]judgedMethod {
@@ -63,7 +61,7 @@ func Test_identityInstance_judgedMethods(t *testing.T) {
 		}
 	})
 
-	for _, tt := range []struct {
+	for _, tt := range []struct { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		name      string
 		generator func(t *testing.T) *resourceGenerator
 		want      []judgedMethod
@@ -112,8 +110,7 @@ func Test_identityInstance_judgedMethods(t *testing.T) {
 // methods are registered with: each Send again an action no role is given, judged by
 // the invitation of its side, and no other method marked. The generator's collection
 // carries them where the methods are registered, and none where nothing is.
-func Test_collectIdentityJudgedRegistrations(t *testing.T) {
-	// As Test_identityInstance_judgedMethods: no t.Parallel.
+func Test_collectIdentityJudgedRegistrations(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	t.Chdir(t.TempDir())
 
 	r, _ := judgedFixtureInstances(t)
@@ -148,7 +145,7 @@ func Test_collectIdentityJudgedRegistrations(t *testing.T) {
 		return got
 	}
 
-	t.Run("over a builder that registered the methods", func(t *testing.T) {
+	t.Run("over a builder that registered the methods", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		b := resource.NewCollectionBuilder()
 		for _, reg := range registered {
 			if err := b.AddMethodResource(scopeOrGlobal(reg.Scope), reg.Permission, reg.Resource); err != nil {
@@ -161,7 +158,7 @@ func Test_collectIdentityJudgedRegistrations(t *testing.T) {
 		}
 	})
 
-	t.Run("over a builder that registered nothing", func(t *testing.T) {
+	t.Run("over a builder that registered nothing", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		b := resource.NewCollectionBuilder()
 		r.collectIdentityJudgedRegistrations(b)
 		if got := b.Data().Resources; len(got) != 0 {
@@ -169,7 +166,7 @@ func Test_collectIdentityJudgedRegistrations(t *testing.T) {
 		}
 	})
 
-	t.Run("in the generator's collection", func(t *testing.T) {
+	t.Run("in the generator's collection", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		r.manualRegistrations = registered
 		data, err := r.computeCollectionData()
 		if err != nil {
