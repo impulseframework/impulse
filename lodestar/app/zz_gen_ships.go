@@ -233,7 +233,7 @@ func (a *App) ShipChangeHistory() http.HandlerFunc {
 		id := httpio.Param[impulse.UUID](r, router.ShipID)
 
 		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
-		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain), "TransponderKey")
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

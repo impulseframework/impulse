@@ -281,8 +281,9 @@ func Test_validateChangeHistoryRoutes(t *testing.T) {
 
 // TestChangeHistoryHandlerContent pins the handler of a record's change history: the
 // read's request type and decoder, the record named by the read route's key in the
-// request's tenant, the fields the read never returns named as such less the secrets,
-// and no live read.
+// request's tenant, every field the read never returns named as such (a write-only
+// field, a stored file's key and the secrets, in the order of the resource's fields, and
+// no other; none for a resource with none of them), and no live read.
 func TestChangeHistoryHandlerContent(t *testing.T) {
 	t.Parallel()
 
@@ -312,12 +313,12 @@ func TestChangeHistoryHandlerContent(t *testing.T) {
 				"func (a *TestApp) LockboxChangeHistory() http.HandlerFunc {",
 				".Lockbox, response](a, accesstypes.Read)",
 				"id := httpio.Param[impulse.UUID](r, router.LockboxID)",
-				`history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope(), "Name", "Manifest")`,
+				`history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope(), "Name", "Combination", "Hint", "Manifest")`,
 				"NewLockboxQueryFromQuerySet(history.QuerySet()).SetID(id)",
 				"page, err := history.Read(ctx, a.ResourceClient())",
 				"return httpio.NewEncoder(w).Ok(page)",
 			},
-			notWant: []string{`"Combination"`, `"Hint"`, "live.", "router.Domain"},
+			notWant: []string{`"ID"`, "live.", "router.Domain"},
 		},
 		{
 			name: "a tenant's resource with a key of two columns",

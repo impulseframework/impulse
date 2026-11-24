@@ -6387,8 +6387,11 @@ The route asks no grant of its own: whoever may read the record may read its his
 sees in it the fields they can see on the record as it stands now. A field the caller's
 grant leaves out, or whose cell is masked on this row, is left out of every change
 record; a record none of whose fields the caller may see is still listed, with when and
-by whom. A secret field is listed as changed with neither value, and a field the server
-never returns (`input_only`) is not listed. A record's history outlives the record: once
+by whom. A field the record's own read never returns is in no change record this route
+answers: a field declared `input_only`, a file's key, and a secret. `?field=` naming one
+is refused as a name the record does not have. The table records that a secret changed,
+with neither value, and this route does not say so: a write that changed only the secret
+is listed with when and by whom, and no field. A record's history outlives the record: once
 the record is deleted, its history is read by a caller whose `Read` grant on the resource
 carries no condition, with the fields granted to them without one, since a condition is
 judged on the row and the row is gone; anyone else is answered 404, as the record's own

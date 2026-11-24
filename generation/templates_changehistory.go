@@ -4,8 +4,8 @@ package generation
 // GET <the read route>/changes, for a table-backed resource with a read route: the read
 // handler's request type and decoder, so the grants, the masks and the flags are the
 // read's; the record named by the read route's key, in the request's tenant where the
-// resource belongs to one; and the fields the read leaves out of its answer that are not
-// secrets (an input_only field, a stored file's key) named as never returned. A history
+// resource belongs to one; and the fields the read leaves out of its answer (an
+// input_only field, a secret, a stored file's key) named as never returned. A history
 // read registers no live read.
 const changeHistoryTemplate = `// {{ .Resource.Name }}ChangeHistory answers a page of one {{ .Resource.SubjectRecordWords }}'s change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Resource.Name }}ChangeHistory() http.HandlerFunc {
@@ -34,7 +34,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Resource.Name }}ChangeHis
 		{{ if .Resource.IsDomainScoped -}}
 		` + domainParamLine + `
 		{{ end -}}
-		history, err := decoder.DecodeChangeHistory(r, {{ .ReceiverName }}.UserPermissions(r), {{ if .Resource.IsDomainScoped }}accesstypes.DomainScope(domain){{ else }}accesstypes.GlobalScope(){{ end }}{{ range .Resource.Fields }}{{ if and .IsInputOnly (not .IsSecret) }}, "{{ .Name }}"{{ end }}{{ end }})
+		history, err := decoder.DecodeChangeHistory(r, {{ .ReceiverName }}.UserPermissions(r), {{ if .Resource.IsDomainScoped }}accesstypes.DomainScope(domain){{ else }}accesstypes.GlobalScope(){{ end }}{{ range .Resource.Fields }}{{ if .IsInputOnly }}, "{{ .Name }}"{{ end }}{{ end }})
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

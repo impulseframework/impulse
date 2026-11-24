@@ -419,7 +419,8 @@ func TestChangeHistory_untracked(t *testing.T) {
 
 // TestChangeHistory_refusals pins what the route refuses: a person who may not read
 // missions, a parameter other than after and field, a place to continue from that no
-// page gave, a field the mission does not have, and a field the server never returns.
+// page gave, a field the mission does not have, a field the server never returns, and a
+// secret, in the words of a field the record does not have.
 func TestChangeHistory_refusals(t *testing.T) {
 	t.Parallel()
 
@@ -436,6 +437,7 @@ func TestChangeHistory_refusals(t *testing.T) {
 		{name: "a malformed after", user: "marshal", target: missionHistory(missionHaulerID, "after=yesterday"), wantStatus: http.StatusBadRequest, wantMessage: `The history cannot be continued from \"yesterday\". Use the value of next from the page before.`},
 		{name: "an unknown field", user: "marshal", target: missionHistory(missionHaulerID, "field=color"), wantStatus: http.StatusBadRequest, wantMessage: `This record has no field named \"color\".`},
 		{name: "a field the server never returns", user: "marshal", target: sectorPath(anvil, "distress-calls/90000000-0000-4000-8000-0000000000ff/changes?field=transcript"), wantStatus: http.StatusBadRequest, wantMessage: `This record has no field named \"transcript\".`},
+		{name: "a secret", user: "marshal", target: sectorPath(anvil, "ships/"+shipKingfisherID+"/changes?field=transponderKey"), wantStatus: http.StatusBadRequest, wantMessage: `This record has no field named \"transponderKey\".`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

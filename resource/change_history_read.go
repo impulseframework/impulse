@@ -43,9 +43,10 @@ var errChangeHistoryUnsupportedDatabase = errors.New("resource: a record's chang
 // read did not give are refused 400. The record itself is read as a request for it with
 // no parameters reads it, under the caller's grant in scope, so the history sees every
 // field the grant covers. neverReturned names the fields the record's own read never
-// returns although a grant covers them (a field declared input_only, a file's key): they
-// are in no change record, and field naming one is refused as a field the resource does
-// not have.
+// returns (a field declared input_only, a secret, a file's key): they are in no change
+// record, and field naming one is refused as a field the resource does not have. A
+// generated request type keeps them out of the read already; the names hold where a
+// request type names one.
 func (d *QueryDecoder[Resource, Request]) DecodeChangeHistory(request *http.Request, userPermissions UserPermissions, scope accesstypes.Scope, neverReturned ...accesstypes.Field) (*ChangeHistoryQuery[Resource], error) {
 	params := request.URL.Query()
 	var others []string
