@@ -1086,8 +1086,11 @@ and a row's Execute answer gives, the other method's Execute grant in the scope 
 request was checked in, and a condition on that grant that reads the other method's
 request (`new.<name>`) is read over the attribute of the same name on the row this method
 names. A role file that grants the method itself is refused when the roles are read, and
-a permission mask is asked about the other method. The generated user management marks
-one such method: sending an invitation again, judged by the grant on the invitation.
+a permission mask is asked about the other method. The permission digest and
+`Caller.Check` answer what the role files grant, so they hold nothing under such a
+method's name: a page offers the method by the row's Execute answer, and a body asks
+`ExecuteGate`. The generated user management marks one such method: sending an
+invitation again, judged by the grant on the invitation.
 
 A computed resource's functions are asked as the caller too. Its generated frames stamp
 the caller the request was checked as (`qSet.Caller()`: the checker, the scope and the
