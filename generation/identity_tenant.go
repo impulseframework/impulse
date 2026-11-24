@@ -270,12 +270,17 @@ func (d *identitySourceData) PickedUser() string {
 	return d.User()
 }
 
-// SubjectIdentity is the struct whose row a method names an identity by: the identities
-// table's for the whole application, and the tenant's list of its people's identities
-// for a tenant.
+// SubjectIdentity is the struct whose row a method names an identity by: the tenant's
+// list of its people's identities for a tenant; for the whole application, its list of
+// the identities that says who manages each account where the application has a tenant
+// record (identity_holdings.go), so that a grant's condition reads it, and the
+// declaration over the identities table where it has none.
 func (d *identitySourceData) SubjectIdentity() string {
 	if d.ForTenant {
 		return d.TenantIdentity()
+	}
+	if d.listsIdentities() {
+		return d.ListedIdentity()
 	}
 
 	return d.Identity()

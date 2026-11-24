@@ -71,28 +71,12 @@ func (h *Handlers) UnlinkStaffSessionIdentity() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := staffresources.NewStaffSessionIdentityQuery().
-				AddColumns(staffresources.NewStaffSessionIdentityColumns().ID()).
-				SetID(p.IdentityID).
-				Read(ctx, txn)
-			if err != nil {
-				if httpio.HasNotFound(err) {
-					// No row has the key. Every row the method cannot reach is
-					// answered alike, so the words never say a row is there.
-					return resource.TargetNotFound("StaffSessionIdentity", p.IdentityID)
-				}
-
-				return errors.Wrap(err, "staffresources.StaffSessionIdentityQuery.Read()")
-			}
-			if row == nil {
-				return resource.TargetNotFound("StaffSessionIdentity", p.IdentityID)
-			}
-
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StaffSessionIdentities", Label: "StaffSessionIdentity", PKColumns: []string{"Id"}}, p.IdentityID); err != nil {
+			// Declared target: a row of the StaffListedIdentity view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffListedIdentities", Label: "StaffListedIdentity", PKColumns: []string{"Id"}, View: staffresources.StaffListedIdentity{}}, p.IdentityID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {

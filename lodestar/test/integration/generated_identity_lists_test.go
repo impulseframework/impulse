@@ -488,6 +488,153 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 	}
 }
 
+// TestGeneratedIdentityWhoManagesEachAccount holds what the whole fleet's lists say of
+// who manages each account: each person's row of the accounts answers managedByTenant and
+// managingTenant in agreement with the sectors' rows, the sector whose row says
+// managedHere, and nobody's where no sector's does; a person's sign-in identities say the
+// same two facts; a filter on the fact answers the accounts no sector manages; and a
+// person whose only role, in one sector, has not begun is in no sector's list, so no
+// sector manages the account until the role begins.
+func TestGeneratedIdentityWhoManagesEachAccount(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+	w.managedPeople(ctx, t)
+	// mo is a Cadet at Anvil from an hour from now, and holds nothing else.
+	w.seat(ctx, t, "mo", "Cadet", anvil)
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("CrewUserRoles", map[string]any{
+		"Kind": "domain", "Axis": "", "DomainId": anvil, "Role": "Cadet", "UserId": w.ids["mo"], "StartsAt": time.Now().UTC().Add(time.Hour),
+	})}); err != nil {
+		t.Fatalf("writing mo's role to begin later: %v", err)
+	}
+
+	// The sectors whose list says it manages each person's account, by username.
+	managedAt := make(map[string][]string)
+	listedIn := make(map[string][]string)
+	for _, sector := range []string{anvil, bastion, cinder} {
+		for _, row := range sectorList(t, w.h, "governor", sector, sectorPeoplePath) {
+			name := cell[string](t, row, "username")
+			listedIn[name] = append(listedIn[name], sector)
+			if cell[bool](t, row, "managedHere") {
+				managedAt[name] = append(managedAt[name], sector)
+			}
+		}
+	}
+	// Anvil manages the account of the person it holds alone and of the one who signs in
+	// under the fleet connection, no sector's directory; Cinder manages everyone who signs
+	// in through its directory, whatever they hold. Everyone else is the fleet's own
+	// administrators' to manage: a person of two sectors (bo), a role in every sector or
+	// for the whole fleet beside a sector's, a role that has ended (lu) and one that has
+	// not begun (mo).
+	want := map[string]string{"ada": anvil, "kit": anvil, "gil": cinder, "hal": cinder, "ivy": cinder, "jo": cinder}
+	accounts := listedAccounts(t, w.h, "governor", "")
+	for name := range w.ids {
+		row := accounts[name]
+		if row == nil {
+			t.Errorf("%s is missing from the accounts", name)
+
+			continue
+		}
+		managing, managed := text(row, "managingTenant"), cell[bool](t, row, "managedByTenant")
+		if managing != want[name] || managed != (want[name] != "") {
+			t.Errorf("%s: managedByTenant = %v, managingTenant = %q; want %v, %q", name, managed, managing, want[name] != "", want[name])
+		}
+		agreed := ""
+		if sectors := managedAt[name]; len(sectors) > 0 {
+			agreed = slices.Min(sectors)
+		}
+		if managing != agreed {
+			t.Errorf("%s: managingTenant = %q, and the sectors' rows say managedHere at %v", name, managing, managedAt[name])
+		}
+	}
+	if sectors := listedIn["mo"]; len(sectors) != 0 {
+		t.Errorf("mo, whose only role has not begun, is listed by %v, want by no sector", sectors)
+	}
+
+	t.Run("a person's sign-in identities say who manages the account", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities?limit=200&filter=userId:eq:"+w.ids["hal"], "")
+		assertStatus(t, status, http.StatusOK, body)
+		rows := decodeRows(t, body)
+		if len(rows) != 1 {
+			t.Fatalf("hal's identities = %d rows, want 1: %s", len(rows), body)
+		}
+		if managed, managing := cell[bool](t, rows[0], "managedByTenant"), text(rows[0], "managingTenant"); !managed || managing != cinder {
+			t.Errorf("hal's identity says managedByTenant = %v, managingTenant = %q; want true and Cinder's key, as hal's account does: %v", managed, managing, rows[0])
+		}
+	})
+
+	t.Run("the accounts filter on who manages them", func(t *testing.T) {
+		t.Parallel()
+
+		unmanaged := listedAccounts(t, w.h, "governor", "managedByTenant:eq:false")
+		for name, row := range unmanaged {
+			if cell[bool](t, row, "managedByTenant") {
+				t.Errorf("the filter managedByTenant:eq:false answered %s, whose account a sector manages", name)
+			}
+		}
+		for name := range w.ids {
+			if _, answered := unmanaged[name]; answered != (want[name] == "") {
+				t.Errorf("%s: answered by managedByTenant:eq:false = %v, want %v", name, answered, want[name] == "")
+			}
+		}
+	})
+}
+
+// TestGeneratedIdentityUnlinkNamesTheListedIdentity holds the whole application's unlink
+// of a sign-in identity on the list of the identities that says who manages each account:
+// the row offers the unlink to a caller whose role gives it, the unlink answers as it did
+// on the identities table's row, and the row is then gone from the list.
+func TestGeneratedIdentityUnlinkNamesTheListedIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+	// rae holds a password, so the identity is not her last way in, and Crew common for the
+	// whole application; her identity is under the fleet's connection, which no sector's
+	// directory takes. So no sector manages her account, and the fleet's unlink reaches it.
+	w.ids["rae"] = string(makeCrewAccountAt(ctx, t, w.db, "rae", "rae@example.com"))
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	link := id.String()
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{
+		spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": w.ids["rae"], "PasswordHash": "the-hash-of-rae"}),
+		spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": link, "UserId": w.ids["rae"], "Method": "google", "Connection": "fleet", "Subject": "subject-of-rae",
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing rae's password and identity: %v", err)
+	}
+	w.giveCrewRole(ctx, t, "rae", "CrewCommon", accesstypes.GlobalPolicyScope())
+	listed := func() map[string]map[string]any {
+		t.Helper()
+
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities?limit=200&filter=userId:eq:"+w.ids["rae"], "")
+		assertStatus(t, status, http.StatusOK, body)
+
+		return rowsByID(t, decodeRows(t, body), "id")
+	}
+	if _, ok := listed()[link]; !ok {
+		t.Fatalf("rae's identities = %v, want the one written for her (%s)", listed(), link)
+	}
+
+	status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities/"+link+"?capabilities=Execute", "")
+	assertStatus(t, status, http.StatusOK, body)
+	capabilities, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
+	if offered, _ := capabilities["Execute"].([]any); !slices.Contains(offered, any("UnlinkCrewSessionIdentity")) {
+		t.Errorf("the Execute answer for rae's identity = %v, want it to list UnlinkCrewSessionIdentity for headquarters", offered)
+	}
+
+	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/unlink-crew-session-identity", fmt.Sprintf(`{"identityId":%q}`, link))
+	assertStatus(t, status, http.StatusNoContent, body)
+	if left := listed(); len(left) != 0 {
+		t.Errorf("rae's identities after the unlink = %v, want none", left)
+	}
+}
+
 // TestGeneratedIdentitySectorUserRoles holds the roles held in a sector: one row per role a
 // person holds there, keyed by the account's id and the role, the fact everyDomain true
 // where the role is held through a membership in every sector alone, and the

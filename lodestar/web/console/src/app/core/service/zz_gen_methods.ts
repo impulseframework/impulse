@@ -2253,7 +2253,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkCrewSessionIdentity]: {
     route: 'unlink-crew-session-identity',
-    target: { resource: Resources.CrewSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.CrewListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2271,7 +2271,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkMembersSessionIdentity]: {
     route: 'unlink-members-session-identity',
-    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.MembersListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

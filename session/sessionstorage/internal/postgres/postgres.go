@@ -20,6 +20,17 @@ import (
 )
 
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
+// Every transaction it begins is at the read committed isolation level (begin), whatever
+// default the server, the database, the role or the connection sets. Its rules take a lock
+// and then read (a link decision takes the user's advisory lock and reads the user's
+// links, the removal of a link or a password locks the user's row and counts the person's
+// other means of sign-in, a password change waits for a sign-in in flight and then ends
+// the user's sessions, a sign-in code's insert takes the pending sign-in's row and
+// consumes its live codes), and each holds only while the read after the lock sees what
+// the transaction that held it committed. At read committed each statement reads what has
+// committed when it starts; at repeatable read a transaction reads the snapshot its first
+// statement took, which is before it waited. A statement the driver sends outside a
+// transaction is one statement at the connection's default level.
 type SessionStorageDriver struct {
 	conn             Queryer
 	sessionTableName string
@@ -73,6 +84,18 @@ func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 		factorCodesTableName:    dbtype.FactorCodesTable,
 		trustedDevicesTableName: dbtype.TrustedDevicesTable,
 	}
+}
+
+// begin begins a transaction at the read committed isolation level, by name, whatever
+// default the server, the database, the role or the connection sets. Every transaction of
+// the driver is begun here.
+func (s *SessionStorageDriver) begin(ctx context.Context) (pgx.Tx, error) {
+	txn, err := s.conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, errors.Wrap(err, "Queryer.BeginTx()")
+	}
+
+	return txn, nil
 }
 
 // SetSessionTableName sets the name of the session table; a name that is not an
@@ -468,9 +491,9 @@ func (s *SessionStorageDriver) execSessionInsert(
 		return nil
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -534,9 +557,9 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID imp
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -703,9 +726,9 @@ func (s *SessionStorageDriver) execUserInsert(ctx context.Context, id impulse.UU
 		return nil
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -862,9 +885,9 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 		return errors.New("ChangeUserPassword needs the auth schema: use Auth storage")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -1016,9 +1039,9 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 		return nil
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -1094,9 +1117,9 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 			OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
 		pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable(), dbtype.PrincipalKindRole)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -1130,9 +1153,9 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return errors.New("custom session data config is not set")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

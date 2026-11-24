@@ -507,13 +507,26 @@ A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
    `Provision`'s `onProvisioned` writes. A link decision
    holds the user against another link decision until the transaction ends
    (PostgreSQL: a transaction-scoped advisory lock keyed by the user, which holds
-   neither session inserts nor a rule's own reads of the user; Spanner: the
-   transaction is serializable), so two racing sign-ins from two connections cannot
-   both link a password-less user. A transaction the database ends to break a deadlock
-   or a serialization failure runs once more.
+   neither session inserts nor a rule's own reads of the user, in a transaction at
+   read committed, so the decision that waited reads the link the one before it wrote;
+   Spanner: the transaction is serializable), so two racing sign-ins from two
+   connections cannot both link a password-less user. A transaction the database ends
+   to break a deadlock or a serialization failure runs once more.
 2. **Decision and session**: the user is read (a disabled one is refused), the
    sign-in policy runs, and the session row is inserted with its auth events and custom
    session data.
+
+**The isolation level.** The store names the isolation level of its transactions: every
+read-write transaction on Spanner is serializable, whatever level the application set for
+its client, and every transaction it begins on PostgreSQL is read committed, whatever
+default the server, the database, the role or the connection sets
+(`default_transaction_isolation`). On PostgreSQL the store's rules take a lock and then
+read, and each holds only while that read sees what the transaction that held the lock
+committed. At repeatable read a transaction reads the snapshot its first statement took,
+so a link decision that waited would find no link of the one it waited for. An account
+rule, a sign-in policy and a resolver of custom session data run in the store's
+transaction, so their own statements are at that level too. A statement the store sends
+outside a transaction is one statement at the connection's default.
 
 Each transaction **commits unless a hook or the storage returns an error**. A `Reject`,
 `Confirm`, `Deny` or `RequireMFA` answer is not an error: it commits the hook's own

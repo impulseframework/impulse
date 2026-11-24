@@ -4230,6 +4230,7 @@ GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewL
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
 GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with whether each is live, most recently used first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
+GET  <prefix>/crew-listed-identities, …/{id}               List, Read on CrewListedIdentities (the sign-in identities with who manages each account, where the application has a tenant record)
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
 GET  <prefix>/crew-listed-mail-links, …/{id}               List, Read on CrewListedMailLinks (the mailed links with what became of each and who sent it, newest first)
@@ -4284,7 +4285,7 @@ POST <prefix>/end-crew-user-sessions          {"userId"}                       E
 POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
 POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
-POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
+POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewListedIdentities
 POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
@@ -4431,11 +4432,11 @@ address. In an application with a tenant record (`@tenant`) the generated manage
 declares four views per Auth, each a tenant record like any other (`@virtual`,
 `@permissionScope(domain)`, the tenant in a `domain` column), listed and read under the
 domain pair on the outlets that serve the Auth's management. The whole application's
-lists carry the names of their tables, and its lists of what is held (`CrewHeldRoles`,
-`CrewListedUsers`, `CrewListedGroups`) the Auth's name before what each lists; a tenant's
-list is named for what it holds, with the Auth's name and the application's tenant
-record's before it. A tenant record whose name would give a list one of those names (a
-record named `Session`, `User` or `Listed`) is refused at generation:
+lists are named after the Auth alone, the declarations over its tables and the views
+beside them (`CrewHeldRoles`, `CrewListedUsers` and `CrewListedGroups` among them); a
+tenant's list is named for what it holds, with the Auth's name and the application's
+tenant record's before it. A tenant record whose name would give a list one of those
+names (a record named `Session`, `User` or `Listed`) is refused at generation:
 
 - `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
   tenant or in every tenant, and, where the tenant has a directory, per person who signs
@@ -4465,6 +4466,13 @@ record named `Session`, `User` or `Listed`) is refused at generation:
   identity of a person who holds a role in two tenants is a row in each. A person's page
   lists their identities by `userId`.
 
+The whole application reads who manages each account off two of its own lists, where the
+application has a tenant record: `CrewListedUsers`, the accounts, and
+`CrewListedIdentities`, their sign-in identities. Each carries `managedByTenant` (a tenant
+manages the account) and `managingTenant` (that tenant's key, empty where none does), read
+as each tenant's list reads `managedHere`, so a role file gives the application's own
+administrators the accounts no tenant manages (`"condition": "managedByTenant = false"`).
+
 One party manages each account, and the lists say which. The tenant whose directory a
 person signs in through manages their account. A person who signs in through no tenant's
 directory, and holds something in one tenant and nothing anywhere else, is managed by
@@ -4473,7 +4481,9 @@ that tenant. Every other account is the application's own administrators' to man
 links an account under a second tenant's directory. An account that came under two all
 the same (its links stood before either tenant took its directory, or the application
 wrote one itself with the store's `LinkIdentity`) is managed by both, and `managedHere`
-is true on both rows.
+is true on both rows. On the whole application's side `managedByTenant` says a tenant
+manages the account and `managingTenant` which, and Lodestar's Headquarters holds each
+of the crew's account methods under `managedByTenant = false`.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
 it by name, and the role file says what a tenant's administrator sees of a person whose
@@ -4994,10 +5004,19 @@ grants each like any resource.
   marks no name, so a grant of `roles` shows those names whatever the reader is granted
   on the tenant record, as a line of `CrewListedGroups` does. Where the schema holds the
   trusted devices table it carries `trustedDevices` too: how many browsers are remembered
-  for the account and skip the second factor right now. The Accounts page lists it, it
-  filters by `username`, `name` and `email`, and the whole application's methods on a
-  person name their person by its row. `CrewSessionUsers`, the users table's own list,
-  stays: a picker of a person reads it.
+  for the account and skip the second factor right now. Where the application has a
+  tenant record it says who manages each account too: `managedByTenant` and
+  `managingTenant`. The Accounts page lists it, it filters by `username`, `name`, `email`
+  and the two facts, and the whole application's methods on a person name their person by
+  its row. `CrewSessionUsers`, the users table's own list, stays: a picker of a person
+  reads it.
+- `CrewListedIdentities` is the sign-in identities with who manages each account,
+  declared where the application has a tenant record: a row for each identity link, with
+  the columns of `CrewSessionIdentities`, the person's `username`, and the person's
+  `managedByTenant` and `managingTenant`. A person's page lists it, and the whole
+  application's unlink names an identity by its row, so a role file gives the unlink under
+  the same condition as the methods on the account. `CrewSessionIdentities`, the
+  identities table's own list, stays.
 - `CrewListedSessions` is the sessions as a page lists them: the session's columns and
   `live`, whether a request that carries the session is still accepted (not ended, used
   within the Auth's session timeout, and its impersonation record, where it has one,
