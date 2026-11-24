@@ -465,6 +465,23 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		}
 	})
 
+	t.Run("a person of one tenant moved by another's directory is refused a third tenant's invitation in the same sign-in", func(t *testing.T) {
+		t.Parallel()
+		m, store := build(t, access.NewMembershipKey(betaScope, dana, "Reader"))
+		store.roles[access.RoleKey{Kind: "domain", Domain: "gamma", Role: "Reader"}] = true
+		tx := new(spanner.ReadWriteTransaction)
+
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
+			t.Fatalf("the directory's default role: error = %v, want the person moved", err)
+		}
+		_, err := m.InvitationAccepted("Staff")(t.Context(), tx, userID, "dana", invitation("gamma", "Reader"))
+		assertOtherTenant(t, err, "alpha", "beta", "gamma")
+		want := []string{"delete membership domain/beta " + id + " Reader", "insert membership domain/alpha " + id + " Reader"}
+		if diff := cmp.Diff(want, store.writes); diff != "" {
+			t.Errorf("buffered writes (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("an invitation into a second tenant is refused at its acceptance for a person who came to belong to another since it was sent", func(t *testing.T) {
 		t.Parallel()
 		m, store := build(t, access.NewMembershipKey(alphaScope, dana, "Reader"))

@@ -453,3 +453,150 @@ func TestDirectoryDefaultRole_givenAtEverySignInThroughTheDirectory(t *testing.T
 		t.Errorf("the cadet's roles at Cinder after the sign-in that linked her account again = %v, want the one default role and nothing more", held)
 	}
 }
+
+// TestDirectoryDefaultRole_seatsAPersonLinkedBefore proves that a sector open to its
+// directory gives its starting role to a person who signs in through the directory and
+// holds nothing in the sector, at every sign-in, also a person whose sign-in was tied to
+// the directory before the sector took it, whatever they hold in other sectors.
+//
+// The marshal administers Anvil. The navigator, a person of the fleet's Workspace whom
+// Cinder's directory seated, is made Cinder's marshal, and removes the Workspace from
+// Cinder, so no sector holds it. The marshal signs in through the Workspace: her password
+// confirms the link, and nothing seats her. The navigator makes the Workspace Cinder's
+// directory again and opens Cinder with SectorCrew. The marshal's next sign-in through
+// the Workspace gives her SectorCrew at Cinder: her session reaches Anvil and Cinder, and
+// taking the Workspace for Anvil is refused, since a directory belongs to one sector.
+// Given Pilot at Cinder and SectorCrew removed, her next sign-in gives nothing more. With
+// Cinder made invite only and Pilot removed, her next sign-in seats her nowhere, and she
+// reaches Anvil alone.
+//
+// Demonstrates: tenancy.default-seat.
+func TestDirectoryDefaultRole_seatsAPersonLinkedBefore(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	marshalID := crewAccountID(ctx, t, governor, "marshal")
+	atCinder := func() []string {
+		t.Helper()
+
+		return rolesHeldInSector(ctx, t, governor, cinder, "marshal")
+	}
+	role := func(method, role string) {
+		t.Helper()
+		body := jsonBody(t, map[string]any{"userId": marshalID, "role": role, "domain": cinder})
+		if status, body := governor.do(ctx, http.MethodPost, crewMethod(method), body); status != http.StatusNoContent {
+			t.Fatalf("%s %s for the marshal at Cinder: status %d: %s", method, role, status, body)
+		}
+	}
+	// through signs the marshal in through the fleet's Workspace on a fresh browser,
+	// with the password that confirms the identity when the sign-in is held for it (her
+	// first sign-in through the Workspace), and answers the browser.
+	through := func(confirm bool) *browser {
+		t.Helper()
+		b := newBrowser(t, s, consoleAPI)
+		if status, body := b.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+			t.Fatalf("GET session before the marshal's login: status %d: %s", status, body)
+		}
+		status, location := b.loginConsoleGoogle(ctx, "marshal")
+		want := consolePage
+		if confirm {
+			want = consoleLogin + "?pending=confirmation&returnUrl=" + url.QueryEscape(consolePage)
+		}
+		if status != http.StatusFound || location != want {
+			t.Fatalf("the marshal's Google login: status %d to %q, want %d to %q", status, location, http.StatusFound, want)
+		}
+		if confirm {
+			if status, body := b.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
+				t.Fatalf("confirming the sign-in with the marshal's password: status %d: %s", status, body)
+			}
+		}
+		if sess := b.session(ctx); sess["authenticated"] != true || sess["username"] != "marshal" {
+			t.Fatalf("the marshal's session after the Workspace signed her in = %v, want authenticated as marshal", sess)
+		}
+
+		return b
+	}
+
+	// The navigator comes through the fleet's Workspace, which seats him at Cinder, and
+	// is made Cinder's marshal. He removes the Workspace from Cinder: no sector holds it.
+	navigator := newBrowser(t, s, consoleAPI)
+	if status, body := navigator.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the navigator's login: status %d: %s", status, body)
+	}
+	if status, location := navigator.loginConsoleGoogle(ctx, navigatorUser); status != http.StatusFound || location != consolePage {
+		t.Fatalf("the navigator's Google login: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
+	}
+	marshalOfCinder := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, navigatorUser), "role": "SectorMarshal", "domain": cinder})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), marshalOfCinder); status != http.StatusNoContent {
+		t.Fatalf("making the navigator Cinder's marshal: status %d: %s", status, body)
+	}
+	cinderRows := directories(ctx, t, governor, cinder)
+	if len(cinderRows) != 1 {
+		t.Fatalf("Cinder's directory = %+v, want the seeded fleet Workspace", cinderRows)
+	}
+	remove := `[{"op":"remove","path":"/sectors/` + cinder + `/sector-directories/` + cinderRows[0].ID + `"}]`
+	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(remove)); status != http.StatusOK {
+		t.Fatalf("removing Cinder's directory: status %d: %s", status, body)
+	}
+
+	// The marshal signs in through the Workspace while no sector holds it: her password
+	// confirms the link, and nothing seats her.
+	b := through(true)
+	if held := atCinder(); len(held) != 0 {
+		t.Fatalf("the marshal's roles at Cinder after her first sign-in through the Workspace, which no sector held = %v, want none", held)
+	}
+	if got, want := b.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
+		t.Fatalf("the marshal's chart after her first sign-in through the Workspace = %v, want %v", got, want)
+	}
+
+	// Cinder takes the Workspace again and is opened to it with SectorCrew.
+	makeCinders := `[{"op":"add","path":"/sectors/` + cinder + `/sector-directories","value":{}}]`
+	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeCinders)); status != http.StatusOK {
+		t.Fatalf("making the fleet's Workspace Cinder's directory again: status %d: %s", status, body)
+	}
+	if status, body := navigator.do(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": "SectorCrew"})); status != http.StatusOK {
+		t.Fatalf("opening Cinder to the Workspace with SectorCrew: status %d: %s", status, body)
+	}
+
+	// Her next sign-in through the Workspace gives her the starting role at Cinder, and
+	// her session reaches both sectors.
+	b = through(false)
+	if held := atCinder(); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Fatalf("the marshal's roles at Cinder after her sign-in through the directory Cinder took = %v, want the starting role", held)
+	}
+	if got, want := b.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
+		t.Errorf("the marshal's chart after Cinder seated her = %v, want %v", got, want)
+	}
+	// A directory belongs to one sector: taking the Workspace for Anvil is refused.
+	makeAnvils := `[{"op":"add","path":"/sectors/` + anvil + `/sector-directories","value":{}}]`
+	status, body := b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeAnvils))
+	if want := "Google Workspace example already has a sector here, and a directory belongs to one sector. Ask that sector's administrator to invite you."; status != http.StatusConflict || !strings.Contains(string(body), want) {
+		t.Errorf("taking Cinder's directory for Anvil: status %d, want 409 saying %q: %s", status, want, body)
+	}
+
+	// Given Pilot at Cinder and the starting role removed, she holds something there:
+	// her next sign-in gives nothing more.
+	role("assign-crew-role", "Pilot")
+	role("remove-crew-role", "SectorCrew")
+	through(false)
+	if held := atCinder(); !slices.Equal(held, []string{"Pilot"}) {
+		t.Errorf("the marshal's roles at Cinder after signing in while she held Pilot = %v, want Pilot alone", held)
+	}
+
+	// Cinder is made invite only and Pilot removed: her next sign-in seats her nowhere,
+	// and she reaches Anvil alone.
+	if status, body := navigator.do(ctx, http.MethodPost, sectorPath(cinder, "make-sector-invite-only"), []byte(`{}`)); status != http.StatusOK {
+		t.Fatalf("making Cinder invite only: status %d: %s", status, body)
+	}
+	role("remove-crew-role", "Pilot")
+	b = through(false)
+	if held := atCinder(); len(held) != 0 {
+		t.Errorf("the marshal's roles at Cinder after signing in while it is invite only = %v, want none", held)
+	}
+	if got, want := b.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
+		t.Errorf("the marshal's chart once Cinder is invite only = %v, want %v", got, want)
+	}
+}

@@ -466,8 +466,9 @@ const (
 	// person belongs to another tenant, in an application where a person belongs to
 	// one (the identity package's WithOneTenantPerPerson). The session library never
 	// answers it itself: the application's hooks do, and a sign-in ends on it when the
-	// invitation it carries, or the default role of the directory it came through,
-	// would seat the person in a second tenant.
+	// invitation it carries would seat the person in a second tenant. A sign-in through
+	// the directory of a tenant that is open to it is not refused: the identity
+	// package's hook moves the person to the directory's tenant.
 	RefusedOtherTenant LoginRefusalCode = "other_tenant"
 	// RefusedSecondDirectory is the code for a sign-in through one tenant's directory
 	// that reached an account which already signs in through another tenant's

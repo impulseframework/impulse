@@ -13,6 +13,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
@@ -29,8 +30,10 @@ import (
 // person hold roles in several sectors, so the suite builds a second identity client
 // over the served stack's engine and session manager, with the option, and drives the
 // generated methods and the two sign-in hooks through it in transactions of its own:
-// a role in a second sector is refused whichever way it would be given, the refusal
-// never says which sector holds the person, nothing of a refused act is written or
+// a role in a second sector is refused when it is given by hand or by an invitation,
+// a person of one sector who signs in through another sector's directory is moved to
+// it, every role and group place in the first sector taken in the same transaction,
+// the refusal never says which sector holds the person, nothing of a refused act is written or
 // mailed, a rename moves no role since a name holds none and is no use of the
 // person's session, an address
 // counts for an invitation once its holder has confirmed it, and the crew's own
@@ -418,6 +421,109 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		refused(t, "Bastion's invitation accepted by a person who belongs to Anvil", err)
 		if held := crewHolds(t, s.db, newcomer); !slices.Equal(held, want) {
 			t.Errorf("after the refused acceptance the person holds %v, want %v", held, want)
+		}
+	})
+
+	t.Run("a person of one sector who signs in through another sector's directory is moved to it, and the crew's own are seated keeping everything", func(t *testing.T) {
+		// seat runs the directory hook as a sign-in through Anvil's directory does, in a
+		// transaction of the suite's own, and its committed function once it has
+		// committed.
+		seat := func(userID impulse.UUID, username string) error {
+			var committed func(context.Context)
+			_, err := s.db.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+				seated, err := strict.DirectorySeated().Seat(ctx, tx, userID, username, []signin.DirectorySeat{{Tenant: accesstypes.Domain(anvil), Role: "Cadet"}})
+				if err != nil {
+					return fmt.Errorf("DirectorySeated().Seat(%s): %w", username, err)
+				}
+				committed = seated
+
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("spanner.Client.ReadWriteTransaction(): %w", err)
+			}
+			if committed != nil {
+				committed(ctx)
+			}
+
+			return nil
+		}
+		// placesOf counts the groups the account is in.
+		placesOf := func(userID impulse.UUID) int64 {
+			t.Helper()
+
+			var n int64
+			stmt := spanner.Statement{SQL: "SELECT COUNT(*) FROM CrewGroupMembers WHERE UserId = @user", Params: map[string]any{"user": userID.String()}}
+			if err := s.db.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error { return row.Columns(&n) }); err != nil {
+				t.Fatalf("counting the groups the account is in: %v", err)
+			}
+
+			return n
+		}
+
+		// mover is a person of Bastion: a role there given by hand, and a place in one of
+		// its groups.
+		mover := "mover-" + suffix
+		moverID := s.seedCrewAccount(ctx, t, mover, nil)
+		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return (&crewidentity.AssignCrewRole{UserID: moverID, Role: "Pilot", Domain: &bastionSector}).Execute(ctx, txn, strict)
+		}); err != nil {
+			t.Fatalf("a first role in Bastion: %v", err)
+		}
+		group, err := impulse.NewUUID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		inBastion := access.NewMembershipKey(accesstypes.DomainPolicyScope(accesstypes.Domain(bastion)), "", "")
+		if _, err := s.db.Client.Apply(ctx, []*spanner.Mutation{
+			spanner.InsertMap("CrewGroups", map[string]any{
+				"Id": group.String(), "Kind": inBastion.Kind, "Axis": inBastion.Axis, "DomainId": inBastion.Domain, "Name": "Night watch " + suffix,
+				"Description": "Bastion's night watch, for the move.", "UpdatedAt": spanner.CommitTimestamp,
+			}),
+			spanner.InsertMap("CrewGroupMembers", map[string]any{"GroupId": group.String(), "UserId": moverID.String(), "CreatedAt": spanner.CommitTimestamp}),
+		}); err != nil {
+			t.Fatalf("a place in a group of Bastion: %v", err)
+		}
+
+		// The directory's default role moves the person to Anvil: no refusal, the seat
+		// given there, and nothing left in Bastion.
+		if err := seat(moverID, mover); err != nil {
+			t.Fatalf("the sign-in through Anvil's directory of a person of Bastion: %v, want the person moved", err)
+		}
+		if held, want := crewHolds(t, s.db, mover), []string{"domain/" + anvil + " Cadet"}; !slices.Equal(held, want) {
+			t.Errorf("after the move the person holds %v, want %v", held, want)
+		}
+		if n := placesOf(moverID); n != 0 {
+			t.Errorf("after the move the person is in %d group(s), want none: the place in Bastion's group goes with the move", n)
+		}
+
+		// An invitation into a second sector is still refused at its acceptance.
+		_, err = s.db.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+			_, err := strict.InvitationAccepted()(ctx, tx, moverID, mover, &sessioninfo.Invitation{Email: mover + "@example.com", TenantID: bastion, RoleNames: []string{"Pilot"}})
+
+			return err
+		})
+		refused(t, "Bastion's invitation accepted by a person the move made Anvil's", err)
+
+		// steward holds a role for the whole fleet beside one in Bastion: one of the
+		// crew's own, seated in Anvil, keeping everything.
+		steward := "steward-" + suffix
+		stewardID := s.seedCrewAccount(ctx, t, steward, nil)
+		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			if err := (&crewidentity.AssignCrewRole{UserID: stewardID, Role: "ClientBrowser"}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("AssignCrewRole(%s, ClientBrowser): %w", steward, err)
+			}
+
+			return (&crewidentity.AssignCrewRole{UserID: stewardID, Role: "Pilot", Domain: &bastionSector}).Execute(ctx, txn, strict)
+		}); err != nil {
+			t.Fatalf("a role for the whole fleet and one in Bastion: %v", err)
+		}
+		if err := seat(stewardID, steward); err != nil {
+			t.Fatalf("the sign-in through Anvil's directory of one of the crew's own: %v", err)
+		}
+		want := []string{"domain/" + anvil + " Cadet", "domain/" + bastion + " Pilot", "global/ ClientBrowser"}
+		if held := crewHolds(t, s.db, steward); !slices.Equal(held, want) {
+			t.Errorf("one of the crew's own holds %v after the sign-in, want %v", held, want)
 		}
 	})
 

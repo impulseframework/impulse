@@ -21,7 +21,10 @@ import (
 // tenants hold, unless the person signs in through one's directory. The application says
 // so with WithOneTenantPerPerson, and every way a person comes to hold a role in a tenant
 // is then held to it. All of them write their membership through AssignRole: a role given
-// by hand, an invitation accepted, and a directory's default role. A role is held by an
+// by hand, an invitation accepted, and a directory's default role. The default role is
+// not refused for a person who belongs to another tenant: the directory's tenant owns its
+// directory's people, so such a person is moved to it, what they held in the other
+// tenant taken in the same transaction (DirectorySeated). A role is held by an
 // account, never by a name, so a rename moves nothing. An invitation is refused when it
 // is sent too (Invite), where an account another tenant holds has confirmed the address,
 // so the sender is told and the invited person is not left with a link they cannot
@@ -44,12 +47,13 @@ import (
 // WithOneTenantPerPerson says a person belongs to one tenant: a role in a tenant is
 // refused for a person who holds a role in another (AssignRole), and an invitation into
 // a tenant for an address whose account another tenant holds (Invite). A refusal is a
-// Conflict that carries the login refusal code sessioninfo.RefusedOtherTenant, which a
-// sign-in that would seat the person in a second tenant ends on. A person who holds a
-// role for the whole application or in every tenant is the application's own and is
-// never refused; the last such role is not taken from a person who holds roles in more
-// than one tenant (RemoveRole). Without the option a person may hold roles in any
-// number of tenants.
+// Conflict that carries the login refusal code sessioninfo.RefusedOtherTenant, which an
+// invitation into a second tenant accepted at a sign-in ends on. A sign-in through the
+// directory of a tenant that is open to it is not refused: the directory's tenant takes
+// its people (DirectorySeated). A person who holds a role for the whole application or
+// in every tenant is the application's own and is never refused; the last such role is
+// not taken from a person who holds roles in more than one tenant (RemoveRole). Without
+// the option a person may hold roles in any number of tenants.
 func WithOneTenantPerPerson() Option {
 	return func(m *Manager) {
 		m.oneTenant = &signInTenants{mu: sync.Mutex{}, notes: map[any]*signInNote{}}
@@ -90,7 +94,10 @@ func (m *Manager) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransac
 // their own and the groups they are in (holds), a place in a tenant's group counting as a
 // role in that tenant, and, at a sign-in, as the hooks of the sign-in's transaction have
 // given so far (signInTenants). A membership held for the whole application or in every
-// tenant is not a tenant's and is never refused.
+// tenant is not a tenant's and is never refused. The directory's default role of a
+// person the directory's tenant takes from another (giveDirectoryRoles) is not refused
+// for what is committed in the other tenant, which the same transaction has deleted
+// (movingInto); what the sign-in's hooks have given is still held against it.
 func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID) error {
 	domain, inTenant := scope.Domain()
 	if m.oneTenant == nil || !inTenant {
@@ -103,7 +110,8 @@ func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWrite
 	if outsideTenants(held) {
 		return nil
 	}
-	if inAnotherTenant(held, scope) || !m.oneTenant.give(ctx, userID, string(domain)) {
+	elsewhere := inAnotherTenant(held, scope) && !movedInto(ctx, userID, scope)
+	if elsewhere || !m.oneTenant.give(ctx, userID, string(domain)) {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
 			"This account already belongs to another %s, and a person belongs to one %s here. The role is not given.", m.tenantWord, m.tenantWord,
 		))
@@ -233,6 +241,32 @@ func inAnotherTenant(held []access.MembershipKey, scope accesstypes.PolicyScope)
 
 // signInTransaction is the context key a sign-in hook names its transaction under.
 type signInTransaction struct{}
+
+// movingKey is the context key the move of a person into a directory's tenant names
+// them and the tenant under (movingInto).
+type movingKey struct{}
+
+// moving is the person a directory's tenant takes from another tenant, and the scope of
+// the tenant that takes them.
+type moving struct {
+	userID impulse.UUID
+	scope  accesstypes.PolicyScope
+}
+
+// movingInto answers ctx naming userID as the person giveDirectoryRoles moves into the
+// tenant scope names, for the one assignment of the directory's default role that
+// follows the deletion of what they held in other tenants.
+func movingInto(ctx context.Context, userID impulse.UUID, scope accesstypes.PolicyScope) context.Context {
+	return context.WithValue(ctx, movingKey{}, moving{userID: userID, scope: scope})
+}
+
+// movedInto reports whether ctx names userID as moved into the tenant scope names
+// (movingInto).
+func movedInto(ctx context.Context, userID impulse.UUID, scope accesstypes.PolicyScope) bool {
+	named, ok := ctx.Value(movingKey{}).(moving)
+
+	return ok && named.userID == userID && named.scope == scope
+}
 
 // signInTenants is what the hooks of a sign-in share about the tenant each person was
 // given a role in. The session library runs two hooks in the sign-in's one transaction,

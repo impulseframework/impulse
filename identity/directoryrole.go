@@ -28,8 +28,8 @@ const (
 
 // DirectoryRole holds the role a tenant is opened to its directory's people with to its
 // rules, in the caller's transaction, and writes nothing. The role is given to every
-// person the directory vouches for at their first sign-in through it
-// (DirectorySeated), to people nobody named, so the person who names it is held to what
+// person the directory vouches for when they sign in through it and hold nothing in the
+// tenant (DirectorySeated), to people nobody named, so the person who names it is held to what
 // giving it by hand needs:
 //
 //   - the role exists in the tenant, by the rule a membership's role is held to: a role

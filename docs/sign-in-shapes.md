@@ -1312,9 +1312,13 @@ its identity client, the object that carries out every change to the auth's acco
 `--one-tenant-per-person` on `impulse new` and `impulse add tenancy` writes it, and so
 does `--shape` with shape 5 or 6. With the option:
 
-- a role in a tenant is refused for a person who holds a role in another tenant, however
-  it would be given: directly, by an accepted invitation, or by a directory's default
-  role;
+- a role in a tenant is refused for a person who holds a role in another tenant, when it is
+  given directly or by an accepted invitation;
+- a person who signs in through the directory of a tenant that is open to it, and belongs
+  to another tenant, is moved to the directory's tenant: they are given its default role
+  there, and lose every role and every place in a group they held in the other tenant,
+  also when they were its last administrator. Nothing else of their account changes. The
+  directory's tenant owns its directory's people, whoever arrived first;
 - an invitation into a tenant is refused as soon as it is sent, if the invited email
   address is the confirmed address of an account that belongs to another tenant;
 - a refusal never says which tenant holds the person.
@@ -1396,7 +1400,9 @@ Before the method is added, the line ends after `come by invitation alone`.
 `impulse add tenancy`.
 
 - **Gets an account**: anyone in the tenant's directory, once the tenant has opened
-  itself to its directory. They land in that tenant. A person belongs to one tenant, so
+  itself to its directory. They land in that tenant. So does a person of the directory
+  who was invited into another tenant first: their next sign-in through the directory
+  moves them. A person belongs to one tenant, so
   an invitation from a second tenant is refused, when it is sent or when it is accepted.
 - **Starts with**: the default role the tenant set for its directory. A tenant that sets
   no default role invites its people instead.
