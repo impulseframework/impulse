@@ -1544,9 +1544,9 @@ func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 // is given its starting role again at their next sign-in: the client answers it where the
 // tenant's directories record declares the default seat and the auth keeps identities,
 // with or without the tenant record's directory-only switch, by one statement over the
-// directories table and the identities table; and the warning of the method that removes
-// a person from a tenant asks it and adds the note on yes. Where the read is not written,
-// the warning is the removal's own.
+// directories table and the identities table, where the auth's roles are given by hand;
+// and the warning of the method that removes a person from a tenant asks it and adds the
+// note on yes. Where the read is not written, the warning is the removal's own.
 func Test_identitySeatedAgainBySignIn(t *testing.T) {
 	t.Parallel()
 
@@ -1563,6 +1563,11 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
 			Policy: access.Tables{UserRoles: "CrewUserRoles"},
 		}
+	}
+	synced := func(d *identitySourceData) *identitySourceData {
+		d.rolesSynced = true
+
+		return d
 	}
 	sector := func(directory *identityTenantDirectory, seated *identityDirectorySeat) *identityTenant {
 		seatColumn := ""
@@ -1589,6 +1594,7 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 		{name: "a directories record with a default seat, a tenant record with no switch, an auth that keeps identities", data: data(sector(nil, seat), identityUsers, identityMemberships, identityIdentities), reads: true},
 		{name: "a directories record with no default seat: not read", data: data(sector(directory, nil), identityUsers, identityMemberships, identityIdentities)},
 		{name: "an auth that keeps no identities: not read", data: data(sector(directory, seat), identityUsers, identityMemberships)},
+		{name: "an auth whose directory writes its roles: not read", data: synced(data(sector(directory, seat), identityUsers, identityMemberships, identityIdentities))},
 		{name: "no tenant record: not read", data: data(nil, identityUsers, identityMemberships, identityIdentities)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

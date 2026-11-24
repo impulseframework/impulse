@@ -69,11 +69,12 @@ func (d *identitySourceData) DirectorySeat() *identityDirectorySeat {
 // ReadsSeatedAgain reports whether the instance's client answers whether a person removed
 // from a tenant is given its starting role again at their next sign-in
 // (SeatedAgainBySignIn), which the warning of the method that removes a person from a
-// tenant asks: the tenant's directories record declares the default seat (DirectorySeat)
-// and the auth keeps the identities its people sign in through a directory with
-// (HasIdentities).
+// tenant asks: the tenant's directories record declares the default seat (DirectorySeat),
+// the auth keeps the identities its people sign in through a directory with
+// (HasIdentities), and its roles are given by hand. An auth whose directory writes its
+// roles has no such method to ask.
 func (d *identitySourceData) ReadsSeatedAgain() bool {
-	return d.DirectorySeat() != nil && d.HasIdentities()
+	return d.DirectorySeat() != nil && d.HasIdentities() && !d.rolesSynced
 }
 
 // TenantDirectory is the tenant record's directory-only switch and directory as the
