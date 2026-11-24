@@ -28,9 +28,10 @@ import { tenantsConfig, tenantsPage, tenantsRoute } from './tenant-pages';
 // side of the Auth whose people make the tenants names the server's list of tenants
 // (`tenants`), the invitations still waiting (`invitedTenants`) and the method that sends
 // one. The list shows each tenant with the record's own fields, its directory, its people
-// and since when; a tenant's page shows the record's fields, and under them a summary that
-// names its administrators. Where the description names no list of tenants the page lists
-// the tenant record itself.
+// and, where the record marks when a tenant was made (`tenantSinceField`), since when; a
+// tenant's page shows the record's fields, and under them a summary that names its
+// administrators. Where the description names no list of tenants the page lists the tenant
+// record itself.
 
 const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
   ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
@@ -74,7 +75,8 @@ const metas: Record<string, ResourceMeta> = {
       field('administrators', { displayType: 'string[]' }),
     ],
   } as ResourceMeta,
-  // The tenant record says which of its fields a sector is called by.
+  // The tenant record says which of its fields a sector is called by, and keeps when each
+  // was charted, which the database writes and the list carries as since.
   [sectors]: {
     route: 'sectors',
     nameField: 'name',
@@ -83,6 +85,7 @@ const metas: Record<string, ResourceMeta> = {
       field('name'),
       field('region'),
       field('established', { displayType: 'civildate' }),
+      field('chartedAt', { displayType: 'date', readOnly: true }),
       field('directoryOnly', { displayType: 'boolean' }),
     ],
   } as ResourceMeta,
@@ -104,6 +107,7 @@ const crewOf = (lists: Record<string, string>, extra: Partial<IdentityDescriptor
   tenant: 'Sector',
   tenantResource: sectors,
   tenantDirectoryOnlyField: 'directoryOnly',
+  tenantSinceField: 'chartedAt',
   sides: [
     {
       scope: 'global',
@@ -196,6 +200,107 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(list(config).listColumns[0].opensRow).toBe(true);
     expect(list(config).listColumns.filter((column) => column.opensRow)).toHaveLength(1);
     expect(hiddenIds(list(config).listColumns)).toEqual(['id']);
+    // The record's own field for when a sector was charted is the list's Since, and no
+    // column of its own.
+    expect(list(config).listColumns.map((column) => column.id)).not.toContain('chartedAt');
+  });
+
+  it('draw no Since where the description names no field for when a tenant was made', () => {
+    const plainMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [sectors]: {
+        ...metas[sectors],
+        fields: metas[sectors].fields.filter((candidate) => candidate.fieldName !== 'chartedAt'),
+      } as ResourceMeta,
+      [listed]: {
+        ...metas[listed],
+        fields: metas[listed].fields.filter((candidate) => candidate.fieldName !== 'since'),
+      } as ResourceMeta,
+    };
+    const built = tenantsConfig(
+      descriptorOf(crewOf({ invitedTenants: invited, tenants: listed }, { tenantSinceField: undefined })),
+      (resource) => plainMetas[resource],
+      { auth: 'Crew' },
+    );
+    expect(shown(list(built).listColumns)).toEqual([
+      ['name', 'Name'],
+      ['region', 'Region'],
+      ['established', 'Established'],
+      ['directory', 'Directory'],
+      ['directoryOnly', 'Directory only'],
+      ['people', 'People'],
+    ]);
+    const summary = built.relatedConfigs[0] as ListViewConfig;
+    expect(shown(summary.listColumns)).toEqual([
+      ['administrators', 'Administrators'],
+      ['directory', 'Directory'],
+      ['people', 'People'],
+    ]);
+  });
+
+  it('carry a field of the record named since as any field where the description names none', () => {
+    const sinceMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [sectors]: {
+        ...metas[sectors],
+        fields: [
+          ...metas[sectors].fields.filter((candidate) => candidate.fieldName !== 'chartedAt').slice(0, 3),
+          field('since', { displayType: 'date' }),
+          ...metas[sectors].fields.filter((candidate) => candidate.fieldName !== 'chartedAt').slice(3),
+        ],
+      } as ResourceMeta,
+    };
+    const built = tenantsConfig(
+      descriptorOf(crewOf({ invitedTenants: invited, tenants: listed }, { tenantSinceField: undefined })),
+      (resource) => sinceMetas[resource],
+      { auth: 'Crew' },
+    );
+    expect(shown(list(built).listColumns)).toEqual([
+      ['name', 'Name'],
+      ['region', 'Region'],
+      ['since', 'Since'],
+      ['established', 'Established'],
+      ['directory', 'Directory'],
+      ['directoryOnly', 'Directory only'],
+      ['people', 'People'],
+    ]);
+    expect(formOf(built).children.map((element) => (element as FieldElement).name)).toEqual([
+      'name',
+      'region',
+      'since',
+      'established',
+      'directoryOnly',
+      'id',
+    ]);
+    const summary = built.relatedConfigs[0] as ListViewConfig;
+    expect(shown(summary.listColumns).map(([id]) => id)).toEqual(['administrators', 'directory', 'people']);
+  });
+
+  it("draw one Since column, after People, where the record's own field for it is named since", () => {
+    const sinceMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [sectors]: {
+        ...metas[sectors],
+        fields: metas[sectors].fields.map((candidate) =>
+          candidate.fieldName === 'chartedAt' ? field('since', { displayType: 'date', readOnly: true }) : candidate,
+        ),
+      } as ResourceMeta,
+    };
+    const built = tenantsConfig(
+      descriptorOf(crewOf({ invitedTenants: invited, tenants: listed }, { tenantSinceField: 'since' })),
+      (resource) => sinceMetas[resource],
+      { auth: 'Crew' },
+    );
+    expect(shown(list(built).listColumns)).toEqual([
+      ['name', 'Name'],
+      ['region', 'Region'],
+      ['established', 'Established'],
+      ['directory', 'Directory'],
+      ['directoryOnly', 'Directory only'],
+      ['people', 'People'],
+      ['since', 'Since'],
+    ]);
+    expect(formOf(built).children.map((element) => (element as FieldElement).name)).not.toContain('since');
   });
 
   it('leave out the switch where the description names none, and a field the list does not carry', () => {
@@ -413,6 +518,7 @@ describe('tenantsPage and tenantsRoute', () => {
       ['region', 'Region'],
       ['established', 'Established'],
       ['directoryOnly', 'Directory only'],
+      ['chartedAt', 'Since'],
     ]);
     expect(hiddenIds(list(built).listColumns)).toEqual(['id']);
     expect(list(built).above).toBeUndefined();
@@ -421,6 +527,42 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(built.relatedConfigs).toEqual([]);
     expect(list(built).rowTitle?.({ id: 'a1', name: 'Driftmoor' })).toBe('Driftmoor');
     expect(list(built).rowButtons?.map((button) => button.label)).toEqual(['Open this sector']);
+    // The record's own field for when a sector was charted is a field of the form, labeled
+    // Since, read only where its metadata says the server never takes it.
+    expect(
+      formOf(built).children.map((element) => {
+        const drawn = element as FieldElement;
+        return [drawn.name, drawn.label, drawn.cols, drawn.readOnly];
+      }),
+    ).toEqual([
+      ['name', 'Name', 4, false],
+      ['region', 'Region', 4, false],
+      ['established', 'Established', 4, false],
+      ['directoryOnly', 'Directory only', 4, true],
+      ['chartedAt', 'Since', 4, false],
+      ['id', 'Id', 4, true],
+    ]);
+  });
+
+  it('list the tenant record itself with no Since where the description names no field for it', () => {
+    const plainMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [sectors]: {
+        ...metas[sectors],
+        fields: metas[sectors].fields.filter((candidate) => candidate.fieldName !== 'chartedAt'),
+      } as ResourceMeta,
+    };
+    const built = tenantsConfig(
+      descriptorOf(crewOf({ invitedTenants: invited }, { tenantSinceField: undefined })),
+      (resource) => plainMetas[resource],
+      { auth: 'Crew' },
+    );
+    expect(shown(list(built).listColumns)).toEqual([
+      ['name', 'Name'],
+      ['region', 'Region'],
+      ['established', 'Established'],
+      ['directoryOnly', 'Directory only'],
+    ]);
     expect(formOf(built).children).toHaveLength(5);
   });
 

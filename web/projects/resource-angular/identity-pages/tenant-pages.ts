@@ -31,13 +31,14 @@ import { identityPages } from './identity-pages';
 //
 // The whole application's side of the Auth whose people make the tenants names the
 // server's list of tenants (`tenants`): each tenant with the record's own fields, the
-// kind of directory its people sign in through, how many people it has and since when,
-// and who administers it. These functions place the page that lists them, with the
-// invitations still waiting above it (staff bring an organization in by inviting one
-// person, so nobody creates a tenant directly), and a tenant's page: the record's fields,
-// and under them a summary that names its administrators. A description that names no
-// such list (one from a generator that predates it, or an outlet that does not serve it)
-// gets a page over the tenant record itself.
+// kind of directory its people sign in through, how many people it has, since when where
+// the tenant record keeps that, and who administers it. These functions place the page
+// that lists them, with the invitations still waiting above it (staff bring an
+// organization in by inviting one person, so nobody creates a tenant directly), and a
+// tenant's page: the record's fields, and under them a summary that names its
+// administrators. A description that names no such list (one from a generator that
+// predates it, or an outlet that does not serve it) gets a page over the tenant record
+// itself.
 
 /** Which Auth's tenants the page lists, and the methods of the application's own its tenant's page offers. */
 export interface TenantPagesOptions {
@@ -129,6 +130,8 @@ interface RecordFields {
   key: string;
   /** The tenant's own directory-only switch, where the description names it. */
   directoryOnly: string | undefined;
+  /** The record's field that says when the tenant was made, where the description names it. */
+  since: string | undefined;
   /** Every other field of the record, in the record's order. */
   others: string[];
 }
@@ -163,6 +166,10 @@ function buildTenants(
   const listedFields = new Set(
     (resourceMeta(listed ?? record)?.fields ?? []).map((candidate) => String(candidate.fieldName)),
   );
+  // Since: the list's own column where the list carries it, and the record's own field
+  // where the page lists the record; none where the description names no such field.
+  const sinceField = listed ? 'since' : fields.since;
+  const since = fields.since && sinceField && listedFields.has(sinceField) ? sinceField : undefined;
   const opens = openButton(fields, words);
   const waiting = listed ? waitingList(descriptor, resourceMeta, options.auth, side.lists.invitedTenants) : undefined;
   const invite = waiting?.listMethods;
@@ -173,12 +180,8 @@ function buildTenants(
       .map((name) => ({ id: name as FieldName, header: nameInWords(name) })),
     ...(listed && listedFields.has('directory') ? [{ id: 'directory' as FieldName, header: 'Directory' }] : []),
     ...(fields.directoryOnly ? [{ id: fields.directoryOnly as FieldName, header: 'Directory only' }] : []),
-    ...(listed
-      ? [
-          { id: 'people' as FieldName, header: 'People' },
-          { id: 'since' as FieldName, header: 'Since' },
-        ]
-      : []),
+    ...(listed ? [{ id: 'people' as FieldName, header: 'People' }] : []),
+    ...(since ? [{ id: since as FieldName, header: 'Since' }] : []),
     // Read with each row and not drawn: what the row button and the row's link open by.
     { id: fields.key as FieldName, hidden: true },
   ];
@@ -196,9 +199,9 @@ function buildTenants(
       rowButtons: [opens],
       ...(invite ? { listMethods: invite } : {}),
       ...(waiting ? { above: [waitingAbove(waiting, words)] } : {}),
-      elements: [section({ label: words.One, children: formFields(fields) })],
+      elements: [section({ label: words.One, children: formFields(fields, !listed) })],
     }),
-    relatedConfigs: listed ? [summary(listed, listedFields, fields.key, opens)] : [],
+    relatedConfigs: listed ? [summary(listed, listedFields, fields.key, since !== undefined, opens)] : [],
     ...(options.rpcConfigs ? { rpcConfigs: options.rpcConfigs } : {}),
   });
 }
@@ -219,28 +222,35 @@ function recordFields(identity: IdentityDescriptor, meta: ResourceMeta | undefin
   const key = String(keyFields(meta)[0]?.fieldName ?? 'id');
   const name = meta?.nameField ? String(meta.nameField) : undefined;
   const directoryOnly = identity.tenantDirectoryOnlyField;
+  const since = identity.tenantSinceField;
   return {
     name,
     key,
     directoryOnly,
+    since,
     others: (meta?.fields ?? [])
       .map((candidate) => String(candidate.fieldName))
-      .filter((candidate) => candidate !== key && candidate !== name && candidate !== directoryOnly),
+      .filter(
+        (candidate) => candidate !== key && candidate !== name && candidate !== directoryOnly && candidate !== since,
+      ),
   };
 }
 
 /**
  * A tenant's form: the name, the record's other fields, and the directory-only switch and
  * the key, both shown and never changed here (the switch is the tenant's own, on its
- * Sign-in settings page).
+ * Sign-in settings page). The record's field for when the tenant was made is no field of
+ * the form where the page has a summary, which says Since; where the page lists the record
+ * itself the form holds it, labeled Since.
  */
-function formFields(fields: RecordFields): ConfigElement[] {
+function formFields(fields: RecordFields, listsRecord: boolean): ConfigElement[] {
   return [
     ...(fields.name ? [field({ name: fields.name as FieldName, label: 'Name', cols: 4 })] : []),
     ...fields.others.map((name) => field({ name: name as FieldName, label: nameInWords(name), cols: 4 })),
     ...(fields.directoryOnly
       ? [field({ name: fields.directoryOnly as FieldName, label: 'Directory only', cols: 4, readOnly: true })]
       : []),
+    ...(listsRecord && fields.since ? [field({ name: fields.since as FieldName, label: 'Since', cols: 4 })] : []),
     field({ name: fields.key as FieldName, label: 'Id', cols: 4, readOnly: true }),
   ];
 }
@@ -320,11 +330,17 @@ function openButton(fields: RecordFields, words: TenantWords): RowButton {
 
 /**
  * The summary under a tenant's row: the server's list of tenants, filtered to the row, for
- * what the record does not hold (who administers the tenant, its directory, how many
- * people it has and since when), with the button that opens the tenant. It reads and
- * changes nothing.
+ * what the tenant's form does not show (who administers the tenant, its directory, how many
+ * people it has, and since when where the record keeps that), with the button that opens
+ * the tenant. It reads and changes nothing.
  */
-function summary(listed: Resource, carried: Set<string>, key: string, opens: RowButton): ChildResourceConfig {
+function summary(
+  listed: Resource,
+  carried: Set<string>,
+  key: string,
+  saysSince: boolean,
+  opens: RowButton,
+): ChildResourceConfig {
   const fixed = (id: string, header: string, lines = false): ColumnConfig => ({
     id: id as FieldName,
     header,
@@ -340,7 +356,7 @@ function summary(listed: Resource, carried: Set<string>, key: string, opens: Row
       fixed('administrators', 'Administrators', true),
       ...(carried.has('directory') ? [fixed('directory', 'Directory')] : []),
       fixed('people', 'People'),
-      fixed('since', 'Since'),
+      ...(saysSince ? [fixed('since', 'Since')] : []),
       { id: key as FieldName, hidden: true },
     ],
     showViewButton: false,
