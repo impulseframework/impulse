@@ -153,7 +153,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -162,6 +163,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -201,7 +214,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -210,6 +224,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -614,7 +640,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -623,6 +650,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -653,7 +692,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -662,6 +702,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"

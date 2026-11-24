@@ -134,6 +134,17 @@ export interface CrewListedGroupRoles {
   domainName?: string;
 }
 
+export interface CrewListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  expired?: boolean;
+  live?: boolean;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface CrewListedUsers {
   id: string;
   username?: string;
@@ -146,6 +157,7 @@ export interface CrewListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  trustedDevices?: number;
 }
 
 export interface CrewRoles {
@@ -513,6 +525,17 @@ export interface MembersHeldRoles {
   reason?: string;
 }
 
+export interface MembersListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  expired?: boolean;
+  live?: boolean;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface MembersListedUsers {
   id: string;
   username?: string;
@@ -525,6 +548,7 @@ export interface MembersListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  trustedDevices?: number;
 }
 
 export interface MembersRoles {
@@ -1350,6 +1374,21 @@ const resourceMap = defineResourceMap({
     ],
     nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
+  [Resources.CrewListedSessions]: {
+    route: 'crew-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.CrewListedUsers]: {
     route: 'crew-listed-users',
     live: true,
@@ -1366,6 +1405,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
     ],
   },
   [Resources.CrewRoles]: {
@@ -1887,6 +1927,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersListedSessions]: {
+    route: 'members-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.MembersListedUsers]: {
     route: 'members-listed-users',
     live: true,
@@ -1903,6 +1958,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
     ],
   },
   [Resources.MembersRoles]: {
@@ -2937,6 +2993,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewHeldRoles]: PermissionScopes.global,
   [Resources.CrewListedGroups]: PermissionScopes.global,
   [Resources.CrewListedGroupRoles]: PermissionScopes.global,
+  [Resources.CrewListedSessions]: PermissionScopes.global,
   [Resources.CrewListedUsers]: PermissionScopes.global,
   [Resources.CrewRoles]: PermissionScopes.global,
   [Resources.CrewSectorGroups]: PermissionScopes.domain,
@@ -2966,6 +3023,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Hangars]: PermissionScopes.domain,
   [Resources.HangarPasses]: PermissionScopes.domain,
   [Resources.MembersHeldRoles]: PermissionScopes.global,
+  [Resources.MembersListedSessions]: PermissionScopes.global,
   [Resources.MembersListedUsers]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,
   [Resources.MembersSectorHeldRoles]: PermissionScopes.domain,

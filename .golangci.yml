@@ -434,6 +434,14 @@ linters:
       - wrapcheck
       path: resource/(.*/)?upload\.go
       text: io.Reader
+    # The identity tests' stand-in for the session library's API is built as a value in some
+    # forty places, and its methods take it by value; the session timeout it holds made it as
+    # large as the limit. A copy in a test costs nothing, and a pointer receiver would make
+    # each value the tests build of it stop meeting the interface.
+    - linters:
+      - gocritic
+      path: identity/identity_test\.go
+      text: 'hugeParam: s is heavy'
     - linters:
       - gocritic
       path: resource/(.*/)?query_decoder_test\.go

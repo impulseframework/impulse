@@ -56,7 +56,7 @@ func Test_identityOn(t *testing.T) {
 			outlet:    "console",
 			instances: []*identityInstance{crew},
 			served: []string{
-				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
+				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewListedSessions", "CrewSessionSignInAttempts",
 				"CrewSignInMethods", "CrewSignInWays",
 				// A tenant's roles are the one list that says where each comes from, and the
 				// list of the roles people hold themselves is no part of the description.
@@ -83,7 +83,7 @@ func Test_identityOn(t *testing.T) {
 						Lists: []identityPart{
 							part("users", "CrewSessionUsers"), part("roles", "CrewUserRoles"), part("identities", "CrewSessionIdentities"),
 							part("signInWays", "CrewSignInWays"),
-							part("invitations", "CrewSessionMailLinks"), part("sessions", "CrewSessions"), part("signInAttempts", "CrewSessionSignInAttempts"),
+							part("invitations", "CrewSessionMailLinks"), part("sessions", "CrewListedSessions"), part("signInAttempts", "CrewSessionSignInAttempts"),
 							// The auth's sign-in methods, each open to sign-up or invite only. An
 							// application with tenants picks no default role, so it lists no roles
 							// to pick one from.
@@ -390,7 +390,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 		Sides: []*tsAPIIdentitySide{
 			{
 				Scope:   accesstypes.GlobalPermissionScope,
-				Lists:   []identityPart{{Key: "users", Name: "CrewSessionUsers"}, {Key: "sessions", Name: "CrewSessions"}},
+				Lists:   []identityPart{{Key: "users", Name: "CrewSessionUsers"}, {Key: "sessions", Name: "CrewListedSessions"}},
 				Methods: []identityPart{{Key: "disable", Name: "DisableCrewUser"}},
 			},
 			{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{{Key: "users", Name: "CrewSectorUsers"}}},
@@ -403,7 +403,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 	}
 	for _, want := range []string{
 		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      tenantDirectoryOnlyField: 'directoryOnly',\n      sides: [",
-		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewSessions },\n          methods: { disable: Methods.DisableCrewUser },",
+		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewListedSessions },\n          methods: { disable: Methods.DisableCrewUser },",
 		"          scope: 'domain',\n          lists: { users: Resources.CrewSectorUsers },\n          methods: {  },",
 	} {
 		if !strings.Contains(string(out), want) {

@@ -982,7 +982,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndStaffSession]: {
     route: 'end-staff-session',
-    target: { resource: Resources.StaffSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.StaffListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

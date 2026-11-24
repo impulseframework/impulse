@@ -9,6 +9,7 @@ import {
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
 import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
+import { filterQueryParams } from '@impulseframework/resource-angular/resource';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   ChildResourceConfig,
@@ -706,13 +707,31 @@ class SideBuilder {
     });
   }
 
-  /** Every session of the Auth's people, each with End the session: the whole application's alone. */
+  /**
+   * Every session of the Auth's people, each with End the session: the whole application's
+   * alone. A row says the session's state in one column, State: Live, Timed out or Ended,
+   * from what the server says of it.
+   */
   sessions(): RootConfig | undefined {
     const { lists } = this.side;
     if (!lists.sessions) {
       return undefined;
     }
     const resource = lists.sessions as Resource;
+    const listColumns: ColumnConfig[] = this.has(resource, 'live')
+      ? [
+          ...this.columns(resource, [['username', 'Username'], ...sessionColumns]),
+          {
+            id: 'live' as FieldName,
+            header: 'State',
+            sortable: false,
+            filterable: false,
+            valueGetter: (row: RecordData) => sessionState(row),
+          },
+          // Read with each row and not drawn: what State says of a session that is not live.
+          ...(this.has(resource, 'expired') ? [{ id: 'expired' as FieldName, hidden: true }] : []),
+        ]
+      : this.columns(resource, [['username', 'Username'], ...sessionColumns, ['expired', 'Expired']]);
     return rootConfig({
       page: { label: 'Sessions', icon: 'devices' },
       routeData: { route: this.route('sessions', 'sessions'), hasViewRoute: false },
@@ -721,7 +740,7 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
-        listColumns: this.columns(resource, [['username', 'Username'], ...sessionColumns]),
+        listColumns,
         rowMethods: this.onSession(),
         elements: [],
       }),
@@ -1123,6 +1142,8 @@ class SideBuilder {
    * is something to say, and whether the email address is confirmed (emailConfirmed). The
    * fields those two read are held by the page's form and not drawn: a field the page
    * says in words reads the form's values, and the form holds a field the page names.
+   * Where the list says how many devices the person trusts (trustedDevices), the page
+   * says the number beside the last sign-in.
    */
   private personFields(users: Resource): ConfigElement[] {
     const drawn = (named: Named[]): ConfigElement[] =>
@@ -1156,6 +1177,7 @@ class SideBuilder {
         : []),
       ...drawn([
         ['lastSignInAt', 'Last sign-in'],
+        ['trustedDevices', 'Trusted devices'],
         ['cannotEnter', 'Cannot enter'],
         ['createdAt', 'Created'],
       ]),
@@ -1215,6 +1237,7 @@ class SideBuilder {
         showViewButton: link !== undefined,
         ...(link ? { rowRoute: link } : {}),
         collapsible: false,
+        emptyMessage: 'This person holds no role here.',
         listColumns: [
           ...this.columns(resource, [['role', 'Role']]),
           ...comesFrom,
@@ -1251,6 +1274,7 @@ class SideBuilder {
       showViewButton: link !== undefined,
       ...(link ? { rowRoute: link } : {}),
       collapsible: false,
+      emptyMessage: 'This person holds no role.',
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
         ...comesFrom,
@@ -1308,6 +1332,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'No role comes to this person through a group.',
       listColumns: this.tenant
         ? this.columns(resource, [
             ...named,
@@ -1343,6 +1368,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'Nobody is in the group.',
       listColumns: this.columns(resource, [
         ['username', 'Username'],
         ['name', 'Name'],
@@ -1405,6 +1431,7 @@ class SideBuilder {
         parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
         showViewButton: false,
         collapsible: false,
+        emptyMessage: 'The group holds no role.',
         listColumns: [
           ...this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
           ...counted,
@@ -1432,6 +1459,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'The group holds no role.',
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
         ...(this.has(resource, 'kind') && this.identity.tenant
@@ -1484,6 +1512,11 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      // A role file may keep a shared person's password and identities from a tenant's
+      // reader, so an empty list there says what is shown, not what is.
+      emptyMessage: this.tenant
+        ? 'Nothing of how this person signs in is shown here.'
+        : 'This person has no way to sign in.',
       listColumns: this.columns(resource, [
         ['through', 'Signs in with'],
         ['connection', 'Connection'],
@@ -1523,6 +1556,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: this.tenant ? 'No directory sign-in is shown here.' : 'No directory sign-in is linked.',
       listColumns: this.columns(resource, [
         ['method', 'Sign-in method'],
         ['connection', 'Connection'],
@@ -1544,20 +1578,54 @@ class SideBuilder {
     });
   }
 
-  /** A person's sessions, under the person's row: the whole application's alone. */
+  /**
+   * A person's live sessions, under the person's row: the whole application's alone. The
+   * list is the sessions the server says are live, and under it a link opens the Sessions
+   * page filtered by the person's username, where every session of theirs is. Where the
+   * server's list does not say which are live (a description from before it did), the list
+   * is every session, as it was.
+   */
   private sessionsOf(): ChildResourceConfig | undefined {
     const { lists } = this.side;
     if (!lists.sessions) {
       return undefined;
     }
     const resource = lists.sessions as Resource;
+    if (!this.has(resource, 'live')) {
+      return listViewConfig({
+        title: 'Sessions',
+        primaryResource: resource,
+        parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
+        showViewButton: false,
+        collapsible: false,
+        emptyMessage: 'This person has no session.',
+        listColumns: this.columns(resource, [...sessionColumns, ['expired', 'Expired']]),
+        rowMethods: this.onSession(),
+        elements: [],
+      });
+    }
+    const sessionsPage = this.route('sessions', 'sessions');
     return listViewConfig({
-      title: 'Sessions',
+      title: 'Live sessions',
       primaryResource: resource,
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
+      // The list's own filter, sent beside the one by the person's id.
+      filter: () => 'live:eq:true',
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'This person has no live session.',
       listColumns: this.columns(resource, sessionColumns),
+      more: (person) => {
+        const username = person?.['username'];
+        if (typeof username !== 'string' || username === '') {
+          return undefined;
+        }
+        return {
+          label: `All of ${username}'s sessions`,
+          route: sessionsPage,
+          queryParams: filterQueryParams([{ field: 'username', operator: 'eq', value: username }]),
+        };
+      },
       rowMethods: this.onSession(),
       elements: [],
     });
@@ -2514,12 +2582,29 @@ function timeLeft(left: number): string {
   return count(Math.floor(hours / 24), 'day');
 }
 
-/** The columns of a session, beside whose it is. */
+/** The columns of a session both lists of sessions draw, beside whose it is. */
 const sessionColumns: Named[] = [
   ['authenticatedAt', 'Signed in'],
   ['updatedAt', 'Last active'],
-  ['expired', 'Expired'],
 ];
+
+/**
+ * A session's state in a word: "Live" where the server says a request that carries it is
+ * still accepted, "Ended" where it was ended, and "Timed out" where it is neither: it sat
+ * idle past the session timeout. Empty for a row that says neither fact.
+ */
+function sessionState(row: RecordData): string {
+  if (row['live'] === true) {
+    return 'Live';
+  }
+  if (row['expired'] === true) {
+    return 'Ended';
+  }
+  if (row['live'] === false) {
+    return 'Timed out';
+  }
+  return '';
+}
 
 /** The key of the password among the ways a person signs in (the row's `way`); every other way is an identity. */
 const passwordWay = 'password';

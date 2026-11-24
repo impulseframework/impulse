@@ -104,13 +104,14 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 		// by, a line for each role the person holds as the one list of their roles has it,
 		// and the lock of an auth whose schema counts failed sign-ins. An application with
 		// no tenant record holds every role in the whole application: a line is the role's
-		// name, and the query joins no tenant.
+		// name, and the query joins no tenant. The count of the browsers remembered for
+		// each account follows the lock (Test_prepareIdentity_trustedDevices).
 		"internal/crewresources/crew_listed_users.go": {
 			"// @virtual\n\t// @outlet(default)\n\t// @order(Username asc)\n\t// @page(default: 25, max: 200)\n\t// @rowWord(account)\n\tCrewListedUser struct {",
 			"// @primarykey\n\t\tID                     impulse.UUID `spanner:\"Id\"                     index:\"true\"`\n\t\tUsername               string       `spanner:\"Username\"               index:\"true\"`\n\t\tName                   *string      `spanner:\"Name\"                   index:\"true\"`\n\t\tEmail                  *string      `spanner:\"Email\"                  index:\"true\"`\n\t\tEmailVerifiedAt        *time.Time   `spanner:\"EmailVerifiedAt\"`",
-			"// @roleOf(Crew)\n\t\tRoles       []string   `spanner:\"Roles\"`\n\t\tLockedUntil *time.Time `spanner:\"LockedUntil\"`\n\t}",
+			"// @roleOf(Crew)\n\t\tRoles          []string   `spanner:\"Roles\"`\n\t\tLockedUntil    *time.Time `spanner:\"LockedUntil\"`\n\t\tTrustedDevices int64      `spanner:\"TrustedDevices\"`\n\t}",
 			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role AS Line\n    FROM (` + crewHeldRoleQuery + `) hr\n    WHERE hr.UserId = u.Id\n    ORDER BY Line\n  ) AS Roles,\n" +
-				"  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil\nFROM CrewSessionUsers u\n`",
+				"  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,\n  (SELECT COUNT(*) FROM CrewSessionTrustedDevices td\n",
 			"func (CrewListedUser) Subquery() (query string, params map[string]any) {\n\treturn crewListedUserQuery, nil\n}",
 		},
 		"internal/crewresources/crew_listed_group_roles.go": {

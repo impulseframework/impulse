@@ -11,8 +11,10 @@ import (
 
 type (
 	// MembersSession is one session of the Members auth: a row of
-	// MembersSessions, the session library's sessions table. A session ends by
-	// its Expired column; the rows are never deleted.
+	// MembersSessions, the session library's sessions table. A session is ended by
+	// its Expired column, and the session library removes a row 30 days after the session
+	// was last used. A page lists the sessions from MembersListedSession, which also says
+	// whether each is live.
 	//
 	// @resource
 	// @suppress(patchHandler)

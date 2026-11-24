@@ -29,9 +29,15 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
+		// MembersListedSessions: the tables its query reads.
+		{Resource: membersresources.MembersListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSession{}.Resource(), Global: true},
+		}},
 		// MembersListedUsers: the tables its query reads.
 		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionSignInSetting{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionTrustedDevice{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 			{Name: resources.Sector{}.Resource(), Global: true},
