@@ -2232,7 +2232,9 @@ their own live sessions, the one of the request first and marked, each with the 
 the browser it was signed in from ("Chrome on Android", worked out from the User-Agent
 header when the session was made; absent where it was not recognized), when it was
 signed in and when it was last used, and how many browsers are remembered for them.
-`Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
+The session read (`Authenticated`) carries `sessionId` for a signed-in request.
+`sessionId` is the id of the session the request arrived on: what a list of sessions
+marks as the reader's own. `Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
 sessions, never the request's own; `Auth.EndOtherSessions()` ends all but the request's
 own and answers how many of the listed ones ended. Both also end a session of the
 person's that has timed out and is no longer listed, so nothing can bring it back.

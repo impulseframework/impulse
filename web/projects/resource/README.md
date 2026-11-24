@@ -778,7 +778,9 @@ second factor remembers for them; `endOwnSession(sessionId)` resolves `ended`, o
 session that ended already; `endOtherSessions()` resolves how many of the listed sessions ended
 (one that had timed out ends with them, uncounted); and `forgetBrowsers()` resolves once every
 remembered browser is forgotten, this one included. Each reads the list again first, except
-`usernameFree`, and each throws where the list names no path.
+`usernameFree`, and each throws where the list names no path. The session read carries
+`sessionId` for a signed-in person. `sessionId` is the id of the session the request arrived on:
+what a list of sessions marks as the reader's own.
 A request may be `quiet`, as `usernameFree` and `passwordStrength` are: a question asked while a
 person types, whose answer that is an error is thrown to the caller and never handed to the
 application's error hook (`onError`), so a notice raised there is not raised once for every
