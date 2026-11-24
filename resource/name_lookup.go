@@ -483,6 +483,10 @@ func (q *QuerySet[Resource]) readNames() []accesstypes.Field {
 // denied, or the name is closed by its id (closeDeclaredOrder), which only a name
 // the declared order names reaches, there is no lookup: the name is NULL on
 // every row (noName), so the list comes in the order of the order's other terms.
+// A name read from a view that the statement orders by is read once: its lookup
+// is an item of the row of names the statement's FROM carries (zzNames), and the
+// select item, the order and the cursor name that item, so the view's query is in
+// the statement once however many terms read the name.
 func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedReadConditions, registry *paramRegistry) (*renderedReadConditions, error) {
 	fields := slices.Clone(q.shownNames)
 	for _, field := range q.orderedNames() {
@@ -503,6 +507,7 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	}
 	rendered.nameLookups = make(map[accesstypes.Field]string, len(fields))
 	dbFields := q.rMeta.dbFieldMap(dbType)
+	ordered := q.orderedNames()
 	for _, field := range fields {
 		name, ok := q.requestName(field)
 		if !ok {
@@ -546,6 +551,14 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 		if err != nil {
 			return nil, errors.Wrapf(err, "name field %s", field)
 		}
+		if name.View && slices.Contains(ordered, field) {
+			item, reference, err := namesRowItem(dbType, field, sql)
+			if err != nil {
+				return nil, err
+			}
+			rendered.namesRow = append(rendered.namesRow, item)
+			sql = reference
+		}
 		if shown := rendered.nameConditions[name.Key]; shown != "" {
 			sql = fmt.Sprintf("CASE WHEN %s THEN %s END", shown, sql)
 		}
@@ -553,6 +566,46 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	}
 
 	return rendered, nil
+}
+
+// namesRowName is the alias of the statement's row of names (withNameLookups): no
+// name field's alias is it, since each ends in Name.
+const namesRowName = "zzNames"
+
+// namesRowItem renders a name's lookup as an item of the statement's row of names,
+// under the alias the select list reads a name by (nameItems), and the reference the
+// statement writes in the lookup's place.
+func namesRowItem(dbType DBType, field accesstypes.Field, lookup string) (item, reference string, err error) {
+	alias := nameColumnPrefix + string(field)
+	switch dbType {
+	case SpannerDBType:
+		return fmt.Sprintf("%s AS %s", lookup, alias), namesRowName + "." + alias, nil
+	case PostgresDBType:
+		return fmt.Sprintf(`%s AS "%s"`, lookup, alias), fmt.Sprintf(`"%s"."%s"`, namesRowName, alias), nil
+	default:
+		return "", "", errors.Newf("unsupported dbType: %s", dbType)
+	}
+}
+
+// namesRowFrom appends the statement's row of names to its FROM item, where the
+// rendering holds any: one row beside each row of the list, the select of the row
+// reading no table, so no row of the list is dropped or doubled and a name a
+// lookup finds no row for is NULL. On Spanner the row is an array of one struct
+// unnested beside the row, which the database counts as no join; on PostgreSQL a
+// lateral select.
+func (r *renderedReadConditions) namesRowFrom(dbType DBType, from string) (string, error) {
+	if r == nil || len(r.namesRow) == 0 {
+		return from, nil
+	}
+	items := strings.Join(r.namesRow, ", ")
+	switch dbType {
+	case SpannerDBType:
+		return fmt.Sprintf("%s, UNNEST(ARRAY(SELECT AS STRUCT %s)) AS %s", from, items, namesRowName), nil
+	case PostgresDBType:
+		return fmt.Sprintf(`%s CROSS JOIN LATERAL (SELECT %s) AS "%s"`, from, items, namesRowName), nil
+	default:
+		return "", errors.Newf("unsupported dbType: %s", dbType)
+	}
 }
 
 // nameViewQuery returns the query of the view a name is read from, "" where the
