@@ -10,14 +10,15 @@ import (
 )
 
 // The whole application's list of tenants, in the generated management of the auth whose
-// people make the tenants (identity_invitedtenant.go). Staff see every tenant with what no
-// table holds of it: how many people it has, since when, the kind of directory its people
-// sign in through and who administers it. The list is a view over the tenant record's
-// table that declares the table as where its rows are written (@rowsOf), so the facts sort,
-// filter and page on the server like any column, and a row opens, is changed and is
-// deleted as the record's own. It is declared in the instance's declarations package,
-// beside the auth's other whole-application lists (identity_holdings.go), and served on the
-// outlets that serve both the auth's management and the tenant record.
+// people make the tenants (identity_invitedtenant.go). Staff see every tenant with when it
+// was made, where the tenant record marks that column (@tenantSince), and what no table
+// holds of it: how many people it has, the kind of directory its people sign in through
+// and who administers it. The list is a view over the tenant record's table that declares
+// the table as where its rows are written (@rowsOf), so the facts sort, filter and page on
+// the server like any column, and a row opens, is changed and is deleted as the record's
+// own. It is declared in the instance's declarations package, beside the auth's other
+// whole-application lists (identity_holdings.go), and served on the outlets that serve
+// both the auth's management and the tenant record.
 //
 // The facts are what the tenant itself holds, never what reaches it from the whole
 // application: a role held in every tenant and a group kept for the whole application add
@@ -30,8 +31,16 @@ import (
 const listedTenantSuffix = "Listed"
 
 // listedTenantFacts are the columns the list adds to the record's fields, which no field
-// of the record may be named as.
-var listedTenantFacts = []string{"People", "Since", "Directory", "Administrators"}
+// of the record may be named as. Since is the list's own only where the record marks the
+// column holding when a tenant was made (@tenantSince): a record that marks none may have
+// a field named Since, which the list carries as any field.
+func listedTenantFacts(invitation *identityTenantInvitation) []string {
+	if invitation.since != nil {
+		return []string{"People", "Since", "Directory", "Administrators"}
+	}
+
+	return []string{"People", "Directory", "Administrators"}
+}
 
 // listedTenantDirectoryKinds are the kinds of directory the list says a tenant's directory
 // by, each by the sign-in method it is reached through, as resource.DirectoryName says the
@@ -95,7 +104,8 @@ func (r *resourceGenerator) listedTenantSources(inst *identityInstance) []identi
 // refuseListedTenantNamesTaken refuses a tenant record that would give the list of tenants
 // a name the auth already gives another list (a record named Group names it as the groups
 // with what each holds are named, <Auth>ListedGroup), and a record with a field named as
-// one of the columns the list adds: either would declare one name twice.
+// one of the columns the list adds: either would declare one name twice. The field the
+// record marks as when a tenant was made is the list's Since, under no name of its own.
 func (i *identityInstance) refuseListedTenantNamesTaken() error {
 	if !i.listsTenants() {
 		return nil
@@ -106,19 +116,38 @@ func (i *identityInstance) refuseListedTenantNamesTaken() error {
 	}
 	invitation := i.tenant.invitation
 	fields := []string{invitation.key.Name}
-	for _, field := range invitation.fields {
+	for _, field := range invitation.listedFields() {
 		fields = append(fields, field.Name)
 	}
 	if invitation.directoryOnly != nil {
 		fields = append(fields, invitation.directoryOnly.Name)
 	}
+	facts := listedTenantFacts(invitation)
 	for _, field := range fields {
-		if slices.Contains(listedTenantFacts, field) {
-			return errors.Newf("Auth(%q): the tenant record %s has a field named %s, and the list of tenants generated for it (%s) adds a column of that name (People, Since, Directory and Administrators are its own); the field takes another name", i.importPath, i.tenant.name, field, name)
+		if slices.Contains(facts, field) {
+			return errors.Newf("Auth(%q): the tenant record %s has a field named %s, and the list of tenants generated for it (%s) adds a column of that name (%s and %s are its own); the field takes another name",
+				i.importPath, i.tenant.name, field, name, strings.Join(facts[:len(facts)-1], ", "), facts[len(facts)-1])
 		}
 	}
 
 	return nil
+}
+
+// listedFields are the fields the invitation carries that the list of tenants carries
+// under their own names: every one but the field the record marks as when a tenant was
+// made, which the list says as Since.
+func (t *identityTenantInvitation) listedFields() []identityTenantField {
+	if t.since == nil {
+		return t.fields
+	}
+	fields := make([]identityTenantField, 0, len(t.fields))
+	for _, field := range t.fields {
+		if field.Name != t.since.Name {
+			fields = append(fields, field)
+		}
+	}
+
+	return fields
 }
 
 // ListsTenants is listsTenants for the templates.
@@ -153,10 +182,28 @@ func (d *identitySourceData) TenantKeyField() identityTenantField {
 	return d.tenant.invitation.key
 }
 
+// ListedTenantFields are the tenant record's fields the list of tenants carries under
+// their own names: the ones an invitation carries, but the field the record marks as when
+// a tenant was made.
+func (d *identitySourceData) ListedTenantFields() []identityTenantField {
+	return d.tenant.invitation.listedFields()
+}
+
+// TenantSinceField is the field the tenant record marks as when a tenant was made
+// (@tenantSince), which the list of tenants says as Since; nil where the record marks
+// none, and the list has no Since.
+func (d *identitySourceData) TenantSinceField() *identityTenantField {
+	return d.tenant.invitation.since
+}
+
 // ListedTenantImports are the import lines of the list of tenants, once each and in
 // order: the ones its own columns need, and the ones the key's and the fields' types need.
+// The time package is one of its own only where it says Since.
 func (d *identitySourceData) ListedTenantImports() string {
-	lines := map[string]bool{`"sync/atomic"`: true, `"time"`: true, `"github.com/impulseframework/impulse/accesstypes"`: true}
+	lines := map[string]bool{`"sync/atomic"`: true, `"github.com/impulseframework/impulse/accesstypes"`: true}
+	if d.tenant.invitation.since != nil {
+		lines[`"time"`] = true
+	}
 	for _, imp := range slices.Concat(d.tenant.invitation.keyImports, d.tenant.invitation.imports) {
 		lines[imp] = true
 	}

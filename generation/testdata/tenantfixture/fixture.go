@@ -8,6 +8,8 @@
 package tenantfixture
 
 import (
+	"time"
+
 	"cloud.google.com/go/civil"
 
 	"github.com/impulseframework/impulse"
@@ -629,6 +631,67 @@ type (
 		Name string `spanner:"Name"`
 		// @tenantName
 		Title *string `spanner:"Title"`
+	}
+
+	// Cove marks when a cove was made (@tenantSince) on a timestamp the database writes.
+	//
+	// @resource
+	// @tenant
+	Cove struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		MadeAt time.Time `spanner:"MadeAt" conditions:"output_only"`
+	}
+
+	// Creek marks when a creek was made on a nullable timestamp.
+	//
+	// @resource
+	// @tenant
+	Creek struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		Opened *time.Time `spanner:"Opened"`
+	}
+
+	// Strait marks when it was made on a resource that is not the tenant record.
+	//
+	// @resource
+	Strait struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		MadeAt time.Time `spanner:"MadeAt"`
+	}
+
+	// Delta marks when a delta was made on a date, which is no timestamp.
+	//
+	// @resource
+	// @tenant
+	Delta struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		Founded civil.Date `spanner:"Founded"`
+	}
+
+	// Fjord marks when a fjord was made on a string.
+	//
+	// @resource
+	// @tenant
+	Fjord struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		Made string `spanner:"Made"`
+	}
+
+	// Sound marks two columns as when a sound was made.
+	//
+	// @resource
+	// @tenant
+	Sound struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		MadeAt time.Time `spanner:"MadeAt"`
+		// @tenantSince
+		ChartedAt *time.Time `spanner:"ChartedAt"`
 	}
 
 	// Shoal declares a label the screen cannot show as written.

@@ -89,6 +89,10 @@ type identityTenantInvitation struct {
 	// record keeps a default role.
 	directoryOnly *identityTenantField
 	seats         bool
+	// since is the field the record marks as when a tenant was made (@tenantSince), nil
+	// where it marks none (Type and the two marks unused): the list of tenants says it as
+	// Since. An invitation carries it only where the wire can write it, as any field.
+	since *identityTenantField
 	// imports are the imports the fields' types need, each as an import block writes
 	// it (importLine), the resources package's among them.
 	imports []string
@@ -263,9 +267,10 @@ func (r *resourceGenerator) requireNewTenantColumn(inst *identityInstance) error
 // The annotations and tags the reading before the load looks for on a field.
 var (
 	fieldTenantName        = fieldAnnotation(tenantNameKeyword)
+	fieldTenantSince       = fieldAnnotation(tenantSinceKeyword)
 	fieldDirectoryDefault  = fieldAnnotation(directoryDefaultSeatKeyword)
 	fieldAnyAnnotation     = regexp.MustCompile(`(?m)^\s*@([a-zA-Z]+)`)
-	carriedFieldAnnotation = []string{tenantNameKeyword}
+	carriedFieldAnnotation = []string{tenantNameKeyword, tenantSinceKeyword}
 )
 
 // tenantInvitationIn reads the tenant record as an invitation carries it off a package's
@@ -367,6 +372,12 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			return "field " + name + " names no column of the table", nil
 		}
 		comment := field.Doc.Text() + field.Comment.Text()
+		if fieldTenantSince.MatchString(comment) {
+			// When a tenant was made is kept whether or not the wire writes it: the list
+			// of tenants says it as Since, and the switch below decides, as for any
+			// field, whether an invitation carries it.
+			t.since = &identityTenantField{Name: name, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey)}
+		}
 		conditions := strings.Split(tag.Get(conditionsTagKey), ",")
 		switch {
 		case column.IsPrimaryKey:
@@ -577,12 +588,18 @@ func (r *resourceGenerator) holdIdentityTenantInvitation() error {
 		if flag := inst.tenant.invitation.directoryOnly; flag != nil {
 			written = append(written, "the directory-only switch "+flag.Name+" "+flag.Wire)
 		}
+		if since := inst.tenant.invitation.since; since != nil {
+			written = append(written, "when it was made "+since.Name)
+		}
 		var loaded []string
 		for _, field := range tenantInvitationFields(record) {
 			loaded = append(loaded, field.Name()+" "+field.WireName()+" required="+strconv.FormatBool(field.IsRequired()))
 		}
 		if flag := record.DirectoryOnlyField; flag != nil {
 			loaded = append(loaded, "the directory-only switch "+flag.Name()+" "+flag.WireName())
+		}
+		if since := record.TenantSinceField; since != nil {
+			loaded = append(loaded, "when it was made "+since.Name())
 		}
 		if !slices.Equal(written, loaded) {
 			return errors.Newf("struct %s: the invitation's sources were written for the fields [%s] and the loaded record carries [%s]; the two are read off the same files, so this is a fault of the generator's reading before the load: report it",

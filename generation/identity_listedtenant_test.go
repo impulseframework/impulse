@@ -115,6 +115,89 @@ func Test_tenantInvitationIn_key(t *testing.T) {
 	}
 }
 
+// citadelSinceSource is citadelTenantSource with a field the record marks as when a
+// citadel was made, written by the database with the row (RaisedAt, which the wire cannot
+// write), and markedCitadel adds its column to the record's table.
+var citadelSinceSource = strings.Replace(strings.Replace(citadelTenantSource,
+	"import (\n", "import (\n\t\"time\"\n\n", 1),
+	"\t\t// @directoryOnly\n",
+	"\t\t// Raised is when the citadel was made.\n\t\t//\n\t\t// @tenantSince\n\t\tRaised time.Time `spanner:\"RaisedAt\" conditions:\"output_only\" default_create_fn:\"resource.CommitTimestamp\"`\n\t\t// @directoryOnly\n", 1)
+
+// markedCitadel adds the column of the field citadelSinceSource marks to the record's
+// table.
+func markedCitadel(r *resourceGenerator) {
+	r.tableMap["Citadels"].Columns["RaisedAt"] = columnMeta{SpannerType: "TIMESTAMP"}
+}
+
+// Test_tenantInvitationIn_since pins what the reading before the load keeps of the field
+// the tenant record marks as when a tenant was made: its name, its name on the wire and its
+// column. A marked field the wire cannot write is carried by no invitation, and one it can
+// write is carried as any field; a record that marks none keeps none.
+func Test_tenantInvitationIn_since(t *testing.T) {
+	t.Parallel()
+
+	timestamp := columnMeta{SpannerType: "TIMESTAMP"}
+	tests := []struct {
+		name       string
+		source     string
+		columns    map[string]columnMeta
+		wantSince  *identityTenantField
+		wantFields []string
+	}{
+		{
+			name:       "a marked field the wire cannot write is kept, and carried by no invitation",
+			source:     oneFieldCitadel("\t\"time\"\n", "\t// @tenantSince\n\tRaised time.Time `spanner:\"RaisedAt\" conditions:\"output_only\"`\n"),
+			columns:    map[string]columnMeta{"RaisedAt": timestamp},
+			wantSince:  &identityTenantField{Name: "Raised", Wire: "raised", Column: "RaisedAt"},
+			wantFields: []string{"Name"},
+		},
+		{
+			name:       "a marked field the wire can write is kept, and carried as any field",
+			source:     oneFieldCitadel("\t\"time\"\n", "\t// @tenantSince\n\tOpened *time.Time `spanner:\"Opened\"`\n"),
+			columns:    map[string]columnMeta{"Opened": {SpannerType: "TIMESTAMP", IsNullable: true}},
+			wantSince:  &identityTenantField{Name: "Opened", Wire: "opened", Column: "Opened"},
+			wantFields: []string{"Name", "Opened"},
+		},
+		{
+			name:       "a record that marks none keeps none",
+			source:     oneFieldCitadel("\t\"time\"\n", "\tOpened time.Time `spanner:\"Opened\"`\n"),
+			columns:    map[string]columnMeta{"Opened": timestamp},
+			wantFields: []string{"Name", "Opened"},
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			place := filepath.Join("pkg", "since"+strconv.Itoa(i), "resources")
+			dir := filepath.Join(t.TempDir(), place)
+			writeResourcesPackage(t, dir, map[string]string{"citadels.go": tt.source})
+			r := identityFixtureGenerator(t, crewIdentityTables...)
+			r.resource = packageDir(place)
+			table := citadelsTable()
+			for name, column := range tt.columns {
+				table.Columns[name] = column
+			}
+			r.tableMap["Citadels"] = table
+
+			got, why, err := r.tenantInvitationIn(dir, "Citadel")
+			if err != nil || why != "" {
+				t.Fatalf("tenantInvitationIn() says %q, error = %v; want the record read", why, err)
+			}
+			if diff := cmp.Diff(tt.wantSince, got.since); diff != "" {
+				t.Errorf("the since field (-want +got):\n%s", diff)
+			}
+			fields := make([]string, 0, len(got.fields))
+			for _, field := range got.fields {
+				fields = append(fields, field.Name)
+			}
+			if diff := cmp.Diff(tt.wantFields, fields); diff != "" {
+				t.Errorf("the carried fields (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // listedCitadelFile is where the run writes the crew's list of citadels, by path from the
 // identity tree's root.
 const listedCitadelFile = "internal/crewresources/crew_listed_citadels.go"
@@ -136,14 +219,16 @@ func listedCitadelQuery(t *testing.T, source string) string {
 // Test_prepareIdentity_listedTenant pins the source of the whole application's list of
 // tenants, as the run writes it before the packages are loaded: a view over the tenant
 // record's table that declares the table as where its rows are written, keyed and ordered
-// as the record is, with the record's fields the invitation carries and the four facts;
-// and the crew's client, which hands the list the roles that administer a citadel. The
-// members, whose people make no citadel, have no such list.
+// as the record is, with the record's fields the invitation carries, when the citadel was
+// made, read from the column the record marks, and the three facts; and the crew's
+// client, which hands the list the roles that administer a citadel. The members, whose
+// people make no citadel, have no such list.
 func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
 
-	r := citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) {
+	r := citadelGenerator(t, citadelSinceSource, func(r *resourceGenerator) {
+		markedCitadel(r)
 		for _, table := range crewGroupTables {
 			r.tableMap[table] = &tableMetadata{}
 		}
@@ -169,8 +254,9 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		"Garrison int64 `spanner:\"Garrison\"`\n",
 		"Towers []string `spanner:\"Towers\"`\n",
 		"Closed bool `spanner:\"Closed\"`\n",
-		// The four facts.
+		// The three facts, and when the citadel was made under the list's own name.
 		"People int64 `spanner:\"People\"`\n Since *time.Time `spanner:\"Since\"`\n Directory *string `spanner:\"Directory\"`\n Administrators []string `spanner:\"Administrators\"`\n }",
+		"\"time\"",
 		"\"cloud.google.com/go/civil\"",
 		"\"example.com/acme/beacon/pkg/resources\"",
 		"\"github.com/impulseframework/impulse\"",
@@ -179,11 +265,12 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		"func (CrewListedCitadel) Subquery() (query string, params map[string]any) {",
 		"return crewListedCitadelQuery, map[string]any{\"tenantAdministratorRoles\": administrators}",
 		// The struct's comment says what each fact is.
-		"// CrewListedCitadel is one citadel as the whole application's list shows it: a row of\n // Citadels with the record's own fields, and four facts no table holds.",
+		"// CrewListedCitadel is one citadel as the whole application's list shows it: a row of\n // Citadels with the record's own fields, and three facts no table holds.",
 		"a role of\n // their own, a place in one of its groups, or a sign-in through its directory.",
-		"// A person who is there only through a role held in every citadel, or through a group\n // kept for the whole application, is not counted.",
-		"The list filters by the name. It is a view over the\n // record's table, so a row opens, is changed and is deleted as the record's own.",
-	}, []string{"Passphrase", "Cipher", "Sealed", "Search", "DefaultRole"})
+		"// A person who is there only through a role held in every citadel, or through a group\n // kept for the whole application, is not counted.\n",
+		"or through one of its groups. Since is when the\n // citadel was made: the record's Raised, which it marks @tenantSince. The list filters by the name. It is a view over the\n // record's table, so a row opens, is changed and is deleted as the record's own.",
+		"// crewListedCitadelQuery selects every citadel, each with the people it holds, when it\n// was made, its directory and its administrators.",
+	}, []string{"Passphrase", "Cipher", "Sealed", "Search", "DefaultRole", "Raised time.Time", "first role"})
 
 	query := listedCitadelQuery(t, listed)
 	assertContains(t, "the list's query", query, []string{
@@ -192,9 +279,8 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		// identities under its directory, each that counts now.
 		"(SELECT COUNT(DISTINCT p.UserId) FROM (\n SELECT m.UserId AS UserId\n FROM CrewUserRoles m\n WHERE m.Kind = 'domain' AND m.Axis = '' AND m.DomainId = s.Id\n AND " + countingSQL("m") + "\n UNION DISTINCT\n",
 		"FROM CrewGroups g\n JOIN CrewGroupMembers gm ON gm.GroupId = g.Id\n WHERE g.Kind = 'domain' AND g.Axis = '' AND g.DomainId = s.Id\n AND " + countingSQL("gm") + "\n UNION DISTINCT\n",
-		"FROM CitadelDirectories dr\n JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection\n WHERE dr.CitadelId = s.Id\n ) p) AS People,",
-		// Since: the first membership in the tenant, whatever its period.
-		"(SELECT MIN(f.CreatedAt)\n FROM CrewUserRoles f\n WHERE f.Kind = 'domain' AND f.Axis = '' AND f.DomainId = s.Id) AS Since,",
+		// Since: the column the record marks, read where the facts are.
+		"FROM CitadelDirectories dr\n JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection\n WHERE dr.CitadelId = s.Id\n ) p) AS People,\n s.RaisedAt AS Since,\n (SELECT CASE d.Method",
 		// Directory: the kind, and a Google Workspace's domain.
 		"(SELECT CASE d.Method\n WHEN 'google' THEN IF(IFNULL(d.Connection, '') = '', 'Google Workspace', CONCAT('Google Workspace ', d.Connection))\n WHEN 'azure' THEN 'Microsoft Entra tenant'\n WHEN 'workos' THEN 'WorkOS connection'\n WHEN 'oidc' THEN 'OpenID Connect provider'\n ELSE 'Directory'\n END\n FROM CitadelDirectories d\n WHERE d.CitadelId = s.Id\n LIMIT 1) AS Directory,",
 		// Administrators: by name, or username, a line each, through the tenant's own
@@ -203,8 +289,9 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		"WHERE ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = s.Id\n AND ta.Role IN UNNEST(@tenantAdministratorRoles)\n AND " + countingSQL("ta") + "\n UNION DISTINCT\n",
 		"WHERE tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = s.Id\n AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = s.Id\n AND tr.Role IN UNNEST(@tenantAdministratorRoles)\n AND " + countingSQL("tr") + "\n AND " + countingSQL("tm") + "\n )\n ORDER BY Line\n ) AS Administrators\nFROM Citadels s\n",
 	}, []string{
-		// No row held in every tenant and no group kept for the whole application counts.
-		"'every'", "'global'", "CROSS JOIN",
+		// No row held in every tenant and no group kept for the whole application counts,
+		// and nothing is read from the memberships for when the citadel was made.
+		"'every'", "'global'", "CROSS JOIN", "MIN(", "CreatedAt",
 	})
 	// Only a Google Workspace's connection is said: the CASE reads the connection in
 	// its one branch, and the directory is read by the tenant's column alone.
@@ -229,23 +316,23 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 func Test_prepareIdentity_listedTenant_shapes(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: each case's working directory is the process's, no
 	// t.Parallel.
-	t.Run("a record that marks no name, declares no switch and has no directories record", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
+	t.Run("a record that marks no name nor when it was made, declares no switch and has no directories record", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Chdir(t.TempDir())
 
 		if err := citadelGenerator(t, oneFieldCitadel("", ""), nil).prepareIdentity(); err != nil {
 			t.Fatalf("prepareIdentity() error = %v", err)
 		}
 		listed := identitySource(t, listedCitadelFile)
-		// Ordered by the key, no column filters by a name, and there is no directory to
-		// say: three facts.
+		// Ordered by the key, no column filters by a name, there is no directory to say
+		// and no Since: two facts, and nothing of the time package.
 		assertContains(t, listedCitadelFile, listed, []string{
 			"// @order(ID asc)",
-			"// @primarykey\n ID impulse.UUID `spanner:\"Id\" index:\"true\"`\n Name string `spanner:\"Name\"`\n People int64",
-			"Since *time.Time `spanner:\"Since\"`\n Administrators []string `spanner:\"Administrators\"`\n }",
-			"and three facts no table holds.",
+			"// @primarykey\n ID impulse.UUID `spanner:\"Id\" index:\"true\"`\n Name string `spanner:\"Name\"`\n People int64 `spanner:\"People\"`\n Administrators []string `spanner:\"Administrators\"`\n }",
+			"and two facts no table holds.",
 			"a role of\n // their own.\n",
 			"own. It is a view over the",
-		}, []string{"Directory", "Closed", "CitadelDirectories", "The list filters by the name", "a place in one of its groups", "or through a group"})
+			"// crewListedCitadelQuery selects every citadel, each with the people it holds and its administrators.",
+		}, []string{"Directory", "Closed", "CitadelDirectories", "The list filters by the name", "a place in one of its groups", "or through a group", "Since", "\"time\"", "was made"})
 		// The auth keeps no groups: no group is read for its people or its administrators.
 		assertContains(t, "the list's query", listedCitadelQuery(t, listed), nil, []string{"CrewGroups", "CrewGroupMembers", "CrewGroupRoles", "UNION DISTINCT", "JOIN"})
 	})
@@ -289,6 +376,62 @@ func Test_prepareIdentity_listedTenant_shapes(t *testing.T) { //nolint:parallelt
 			"\"github.com/impulseframework/impulse\"",
 		}, nil)
 	})
+
+	// The list says when a citadel was made as Since, once, whatever the record calls the
+	// column and whether the wire writes it; a record that marks none carries a field
+	// named Since as any field.
+	since := []struct {
+		name    string
+		imports string
+		field   string
+		column  columnMeta
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "a marked field the wire can write is the list's Since, and not a column of its own",
+			imports: "\t\"time\"\n",
+			field:   "\t// @tenantSince\n\tOpened time.Time `spanner:\"Opened\"`\n",
+			column:  columnMeta{SpannerType: "TIMESTAMP"},
+			want:    []string{"Name string `spanner:\"Name\"`\n People int64 `spanner:\"People\"`\n Since *time.Time `spanner:\"Since\"`\n Administrators", "s.Opened AS Since,", "\"time\"", "the record's Opened, which it marks @tenantSince."},
+			notWant: []string{"Opened time.Time", "AS Opened"},
+		},
+		{
+			name:    "a marked field named Since is the list's Since alone",
+			imports: "\t\"time\"\n",
+			field:   "\t// @tenantSince\n\tSince time.Time `spanner:\"Since\"`\n",
+			column:  columnMeta{SpannerType: "TIMESTAMP"},
+			want:    []string{"Name string `spanner:\"Name\"`\n People int64 `spanner:\"People\"`\n Since *time.Time `spanner:\"Since\"`\n Administrators", ") p) AS People,\n s.Since AS Since,\n ARRAY(", "the record's Since, which it marks @tenantSince."},
+		},
+		{
+			name:    "a field named Since on a record that marks none is carried under its own name",
+			field:   "\tSince string `spanner:\"Since\"`\n",
+			column:  columnMeta{SpannerType: "STRING(MAX)"},
+			want:    []string{"Name string `spanner:\"Name\"`\n Since string `spanner:\"Since\"`\n People int64 `spanner:\"People\"`\n Administrators", "s.Name AS Name,\n s.Since AS Since,\n (SELECT COUNT"},
+			notWant: []string{"*time.Time", "\"time\"", "was made"},
+		},
+	}
+	for _, tt := range since {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			r := citadelGenerator(t, oneFieldCitadel(tt.imports, tt.field), func(r *resourceGenerator) {
+				r.tableMap["Citadels"].Columns["Opened"] = tt.column
+				r.tableMap["Citadels"].Columns["Since"] = tt.column
+			})
+			if err := r.prepareIdentity(); err != nil {
+				t.Fatalf("prepareIdentity() error = %v", err)
+			}
+			listed := identitySource(t, listedCitadelFile)
+			assertContains(t, listedCitadelFile, listed, tt.want, tt.notWant)
+			if got := strings.Count(listed, "Since *time.Time") + strings.Count(listed, "Since string"); got > 1 {
+				t.Errorf("the list declares Since %d times, want once:\n%s", got, listed)
+			}
+			if got := strings.Count(listed, "AS Since,"); got != 1 {
+				t.Errorf("the query reads Since %d times, want once:\n%s", got, listed)
+			}
+		})
+	}
 
 	none := []struct {
 		name   string
@@ -385,7 +528,8 @@ func Test_identityInstance_listsTenants(t *testing.T) {
 // Test_identityInstance_refuseListedTenantNamesTaken pins the refusal of a tenant record
 // whose name gives the list of tenants the name of another list of the auth, and of one
 // with a field named as a column the list adds, each in its sentence, where the list is
-// declared alone.
+// declared alone. Since is one of the list's own names only where the record marks when a
+// tenant was made, and the marked field may itself be named Since.
 func Test_identityInstance_refuseListedTenantNamesTaken(t *testing.T) {
 	t.Parallel()
 
@@ -403,11 +547,19 @@ func Test_identityInstance_refuseListedTenantNamesTaken(t *testing.T) {
 		return `Auth("example.com/acme/beacon/pkg/auth/crew"): the tenant record ` + record + ` gives the list of tenants the name ` + list + `, which another list of the auth has; the tenant record takes another name`
 	}
 	field := func(name string) string {
+		return `Auth("example.com/acme/beacon/pkg/auth/crew"): the tenant record Citadel has a field named ` + name + `, and the list of tenants generated for it (CrewListedCitadel) adds a column of that name (People, Directory and Administrators are its own); the field takes another name`
+	}
+	markedField := func(name string) string {
 		return `Auth("example.com/acme/beacon/pkg/auth/crew"): the tenant record Citadel has a field named ` + name + `, and the list of tenants generated for it (CrewListedCitadel) adds a column of that name (People, Since, Directory and Administrators are its own); the field takes another name`
 	}
 	withField := func(name string) *identityTenantInvitation {
 		invitation := plain()
 		invitation.fields = append(invitation.fields, identityTenantField{Name: name})
+
+		return invitation
+	}
+	marked := func(invitation *identityTenantInvitation, since string) *identityTenantInvitation {
+		invitation.since = &identityTenantField{Name: since}
 
 		return invitation
 	}
@@ -421,7 +573,12 @@ func Test_identityInstance_refuseListedTenantNamesTaken(t *testing.T) {
 		{name: "a record named RoleGrant", inst: instance("RoleGrant", plain()), want: named("RoleGrant", "CrewListedRoleGrant")},
 		{name: "a field named People", inst: instance("Citadel", withField("People")), want: field("People")},
 		{name: "a field named Administrators", inst: instance("Citadel", withField("Administrators")), want: field("Administrators")},
-		{name: "a key named Since", inst: instance("Citadel", &identityTenantInvitation{key: identityTenantField{Name: "Since"}}), want: field("Since")},
+		{name: "a key named Since, where the record marks when a tenant was made", inst: instance("Citadel", marked(&identityTenantInvitation{key: identityTenantField{Name: "Since"}}, "Opened")), want: markedField("Since")},
+		{name: "a field named Since beside the field the record marks", inst: instance("Citadel", marked(withField("Since"), "Opened")), want: markedField("Since")},
+		{name: "a field named People, where the record marks when a tenant was made", inst: instance("Citadel", marked(withField("People"), "Opened")), want: markedField("People")},
+		{name: "a field named Since, where the record marks none", inst: instance("Citadel", withField("Since"))},
+		{name: "a marked field named Since, carried by the invitation", inst: instance("Citadel", marked(withField("Since"), "Since"))},
+		{name: "a marked field named Since, carried by no invitation", inst: instance("Citadel", marked(plain(), "Since"))},
 		{
 			name: "a directory-only switch named Directory",
 			inst: instance("Citadel", &identityTenantInvitation{key: identityTenantField{Name: "ID"}, directoryOnly: &identityTenantField{Name: "Directory"}}),
@@ -469,13 +626,13 @@ func Test_prepareIdentity_listedTenantNamesTaken(t *testing.T) { //nolint:parall
 // Test_listedTenant_rowsOf pins that the list of tenants the run writes is a view the
 // generator takes: loaded beside the tenant record as the run loads the declarations
 // packages, its key, its scope and its outlet are the record's, and its @rowsOf resolves to
-// the record.
+// the record, which marks when a tenant was made.
 func Test_listedTenant_rowsOf(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
 
-	record := oneFieldCitadel("", "")
-	r := citadelGenerator(t, record, nil)
+	record := oneFieldCitadel("\t\"time\"\n", "\t// @tenantSince\n\tRaised time.Time `spanner:\"RaisedAt\" conditions:\"output_only\"`\n")
+	r := citadelGenerator(t, record, markedCitadel)
 	if err := r.prepareIdentity(); err != nil {
 		t.Fatalf("prepareIdentity() error = %v", err)
 	}
@@ -527,6 +684,9 @@ func Test_listedTenant_rowsOf(t *testing.T) { //nolint:paralleltest // t.Chdir: 
 	c.resources = slices.Concat(resources, views)
 	if err := c.resolveRowsOf(c.resources, nil); err != nil {
 		t.Fatalf("resolveRowsOf() error = %v", err)
+	}
+	if field := resources[0].TenantSinceField; field == nil || field.Name() != "Raised" {
+		t.Errorf("the record's TenantSinceField = %v, want Raised", field)
 	}
 	view := views[0]
 	if view.RowsOf != "Citadels" || view.PermissionScope != resources[0].PermissionScope || view.PermissionScope == accesstypes.DomainPermissionScope {

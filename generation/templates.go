@@ -4857,6 +4857,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- if $a.TenantDirectoryOnlyField }}
       tenantDirectoryOnlyField: '{{ $a.TenantDirectoryOnlyField }}',
       {{- end }}
+      {{- if $a.TenantSinceField }}
+      tenantSinceField: '{{ $a.TenantSinceField }}',
+      {{- end }}
       {{- if $a.RolesFrom }}
       rolesFrom: '{{ $a.RolesFrom }}',
       {{- end }}

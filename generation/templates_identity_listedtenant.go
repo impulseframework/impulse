@@ -3,11 +3,13 @@ package generation
 // The source of the whole application's list of tenants (identity_listedtenant.go).
 const (
 	// identityListedTenantsTemplate declares the list of tenants: a view over the tenant
-	// record's table with the record's fields and four facts no table holds, each a
-	// correlated subquery over the tenant's own rows. The memberships are read by their
-	// table's key (kind, axis, domain), a group kept in a tenant by the groups table's
-	// index on the same three, its places by the group members table's key, and an
-	// account by the users table's key, so no fact ranges over another tenant's rows.
+	// record's table with the record's fields, when the tenant was made where the record
+	// marks that column, and the facts no table holds (its people, its directory, its
+	// administrators), each a correlated subquery over the tenant's own rows. The
+	// memberships are read by their table's key (kind, axis, domain), a group kept in a
+	// tenant by the groups table's index on the same three, its places by the group
+	// members table's key, and an account by the users table's key, so no fact ranges
+	// over another tenant's rows.
 	// Spanner refuses a statement of more than twenty joins of tables
 	// (identityTenantThroughDirectory); a page reads the list by its query alone, which
 	// holds four where the auth keeps groups and the tenant record declares a directory
@@ -25,12 +27,11 @@ import (
 
 type (
 	// {{ .ListedTenant }} is one {{ .TenantWord }} as the whole application's list shows it: a row of
-	// {{ .TenantTable }} with the record's own fields, and {{ if .TenantDirectory }}four{{ else }}three{{ end }} facts no table holds.
+	// {{ .TenantTable }} with the record's own fields, and {{ if .TenantDirectory }}three{{ else }}two{{ end }} facts no table holds.
 	// People is how many people hold something in the {{ .TenantWord }} itself right now: a role of
 	// their own{{ if and .KeepsGroups (and .TenantDirectory .HasIdentities) }}, a place in one of its groups, or a sign-in through its directory{{ else if .KeepsGroups }} or a place in one of its groups{{ else if and .TenantDirectory .HasIdentities }} or a sign-in through its directory{{ end }}.
 	// A person who is there only through a role held in every {{ .TenantWord }}{{ if .KeepsGroups }}, or through a group
-	// kept for the whole application,{{ end }} is not counted. Since is when the first role in it was
-	// given, which is when it was made; nothing for one nobody ever held a role in.
+	// kept for the whole application,{{ end }} is not counted.
 	{{- if .TenantDirectory }}
 	// Directory is the kind of directory its people sign in through, with the domain of a
 	// Google Workspace; the name a sign-in registration gives an organization is not said,
@@ -39,7 +40,8 @@ type (
 	{{- end }}
 	// Administrators names each person who holds one of the roles the auth's permission
 	// engine names as a {{ .TenantWord }} administrator's in the {{ .TenantWord }} itself, by a role of their
-	// own{{ if .KeepsGroups }} or through one of its groups{{ end }}.{{ if .TenantNameField }} The list filters by the name.{{ end }} It is a view over the
+	// own{{ if .KeepsGroups }} or through one of its groups{{ end }}.{{ with .TenantSinceField }} Since is when the
+	// {{ $.TenantWord }} was made: the record's {{ .Name }}, which it marks @tenantSince.{{ end }}{{ if .TenantNameField }} The list filters by the name.{{ end }} It is a view over the
 	// record's table, so a row opens, is changed and is deleted as the record's own.
 	//
 	// @virtual
@@ -51,14 +53,16 @@ type (
 	{{ .ListedTenant }} struct {
 		// @primarykey
 		{{ .TenantKeyField.Name }} {{ .TenantKeyField.Type }} ` + "`spanner:\"{{ .TenantKeyField.Column }}\" index:\"true\"`" + `
-		{{- range .TenantFields }}
+		{{- range .ListedTenantFields }}
 		{{ .Name }} {{ .Type }} ` + "`spanner:\"{{ .Column }}\"{{ if eq .Name $.TenantNameField }} index:\"true\"{{ end }}`" + `
 		{{- end }}
 		{{- with .TenantDirectoryOnlyField }}
 		{{ .Name }} bool ` + "`spanner:\"{{ .Column }}\"`" + `
 		{{- end }}
 		People int64 ` + "`spanner:\"People\"`" + `
+		{{- if .TenantSinceField }}
 		Since *time.Time ` + "`spanner:\"Since\"`" + `
+		{{- end }}
 		{{- if .TenantDirectory }}
 		Directory *string ` + "`spanner:\"Directory\"`" + `
 		{{- end }}
@@ -66,12 +70,12 @@ type (
 	}
 )
 
-// {{ GoCamel .ListedTenant }}Query selects every {{ .TenantWord }}, each with the people it holds, when its
-// first role was given{{ if .TenantDirectory }}, its directory{{ end }} and its administrators.
+// {{ GoCamel .ListedTenant }}Query selects every {{ .TenantWord }}, each with the people it holds{{ if .TenantSinceField }}, when it
+// was made{{ end }}{{ if .TenantDirectory }}, its directory{{ end }} and its administrators.
 const {{ GoCamel .ListedTenant }}Query = ` + "`" + `
 SELECT
   s.{{ .TenantKeyField.Column }} AS {{ .TenantKeyField.Column }},
-  {{- range .TenantFields }}
+  {{- range .ListedTenantFields }}
   s.{{ .Column }} AS {{ .Column }},
   {{- end }}
   {{- with .TenantDirectoryOnlyField }}
@@ -98,9 +102,9 @@ SELECT
     WHERE dr.{{ .TenantDirectory.TenantColumn }} = s.{{ .TenantKey }}
     {{- end }}
   ) p) AS People,
-  (SELECT MIN(f.CreatedAt)
-   FROM {{ .Policy.UserRoles }} f
-   WHERE f.Kind = {{ .KindDomain }} AND f.Axis = {{ .ScopeAxis }} AND f.DomainId = s.{{ .TenantKey }}) AS Since,
+  {{- with .TenantSinceField }}
+  s.{{ .Column }} AS Since,
+  {{- end }}
   {{- if .TenantDirectory }}
   (SELECT {{ .ListedTenantDirectory "d" }}
    FROM {{ .TenantDirectory.Table }} d

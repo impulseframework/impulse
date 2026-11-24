@@ -231,6 +231,15 @@ export interface IdentityDescriptor {
    */
   readonly tenantDirectoryOnlyField?: string;
   /**
+   * The tenant record's field that says when a tenant was made, as the wire names it, where
+   * the outlet serves the record and the record marks one (`@tenantSince`). The list of
+   * tenants carries the same moment as `since`. The tenants page leaves this field out of a
+   * tenant's form where its summary says Since, and shows it as the Since column where it
+   * lists the record itself. Absent where the record marks none, and on a description from a
+   * generator that predates it.
+   */
+  readonly tenantSinceField?: string;
+  /**
    * The directories that decide the Auth's roles, in the words of its login page's
    * buttons ("Google", "Google or Microsoft"), where a directory writes them at every
    * sign-in. Such an Auth keeps no groups of its own, and its Groups page says whose
@@ -333,12 +342,13 @@ export interface IdentityLists {
   readonly invitedTenants?: string;
   /**
    * The tenants, on the whole application's side of the Auth whose people make them: a row
-   * for each tenant with the tenant record's own fields and what no table holds of it: how
-   * many people it has (`people`), since when (`since`), the kind of directory its people
-   * sign in through (`directory`) and who administers it (`administrators`). The list is a
-   * view over the tenant record, so a row opens the record. Absent where the Auth makes no
-   * tenants, where the outlet does not serve the record, and on a description from a
-   * generator that predates it; a page then lists the record itself.
+   * for each tenant with the tenant record's own fields, when the tenant was made where the
+   * record marks that column (`since`), and what no table holds of it: how many people it
+   * has (`people`), the kind of directory its people sign in through (`directory`) and who
+   * administers it (`administrators`). The list is a view over the tenant record, so a row
+   * opens the record. Absent where the Auth makes no tenants, where the outlet does not serve
+   * the record, and on a description from a generator that predates it; a page then lists the
+   * record itself.
    */
   readonly tenants?: string;
   /**

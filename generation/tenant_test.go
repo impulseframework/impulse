@@ -58,6 +58,14 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Atolls":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Rank": plain}},
 		"Islets":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "Title": nullable}},
 		"Shoals":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
+		// When a tenant was made: the record marking it on each kind of timestamp, and
+		// each refused shape.
+		"Coves":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "MadeAt": plain}},
+		"Creeks":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Opened": nullable}},
+		"Straits": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "MadeAt": plain}},
+		"Deltas":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Founded": plain}},
+		"Fjords":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Made": plain}},
+		"Sounds":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "MadeAt": plain, "ChartedAt": nullable}},
 		// The declaration's shapes: the record with its flag, the directories record,
 		// and each shape the annotations refuse.
 		"Harbors":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "DirectoryOnly": plain}},
@@ -502,6 +510,63 @@ func Test_tenantNameColumn(t *testing.T) {
 			}
 			if field := r.tenantRecord().TenantNameField; field == nil || field.Name() != "Name" {
 				t.Errorf("TenantNameField = %v, want Name", field)
+			}
+		})
+	}
+}
+
+// Test_tenantSinceColumn pins the record's mark of when a tenant was made: captured on
+// the record for a timestamp and for a nullable one, and refused off it, on a column that
+// is not a timestamp, and twice.
+func Test_tenantSinceColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		structs []string
+		want    string
+		wantErr string
+	}{
+		{name: "a timestamp is captured", structs: []string{"Cove"}, want: "MadeAt"},
+		{name: "a nullable timestamp is captured", structs: []string{"Creek"}, want: "Opened"},
+		{
+			name:    "@tenantSince on a resource that is not the tenant record is refused",
+			structs: []string{"Cove", "Strait"},
+			wantErr: "struct Strait field MadeAt: @tenantSince on a resource that is not the tenant record; when a tenant was made is the @tenant record's column",
+		},
+		{
+			name:    "@tenantSince on a date is refused",
+			structs: []string{"Delta"},
+			wantErr: "struct Delta field Founded: @tenantSince on a civil.Date column; when a tenant was made is a timestamp (time.Time) or a nullable timestamp (*time.Time)",
+		},
+		{
+			name:    "@tenantSince on a string is refused",
+			structs: []string{"Fjord"},
+			wantErr: "struct Fjord field Made: @tenantSince on a string column; when a tenant was made is a timestamp (time.Time) or a nullable timestamp (*time.Time)",
+		},
+		{
+			name:    "@tenantSince on a second column is refused naming the first",
+			structs: []string{"Sound"},
+			wantErr: "struct Sound field ChartedAt: @tenantSince on a second column; field MadeAt carries it already, and a tenant was made once",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r, err := declarationResources(t, tt.structs...)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want it to contain %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if field := r.tenantRecord().TenantSinceField; field == nil || field.Name() != tt.want {
+				t.Errorf("TenantSinceField = %v, want %s", field, tt.want)
 			}
 		})
 	}
