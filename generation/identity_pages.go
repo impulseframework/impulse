@@ -100,7 +100,8 @@ type tsAPIIdentitySide struct {
 // the tenant keeps of them (listName). A person's roles are the one list that says where
 // each comes from, on both sides (identity_holdings.go). A tenant's side also names the
 // directories record, where the application declares one, for the page of a tenant's
-// sign-in settings.
+// sign-in settings. The sessions are the list that says which of them are live
+// (identity_sessions.go).
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	data := &identitySourceData{identityInstance: i}
 	if tenant {
@@ -141,7 +142,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListIdentities, data.Identity()},
 		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.MailLink()},
-		{identityListSessions, data.Session()},
+		{identityListSessions, data.ListedSession()},
 		{identityListSignInAttempts, data.SignInAttempt()},
 		{identityListSignInMethods, data.SignInMethod()},
 		{identityListSignInSettings, data.SignInSetting()},

@@ -177,6 +177,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/crew-listed-groups/testCrewListedGroupID", method: http.MethodPost},
 		{url: "/droids/crew-listed-group-roles", method: http.MethodGet},
 		{url: "/droids/crew-listed-group-roles", method: http.MethodPost},
+		{url: "/droids/crew-listed-sessions", method: http.MethodGet},
+		{url: "/droids/crew-listed-sessions", method: http.MethodPost},
+		{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
+		{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost},
 		{url: "/droids/crew-listed-users", method: http.MethodGet},
 		{url: "/droids/crew-listed-users", method: http.MethodPost},
 		{url: "/droids/crew-listed-users/testCrewListedUserID", method: http.MethodGet},
@@ -280,6 +284,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost},
 		{url: "/droids/members-held-roles", method: http.MethodGet},
 		{url: "/droids/members-held-roles", method: http.MethodPost},
+		{url: "/droids/members-listed-sessions", method: http.MethodGet},
+		{url: "/droids/members-listed-sessions", method: http.MethodPost},
+		{url: "/droids/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
+		{url: "/droids/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
 		{url: "/droids/members-listed-users", method: http.MethodGet},
 		{url: "/droids/members-listed-users", method: http.MethodPost},
 		{url: "/droids/members-listed-users/testMembersListedUserID", method: http.MethodGet},
@@ -601,6 +609,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/crew-listed-groups/testCrewListedGroupID", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-group-roles", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-group-roles", method: http.MethodPost},
+		{url: "/portal/api/crew-listed-sessions", method: http.MethodGet},
+		{url: "/portal/api/crew-listed-sessions", method: http.MethodPost},
+		{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
+		{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-users", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-users", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-users/testCrewListedUserID", method: http.MethodGet},
@@ -1019,6 +1031,7 @@ func generatedRouteParameters() []string {
 		"crewGroupUserGroupID",
 		"crewGroupUserUserID",
 		"crewListedGroupID",
+		"crewListedSessionID",
 		"crewListedUserID",
 		"crewSectorGroupID",
 		"crewSectorGroupRoleGroupID",
@@ -1051,6 +1064,7 @@ func generatedRouteParameters() []string {
 		"feeByKindKindID",
 		"hangarID",
 		"hangarPassID",
+		"membersListedSessionID",
 		"membersListedUserID",
 		"membersSectorIdentityID",
 		"membersSectorInvitationID",
@@ -1385,6 +1399,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/crew-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "CrewListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-listed-sessions", method: http.MethodGet,
+			handlerFunc: "CrewListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-listed-sessions", method: http.MethodPost,
+			handlerFunc: "CrewListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet,
+			handlerFunc: "CrewListedSession",
+			parameters:  map[string]string{"crewListedSessionID": "testCrewListedSessionID"},
+		},
+		{
+			url: "/console/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost,
+			handlerFunc: "CrewListedSession",
+			parameters:  map[string]string{"crewListedSessionID": "testCrewListedSessionID"},
 		},
 		{
 			url: "/console/api/crew-listed-users", method: http.MethodGet,
@@ -1940,6 +1974,46 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/members-held-roles", method: http.MethodPost,
 			handlerFunc: "MembersHeldRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/members-listed-sessions", method: http.MethodGet,
+			handlerFunc: "MembersListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/members-listed-sessions", method: http.MethodPost,
+			handlerFunc: "MembersListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet,
+			handlerFunc: "MembersListedSession",
+			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
+		},
+		{
+			url: "/console/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost,
+			handlerFunc: "MembersListedSession",
+			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
+		},
+		{
+			url: "/portal/api/members-listed-sessions", method: http.MethodGet,
+			handlerFunc: "MembersListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sessions", method: http.MethodPost,
+			handlerFunc: "MembersListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet,
+			handlerFunc: "MembersListedSession",
+			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
+		},
+		{
+			url: "/portal/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost,
+			handlerFunc: "MembersListedSession",
+			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
 		},
 		{
 			url: "/console/api/members-listed-users", method: http.MethodGet,
@@ -3586,6 +3660,14 @@ func (s *generatedHandlersStub) CrewListedRoleGrants() http.HandlerFunc {
 	return s.record("CrewListedRoleGrants")
 }
 
+func (s *generatedHandlersStub) CrewListedSessions() http.HandlerFunc {
+	return s.record("CrewListedSessions")
+}
+
+func (s *generatedHandlersStub) CrewListedSession() http.HandlerFunc {
+	return s.record("CrewListedSession")
+}
+
 func (s *generatedHandlersStub) CrewListedUsers() http.HandlerFunc {
 	return s.record("CrewListedUsers")
 }
@@ -4032,6 +4114,14 @@ func (s *generatedHandlersStub) MembersHeldRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MembersListedRoleGrants() http.HandlerFunc {
 	return s.record("MembersListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) MembersListedSessions() http.HandlerFunc {
+	return s.record("MembersListedSessions")
+}
+
+func (s *generatedHandlersStub) MembersListedSession() http.HandlerFunc {
+	return s.record("MembersListedSession")
 }
 
 func (s *generatedHandlersStub) MembersListedUsers() http.HandlerFunc {

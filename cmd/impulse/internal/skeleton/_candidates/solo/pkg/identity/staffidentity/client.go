@@ -83,6 +83,9 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
+	// The list of the auth's sessions says which are live by the timeout the Auth judges a
+	// request by.
+	staffresources.SetStaffListedSessionTimeout(sessions.SessionTimeout())
 
 	return &Client{manager: manager}, nil
 }

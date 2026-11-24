@@ -89,6 +89,17 @@ export interface StaffListedGroupRoles {
   losing?: number;
 }
 
+export interface StaffListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  expired?: boolean;
+  live?: boolean;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface StaffListedUsers {
   id: string;
   username?: string;
@@ -101,6 +112,7 @@ export interface StaffListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  trustedDevices?: number;
 }
 
 export interface StaffRoles {
@@ -655,6 +667,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
     ],
   },
+  [Resources.StaffListedSessions]: {
+    route: 'staff-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.StaffListedUsers]: {
     route: 'staff-listed-users',
     live: true,
@@ -671,6 +698,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
     ],
   },
   [Resources.StaffRoles]: {
@@ -1361,6 +1389,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffHeldRoles]: PermissionScopes.global,
   [Resources.StaffListedGroups]: PermissionScopes.global,
   [Resources.StaffListedGroupRoles]: PermissionScopes.global,
+  [Resources.StaffListedSessions]: PermissionScopes.global,
   [Resources.StaffListedUsers]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,

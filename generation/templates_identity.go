@@ -169,8 +169,10 @@ import (
 
 type (
 	// {{ .Session }} is one session of the {{ .Auth }} auth: a row of
-	// {{ .Tables.Sessions }}, the session library's sessions table. A session ends by
-	// its Expired column; the rows are never deleted.
+	// {{ .Tables.Sessions }}, the session library's sessions table. A session is ended by
+	// its Expired column, and the session library removes a row 30 days after the session
+	// was last used. A page lists the sessions from {{ .ListedSession }}, which also says
+	// whether each is live.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -2021,13 +2023,15 @@ import (
 
 // End{{ .Session }} ends one session of the {{ .Auth }} auth: the next request that
 // carries it is refused. A session established as someone or something else ends with
-// its impersonation record; a session that has ended already is left as it is.
+// its impersonation record; a session that has ended already is left as it is. It names
+// the session by its row of {{ .ListedSession }}, the list a page shows, so a row of that
+// list offers it.
 //
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
 type End{{ .Session }} struct {
-	// @target({{ .Session }})
+	// @target({{ .ListedSession }})
 	SessionID impulse.UUID
 }
 

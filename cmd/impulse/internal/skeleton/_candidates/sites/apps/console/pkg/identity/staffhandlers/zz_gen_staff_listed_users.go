@@ -31,6 +31,7 @@ func (h *Handlers) StaffListedUsers() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		Roles                  []string     `json:"roles"`
 		LockedUntil            *time.Time   `json:"lockedUntil"`
+		TrustedDevices         int64        `json:"trustedDevices"`
 	}
 
 	type response []map[string]any
@@ -117,6 +118,10 @@ func (h *Handlers) StaffListedUsers() http.HandlerFunc {
 					if !row.Masked("lockedUntil") {
 						rmap["lockedUntil"] = rec.LockedUntil
 					}
+				case "TrustedDevices":
+					if !row.Masked("trustedDevices") {
+						rmap["trustedDevices"] = rec.TrustedDevices
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -151,6 +156,7 @@ func (h *Handlers) StaffListedUser() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		Roles                  []string     `json:"roles"`
 		LockedUntil            *time.Time   `json:"lockedUntil"`
+		TrustedDevices         int64        `json:"trustedDevices"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffListedUser, response](h, accesstypes.Read)
@@ -224,6 +230,10 @@ func (h *Handlers) StaffListedUser() http.HandlerFunc {
 			case "LockedUntil":
 				if !row.Masked("lockedUntil") {
 					rmap["lockedUntil"] = rec.LockedUntil
+				}
+			case "TrustedDevices":
+				if !row.Masked("trustedDevices") {
+					rmap["trustedDevices"] = rec.TrustedDevices
 				}
 			}
 		}

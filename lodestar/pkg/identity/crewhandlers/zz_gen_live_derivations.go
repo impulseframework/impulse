@@ -53,12 +53,19 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 		}},
+		// CrewListedSessions: the tables its query reads.
+		{Resource: crewresources.CrewListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionImpersonation{}.Resource(), Global: true},
+			{Name: crewresources.CrewSession{}.Resource(), Global: true},
+		}},
 		// CrewListedUsers: the tables its query reads.
 		{Resource: crewresources.CrewListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionSignInSetting{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionTrustedDevice{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 			{Name: resources.Sector{}.Resource(), Global: true},
