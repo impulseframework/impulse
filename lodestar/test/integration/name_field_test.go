@@ -622,6 +622,37 @@ func TestNameField_rostersAndAssignments(t *testing.T) {
 			}
 		}
 	}
+
+	// The roster's pilot name is a filter key by itself: the roster's PilotId is indexed,
+	// and so is the pilots' DisplayName.
+	rosters := listRows(t, h, "marshal", sectorPath(anvil, "squadron-rosters?columns=squadronId,userId,pilotId,pilotName&limit=200"))
+	var pilot string
+	for _, row := range rosters {
+		if name, _ := row["pilotName"].(string); name != "" {
+			pilot = name
+
+			break
+		}
+	}
+	want := 0
+	for _, row := range rosters {
+		if row["pilotName"] == pilot {
+			want++
+		}
+	}
+	if pilot == "" || want == len(rosters) {
+		t.Fatalf("Anvil's rosters show the pilot %q on %d of %d rows; the filter needs a pilot's rows and others", pilot, want, len(rosters))
+	}
+	filter := fmt.Sprintf("pilotName:eq:%q", pilot)
+	filtered := listRows(t, h, "marshal", sectorPath(anvil, "squadron-rosters?columns=squadronId,userId,pilotName&limit=200&filter="+url.QueryEscape(filter)))
+	if len(filtered) != want {
+		t.Errorf("squadron-rosters filtered by %s gives %d rows, want %d, the pilot's own", filter, len(filtered), want)
+	}
+	for _, row := range filtered {
+		if row["pilotName"] != pilot {
+			t.Errorf("squadron-rosters filtered by %s gives %v", filter, row)
+		}
+	}
 }
 
 // TestNameField_clientsByPartOfTheName pins a name read from a view matched by part of

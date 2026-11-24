@@ -121,6 +121,7 @@ DROP TABLE Squadrons;
 DROP TABLE PilotCertifications;
 DROP INDEX ClientContactsByUserId;
 DROP TABLE ClientContacts;
+DROP INDEX PilotsByDisplayName;
 DROP INDEX PilotsByUserId;
 DROP TABLE Pilots;
 DROP INDEX ShipClassesByDesignation;

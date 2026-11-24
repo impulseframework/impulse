@@ -384,6 +384,10 @@ CREATE TABLE Pilots (
 
 CREATE UNIQUE INDEX PilotsByUserId ON Pilots(UserId);
 
+-- A list that shows a pilot by name (a squadron's roster, the commendations desk) is
+-- filtered by that name through this index.
+CREATE INDEX PilotsByDisplayName ON Pilots(DisplayName);
+
 CREATE TABLE ClientContacts (
   Id STRING(36) NOT NULL,
   UserId STRING(36) NOT NULL,

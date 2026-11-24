@@ -17,6 +17,8 @@ type (
 	// key under the table's own column names, so a row is deleted from the list through
 	// the table and a create associates a pilot through the table's form. The bare
 	// @domain on SectorId partitions the rows the way the table's two-hop tenancy does.
+	// PilotId is the pilot's key, so a filter on it, or on the pilot's name beside it,
+	// comes back to the memberships through their index by user: the field is indexed.
 	//
 	// Demonstrates: @rowsOf, @rowsOf.association, @enumerate, list.row-route, @virtual, virtual.domain.
 	//
@@ -34,7 +36,7 @@ type (
 		SectorID     impulse.UUID `spanner:"SectorId"     index:"true"`
 		SquadronName string       `spanner:"SquadronName" index:"true"`
 		// @enumerate(Pilots)
-		PilotID impulse.NullUUID `spanner:"PilotId"`
+		PilotID impulse.NullUUID `spanner:"PilotId" index:"true"`
 	}
 )
 
