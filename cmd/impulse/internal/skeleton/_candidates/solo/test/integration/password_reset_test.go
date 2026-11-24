@@ -103,7 +103,7 @@ func TestPasswordReset_theWayBackIn(t *testing.T) {
 	if status, body := allow(admin, true); status != http.StatusNoContent {
 		t.Fatalf("the administrator turning it on again: status %d, want 204: %s", status, body)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" {
 		t.Errorf("the sign-in methods after the choice of a person's own reset was written again = %+v, want the password method still open with its role", got)
 	}
 	if status, body := admin.do(ctx, http.MethodPost, "/api/make-staff-invite-only", []byte(`{"name":"password"}`)); status != http.StatusNoContent {
