@@ -539,9 +539,14 @@ func TestNameField_aRenameTellsTheTab(t *testing.T) {
 		}
 	}
 
+	// The person holds a role at Anvil, and one for the whole application beside it, so no
+	// sector manages the account and the governor names it.
 	person := w.seedCrewUser(ctx, t, "renamed-"+identitySuffix())
 	if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(anvil), accesstypes.User(person.String()), "Armorer"); err != nil {
 		t.Fatalf("access.UserManager.AddUserRoles(Armorer, Anvil) error = %v", err)
+	}
+	if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(person.String()), "CrewCommon"); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(CrewCommon, the whole application) error = %v", err)
 	}
 	want := &live.Names{
 		Of:    live.SubscriptionRequest{Resource: "HangarPasses", Domain: anvil},
