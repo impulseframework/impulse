@@ -28,7 +28,10 @@ import (
 // tests do. The test stands on the harness the command writes, so it is written where
 // that harness is the command's still and the conditions are the ones the test proves;
 // anywhere else the role is written without the conditional grants, and the change says
-// which they are and why the test was not written.
+// which they are and why the test was not written. Where a person may be in several
+// tenants the reference holds its own administrator to the accounts no tenant manages
+// (managedByTenant = false), and the same rule holds: the application's own administrator
+// role takes that condition only where the test is written with the part that proves it.
 
 // The tests of the integration suite the proof is written among or stands on.
 const (
@@ -106,15 +109,18 @@ func authHasPassword(a *app.App, pkg *app.AuthPackage) bool {
 }
 
 // peopleProof renders the test that proves the conditions on the grants of the role a
-// tenant's administrator holds, for the auth whose people make tenants. It returns the
-// files the proof is written as, each by its path: the test, and the harness it stands on
-// as the command writes it beside the test, whose provesGrant says to the application's
-// lint that every call names one role. It returns no file, and why in words a line of the
-// change carries, where the command cannot write a test that holds as the application is:
-// a test of that name is there already, the tests it stands on are not the ones the
-// command writes, the conditions are not the ones it proves, or another test of the
-// package declares one of its names.
-func (tn Tenancy) peopleProof(a *app.App, seat *app.AuthPackage, conditional []conditionalGrant) (proof map[string][]byte, why string, err error) {
+// tenant's administrator holds, for the auth whose people make tenants, and, with a hold,
+// on the grants it holds the application's own administrator to: the test is then
+// rendered with the part that proves those too. It returns the files the proof is written
+// as, each by its path: the test and, where it proves the tenant's role alone, the harness
+// it stands on as the command writes it beside the test, whose provesGrant says to the
+// application's lint that every call names one role. With the hold's part the calls name
+// two roles, and the harness stays as the command wrote it for the standing tests. It
+// returns no file, and why in words a line of the change carries, where the command cannot
+// write a test that holds as the application is: a test of that name is there already,
+// the tests it stands on are not the ones the command writes, the conditions are not the
+// ones it proves, or another test of the package declares one of its names.
+func (tn Tenancy) peopleProof(a *app.App, seat *app.AuthPackage, conditional []conditionalGrant, hold *accountHold) (proof map[string][]byte, why string, err error) {
 	if exists(a, tenantPeopleTest) {
 		return nil, fmt.Sprintf("%s is there already, and the command writes over nobody's test", tenantPeopleTest), nil
 	}
@@ -126,6 +132,9 @@ func (tn Tenancy) peopleProof(a *app.App, seat *app.AuthPackage, conditional []c
 		Record: tn.Record(), OneTenant: tn.OneTenantPerPerson, Kebab: strcase.ToKebab(tn.Record()), Segment: tn.Segment(),
 		South: devTenantSouth, Password: password,
 	}
+	if hold != nil {
+		data.Administrator = hold.role.Name
+	}
 	files, err := renderSuites(tenantPeopleSuites, data, modulePath(a), seat.Name)
 	if err != nil {
 		return nil, "", err
@@ -135,11 +144,14 @@ func (tn Tenancy) peopleProof(a *app.App, seat *app.AuthPackage, conditional []c
 	if err != nil {
 		return nil, "", err
 	}
-	if why := tn.unprovenWords(conditional, proven); why != "" {
+	if why := tn.unprovenWords(conditional, hold, proven); why != "" {
 		return nil, why, nil
 	}
 	if why := declaredAlready(a, declared); why != "" {
 		return nil, why, nil
+	}
+	if hold != nil {
+		return map[string][]byte{tenantPeopleTest: test}, "", nil
 	}
 	set, _ := tn.proofSuites(seat.Name, password)
 	beside, err := tn.standing(a, set, seat.Name, true)
@@ -301,20 +313,29 @@ func topLevelNames(file *ast.File) []string {
 // the test proves, which differ: a grant the test does not prove is one impulse check
 // refuses, and a proof of a grant the role does not carry fails as the test runs. An
 // application whose auth sends no mail, or whose management somebody cut down, serves
-// less than the test proves. It answers nothing where the two are the same.
-func (tn Tenancy) unprovenWords(conditional []conditionalGrant, proven []provenGrant) string {
-	role := tn.AdministratorRole()
+// less than the test proves. With a hold, the grants it holds the application's own
+// administrator to are paired too, each with a line under that role's name. It answers
+// nothing where the two are the same.
+func (tn Tenancy) unprovenWords(conditional []conditionalGrant, hold *accountHold, proven []provenGrant) string {
+	carried := map[string][]conditionalGrant{tn.AdministratorRole(): conditional}
+	roles := []string{tn.AdministratorRole()}
+	if hold != nil {
+		carried[hold.role.Name] = hold.grants
+		roles = append(roles, hold.role.Name)
+	}
 	proofs := map[provenGrant]bool{}
 	for _, p := range proven {
 		proofs[p] = true
 	}
 	var unproven, uncarried []string
-	for _, c := range conditional {
-		p := provenGrant{role: role, permission: c.permission, resource: string(c.grant.Resource), condition: c.grant.Condition}
-		if !proofs[p] {
-			unproven = append(unproven, c.String())
+	for _, role := range roles {
+		for _, c := range carried[role] {
+			p := provenGrant{role: role, permission: c.permission, resource: string(c.grant.Resource), condition: c.grant.Condition}
+			if !proofs[p] {
+				unproven = append(unproven, c.String())
+			}
+			delete(proofs, p)
 		}
-		delete(proofs, p)
 	}
 	for _, p := range proven {
 		if proofs[p] {

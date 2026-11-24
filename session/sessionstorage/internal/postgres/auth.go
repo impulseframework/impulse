@@ -187,9 +187,9 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 		return errors.New("DestroySessionsByProviderSessionID needs the auth schema: use Auth storage")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

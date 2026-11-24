@@ -11,6 +11,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword proves the administrators' way
@@ -36,8 +40,13 @@ import (
 // inside, which is what the way in is for.
 //
 // The fleet's own people do not make the way in theirs. The pilot is made Headquarters,
-// the role that gives the crew's roles and manages its accounts for the whole fleet,
-// and her session, a password's, does not enter Bastion: she is refused every act that
+// the role that gives the crew's roles for the whole fleet and manages the accounts no
+// sector manages, and her session, a password's, does not enter Bastion. An account a
+// sector manages is not Headquarters' to change at all, and the rigger's sign-in through
+// the Workspace made her account Cinder's, so the governor first takes that link off
+// from Cinder's side: she is then the fleet's to manage, holding roles in three sectors
+// and signing in through no sector's directory, and there the rule on a directory-only
+// sector's marshal is what refuses Headquarters. The pilot is refused every act that
 // would change who administers Bastion or hand her its marshal's account. Those are
 // giving herself Bastion's marshal's role, taking it from the marshal Bastion has, an
 // invitation that carries it, giving it to Bastion's group or taking it from the group,
@@ -56,7 +65,8 @@ import (
 // governor; a role at Anvil, a role held in every sector and a role of the whole fleet's
 // group they offer her. In Anvil, which
 // admits her, she names a marshal as Headquarters does, and the governor, a super administrator, gives
-// Bastion's role. A session established by an impersonation gains nothing either: one
+// Bastion's role. The rigger then signs in through the Workspace again, which makes her
+// account Cinder's once more. A session established by an impersonation gains nothing either: one
 // that views the application as Bastion's marshal does not enter Bastion, and one the
 // marshal herself starts as the Headquarters role, from a browser Bastion admits, does
 // not enter it and is refused the call her own session makes. Reading is held by the
@@ -228,17 +238,39 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	pilot.signIn(ctx, "pilot")
 	pilotID := crewUserID(ctx, t, governor, "pilot").String()
 	give("making the pilot Headquarters", "assign-crew-role", map[string]any{"userId": pilotID, "role": "Headquarters"})
-	// The rigger is in Bastion's group again, beside the role of her own, and the link
-	// her sign-in through the Workspace made is the identity an unlink would name.
+	// The rigger is in Bastion's group again, beside the role of her own. The link her
+	// sign-in through the Workspace made makes her account Cinder's to manage, and an
+	// account a sector manages is not Headquarters' to change at all, so the governor, a
+	// marshal of Cinder, takes that link off from Cinder's side; she holds a password, so
+	// it is not her last way in. She then holds roles in three sectors and signs in
+	// through no sector's directory: the fleet manages her account, and what refuses
+	// Headquarters below is the rule on a directory-only sector's marshal.
 	give("putting the rigger in Bastion's group again", "add-crew-group-member", place)
-	var riggersLink string
+	var workspaceLink string
 	for _, row := range crewList(ctx, t, governor, "crew-session-identities") {
 		if row["userId"] == riggerID {
-			riggersLink = cell[string](t, row, "id")
+			workspaceLink = cell[string](t, row, "id")
 		}
 	}
-	if riggersLink == "" {
+	if workspaceLink == "" {
 		t.Fatal("the rigger has no identity link, want the one her sign-in through the Workspace made")
+	}
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(cinder, "unlink-crew-sector-session-identity"), jsonBody(t, map[string]string{"identityId": workspaceLink})); status != http.StatusNoContent {
+		t.Fatalf("taking the rigger's link through the Workspace off from Cinder's side as the governor: status %d, want 204: %s", status, body)
+	}
+	// The identity an unlink would name is one of a personal Google account's, written as
+	// the crew's open Google sign-up writes one, under the connection of any Google
+	// account, which no sector's directory can be.
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	riggersLink := id.String()
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
+		"Id": riggersLink, "UserId": riggerID, "Method": "google", "Connection": signin.GoogleAnyAccountConnection, "Subject": "personal-subject-of-rigger",
+		"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+	})}); err != nil {
+		t.Fatalf("writing the rigger's identity of a personal Google account: %v", err)
 	}
 	if status, body := pilot.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
 		t.Fatalf("GET Bastion's wings as the pilot, Headquarters signed in with a password: status %d, want 404: Bastion keeps the fleet's own people out: %s", status, body)
@@ -266,6 +298,10 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		})
 	}
 	bosunID := crewUserID(ctx, t, governor, "bosun").String()
+	// The bosun holds a role at Bastion alone, so Bastion would manage his account; a role
+	// for the whole application makes it the fleet's to manage, and he still administers
+	// no sector.
+	give("giving the bosun Crew common for the whole application", "assign-crew-role", map[string]any{"userId": bosunID, "role": "CrewCommon"})
 	pilotOnRigger := offeredOnRow(ctx, t, pilot, crewListedAccountsPath, riggerID)
 	pilotOnBosun := offeredOnRow(ctx, t, pilot, crewListedAccountsPath, bosunID)
 	if got := acts(pilotOnRigger); len(got) != 0 {
@@ -283,10 +319,10 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if got := acts(offeredOnRow(ctx, t, governor, crewListedAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
 		t.Errorf("the rigger's row of the fleet's accounts, as the governor reads it, offers the acts on an account %v, want %v", got, accountActs)
 	}
-	if offered := offeredOnRow(ctx, t, pilot, "crew-session-identities", riggersLink); slices.Contains(offered, unlink) {
+	if offered := offeredOnRow(ctx, t, pilot, "crew-listed-identities", riggersLink); slices.Contains(offered, unlink) {
 		t.Errorf("the rigger's sign-in identity, as the pilot reads it, offers %v, want no %s", offered, unlink)
 	}
-	if offered := offeredOnRow(ctx, t, governor, "crew-session-identities", riggersLink); !slices.Contains(offered, unlink) {
+	if offered := offeredOnRow(ctx, t, governor, "crew-listed-identities", riggersLink); !slices.Contains(offered, unlink) {
 		t.Errorf("the rigger's sign-in identity, as the governor reads it, offers %v, want %s", offered, unlink)
 	}
 	for _, refused := range []struct {
@@ -534,6 +570,21 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	// Anvil admits her, and there Headquarters names a marshal as before.
 	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "domain": anvil})); status != http.StatusNoContent {
 		t.Errorf("making the rigger a marshal of Anvil as the pilot, Headquarters: status %d, want 204: Anvil is not directory only: %s", status, answer)
+	}
+
+	// The rigger signs in through the fleet's Workspace again, in a new browser: the link
+	// was taken off, so the sign-in is held for her password and links her account once
+	// more, which makes it Cinder's again. This is her session through the Workspace from
+	// here on.
+	through = primedBrowser(ctx, t, s)
+	if status, location := through.loginConsoleGoogle(ctx, "rigger"); status != http.StatusFound || location != held {
+		t.Fatalf("the rigger's sign-in through the fleet's Workspace once the link was taken off: status %d to %q, want %d to %q", status, location, http.StatusFound, held)
+	}
+	if status, body := through.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
+		t.Fatalf("confirming the sign-in through the Workspace with the rigger's password: status %d: %s", status, body)
+	}
+	if sess := through.session(ctx); sess["authenticated"] != true || sess["username"] != "rigger" {
+		t.Fatalf("the session after the confirmation = %v, want authenticated as the rigger", sess)
 	}
 
 	// Nor does a session established by an impersonation make its way in the person's.

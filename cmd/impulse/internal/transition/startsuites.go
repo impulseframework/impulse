@@ -110,11 +110,18 @@ type suiteData struct {
 	// Camel is the record as the invitation's request spells its fields (tenant for
 	// Tenant): the field that names the new tenant is Camel followed by Name.
 	Camel string
+	// Administrator is the application's own administrator role where the test of a
+	// tenant administrator's conditions proves that role's too (managedByTenant = false on
+	// the whole application's methods that act on an account), and empty where the test
+	// proves the tenant's role alone: a person belongs to one tenant, or the role's grants
+	// were left as they were.
+	Administrator string
 	// Proven reports that the test of a tenant administrator's conditions is written beside
-	// the harness. Every grant it proves is one role's, so the harness's provesGrant takes
-	// that role in each call, and says so to the application's lint (unparam), as the
-	// tenanted reference application's harness does. A harness with no such test beside it
-	// says nothing, since a directive that silences nothing is itself refused.
+	// the harness and proves that one role's grants alone. The harness's provesGrant then
+	// takes that role in each call, and says so to the application's lint (unparam). A
+	// harness with no such test beside it, or beside a test that proves the application's
+	// own administrator's conditions too, says nothing, since a directive that silences
+	// nothing is itself refused.
 	Proven bool
 }
 
