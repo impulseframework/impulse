@@ -1,5 +1,6 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { firstValueFrom } from 'rxjs';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -16,6 +17,7 @@ import {
   TransportResponse,
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { AppGridComponent } from '@impulseframework/resource-angular/grid';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
@@ -31,6 +33,7 @@ import {
   RESOURCE_DOMAIN,
   RESOURCE_META,
   rootConfig,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 
 import { notNamedFor } from '../../auth-frame/frame-testing';
@@ -488,6 +491,70 @@ describe('ResourceListComponent', () => {
           { value: 'false', label: 'No' },
         ],
       });
+    });
+  });
+
+  describe("hands a column's getter the session read beside the row", () => {
+    const rows = [
+      { id: 's-1', name: 'Kestrel' },
+      { id: 's-2', name: 'Osprey' },
+    ];
+    /** The session the server says the browser is signed in with, at each read of it. */
+    let signedInWith = 's-1';
+    const server = (request: TransportRequest): TransportResponse => {
+      const path = request.url.split('?')[0];
+      if (path === '/api/user/session') {
+        return { status: 200, body: { authenticated: true, username: 'gale', sessionId: signedInWith } };
+      }
+      if (path === '/api/permission-digest') {
+        const digest: PermissionDigest = {
+          [ships]: { List: 'granted' },
+          [`${ships}.id`]: { List: 'granted' },
+          [`${ships}.name`]: { List: 'granted' },
+        };
+        return { status: 200, body: digest };
+      }
+      if (path === '/api/user-domains') {
+        return { status: 200, body: [] };
+      }
+      return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+    };
+    const names = (): (string | undefined)[] =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row')).map((row) =>
+        row.querySelector('td.data-col')?.textContent?.trim(),
+      );
+
+    it('so a cell says which row is the reader’s own, and the rows are drawn again when the read changes', async () => {
+      const handed: { id: unknown; reader: SessionInfo }[] = [];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            {
+              id: 'name' as FieldName,
+              valueGetter: (row: RecordData, reader: SessionInfo): string => {
+                handed.push({ id: row['id'], reader });
+                return row['id'] === reader.sessionId ? `${String(row['name'])}, yours` : String(row['name']);
+              },
+            },
+          ],
+        },
+        rows,
+        server,
+      );
+      const auth = TestBed.inject(AuthService);
+      signedInWith = 's-1';
+      await firstValueFrom(auth.checkUserSession());
+      fixture.detectChanges();
+      await settle();
+      expect(names()).toEqual(['Kestrel, yours', 'Osprey']);
+      expect(handed.at(-1)?.reader).toBe(auth.sessionInfo());
+
+      signedInWith = 's-2';
+      await firstValueFrom(auth.checkUserSession());
+      fixture.detectChanges();
+      await settle();
+      expect(names()).toEqual(['Kestrel', 'Osprey, yours']);
     });
   });
 

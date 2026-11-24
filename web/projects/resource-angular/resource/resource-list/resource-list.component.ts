@@ -1459,6 +1459,9 @@ export class ResourceListComponent implements OnInit {
     const roleFields = new Set(
       (this.meta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
     );
+    // A column's getter is handed the session read beside the row, so a cell can say
+    // which row is the reader's own; read here, the rows are drawn again when it changes.
+    const reader = this.auth.sessionInfo();
 
     return data.map((row) => {
       const updatedRow = { ...row };
@@ -1476,7 +1479,7 @@ export class ResourceListComponent implements OnInit {
       }
       for (const col of columns) {
         if (col.valueGetter) {
-          updatedRow[col.id] = col.valueGetter(row);
+          updatedRow[col.id] = col.valueGetter(row, reader);
         } else {
           updatedRow[col.id] = row[col.id];
         }

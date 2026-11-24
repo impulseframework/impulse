@@ -4,6 +4,7 @@ import { IconName } from './icon-names';
 import { FieldName, Method, PermissionScope, Resource } from './permissions';
 import { NullBoolean } from './resource-meta';
 import { ConcatFn, defaultEmptyFieldValue } from './resource-types';
+import { SessionInfo } from './session-info';
 import { ResourceValidatorFn } from './validators';
 
 export interface FieldPointer {
@@ -308,9 +309,11 @@ interface ColumnConfigBase {
   /**
    * How the cell is read off the row, in place of the field's own value: handed the row
    * as the server answered it. A getter that answers a list, on a column with `lines`,
-   * is drawn a line each.
+   * is drawn a line each. The second argument is the session read's answer (who is signed
+   * in, and with which session), for a cell that says something of the reader: which row is
+   * theirs.
    */
-  valueGetter?: (data: any) => string | string[];
+  valueGetter?: (data: any, reader: SessionInfo) => string | string[];
   valueFormatter?: (data: any) => string;
   tooltipPosition?: TooltipPosition;
   viewRoute?: Resource;
