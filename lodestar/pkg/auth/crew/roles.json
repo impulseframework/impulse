@@ -993,10 +993,12 @@
               "resource": "IssueBulletin"
             },
             {
-              "resource": "DisableCrewUser"
+              "resource": "DisableCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "EnableCrewUser"
+              "resource": "EnableCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "AssignCrewRole"
@@ -1017,7 +1019,8 @@
               "resource": "EndCrewSession"
             },
             {
-              "resource": "EndCrewUserSessions"
+              "resource": "EndCrewUserSessions",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "EndCrewSessionImpersonation"
@@ -1029,13 +1032,16 @@
               "resource": "EndMembersUserSessions"
             },
             {
-              "resource": "RequireCrewPasswordChange"
+              "resource": "RequireCrewPasswordChange",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "UnlinkCrewSessionIdentity"
+              "resource": "UnlinkCrewSessionIdentity",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RemoveCrewPassword"
+              "resource": "RemoveCrewPassword",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "RevokeCrewSessionToken"
@@ -1044,16 +1050,20 @@
               "resource": "UnlinkMembersSessionIdentity"
             },
             {
-              "resource": "DeleteCrewUser"
+              "resource": "DeleteCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RenameCrewUser"
+              "resource": "RenameCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SendCrewUserPasswordResetLink"
+              "resource": "SendCrewUserPasswordResetLink",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RevokeCrewUserTrustedDevices"
+              "resource": "RevokeCrewUserTrustedDevices",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "DeleteMembersUser"
@@ -1101,10 +1111,12 @@
               "resource": "WithdrawCrewInvitedSector"
             },
             {
-              "resource": "SetCrewUserEmail"
+              "resource": "SetCrewUserEmail",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SetCrewUserName"
+              "resource": "SetCrewUserName",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "SetMembersUserEmail"

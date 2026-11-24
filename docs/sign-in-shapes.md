@@ -1214,6 +1214,16 @@ administrator can do this much:
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.
 
+The application's own administrators manage the accounts no tenant manages. The whole
+application's list of people says which those are (`managedByTenant`, and
+`managingTenant`, the tenant that does), and where a person may be in several tenants
+the skeletons' role file gives the application's administrator each account method, and
+the reset link, under `managedByTenant = false`. Where a person belongs to one tenant,
+or the application has no tenants, the application's administrators manage every account
+and the grants carry no condition. To act on an account a tenant manages, a super
+administrator gives themselves that tenant's administrator role in the tenant and acts
+from the tenant's side; the role given is recorded like any other.
+
 An application that `impulse new` makes with tenants, or that `impulse add tenancy` gives
 them, starts with this role in its own names (`<Record>Administrator`): each of these
 grants on what the application serves, under the same condition. The command writes

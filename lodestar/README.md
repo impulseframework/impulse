@@ -903,13 +903,19 @@ group of the navigation ("Crew accounts", "Members accounts"), with a person's r
 holding the roles held, the sign-in identities and the sessions. A crew member's page
 also lists the ways they sign in, the password where they hold one and each identity
 that can sign them in, as the server judges it, and above that list offers Remove
-password, only for a person it shows a password and an identity that counts for: one
-who has moved to the fleet's directory. The members sign in through their directory
-alone and have none to remove. A row's menu holds the
+password, only for a person it shows a password and an identity that counts for, and
+only to whoever manages the account. A person who has moved to the fleet's directory is
+Cinder's to manage, since the fleet's Workspace is Cinder's directory: the removal is
+offered to Cinder's marshal, on the person's page among Cinder's people, and not to
+Headquarters, which is offered it for a person no sector manages. The members sign in
+through their directory alone and have none to remove. A row's menu holds the
 methods the server says the caller may run on that row, so a role that holds no grant on
 a method sees no entry for it, and the members' pages offer nothing that gives a role,
 adds an account or invites one. Headquarters holds the grants
-(`pkg/auth/crew/roles.json`).
+(`pkg/auth/crew/roles.json`), those that change an account or mail its password reset
+link only for the accounts no sector manages (`managedByTenant = false`): a person a
+sector manages is listed like anyone, and their row offers Headquarters none of those
+methods.
 
 Lodestar has a tenant record, so the generated management also declares, per auth, the
 lists a sector keeps of the auth's people. An account is one row for the whole
@@ -1009,14 +1015,17 @@ team is seated, is kept out with everyone else, which is what the switch is for;
 Bastion's marshal signed in through the fleet's Workspace, another sector's directory;
 the role taken away closes the door at the next request; and the same person's password
 session reaches their other sectors by those sectors' own declarations. Nor does the
-fleet's own team make the way in theirs: Headquarters, which gives the crew's roles and
-manages its accounts for the whole fleet, is refused giving anyone, itself included,
-the marshal's role at Bastion while Bastion is directory only, a place in a group of
+fleet's own team make the way in theirs: Headquarters, which gives the crew's roles for
+the whole fleet and manages the accounts no sector manages, is refused giving anyone,
+itself included, the marshal's role at Bastion while Bastion is directory only, a place in a group of
 Bastion's that holds it, and the changes to the account of the marshal Bastion has that
 would hand over her sign-in or shut her out (a password, a sign-in name, an address, an
 identity unlinked, the account disabled, enabled or deleted), each with a sentence that
 says who does it:
 one of Bastion's marshals, or a super administrator, as the governor is. Headquarters
+reads those sentences on her account where no sector manages it, as when she holds a
+role in a second sector and signs in through no sector's directory; an account a sector
+manages is not Headquarters' to change at all, a marshal's or anyone's. Headquarters
 is not shown those actions on the row of a directory-only sector's marshal: the row's
 menu leaves them out, as the server would refuse them. Nor is it shown the removal of
 the marshal's role there: not from the marshal, on the rows of the roles people hold and
@@ -1144,9 +1153,9 @@ and the last holder of a sector's administrator role (`SectorMarshal`,
 headquarters brings a customer's sector in by inviting its first administrator and
 holds no seat in it. The
 whole service is kept by the Super Administrator role instead: only a holder makes or
-removes another or changes how another signs in (headquarters, which manages the crew's
-accounts, neither disables nor enables a holder's, sets no password, username or email
-address on a holder and unlinks none of their identities), giving the role ends
+removes another or changes how another signs in (headquarters, which manages the accounts
+no sector manages, neither disables nor enables a holder's, sets no password, username
+or email address on a holder and unlinks none of their identities), giving the role ends
 nothing the person holds (their sessions, tokens and remembered browsers stand, and the
 code is asked at their next sign-in), a holder gives and takes any role
 of the crew whatever the role file

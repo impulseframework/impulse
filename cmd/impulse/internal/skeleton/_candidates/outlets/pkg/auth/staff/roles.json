@@ -21,10 +21,12 @@
           ],
           "Execute": [
             {
-              "resource": "DisableStaffUser"
+              "resource": "DisableStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "EnableStaffUser"
+              "resource": "EnableStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "AssignStaffRole"
@@ -39,31 +41,39 @@
               "resource": "EndStaffSession"
             },
             {
-              "resource": "EndStaffUserSessions"
+              "resource": "EndStaffUserSessions",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RequireStaffPasswordChange"
+              "resource": "RequireStaffPasswordChange",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "UnlinkStaffSessionIdentity"
+              "resource": "UnlinkStaffSessionIdentity",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RemoveStaffPassword"
+              "resource": "RemoveStaffPassword",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "RevokeStaffSessionToken"
             },
             {
-              "resource": "DeleteStaffUser"
+              "resource": "DeleteStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RenameStaffUser"
+              "resource": "RenameStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SendStaffUserPasswordResetLink"
+              "resource": "SendStaffUserPasswordResetLink",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RevokeStaffUserTrustedDevices"
+              "resource": "RevokeStaffUserTrustedDevices",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "UnlockStaffSignIn"
@@ -99,10 +109,12 @@
               "resource": "WithdrawStaffInvitedTenant"
             },
             {
-              "resource": "SetStaffUserEmail"
+              "resource": "SetStaffUserEmail",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SetStaffUserName"
+              "resource": "SetStaffUserName",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "CreateStaffGroup"

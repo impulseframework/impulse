@@ -96,6 +96,25 @@ func anvilsOwn(ctx context.Context, t *testing.T, s *served) accesstypes.User {
 	return accesstypes.User(id)
 }
 
+// fleetsOwn makes a person no sector manages, whom the whole application's methods reach
+// (their grants stop at a person whose account a sector manages): an account nobody has
+// signed in to (seedCrewAccount), as anvilsOwn makes one, which the governor gives Crew
+// common for the whole application and nothing in a sector. It answers the account's id.
+func fleetsOwn(ctx context.Context, t *testing.T, s *served) accesstypes.User {
+	t.Helper()
+
+	address := "fen@example.com"
+	id := s.seedCrewAccount(ctx, t, "fen", &address).String()
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	body := fmt.Appendf(nil, `{"userId":%q,"role":"CrewCommon"}`, id)
+	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), body); status != http.StatusNoContent {
+		t.Fatalf("the governor giving the new person Crew common for the whole application: status %d, want 204: %s", status, answer)
+	}
+
+	return accesstypes.User(id)
+}
+
 // dryRun posts a method as the browser with X-Dry-Run: the whole call runs, every
 // refusal answers as the real call would, and the transaction is rolled back.
 func dryRun(ctx context.Context, b *browser, path string, body []byte) (status int, answer string) {
@@ -158,7 +177,8 @@ func digestOf(ctx context.Context, t *testing.T, b *browser, sector string) acce
 // denial logged as the mask's, and is not refused the same person unmasked. The methods
 // are the generated collection's own list of the actions classed credential, so one
 // added to the generated set is asked here without this suite naming it. The governor
-// runs each as a dry run in a session of his own, on a person Anvil holds alone, and is
+// runs each as a dry run in a session of his own, a sector's method on a person Anvil
+// holds alone and one of the whole application on a person no sector manages, and is
 // let through every one his roles give him; the ones the shipped role file gives nobody
 // (the members' methods of a sector) are refused him by policy, which says so, and never
 // by a mask. The marshal, given the grant to act as a person, then starts three sessions
@@ -186,10 +206,19 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
 
-	// The person the methods are asked to act on: one Anvil holds alone, whom a sector's
-	// own methods reach (their grants stop at a person whose account the sector does not
-	// manage).
-	target := anvilsOwn(ctx, t, s)
+	// The people the methods are asked to act on: for a method of a sector's, one Anvil
+	// holds alone, whom the sector's own methods reach (their grants stop at a person whose
+	// account the sector does not manage); for a method of the whole application, one no
+	// sector manages, whom the whole application's methods reach (their grants stop at a
+	// person whose account a sector manages).
+	anvils, fleets := anvilsOwn(ctx, t, s), fleetsOwn(ctx, t, s)
+	target := func(action accesstypes.Resource) accesstypes.User {
+		if router.Collection().HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, action) {
+			return anvils
+		}
+
+		return fleets
+	}
 	// What the governor's roles give him, in the whole application and in Anvil.
 	holds := func(action accesstypes.Resource) bool {
 		t.Helper()
@@ -257,7 +286,7 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 	})
 
 	for _, action := range credential {
-		route, payload := methodRoute(action), credentialBody(t, action, target)
+		route, payload := methodRoute(action), credentialBody(t, action, target(action))
 
 		// The governor in a session of his own. A method his roles give him lets him
 		// through: the answer is the method's own (it ran, or it found nothing to run

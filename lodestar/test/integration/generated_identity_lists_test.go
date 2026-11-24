@@ -590,8 +590,25 @@ func TestGeneratedIdentityUnlinkNamesTheListedIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	w := newTenantListsWorld(t)
-	// rae holds a password, so the identity is not her last way in.
-	link := w.directoryPerson(ctx, t, "rae", cinder)
+	// rae holds a password, so the identity is not her last way in, and Crew common for the
+	// whole application; her identity is under the fleet's connection, which no sector's
+	// directory takes. So no sector manages her account, and the fleet's unlink reaches it.
+	w.ids["rae"] = string(makeCrewAccountAt(ctx, t, w.db, "rae", "rae@example.com"))
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	link := id.String()
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{
+		spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": w.ids["rae"], "PasswordHash": "the-hash-of-rae"}),
+		spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": link, "UserId": w.ids["rae"], "Method": "google", "Connection": "fleet", "Subject": "subject-of-rae",
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing rae's password and identity: %v", err)
+	}
+	w.giveCrewRole(ctx, t, "rae", "CrewCommon", accesstypes.GlobalPolicyScope())
 	listed := func() map[string]map[string]any {
 		t.Helper()
 
@@ -601,7 +618,7 @@ func TestGeneratedIdentityUnlinkNamesTheListedIdentity(t *testing.T) {
 		return rowsByID(t, decodeRows(t, body), "id")
 	}
 	if _, ok := listed()[link]; !ok {
-		t.Fatalf("rae's identities = %v, want the one her sign-in through Cinder's directory linked (%s)", listed(), link)
+		t.Fatalf("rae's identities = %v, want the one written for her (%s)", listed(), link)
 	}
 
 	status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities/"+link+"?capabilities=Execute", "")

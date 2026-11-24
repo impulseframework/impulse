@@ -230,7 +230,10 @@ generated router test proves the route sits behind the token check.
   every tenant is not one tenant's to take (`everyDomain = false`), and an
   invitation is withdrawn while it stands (`pending = true`);
   `test/integration/tenant_people_test.go` proves each of them for the staff on the
-  console and `tenant_members_test.go` for the members on the portal. A new resource stays invisible until a role in its auth's file is granted
+  console and `tenant_members_test.go` for the members on the portal. The application's
+  `Administrator` changes an account only where no tenant manages it
+  (`managedByTenant = false`), and `test/integration/grants_test.go` proves that too.
+  A new resource stays invisible until a role in its auth's file is granted
   it. Every grant in either file is proven live by `test/integration/grants_test.go`, which
   opens each auth the way the deployment does and asks its engine about each
   unconditional grant; a conditional grant is proven by a test case that names it through

@@ -311,6 +311,11 @@ func TestImpersonation_accountSwitchesNeverTheirOwn(t *testing.T) {
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
 	gus := string(anvilsOwn(ctx, t, s))
+	// Anvil holds gus alone, so Anvil manages the account; a role for the whole application
+	// beside it makes the account the fleet's to disable, enable and delete.
+	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), fmt.Appendf(nil, `{"userId":%q,"role":"CrewCommon"}`, gus)); status != http.StatusNoContent {
+		t.Fatalf("the governor giving gus Crew common for the whole application: status %d, want 204: %s", status, answer)
+	}
 
 	giveMarshalStandIn(ctx, t, s)
 	acting := newBrowser(t, s, consoleAPI)

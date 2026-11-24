@@ -4477,7 +4477,9 @@ that tenant. Every other account is the application's own administrators' to man
 links an account under a second tenant's directory. An account that came under two all
 the same (its links stood before either tenant took its directory, or the application
 wrote one itself with the store's `LinkIdentity`) is managed by both, and `managedHere`
-is true on both rows.
+is true on both rows. On the whole application's side `managedByTenant` says a tenant
+manages the account and `managingTenant` which, and Lodestar's Headquarters holds each
+account method under `managedByTenant = false`.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
 it by name, and the role file says what a tenant's administrator sees of a person whose
