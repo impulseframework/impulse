@@ -25,6 +25,7 @@ digraph Bindings {
 	"StaffGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"StaffListedGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffListedGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
 	"StaffListedGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffListedGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"StaffListedMailLink" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffListedMailLink</b></td></tr><tr><td align="left">role: RoleNames</td></tr></table>>];
 	"StaffUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"subject" [shape=ellipse];
 	"StaffGroupMember" -> "StaffGroup" [style=dotted, label="staffGroups domain: GroupId ⇒ DomainId"];

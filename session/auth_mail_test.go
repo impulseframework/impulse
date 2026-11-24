@@ -47,11 +47,17 @@ type mailLinks struct {
 	// the store was asked for, whatever it answered.
 	beforeRevoke func(ctx context.Context)
 	revokes      int
-	// consumes counts the store's ConsumeMailLink calls, whatever it answered.
-	consumes int
+	// beforeConsume, when set, is called with a consume's context before the table is
+	// touched, as beforeRevoke is; consumes counts the store's ConsumeMailLink calls,
+	// whatever it answered.
+	beforeConsume func(ctx context.Context)
+	consumes      int
 
 	// unmailed holds the ids of the links the store was told could not be mailed.
 	unmailed map[impulse.UUID]bool
+	// withdrawn holds the ids of the links the store was told were taken back: its
+	// WithdrawnAt is set.
+	withdrawn map[impulse.UUID]bool
 }
 
 // notMailed reports whether the store was told the link id could not be mailed.
@@ -60,6 +66,14 @@ func (m *mailLinks) notMailed(id impulse.UUID) bool {
 	defer m.mu.Unlock()
 
 	return m.unmailed[id]
+}
+
+// takenBack reports whether the store was told the link id was withdrawn.
+func (m *mailLinks) takenBack(id impulse.UUID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.withdrawn[id]
 }
 
 // holds makes the store report user as the account holding email.
@@ -113,7 +127,10 @@ func expectMailLinks(f *authFixture) *mailLinks {
 
 		return nil, httpio.NewNotFoundMessage("no live mail link")
 	}).AnyTimes()
-	f.store.EXPECT().ConsumeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, hash []byte) error {
+	f.store.EXPECT().ConsumeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, hash []byte) error {
+		if links.beforeConsume != nil {
+			links.beforeConsume(ctx)
+		}
 		links.mu.Lock()
 		defer links.mu.Unlock()
 		links.consumes++
@@ -136,12 +153,17 @@ func expectMailLinks(f *authFixture) *mailLinks {
 		defer links.mu.Unlock()
 		links.revokes++
 		for _, l := range links.rows {
-			if l.ID == id && l.ConsumedAt == nil {
-				now := time.Now()
-				l.ConsumedAt = &now
-
-				return nil
+			if l.ID != id || l.ConsumedAt != nil {
+				continue
 			}
+			now := time.Now()
+			l.ConsumedAt = &now
+			if links.withdrawn == nil {
+				links.withdrawn = make(map[impulse.UUID]bool)
+			}
+			links.withdrawn[id] = true
+
+			return nil
 		}
 
 		return httpio.NewNotFoundMessage("no live mail link")

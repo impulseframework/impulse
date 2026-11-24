@@ -29,8 +29,12 @@ type membersListedSessionRead struct {
 	ID              impulse.UUID  `json:"id"              perm:"-"`
 	UserID          *impulse.UUID `json:"userId"`
 	Username        string        `json:"username"`
+	Name            *string       `json:"name"`
 	Expired         bool          `json:"expired"`
 	Live            bool          `json:"live"`
+	State           string        `json:"state"`
+	SignedInWith    *string       `json:"signedInWith"`
+	Browser         *string       `json:"browser"`
 	AuthenticatedAt *time.Time    `json:"authenticatedAt"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	UpdatedAt       time.Time     `json:"updatedAt"`
@@ -145,8 +149,12 @@ func (c *MembersListedSessionColumns) All() *MembersListedSessionColumns {
 		"ID",
 		"UserID",
 		"Username",
+		"Name",
 		"Expired",
 		"Live",
+		"State",
+		"SignedInWith",
+		"Browser",
 		"AuthenticatedAt",
 		"CreatedAt",
 		"UpdatedAt",
@@ -173,6 +181,12 @@ func (c *MembersListedSessionColumns) Username() *MembersListedSessionColumns {
 	return c
 }
 
+func (c *MembersListedSessionColumns) Name() *MembersListedSessionColumns {
+	c.fields = append(c.fields, "Name")
+
+	return c
+}
+
 func (c *MembersListedSessionColumns) Expired() *MembersListedSessionColumns {
 	c.fields = append(c.fields, "Expired")
 
@@ -181,6 +195,24 @@ func (c *MembersListedSessionColumns) Expired() *MembersListedSessionColumns {
 
 func (c *MembersListedSessionColumns) Live() *MembersListedSessionColumns {
 	c.fields = append(c.fields, "Live")
+
+	return c
+}
+
+func (c *MembersListedSessionColumns) State() *MembersListedSessionColumns {
+	c.fields = append(c.fields, "State")
+
+	return c
+}
+
+func (c *MembersListedSessionColumns) SignedInWith() *MembersListedSessionColumns {
+	c.fields = append(c.fields, "SignedInWith")
+
+	return c
+}
+
+func (c *MembersListedSessionColumns) Browser() *MembersListedSessionColumns {
+	c.fields = append(c.fields, "Browser")
 
 	return c
 }
@@ -233,6 +265,14 @@ func (p MembersListedSessionQueryPartialClause) Expired() MembersListedSessionQu
 
 func (p MembersListedSessionQueryPartialClause) Live() MembersListedSessionQueryIdent[bool] {
 	return MembersListedSessionQueryIdent[bool]{Ident: resource.NewIdent[bool]("Live", p.partialClause, true)}
+}
+
+func (p MembersListedSessionQueryPartialClause) State() MembersListedSessionQueryIdent[string] {
+	return MembersListedSessionQueryIdent[string]{Ident: resource.NewIdent[string]("State", p.partialClause, true)}
+}
+
+func (p MembersListedSessionQueryPartialClause) SignedInWith() MembersListedSessionQueryIdent[string] {
+	return MembersListedSessionQueryIdent[string]{Ident: resource.NewIdent[string]("SignedInWith", p.partialClause, true)}
 }
 
 func (p MembersListedSessionQueryPartialClause) UpdatedAt() MembersListedSessionQueryIdent[time.Time] {
@@ -317,12 +357,28 @@ func (c *membersListedSessionSort) Username() *MembersListedSessionSort {
 	return c.addField("Username")
 }
 
+func (c *membersListedSessionSort) Name() *MembersListedSessionSort {
+	return c.addField("Name")
+}
+
 func (c *membersListedSessionSort) Expired() *MembersListedSessionSort {
 	return c.addField("Expired")
 }
 
 func (c *membersListedSessionSort) Live() *MembersListedSessionSort {
 	return c.addField("Live")
+}
+
+func (c *membersListedSessionSort) State() *MembersListedSessionSort {
+	return c.addField("State")
+}
+
+func (c *membersListedSessionSort) SignedInWith() *MembersListedSessionSort {
+	return c.addField("SignedInWith")
+}
+
+func (c *membersListedSessionSort) Browser() *MembersListedSessionSort {
+	return c.addField("Browser")
 }
 
 func (c *membersListedSessionSort) AuthenticatedAt() *MembersListedSessionSort {

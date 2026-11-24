@@ -692,7 +692,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 	a.acceptInvitation = hook
 }
 
-// Authenticated answers {"authenticated", "username", "name", "look",
+// Authenticated answers {"authenticated", "sessionId", "username", "name", "look",
 // "passwordChangeRequired", "email", "emailVerified", "emailHint", "invitedTenant", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
 // while an administrator's required password change stands (see "Users and the forced
@@ -714,14 +714,20 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // in, by this sign-in or by hand since, the tenant the invitation names or the one its
 // acceptance made: present on the first session read after the acceptance and on no
 // later one, and never on an impersonated session. It is where the application opens
-// for the person, whatever else they hold.
+// for the person, whatever else they hold. sessionId is the id of the session the
+// request arrived on: what a list of sessions marks as the reader's own. It is no
+// secret: the cookie that carries a session is sealed with the server's key, and the
+// id alone opens nothing.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type directory struct {
 		Method     sessioninfo.AuthMethod `json:"method"`
 		Connection string                 `json:"connection"`
 	}
 	type response struct {
-		Authenticated          bool                               `json:"authenticated"`
+		Authenticated bool `json:"authenticated"`
+		// SessionID is the id of the session the request arrived on, absent from the
+		// answer of a request that is not signed in.
+		SessionID              string                             `json:"sessionId,omitempty"`
 		Username               string                             `json:"username"`
 		Name                   *string                            `json:"name,omitempty"`
 		Look                   *sessioninfo.Look                  `json:"look,omitempty"`
@@ -770,6 +776,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
+			SessionID:              sessioninfo.IDFromCtx(ctx).String(),
 			Username:               sessioninfo.FromCtx(ctx).Username,
 			Name:                   user.Name,
 			Look:                   lookOf(user),

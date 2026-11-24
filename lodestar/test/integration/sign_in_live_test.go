@@ -149,7 +149,7 @@ func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 		live.Subscription{Principal: accounts, Resource: "CrewSessionUsers"},
 		live.Subscription{Principal: people, Resource: crewSectorPeople, Domain: anvil},
 		live.Subscription{Principal: held, Resource: "CrewHeldRoles"},
-		live.Subscription{Principal: links, Resource: "CrewSessionMailLinks"},
+		live.Subscription{Principal: links, Resource: "CrewListedMailLinks"},
 		live.Subscription{Principal: identities, Resource: "CrewSessionIdentities"},
 		live.Subscription{Principal: ways, Resource: "CrewSignInWays"},
 		live.Subscription{Principal: sectorWays, Resource: "CrewSectorSignInWays", Domain: anvil},
@@ -166,7 +166,7 @@ func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 	wantTold(t, s, accounts, "CrewSessionUsers", "", "the Accounts list")
 	wantTold(t, s, people, crewSectorPeople, "", "Anvil's People list")
 	wantTold(t, s, held, "CrewHeldRoles", "", "the stranger's held-roles list")
-	wantTold(t, s, links, "CrewSessionMailLinks", "", "the mailed links list")
+	wantTold(t, s, links, "CrewListedMailLinks", "", "the mailed links list")
 	wantTold(t, s, identities, "CrewSessionIdentities", "", "the sign-in identities list")
 	wantTold(t, s, ways, "CrewSignInWays", "", "the stranger's ways to sign in")
 	wantTold(t, s, sectorWays, "CrewSectorSignInWays", "", "the stranger's ways to sign in in Anvil")

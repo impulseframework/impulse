@@ -77,12 +77,24 @@ func (a *App) StaffListedIdentity() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedIdentity()
 }
 
+func (a *App) StaffListedMailLinks() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedMailLinks()
+}
+
+func (a *App) StaffListedMailLink() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedMailLink()
+}
+
 func (a *App) StaffListedSessions() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedSessions()
 }
 
 func (a *App) StaffListedSession() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedSession()
+}
+
+func (a *App) StaffListedSignInAttempts() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedSignInAttempts()
 }
 
 func (a *App) StaffListedTenants() http.HandlerFunc {
@@ -447,6 +459,14 @@ func (a *App) RequireStaffSecondFactor() http.HandlerFunc {
 
 func (a *App) RequireStaffTenantPasswordChange() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RequireStaffTenantPasswordChange()
+}
+
+func (a *App) ResendStaffInvitation() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).ResendStaffInvitation()
+}
+
+func (a *App) ResendStaffTenantInvitation() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).ResendStaffTenantInvitation()
 }
 
 func (a *App) RevokeStaffSessionToken() http.HandlerFunc {

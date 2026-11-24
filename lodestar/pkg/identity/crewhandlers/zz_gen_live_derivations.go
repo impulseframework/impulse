@@ -62,6 +62,11 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 			{Name: resources.SectorDirectory{}.Resource()},
 		}},
+		// CrewListedMailLinks: the tables its query reads.
+		{Resource: crewresources.CrewListedMailLink{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
 		// CrewListedSectors: the tables its query reads.
 		{Resource: crewresources.CrewListedSector{}.Resource(), Global: true, Root: resources.Sector{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
@@ -74,8 +79,16 @@ var LiveDerivations = &live.Derivations{
 		}},
 		// CrewListedSessions: the tables its query reads.
 		{Resource: crewresources.CrewListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionAuthEvent{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionImpersonation{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewSession{}.Resource(), Global: true},
+		}},
+		// CrewListedSignInAttempts: the tables its query reads.
+		{Resource: crewresources.CrewListedSignInAttempt{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
 		// CrewListedUsers: the tables its query reads.
 		{Resource: crewresources.CrewListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
@@ -134,6 +147,7 @@ var LiveDerivations = &live.Derivations{
 		// CrewSectorInvitations: the tables its query reads.
 		{Resource: crewresources.CrewSectorInvitation{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
 		// CrewSectorSignInWays: the tables declared with @changedBy.
 		{Resource: crewidentity.CrewSectorSignInWay{}.Resource(), Tables: []live.SourceTable{

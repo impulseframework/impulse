@@ -346,6 +346,25 @@ export function filterChoiceLists(
   return choices;
 }
 
+/**
+ * The values each column of the page's config filters by where the config names them
+ * (`filterChoices`), each beside the words a person reads for it, by column id, in the
+ * config's order: for a field that takes one of a fixed set the metadata does not list.
+ * They stand in place of anything the metadata says for the column (filterChoiceLists). A
+ * column that names none is absent.
+ */
+export function configuredFilterChoices(
+  columns: readonly { id: string; filterChoices?: readonly FilterChoice[] }[],
+): ColumnFilterChoices {
+  const choices: Record<string, ColumnFilterChoices[string]> = {};
+  for (const column of columns) {
+    if (column.filterChoices !== undefined) {
+      choices[column.id] = column.filterChoices;
+    }
+  }
+  return choices;
+}
+
 /** The most roles a role column's filter looks for beyond those the metadata lists. */
 export const foundRolesLimit = 50;
 

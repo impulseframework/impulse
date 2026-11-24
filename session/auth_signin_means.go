@@ -126,6 +126,17 @@ func (p *AuthAPI[S, U, Tx]) SessionTimeout() time.Duration {
 	return p.auth.baseSession.SessionTimeout
 }
 
+// SignInFailureLimit answers how many failed sign-ins within the window lock a name: the
+// limit the Auth's password method counts by, and the library's default where no
+// password method set one. The generated list of the failed sign-ins shows a name's
+// count beside it and asks at each query, since the limit is fixed when the password
+// method is registered, which an application may do after it builds its identity
+// client. It reads nothing, and unlike every other read of the Auth's methods it does
+// not close registration: it is asked while the application is still wiring the Auth.
+func (p *AuthAPI[S, U, Tx]) SignInFailureLimit() int {
+	return p.auth.signInFailureLimit()
+}
+
 // directoryName is DirectoryName: the registrations of the login page first, in its
 // order, then every other by name, as SignInMethods lists them.
 func (a *Auth[S, U, Tx]) directoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {

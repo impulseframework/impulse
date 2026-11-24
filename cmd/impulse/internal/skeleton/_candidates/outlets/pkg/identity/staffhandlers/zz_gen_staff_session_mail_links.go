@@ -33,6 +33,7 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 		TenantName      *string       `json:"tenantName"      nameof:"TenantID" index:"true"`
 	}
 
@@ -128,6 +129,10 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("mailFailedAt") {
 						rmap["mailFailedAt"] = rec.MailFailedAt
 					}
+				case "WithdrawnAt":
+					if !row.Masked("withdrawnAt") {
+						rmap["withdrawnAt"] = rec.WithdrawnAt
+					}
 				}
 			}
 			for _, name := range querySet.Names() {
@@ -169,6 +174,7 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 		TenantName      *string       `json:"tenantName"      nameof:"TenantID"`
 	}
 
@@ -251,6 +257,10 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 			case "MailFailedAt":
 				if !row.Masked("mailFailedAt") {
 					rmap["mailFailedAt"] = rec.MailFailedAt
+				}
+			case "WithdrawnAt":
+				if !row.Masked("withdrawnAt") {
+					rmap["withdrawnAt"] = rec.WithdrawnAt
 				}
 			}
 		}

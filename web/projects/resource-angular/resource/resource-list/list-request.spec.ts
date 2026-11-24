@@ -10,6 +10,7 @@ import { PageTurn } from '@impulseframework/resource-angular/grid';
 import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 import {
   answeredSorts,
+  configuredFilterChoices,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
@@ -543,6 +544,43 @@ describe('filterChoiceLists', () => {
           tt.found,
         ),
       ).toEqual(tt.want as never);
+    });
+  }
+});
+
+// A column of the page's config can name the values its field filters by and their words,
+// for a field that takes one of a fixed set the metadata does not list: those lists, by
+// column id, in the config's order.
+describe('configuredFilterChoices', () => {
+  const states = [
+    { value: 'live', label: 'Live' },
+    { value: 'timedOut', label: 'Timed out' },
+    { value: 'ended', label: 'Ended' },
+  ];
+  const kinds = [
+    { value: 'invitation', label: 'Invitation' },
+    { value: 'sign-up', label: 'Sign-up' },
+  ];
+  const cases: {
+    name: string;
+    columns: { id: string; filterChoices?: readonly { value: string; label: string }[] }[];
+    want: Record<string, unknown>;
+  }[] = [
+    { name: 'no column names its values', columns: [{ id: 'username' }, { id: 'browser' }], want: {} },
+    {
+      name: 'one column names its values, in its order',
+      columns: [{ id: 'username' }, { id: 'state', filterChoices: states }],
+      want: { state: states },
+    },
+    {
+      name: 'two columns name theirs',
+      columns: [{ id: 'kind', filterChoices: kinds }, { id: 'email' }, { id: 'state', filterChoices: states }],
+      want: { kind: kinds, state: states },
+    },
+  ];
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(configuredFilterChoices(tt.columns)).toEqual(tt.want as never);
     });
   }
 });

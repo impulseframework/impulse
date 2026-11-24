@@ -112,6 +112,7 @@ import {
   searchRefusedNotice,
 } from '../search-box/search-fields';
 import {
+  configuredFilterChoices,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
@@ -139,7 +140,14 @@ import {
   requestSorts,
   tableSorts,
 } from './name-columns';
-import { filterParam, readAddressFilter, sameFilters, standingFilters, writeAddressFilter } from './address-filters';
+import {
+  addressWrittenState,
+  filterParam,
+  readAddressFilter,
+  sameFilters,
+  standingFilters,
+  writeAddressFilter,
+} from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
 /**
@@ -262,6 +270,23 @@ export class ResourceListComponent implements OnInit {
    * acted on yet: it acts once it knows which methods it offers the person (methodsKnown).
    */
   private readonly runAsked = signal<string | undefined>(undefined);
+
+  /**
+   * The column filters the page opens with where its address names none (opensWith),
+   * each read as a filter in an address is read, so one the grid holds no such filter for
+   * is dropped.
+   */
+  private readonly openingFilters = computed(() =>
+    (this.config().opensWith ?? [])
+      .map((filter) =>
+        readAddressFilter(
+          filter.value === ''
+            ? `${filter.field}:${filter.operator}`
+            : `${filter.field}:${filter.operator}:${filter.value}`,
+        ),
+      )
+      .filter((filter): filter is ColumnFilter => filter !== undefined),
+  );
 
   expansionConfig = computed(() => {
     const config = this.config().rowExpansionConfig;
@@ -778,10 +803,14 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * The values each column filters by where they are known, from the listed resource's
-   * metadata and, on a role column, the roles the list was found to hold beyond it: the
+   * metadata and, on a role column, the roles the list was found to hold beyond it, with
+   * the values a column of the page's config names in their place (filterChoices): the
    * grid's menu offers their names.
    */
-  filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns(), this.foundRoles()));
+  filterChoices = computed(() => ({
+    ...filterChoiceLists(this.meta(), this.columns(), this.foundRoles()),
+    ...configuredFilterChoices(this.columns()),
+  }));
 
   /**
    * The values a filter from the page's address may take on each column (takeAddress): the
@@ -1024,19 +1053,56 @@ export class ResourceListComponent implements OnInit {
   /**
    * Takes the column filters from the page's address: on the page's opening, and after
    * each navigation while the list stands (Back and Forward, a link to the page it is on,
-   * the menu entry of its own page). An address that already says the filters the list
-   * holds changes nothing, the notice of a filter left out among it. Otherwise the list
-   * holds the filters of the address it can show the person (standingFilters); where one
-   * was left out, it says so above its rows and writes the address it does show.
+   * the menu entry of its own page). An address that names no filter opens the list on
+   * the page's own filters (opensWith), unless it is the address the list wrote itself
+   * (written), which says the person cleared every filter (takeOpening). An address that
+   * already says the filters the list holds changes nothing, the notice of a filter left
+   * out among it. Otherwise the list holds the filters of the address it can show the
+   * person (standingFilters); where one was left out, it says so above its rows and writes
+   * the address it does show.
    */
-  private takeAddress(): void {
+  private takeAddress(written = false): void {
     const values = this.addressFilterValues();
+    const opening = values.length === 0 && !written ? this.openingFilters() : [];
+    if (opening.length > 0) {
+      this.takeOpening(opening);
+      return;
+    }
     const held = this.store.columnFilters();
     if (sameTexts(values, held.map(writeAddressFilter))) {
       return;
     }
     const read = values.map(readAddressFilter).filter((filter): filter is ColumnFilter => filter !== undefined);
-    const standing = standingFilters(read, {
+    const standing = this.standing(read);
+    if (!sameFilters(standing, held)) {
+      this.store.columnFilters.set(standing);
+    }
+    this.filtersLeftOut.set(read.length !== values.length || !sameFilters(standing, read));
+    if (!sameTexts(values, standing.map(writeAddressFilter))) {
+      this.writeAddress();
+    }
+  }
+
+  /**
+   * Opens the list on the page's own filters (opensWith), those of them it can show the
+   * person (standingFilters), and writes them into the address in place. One it leaves
+   * out is left out silently: the notice of a filter left out is for an address a person
+   * followed.
+   */
+  private takeOpening(opening: readonly ColumnFilter[]): void {
+    const standing = this.standing(opening);
+    if (!sameFilters(standing, this.store.columnFilters())) {
+      this.store.columnFilters.set(standing);
+    }
+    this.filtersLeftOut.set(false);
+    if (standing.length > 0) {
+      this.writeAddress();
+    }
+  }
+
+  /** Of the filters asked, those the list can show the person (standingFilters), in the order asked. */
+  private standing(asked: readonly ColumnFilter[]): ColumnFilter[] {
+    return standingFilters(asked, {
       columns: this.columns(),
       filterability: this.filterability(),
       externalFields: this.configFilterFields(),
@@ -1045,13 +1111,6 @@ export class ResourceListComponent implements OnInit {
       choices: this.addressChoices(),
       boxActive: this.boxActive(),
     });
-    if (!sameFilters(standing, held)) {
-      this.store.columnFilters.set(standing);
-    }
-    this.filtersLeftOut.set(read.length !== values.length || !sameFilters(standing, read));
-    if (!sameTexts(values, standing.map(writeAddressFilter))) {
-      this.writeAddress();
-    }
   }
 
   /**
@@ -1073,7 +1132,9 @@ export class ResourceListComponent implements OnInit {
    * Replaces the page's address with one whose `filter` values are the list's column
    * filters as written, the parameter absent when there are none, and with no `run`, which
    * the list took when the address came (takeRun); every other query parameter and the
-   * fragment kept. An address that already says them is left as it is.
+   * fragment kept; and marks the navigation as the list's own write (addressWrittenState),
+   * so the end of it is not taken for an address that names no filter. An address that
+   * already says them is left as it is.
    */
   private navigateToFilters(): void {
     const tree = this.router.parseUrl(this.router.url);
@@ -1087,7 +1148,10 @@ export class ResourceListComponent implements OnInit {
     if (values.length > 0) {
       params[filterParam] = values;
     }
-    void this.router.navigateByUrl(new UrlTree(tree.root, params, tree.fragment), { replaceUrl: true });
+    void this.router.navigateByUrl(new UrlTree(tree.root, params, tree.fragment), {
+      replaceUrl: true,
+      state: { [addressWrittenState]: true },
+    });
   }
 
   /**
@@ -1113,6 +1177,10 @@ export class ResourceListComponent implements OnInit {
    * router still holds the navigation that ended as its current one while it announces the
    * end, so that write is set waiting like any other; the navigation is over, and the write
    * is made here, not left for the end of the next one.
+   *
+   * A navigation the router skips, since it brings the address the page is at, is taken
+   * too where the page opens with filters of its own: the page's own menu entry after the
+   * person cleared every filter opens the list on them again.
    */
   private navigationOver(event: RouterEvent): void {
     if (event instanceof NavigationCancel && event.code === NavigationCancellationCode.SupersededByNewNavigation) {
@@ -1122,12 +1190,25 @@ export class ResourceListComponent implements OnInit {
       this.takeRun();
     }
     if (!this.addressWriteWaiting && event instanceof NavigationEnd) {
+      this.takeAddress(this.listWroteAddress());
+    }
+    if (!this.addressWriteWaiting && event instanceof NavigationSkipped && this.openingFilters().length > 0) {
       this.takeAddress();
     }
     if (this.addressWriteWaiting) {
       this.addressWriteWaiting = false;
       this.navigateToFilters();
     }
+  }
+
+  /**
+   * Whether the navigation that just ended is the list's own write of the address
+   * (navigateToFilters): one the code asked for with the list's mark, not Back or Forward,
+   * which bring back the mark of the entry they return to.
+   */
+  private listWroteAddress(): boolean {
+    const navigation = this.router.lastSuccessfulNavigation();
+    return navigation?.trigger === 'imperative' && navigation.extras.state?.[addressWrittenState] === true;
   }
 
   /** A pager click: the store follows the server's relation. */
@@ -1249,6 +1330,9 @@ export class ResourceListComponent implements OnInit {
         ...(col.filterable === false || worded ? { filterable: false } : {}),
         // A column whose list is drawn a line each says so to the table.
         ...(col.lines ? { lines: true } : {}),
+        // A column that names the values it filters by keeps them, for its menu
+        // (filterChoices).
+        ...(col.filterChoices ? { filterChoices: col.filterChoices } : {}),
         ...(col.sortable === false || worded || unordered.has(col.id) ? { sortable: false } : {}),
         // A column of words that opens its row says so while a row opens, and its link
         // rides the display row (processedRowData); otherwise its cell is words alone.
@@ -1419,6 +1503,9 @@ export class ResourceListComponent implements OnInit {
     const roleFields = new Set(
       (this.meta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
     );
+    // A column's getter is handed the session read beside the row, so a cell can say
+    // which row is the reader's own; read here, the rows are drawn again when it changes.
+    const reader = this.auth.sessionInfo();
 
     return data.map((row) => {
       const updatedRow = { ...row };
@@ -1436,7 +1523,7 @@ export class ResourceListComponent implements OnInit {
       }
       for (const col of columns) {
         if (col.valueGetter) {
-          updatedRow[col.id] = col.valueGetter(row);
+          updatedRow[col.id] = col.valueGetter(row, reader);
         } else {
           updatedRow[col.id] = row[col.id];
         }

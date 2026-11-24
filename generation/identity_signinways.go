@@ -19,11 +19,14 @@ const signInWaySuffix = "SignInWay"
 
 // identitySignIn is one sign-in registration of an auth as its login page offers it:
 // the name it is registered under, and the words its button carries. syncsRoles marks a
-// registration whose directory writes the roles of the people it signs in.
+// registration whose directory writes the roles of the people it signs in, and method
+// is the session library's word for its method (sessioninfo.AuthMethod), the one an
+// auth event of a sign-in through it records.
 type identitySignIn struct {
 	Name       string
 	Label      string
 	syncsRoles bool
+	method     string
 }
 
 // signInWayName names the struct of the list of how a person signs in.

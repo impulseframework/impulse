@@ -123,16 +123,23 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// and name nobody, so a commit that writes an account alone does not tell them.
 	// Both lists of how a person signs in declare the accounts, and the sector's alone
 	// the memberships. The list of sectors names each sector's administrators from the
-	// users table.
+	// users table. The list of the mailed links and a sector's list of its
+	// invitations name an invitation's sender from the users table, the list of the
+	// failed sign-ins the account that holds a name or that a count is kept for, and the
+	// list of the sessions the person under their present username and name.
 	named := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewListedIdentities", AllDomains: true},
+		{Resource: "CrewListedMailLinks", AllDomains: true},
 		{Resource: "CrewListedSectors", AllDomains: true},
+		{Resource: "CrewListedSessions", AllDomains: true},
+		{Resource: "CrewListedSignInAttempts", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorInvitations", AllDomains: true},
 		{Resource: "CrewSectorSignInWays", AllDomains: true},
 		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},

@@ -13,7 +13,8 @@ type (
 	// no folded name holds: MAIL:, CODE: and RESET: and the address for the mail, the
 	// sign-in codes and the reset links an address is sent, FIRST-PASSWORD: and the
 	// account for the guesses at the code of a first password. A name is locked while
-	// LockedUntil is ahead.
+	// LockedUntil is ahead. A page lists the counts from StaffListedSignInAttempt, which
+	// holds only those that are locked or still being counted.
 	//
 	// @resource
 	// @suppress(readHandler)

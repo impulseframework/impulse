@@ -24,6 +24,14 @@ import {
 /** The query parameter a list page carries its column filters in, one value a filter. */
 export const filterParam = 'filter';
 
+/**
+ * The key of the navigation state a list sets on its own write of the page's address, so
+ * the end of that navigation is told from one a person made (a link, the page's own menu
+ * entry): an address with no filter that the list wrote says the person cleared every
+ * filter, and does not open the list on the page's own filters again.
+ */
+export const addressWrittenState = 'impulseListWroteAddress';
+
 /** The operators a filter in an address may name: the comparisons and the text matches the grid offers. */
 const addressOperators: readonly FilterOperatorOption[] = [...FILTER_OPERATORS, ...MATCH_OPERATORS];
 

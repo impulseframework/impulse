@@ -1,5 +1,6 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { firstValueFrom } from 'rxjs';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -16,6 +17,7 @@ import {
   TransportResponse,
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { AppGridComponent } from '@impulseframework/resource-angular/grid';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
@@ -31,6 +33,7 @@ import {
   RESOURCE_DOMAIN,
   RESOURCE_META,
   rootConfig,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 
 import { notNamedFor } from '../../auth-frame/frame-testing';
@@ -432,6 +435,126 @@ describe('ResourceListComponent', () => {
             `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
         );
       expect(headings).toEqual(['Name: a button', 'Status: a button']);
+    });
+  });
+
+  describe('offers the words a column of its config names for the values it filters by', () => {
+    const listRequests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
+    const registries = [
+      { value: 'naval', label: 'Navy' },
+      { value: 'civil', label: 'Civilian' },
+    ];
+    const grid = (): AppGridComponent =>
+      fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+
+    it("in the column's filter menu, in the config's order, and asks the server by the value", async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'registry' as FieldName, filterChoices: registries }],
+        },
+        [{ id: 's-1', name: 'Kestrel', registry: 'naval' }],
+      );
+      fixture.detectChanges();
+      await settle();
+      expect(grid().filterChoices()).toEqual({ registry: registries });
+
+      fixture.componentInstance.onFilterChange([{ field: 'registry', operator: 'eq', value: 'civil' }]);
+      await settle();
+      expect(listRequests().at(-1)).toBe(
+        'GET /api/ships?filter=registry%3Aeq%3Acivil&columns=name%2Cregistry%2Cid&count=true',
+      );
+    });
+
+    it('in place of the Yes and No a yes-or-no field offers', async () => {
+      const service = [
+        { value: 'false', label: 'In service' },
+        { value: 'true', label: 'Retired' },
+      ];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'decommissioned' as FieldName, filterChoices: service },
+            { id: 'flagged' as FieldName },
+          ],
+        },
+        [{ id: 's-1', name: 'Kestrel', decommissioned: false, flagged: null }],
+      );
+      fixture.detectChanges();
+      await settle();
+      expect(grid().filterChoices()).toEqual({
+        decommissioned: service,
+        flagged: [
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
+        ],
+      });
+    });
+  });
+
+  describe("hands a column's getter the session read beside the row", () => {
+    const rows = [
+      { id: 's-1', name: 'Kestrel' },
+      { id: 's-2', name: 'Osprey' },
+    ];
+    /** The session the server says the browser is signed in with, at each read of it. */
+    let signedInWith = 's-1';
+    const server = (request: TransportRequest): TransportResponse => {
+      const path = request.url.split('?')[0];
+      if (path === '/api/user/session') {
+        return { status: 200, body: { authenticated: true, username: 'gale', sessionId: signedInWith } };
+      }
+      if (path === '/api/permission-digest') {
+        const digest: PermissionDigest = {
+          [ships]: { List: 'granted' },
+          [`${ships}.id`]: { List: 'granted' },
+          [`${ships}.name`]: { List: 'granted' },
+        };
+        return { status: 200, body: digest };
+      }
+      if (path === '/api/user-domains') {
+        return { status: 200, body: [] };
+      }
+      return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+    };
+    const names = (): (string | undefined)[] =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row')).map((row) =>
+        row.querySelector('td.data-col')?.textContent?.trim(),
+      );
+
+    it('so a cell says which row is the reader’s own, and the rows are drawn again when the read changes', async () => {
+      const handed: { id: unknown; reader: SessionInfo }[] = [];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            {
+              id: 'name' as FieldName,
+              valueGetter: (row: RecordData, reader: SessionInfo): string => {
+                handed.push({ id: row['id'], reader });
+                return row['id'] === reader.sessionId ? `${String(row['name'])}, yours` : String(row['name']);
+              },
+            },
+          ],
+        },
+        rows,
+        server,
+      );
+      const auth = TestBed.inject(AuthService);
+      signedInWith = 's-1';
+      await firstValueFrom(auth.checkUserSession());
+      fixture.detectChanges();
+      await settle();
+      expect(names()).toEqual(['Kestrel, yours', 'Osprey']);
+      expect(handed.at(-1)?.reader).toBe(auth.sessionInfo());
+
+      signedInWith = 's-2';
+      await firstValueFrom(auth.checkUserSession());
+      fixture.detectChanges();
+      await settle();
+      expect(names()).toEqual(['Kestrel', 'Osprey, yours']);
     });
   });
 
@@ -2037,6 +2160,123 @@ describe('ResourceListComponent', () => {
       expect(shipsFilters()).toEqual(['dutyRole:eq:Quartermaster']);
       expect(address().queryParamMap.getAll('filter')).toEqual(['dutyRole:eq:Quartermaster']);
       expect(leftOutNotice()).toBeUndefined();
+    });
+
+    const registries = {
+      primaryResource: ships,
+      listColumns: [
+        { id: 'name' as FieldName },
+        {
+          id: 'registry' as FieldName,
+          filterChoices: [
+            { value: 'naval', label: 'Navy' },
+            { value: 'civil', label: 'Civilian' },
+          ],
+        },
+      ],
+    };
+    it('opened at an address filtering a column of named values by one it names, asks once with it, keeps it, and says nothing', async () => {
+      await create(registries, rows);
+      await TestBed.inject(Router).navigateByUrl('/?filter=registry:eq:civil');
+      fixture.detectChanges();
+      await settle();
+      expect(shipsFilters()).toEqual(['registry:eq:civil']);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['registry:eq:civil']);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('opened at an address filtering a column of named values by one it does not name, leaves it out and says so', async () => {
+      await create(registries, rows);
+      await TestBed.inject(Router).navigateByUrl('/?filter=registry:eq:pirate');
+      fixture.detectChanges();
+      await settle();
+      expect(shipsFilters()).toEqual([null]);
+      expect(address().queryParamMap.has('filter')).toBe(false);
+      expect(leftOutNotice()).toBe(leftOutWords);
+    });
+
+    describe('opens with filters of its own where its address names none', () => {
+      const opening = { ...options, opensWith: [{ field: 'homePort', operator: 'eq', value: 'Anvil' }] };
+      const openWith = async (config: typeof opening, url: string): Promise<void> => {
+        await create(config, rows);
+        await TestBed.inject(Router).navigateByUrl(url);
+        fixture.detectChanges();
+        await settle();
+      };
+
+      it('opened at an address with no filter, asks once with them, holds them in their columns, and writes them into the address in place', async () => {
+        await openWith(opening, '/?tab=2');
+        expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+        expect(grid().filters()).toEqual([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+        expect(address().queryParamMap.get('tab')).toBe('2');
+        expect(TestBed.inject(Router).lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+        expect(leftOutNotice()).toBeUndefined();
+      });
+
+      it('opened at an address naming filters, holds those and not its own', async () => {
+        await openWith(opening, '/?filter=statusId:eq:docked');
+        expect(shipsFilters()).toEqual(['statusId:eq:docked']);
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([
+          { field: 'statusId', operator: 'eq', value: 'docked' },
+        ]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['statusId:eq:docked']);
+      });
+
+      it('holds what the person sets, and, every filter cleared, lists every row with no filter in the address', async () => {
+        await openWith(opening, '/');
+        fixture.componentInstance.onFilterChange([{ field: 'statusId', operator: 'eq', value: 'docked' }]);
+        await settle();
+        expect(address().queryParamMap.getAll('filter')).toEqual(['statusId:eq:docked']);
+
+        fixture.componentInstance.onFilterChange([]);
+        await settle();
+        await settle();
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([]);
+        expect(address().queryParamMap.has('filter')).toBe(false);
+        expect(shipsFilters()).toEqual(['homePort:eq:Anvil', 'statusId:eq:docked', null]);
+      });
+
+      it('takes them again from a link to the page, and from the page’s own entry, that names no filter', async () => {
+        await openWith(opening, '/');
+        fixture.componentInstance.onFilterChange([]);
+        await settle();
+        const router = TestBed.inject(Router);
+
+        // A link to the page with another parameter and no filter.
+        await router.navigateByUrl('/?tab=1');
+        await settle();
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([
+          { field: 'homePort', operator: 'eq', value: 'Anvil' },
+        ]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+
+        // Cleared again, the page's own menu entry brings the very address the list wrote.
+        fixture.componentInstance.onFilterChange([]);
+        await settle();
+        await router.navigateByUrl(router.url);
+        await settle();
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([
+          { field: 'homePort', operator: 'eq', value: 'Anvil' },
+        ]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      });
+
+      it('leaves out a filter of its own it cannot show the person, and says nothing', async () => {
+        await openWith(
+          {
+            ...opening,
+            opensWith: [
+              { field: 'registry', operator: 'eq', value: 'Civil' },
+              { field: 'homePort', operator: 'eq', value: 'Anvil' },
+            ],
+          },
+          '/',
+        );
+        expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+        expect(leftOutNotice()).toBeUndefined();
+      });
     });
 
     it("takes the notice away at the person's next commit", async () => {

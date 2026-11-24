@@ -6,8 +6,8 @@ package app
 import (
 	"net/http"
 
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 )
 

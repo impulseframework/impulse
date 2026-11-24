@@ -38,6 +38,7 @@ const (
 	StaffGroupUserUserID            httpio.ParamType = "staffGroupUserUserID"
 	StaffListedGroupID              httpio.ParamType = "staffListedGroupID"
 	StaffListedIdentityID           httpio.ParamType = "staffListedIdentityID"
+	StaffListedMailLinkID           httpio.ParamType = "staffListedMailLinkID"
 	StaffListedSessionID            httpio.ParamType = "staffListedSessionID"
 	StaffListedTenantID             httpio.ParamType = "staffListedTenantID"
 	StaffListedUserID               httpio.ParamType = "staffListedUserID"
@@ -188,6 +189,10 @@ type GeneratedHandlers interface {
 
 	RequireStaffTenantPasswordChange() http.HandlerFunc
 
+	ResendStaffInvitation() http.HandlerFunc
+
+	ResendStaffTenantInvitation() http.HandlerFunc
+
 	RevokeStaffSessionToken() http.HandlerFunc
 
 	RevokeStaffTenantUserTrustedDevices() http.HandlerFunc
@@ -238,10 +243,15 @@ type GeneratedHandlers interface {
 	StaffListedIdentities() http.HandlerFunc
 	StaffListedIdentity() http.HandlerFunc
 
+	StaffListedMailLinks() http.HandlerFunc
+	StaffListedMailLink() http.HandlerFunc
+
 	StaffListedRoleGrants() http.HandlerFunc
 
 	StaffListedSessions() http.HandlerFunc
 	StaffListedSession() http.HandlerFunc
+
+	StaffListedSignInAttempts() http.HandlerFunc
 
 	StaffListedTenants() http.HandlerFunc
 	StaffListedTenant() http.HandlerFunc
@@ -494,6 +504,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
 
+	asked.Post("/api/resend-staff-invitation", h.ResendStaffInvitation())
+
+	asked.Post("/api/tenants/{tenantID}/resend-staff-tenant-invitation", domainGuard(h.ResendStaffTenantInvitation()))
+
 	asked.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
 
 	asked.Post("/api/tenants/{tenantID}/revoke-staff-tenant-user-trusted-devices", domainGuard(h.RevokeStaffTenantUserTrustedDevices()))
@@ -578,6 +592,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-listed-identities/{staffListedIdentityID}", staffListedIdentityHandler)
 	bounded.Post("/api/staff-listed-identities/{staffListedIdentityID}", staffListedIdentityHandler)
 
+	staffListedMailLinksHandler := h.StaffListedMailLinks()
+	bounded.Get("/api/staff-listed-mail-links", staffListedMailLinksHandler)
+	bounded.Post("/api/staff-listed-mail-links", staffListedMailLinksHandler)
+
+	staffListedMailLinkHandler := h.StaffListedMailLink()
+	bounded.Get("/api/staff-listed-mail-links/{staffListedMailLinkID}", staffListedMailLinkHandler)
+	bounded.Post("/api/staff-listed-mail-links/{staffListedMailLinkID}", staffListedMailLinkHandler)
+
 	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
 	bounded.Get("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 	bounded.Post("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
@@ -589,6 +611,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffListedSessionHandler := h.StaffListedSession()
 	bounded.Get("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
 	bounded.Post("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
+
+	staffListedSignInAttemptsHandler := h.StaffListedSignInAttempts()
+	bounded.Get("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
+	bounded.Post("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
 
 	staffListedTenantsHandler := h.StaffListedTenants()
 	bounded.Get("/api/staff-listed-tenants", staffListedTenantsHandler)

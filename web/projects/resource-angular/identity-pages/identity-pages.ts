@@ -34,6 +34,7 @@ import {
   rootConfig,
   RootConfig,
   section,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 import { format, isSameDay } from 'date-fns';
 import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
@@ -322,7 +323,7 @@ class SideBuilder {
    * (personFields).
    */
   people(): RootConfig {
-    const { lists, methods } = this.side;
+    const { lists } = this.side;
     const users = lists.users as Resource;
     const related = [
       this.rolesOf(),
@@ -401,18 +402,7 @@ class SideBuilder {
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
-        listMethods: this.present([
-          [
-            methods.invite,
-            {
-              label: 'Invite',
-              icon: 'send',
-              says: inviteSays,
-              labels: this.where(),
-              ...this.rolesWhere('roles', methods.invite),
-            },
-          ],
-        ]),
+        listMethods: this.present([this.inviting()]),
         elements: [
           section({
             label: this.tenant ? 'Person' : 'Account',
@@ -564,33 +554,67 @@ class SideBuilder {
     };
   }
 
-  /** A tenant's invitations, or every link the whole application has mailed, each with Withdraw where it still stands. */
+  /**
+   * A tenant's invitations, or every link the whole application has mailed, each with
+   * Withdraw where it still stands. Where the server says each link's state (the list has
+   * `state`), the page opens on the links still open and filters by state and kind, a row
+   * says the kind in words and who sent an invitation, Send again is offered on an
+   * invitation that is open, has expired or could not be mailed, and the whole
+   * application's list of an application without tenants carries Invite above it.
+   */
   invitations(): RootConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.invitations) {
       return undefined;
     }
     const resource = lists.invitations as Resource;
-    const fields: Named[] = this.tenant
-      ? [
-          ['email', 'Email'],
-          ['name', 'Name'],
-          ['roleNames', 'Roles'],
-          ['createdAt', 'Sent'],
-          ['expiresAt', 'Expires'],
-          ['pending', 'Still open'],
-        ]
-      : [
-          ['kind', 'Kind'],
-          ['email', 'Email'],
-          ['name', 'Name'],
-          // The tenant a link invites into, where the application has tenants.
-          ...(this.identity.tenant ? ([['tenantId', nameInWords(this.identity.tenant)]] as Named[]) : []),
-          ['roleNames', 'Roles'],
-          ['createdAt', 'Sent'],
-          ['expiresAt', 'Expires'],
-          ['consumedAt', 'Used'],
-        ];
+    const byState = this.has(resource, 'state');
+    // The tenant a link invites into, where the application has tenants.
+    const tenantColumn: Named[] = this.identity.tenant ? [['tenantId', nameInWords(this.identity.tenant)]] : [];
+    let fields: Named[];
+    if (this.tenant) {
+      fields = byState
+        ? [
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ['roleNames', 'Roles'],
+            ['sentBy', 'Sent by'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['state', 'State'],
+          ]
+        : [
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ['roleNames', 'Roles'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['pending', 'Still open'],
+          ];
+    } else {
+      fields = byState
+        ? [
+            ['state', 'State'],
+            ['kind', 'Kind'],
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ...tenantColumn,
+            ['roleNames', 'Roles'],
+            ['sentBy', 'Sent by'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+          ]
+        : [
+            ['kind', 'Kind'],
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ...tenantColumn,
+            ['roleNames', 'Roles'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['consumedAt', 'Used'],
+          ];
+    }
     // Whether the list says where a link that names no tenant gives its roles: the whole
     // application's list, in an application with tenants, where the reader may read the
     // mark of an invitation into every tenant.
@@ -602,6 +626,21 @@ class SideBuilder {
     // application's list, where the reader may read when the mail failed.
     const unmailed = !this.tenant && this.has(resource, 'mailFailedAt');
     const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed, sender);
+    // Read with each row and not drawn. Where the server says each link's state, the
+    // whole application's list reads each of these it has, and a tenant's the mark of an
+    // invitation that makes a tenant, where it has it.
+    let unseen: string[];
+    if (byState) {
+      unseen = (
+        this.tenant ? ['makesTenant'] : ['everyTenant', 'invitedByUserId', 'mailFailedAt', 'makesTenant']
+      ).filter((name) => this.has(resource, name));
+    } else {
+      unseen = [
+        ...(placed ? ['everyTenant'] : []),
+        ...(sender ? ['invitedByUserId'] : []),
+        ...(unmailed ? ['mailFailedAt'] : []),
+      ];
+    }
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: {
@@ -613,20 +652,29 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
+        ...(byState ? { opensWith: [{ field: 'state', operator: 'eq', value: 'open' }] } : {}),
         // The tenant a link invites into is named, where the tenant record can be read,
         // and a link that names none says where its roles are held instead. A link whose
-        // message could not be mailed says so where its dates would be.
+        // message could not be mailed says so where its dates would be. Where the server
+        // says each link's state, its state and kind are said in words, and who sent it
+        // is said but not filtered by.
         listColumns: [
-          ...this.columns(resource, fields).map((column) => {
+          ...this.columns(resource, fields).map((column): ColumnConfig => {
             if (column.id === 'tenantId') {
               return this.tenantNamed(column.id, column.header ?? '', into);
             }
+            if (column.id === 'state' && byState) {
+              return { ...linkStateColumn };
+            }
+            if (column.id === 'kind' && byState) {
+              return { ...linkKindColumn };
+            }
+            if (column.id === 'sentBy') {
+              return { ...column, filterable: false };
+            }
             return unmailed ? this.unmailedCell(column) : column;
           }),
-          // Read with each row and not drawn.
-          ...(placed ? [{ id: 'everyTenant' as FieldName, hidden: true }] : []),
-          ...(sender ? [{ id: 'invitedByUserId' as FieldName, hidden: true }] : []),
-          ...(unmailed ? [{ id: 'mailFailedAt' as FieldName, hidden: true }] : []),
+          ...unseen.map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.present([
           [
@@ -634,12 +682,22 @@ class SideBuilder {
             {
               label: 'Withdraw',
               icon: 'cancel_schedule_send',
-              // An invitation that was used or withdrawn has nothing left to withdraw.
-              when: (row) => (this.tenant ? row['pending'] === true : !row['consumedAt']),
+              // An invitation that was used or withdrawn has nothing left to withdraw;
+              // where the server says each link's state, an open invitation of a person
+              // alone has.
+              when: (row) => {
+                if (byState) {
+                  return row['state'] === 'open' && this.personInvitation(row);
+                }
+                return this.tenant ? row['pending'] === true : !row['consumedAt'];
+              },
               confirm: (row) => `Withdraw the invitation sent to ${String(row['email'])}?`,
             },
           ],
+          ...(byState ? [this.sendAgain()] : []),
         ]),
+        // A tenant's list carries Invite, and so does the whole application's of an
+        // application without tenants, where the server says each link's state.
         listMethods: this.tenant
           ? this.present([
               [
@@ -647,10 +705,60 @@ class SideBuilder {
                 { label: 'Invite', icon: 'send', says: inviteSays, ...this.rolesWhere('roles', methods.invite) },
               ],
             ])
-          : [],
+          : this.present(byState && !this.identity.tenant ? [this.inviting()] : []),
         elements: [],
       }),
     });
+  }
+
+  /**
+   * Invite as the Accounts page and a tenant's People page present it, and the Mailed
+   * links page of an application without tenants: one presentation, so the two cannot
+   * differ.
+   */
+  private inviting(): [string | undefined, Omit<MethodPresentation, 'method'>] {
+    const { methods } = this.side;
+    return [
+      methods.invite,
+      {
+        label: 'Invite',
+        icon: 'send',
+        says: inviteSays,
+        labels: this.where(),
+        ...this.rolesWhere('roles', methods.invite),
+      },
+    ];
+  }
+
+  /**
+   * Send again, on a mailed link that is an invitation of a person and is open, has
+   * expired or could not be mailed: it mails a new link, and the one mailed before stops
+   * working, which the question says of an open one.
+   */
+  private sendAgain(): [string | undefined, Omit<MethodPresentation, 'method'>] {
+    return [
+      this.side.methods.resendInvitation,
+      {
+        label: 'Send again',
+        icon: 'send',
+        when: (row) => resendable.includes(String(row['state'] ?? '')) && this.personInvitation(row),
+        confirm: (row) =>
+          row['state'] === 'open'
+            ? `Send the invitation to ${String(row['email'])} again? The link mailed before stops working.`
+            : `Send the invitation to ${String(row['email'])} again?`,
+        answered: mailed('The invitation is on its way.'),
+      },
+    ];
+  }
+
+  /**
+   * Whether a mailed link is an invitation of a person, which Withdraw and Send again act
+   * on: every row of a tenant's list is one; on the whole application's list a row whose
+   * kind is an invitation and whose first sign-in does not make a tenant, where the list
+   * marks that.
+   */
+  private personInvitation(row: RecordData): boolean {
+    return (this.tenant || row['kind'] === 'invitation') && row['makesTenant'] !== true;
   }
 
   /**
@@ -759,8 +867,12 @@ class SideBuilder {
 
   /**
    * Every session of the Auth's people, each with End the session: the whole application's
-   * alone. A row says the session's state in one column, State: Live, Timed out or Ended,
-   * from what the server says of it.
+   * alone. Where the server says each session's state in one word (the list has `state`),
+   * the page opens on the live sessions and a row says whose the session is, how it signed
+   * in, the browser, marking the session the reader is using, and its state, by which the
+   * list filters (Live, Timed out, Ended); the username opens the account where the
+   * person's id names the list of the accounts. Otherwise a row says whether the session
+   * ended.
    */
   sessions(): RootConfig | undefined {
     const { lists } = this.side;
@@ -768,18 +880,17 @@ class SideBuilder {
       return undefined;
     }
     const resource = lists.sessions as Resource;
-    const listColumns: ColumnConfig[] = this.has(resource, 'live')
+    const byState = this.has(resource, 'state');
+    const opensAccount = byState && this.namesAccount(resource);
+    const listColumns: ColumnConfig[] = byState
       ? [
-          ...this.columns(resource, [['username', 'Username'], ...sessionColumns]),
-          {
-            id: 'live' as FieldName,
-            header: 'State',
-            sortable: false,
-            filterable: false,
-            valueGetter: (row: RecordData) => sessionState(row),
-          },
-          // Read with each row and not drawn: what State says of a session that is not live.
-          ...(this.has(resource, 'expired') ? [{ id: 'expired' as FieldName, hidden: true }] : []),
+          ...this.columns(resource, [['username', 'Username']]).map((column) => ({ ...column, opensRow: true })),
+          ...this.columns(resource, [['name', 'Name']]),
+          ...this.sessionDetails(resource),
+          ...this.columns(resource, sessionColumns),
+          { ...sessionStateColumn },
+          // Read with each row and not drawn: the Browser cell marks the reader's own by it.
+          ...(this.has(resource, 'id') ? [{ id: 'id' as FieldName, hidden: true }] : []),
         ]
       : this.columns(resource, [['username', 'Username'], ...sessionColumns, ['expired', 'Expired']]);
     return rootConfig({
@@ -788,7 +899,9 @@ class SideBuilder {
       parentConfig: listViewConfig({
         title: this.heading('Sessions'),
         primaryResource: resource,
-        showViewButton: false,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        ...(byState ? { opensWith: [{ field: 'state', operator: 'eq', value: 'live' }] } : {}),
         showRowCount: true,
         listColumns,
         rowMethods: this.onSession(),
@@ -797,34 +910,81 @@ class SideBuilder {
     });
   }
 
-  /** The names whose failed sign-ins are being counted or are locked out, each with Unlock: the whole application's alone. */
+  /**
+   * The names whose failed sign-ins are being counted or are locked out, each with Unlock:
+   * the whole application's alone. Where the server says what each row counts (the list
+   * has `kind`), a row says it in words (a name, mail to an address, wrong codes), the
+   * account the count is kept for, the count against its limit or as how many were sent or
+   * wrong, and how long it is locked, and the list filters by whether it is locked; the
+   * account opens where the person's id names the list of the accounts. Otherwise a row
+   * says the name, the count and the lock as they are stored.
+   */
   signInAttempts(): RootConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.signInAttempts) {
       return undefined;
     }
     const resource = lists.signInAttempts as Resource;
+    const byKind = this.has(resource, 'kind');
+    const opensAccount = byKind && this.namesAccount(resource);
+    const listColumns: ColumnConfig[] = byKind
+      ? [
+          ...this.columns(resource, [['subject', 'Username']]).map((column) => ({
+            ...column,
+            valueGetter: (row: RecordData) => attemptSubject(row),
+          })),
+          ...this.columns(resource, [['account', 'Account']]).map((column) => ({
+            ...column,
+            opensRow: true,
+            filterable: false,
+            sortable: false,
+            valueGetter: (row: RecordData) => attemptAccount(row),
+          })),
+          ...this.columns(resource, [['failures', 'Count']]).map((column) => ({
+            ...column,
+            filterable: false,
+            valueGetter: (row: RecordData) => attemptCount(row),
+          })),
+          ...this.columns(resource, [['state', 'State']]).map((column) => ({
+            ...column,
+            sortable: false,
+            filterChoices: attemptStateWords,
+            valueGetter: (row: RecordData) => attemptState(row, Date.now()),
+          })),
+          ...this.columns(resource, [['updatedAt', 'Last change']]),
+          // Read with each row and not drawn: the cells above say them.
+          ...this.known(resource, [
+            ['name', ''],
+            ['kind', ''],
+            ['failureLimit', ''],
+            ['lockedUntil', ''],
+          ]).map(([name]) => ({ id: name as FieldName, hidden: true })),
+        ]
+      : this.columns(resource, [
+          ['name', 'Name'],
+          ['failures', 'Failed tries'],
+          ['lockedUntil', 'Locked until'],
+          ['updatedAt', 'Last try'],
+        ]);
     return rootConfig({
       page: { label: 'Failed sign-ins', icon: 'gpp_bad' },
       routeData: { route: this.route('signInAttempts', 'failed-sign-ins'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: this.heading('Failed sign-ins'),
         primaryResource: resource,
-        showViewButton: false,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        ...(byKind ? { emptyMessage: 'No sign-in is locked or being counted.' } : {}),
         showRowCount: true,
-        listColumns: this.columns(resource, [
-          ['name', 'Name'],
-          ['failures', 'Failed tries'],
-          ['lockedUntil', 'Locked until'],
-          ['updatedAt', 'Last try'],
-        ]),
+        listColumns,
         rowMethods: this.present([
           [
             methods.unlockSignIn,
             {
               label: 'Unlock',
               icon: 'lock_open',
-              confirm: (row) => `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
+              confirm: (row) =>
+                byKind ? unlockQuestion(row) : `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
             },
           ],
         ]),
@@ -1630,8 +1790,10 @@ class SideBuilder {
 
   /**
    * A person's live sessions, under the person's row: the whole application's alone. The
-   * list is the sessions the server says are live, and under it a link opens the Sessions
-   * page filtered by the person's username, where every session of theirs is. Where the
+   * list is the sessions the server says are live, each with how it signed in and its
+   * browser where the list says them, the session the reader is using marked, and under it
+   * a link opens the Sessions page filtered by the person's username, where every session
+   * of theirs is. Where the
    * server's list does not say which are live (a description from before it did), the list
    * is every session, as it was.
    */
@@ -1664,7 +1826,12 @@ class SideBuilder {
       showViewButton: false,
       collapsible: false,
       emptyMessage: 'This person has no live session.',
-      listColumns: this.columns(resource, sessionColumns),
+      listColumns: [
+        ...this.sessionDetails(resource),
+        ...this.columns(resource, sessionColumns),
+        // Read with each row and not drawn: the Browser cell marks the reader's own by it.
+        ...(this.has(resource, 'browser') && this.has(resource, 'id') ? [{ id: 'id' as FieldName, hidden: true }] : []),
+      ],
       more: (person) => {
         const username = person?.['username'];
         if (typeof username !== 'string' || username === '') {
@@ -1828,14 +1995,13 @@ class SideBuilder {
     ]);
   }
 
-  /** How the method that ends one session is presented. */
+  /**
+   * How the method that ends one session is presented. It asks no question of its own:
+   * the method declares a warning, so the dialog asks the server, whose words say when
+   * the session is the reader's own.
+   */
   private onSession(): MethodPresentation[] {
-    return this.present([
-      [
-        this.side.methods.endSession,
-        { label: 'End the session', icon: 'logout', confirm: 'End this session? The browser or device is signed out.' },
-      ],
-    ]);
+    return this.present([[this.side.methods.endSession, { label: 'End the session', icon: 'logout' }]]);
   }
 
   /**
@@ -2035,6 +2201,39 @@ class SideBuilder {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Whether the list's person's id (`userId`) names the list of this side's accounts (the
+   * metadata's `enumeratedResource`), so a row can open the person's account by it.
+   */
+  private namesAccount(resource: Resource): boolean {
+    const users = this.side.lists.users;
+    return (this.resourceMeta(resource)?.fields ?? []).some(
+      (candidate) => candidate.fieldName === 'userId' && users !== undefined && candidate.enumeratedResource === users,
+    );
+  }
+
+  /**
+   * The columns of a list of sessions that say how each session signed in and the
+   * browser it was signed in from, each where the list has its field. The Browser cell of
+   * the session the reader is using says so (sessionBrowser).
+   */
+  private sessionDetails(resource: Resource): ColumnConfig[] {
+    return [
+      ...this.columns(resource, [['signedInWith', 'Signed in with']]),
+      ...(this.has(resource, 'browser')
+        ? [
+            {
+              id: 'browser' as FieldName,
+              header: 'Browser',
+              filterable: false,
+              sortable: false,
+              valueGetter: (row: RecordData, reader: SessionInfo) => sessionBrowser(row, reader),
+            },
+          ]
+        : []),
+    ];
   }
 
   /**
@@ -2546,6 +2745,55 @@ const unmailedWords: Readonly<Record<string, string>> = {
   consumedAt: '',
 };
 
+/** The words for each state the server says a mailed link is in, in the order the State column's filter offers them. */
+const linkStateWords: readonly { value: string; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'accepted', label: 'Accepted' },
+  { value: 'withdrawn', label: 'Withdrawn' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'notMailed', label: 'Not mailed' },
+];
+
+/**
+ * The words for each kind of link the server mails, in the order the Kind column's
+ * filter offers them.
+ */
+const linkKindWords: readonly { value: string; label: string }[] = [
+  { value: 'invitation', label: 'Invitation' },
+  { value: 'verification', label: 'Address confirmation' },
+  { value: 'sign-up', label: 'Sign-up' },
+  { value: 'first-password', label: 'First password code' },
+  { value: 'password-reset', label: 'Password reset' },
+  { value: 'address-change', label: 'Address change' },
+];
+
+/** The states of an invitation Send again is offered on: open, expired, or not mailed. */
+const resendable: readonly string[] = ['open', 'expired', 'notMailed'];
+
+/**
+ * A column that says a stored word of a mailed link in the words given for it, offers
+ * those words in its filter and does not sort; a word it has none for is written as
+ * stored.
+ */
+function linkWordsColumn(id: string, header: string, words: readonly { value: string; label: string }[]): ColumnConfig {
+  return {
+    id: id as FieldName,
+    header,
+    sortable: false,
+    filterChoices: words,
+    valueGetter: (row: RecordData) => {
+      const stored = typeof row[id] === 'string' ? row[id] : '';
+      return words.find((said) => said.value === stored)?.label ?? stored;
+    },
+  };
+}
+
+/** The State column of the mailed links and a tenant's invitations (linkStateWords). */
+const linkStateColumn: ColumnConfig = linkWordsColumn('state', 'State', linkStateWords);
+
+/** The Kind column of the whole application's mailed links (linkKindWords). */
+const linkKindColumn: ColumnConfig = linkWordsColumn('kind', 'Kind', linkKindWords);
+
 /**
  * The last day a period that ends at the instant counts, as a list shows it: the day of
  * the instant before the end, in the viewer's time zone, which the list writes as a
@@ -2624,6 +2872,116 @@ function lockLine(until: unknown, now: number): string {
   return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : momentFormat(instant, now))}`;
 }
 
+/** The kinds of count whose budget is mail sent (or codes mailed), each with what the row counts. */
+const attemptMailKinds: Record<string, string> = {
+  mail: 'Mail to',
+  code: 'Sign-in codes to',
+  reset: 'Password reset links to',
+  invitationCode: 'Codes for the invitation to',
+};
+
+/** The kinds of count whose budget is wrong codes entered, each with what the row counts. */
+const attemptGuessKinds: Record<string, string> = {
+  invitationGuess: 'Wrong codes for the invitation to',
+  addressGuess: 'Wrong codes for',
+  codeGuess: 'Wrong sign-in codes for',
+  firstPassword: 'Wrong first-password codes for',
+};
+
+/** The words of a failed sign-in's state, in the order the State column's filter offers them. */
+const attemptStateWords: readonly { value: string; label: string }[] = [
+  { value: 'locked', label: 'Locked' },
+  { value: 'counting', label: 'Counting' },
+];
+
+/** A row of the failed sign-ins: its kind and what it is for as the server says them, as text. */
+function attemptOf(row: RecordData): { kind: string; subject: string } {
+  return {
+    kind: typeof row['kind'] === 'string' ? row['kind'] : '',
+    subject: typeof row['subject'] === 'string' ? row['subject'] : '',
+  };
+}
+
+/**
+ * What a row of the failed sign-ins counts, in words: the name a person typed for a
+ * sign-in ("ada"), "Mail to ada@fleet.example" for mail and codes sent, "Wrong codes for
+ * ada@fleet.example" for wrong codes entered, and the subject alone for a kind it does not
+ * know.
+ */
+function attemptSubject(row: RecordData): string {
+  const { kind, subject } = attemptOf(row);
+  const said = attemptMailKinds[kind] ?? attemptGuessKinds[kind];
+  return said === undefined ? subject : `${said} ${subject}`;
+}
+
+/**
+ * The account a row of the failed sign-ins is kept for, by its name: "No such account"
+ * on a name a person typed that no account holds, and nothing on any other row with none.
+ */
+function attemptAccount(row: RecordData): string {
+  const account = row['account'];
+  if (typeof account === 'string' && account !== '') {
+    return account;
+  }
+  return attemptOf(row).kind === 'signIn' ? 'No such account' : '';
+}
+
+/**
+ * The count of a row of the failed sign-ins: for a name, against the limit that locks it
+ * ("3 of 5"); for mail, how many were sent ("3 sent"); for codes, how many were wrong
+ * ("3 wrong"); and the count alone otherwise.
+ */
+function attemptCount(row: RecordData): string {
+  const { kind } = attemptOf(row);
+  const failures = String(row['failures'] ?? '');
+  if (kind in attemptMailKinds) {
+    return `${failures} sent`;
+  }
+  if (kind in attemptGuessKinds) {
+    return `${failures} wrong`;
+  }
+  const limit = row['failureLimit'];
+  return kind === 'signIn' && typeof limit === 'number' ? `${failures} of ${limit}` : failures;
+}
+
+/** The longest a lock is said with its time: one that passes later is a count no time resets. */
+const attemptLockSaid = 366 * 24 * 60 * 60_000;
+
+/**
+ * The State of a row of the failed sign-ins: for a locked one, until when and how long is
+ * left ("Locked until 3:15 PM, 12 minutes left", lockLine and timeLeft); "Locked" alone
+ * where the lock passes more than 366 days from now, a count no time resets, or the row
+ * carries no time; "Counting" for the rest.
+ */
+function attemptState(row: RecordData, now: number): string {
+  if (row['state'] !== 'locked') {
+    return attemptStateWords.find((words) => words.value === row['state'])?.label ?? String(row['state'] ?? '');
+  }
+  const until = row['lockedUntil'];
+  const instant = typeof until === 'string' || until instanceof Date ? new Date(until) : undefined;
+  const line = lockLine(until, now);
+  if (instant === undefined || line === '' || instant.getTime() - now > attemptLockSaid) {
+    return 'Locked';
+  }
+  return `${line}, ${timeLeft(instant.getTime() - now)} left`;
+}
+
+/**
+ * What Unlock asks of a row of the failed sign-ins, by what it counts: of a name, that
+ * its count starts over; of mail, that it can be sent again at once; of wrong codes,
+ * that codes can be entered again.
+ */
+function unlockQuestion(row: RecordData): string {
+  const { kind, subject } = attemptOf(row);
+  if (kind in attemptMailKinds) {
+    return `Clear this count? Mail to ${subject} can be sent again at once.`;
+  }
+  if (kind in attemptGuessKinds) {
+    return 'Clear this count? Codes can be entered again.';
+  }
+  return `Unlock ${subject}? The count of failed tries starts over.`;
+}
+
 /**
  * A length of time in words a person reads at a glance: "45 minutes", "3 hours 10
  * minutes", "1 day", rounded down to the unit, and "less than a minute" at the very end.
@@ -2655,22 +3013,41 @@ const sessionColumns: Named[] = [
   ['updatedAt', 'Last active'],
 ];
 
+/** The words for each state the server says a session is in, in the order the State column's filter offers them. */
+const sessionStateWords: readonly { value: string; label: string }[] = [
+  { value: 'live', label: 'Live' },
+  { value: 'timedOut', label: 'Timed out' },
+  { value: 'ended', label: 'Ended' },
+];
+
 /**
- * A session's state in a word: "Live" where the server says a request that carries it is
- * still accepted, "Ended" where it was ended, and "Timed out" where it is neither: it sat
- * idle past the session timeout. Empty for a row that says neither fact.
+ * The Sessions page's State column: the state the server says a session is in, in the
+ * words its filter offers (sessionStateWords); a state it does not know is written as
+ * stored.
  */
-function sessionState(row: RecordData): string {
-  if (row['live'] === true) {
-    return 'Live';
+const sessionStateColumn: ColumnConfig = {
+  id: 'state' as FieldName,
+  header: 'State',
+  sortable: false,
+  filterChoices: sessionStateWords,
+  valueGetter: (row: RecordData) => {
+    const state = typeof row['state'] === 'string' ? row['state'] : '';
+    return sessionStateWords.find((words) => words.value === state)?.label ?? state;
+  },
+};
+
+/**
+ * What a session's Browser cell says: the browser's name, and of the session the reader
+ * is using (the session read's `sessionId`), ", this browser" after it ("Chrome on macOS,
+ * this browser"), or "This browser" where the session keeps no browser's name.
+ */
+function sessionBrowser(row: RecordData, reader: SessionInfo): string {
+  const name = typeof row['browser'] === 'string' ? row['browser'] : '';
+  const own = typeof reader.sessionId === 'string' && reader.sessionId !== '' && row['id'] === reader.sessionId;
+  if (!own) {
+    return name;
   }
-  if (row['expired'] === true) {
-    return 'Ended';
-  }
-  if (row['live'] === false) {
-    return 'Timed out';
-  }
-  return '';
+  return name === '' ? 'This browser' : `${name}, this browser`;
 }
 
 /** The key of the password among the ways a person signs in (the row's `way`); every other way is an identity. */

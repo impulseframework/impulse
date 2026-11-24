@@ -4229,14 +4229,16 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
 GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
-GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with whether each is live, most recently used first)
+GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with the state of each, whose they are and how they signed in, most recently used first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
 GET  <prefix>/crew-listed-identities, …/{id}               List, Read on CrewListedIdentities (the sign-in identities with who manages each account, where the application has a tenant record)
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
+GET  <prefix>/crew-listed-mail-links, …/{id}               List, Read on CrewListedMailLinks (the mailed links with what became of each and who sent it, newest first)
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
 GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations (newest first; `mask` is each session's mask in words)
 GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewSessionTrustedDevices (the remembered browsers)
+GET  <prefix>/crew-listed-sign-in-attempts                 List on CrewListedSignInAttempts (the counts that are locked or still being counted, the locked first)
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
@@ -4273,16 +4275,17 @@ POST <prefix>/set-crew-user-name              {"userId","name"}                E
 POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewListedUsers
 POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewListedUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewListedUsers
-POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
+POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewListedSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
-POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
+POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewListedMailLinks
+POST <prefix>/resend-crew-invitation          {"invitationId"} → {"id","sent"}   Execute on ResendCrewInvitation, targeting CrewListedMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
 POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewListedUsers
 POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewListedUsers
 POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewListedUsers
 POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
-POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions
+POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions (declares a warning)
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewListedIdentities
 POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
@@ -4302,6 +4305,7 @@ POST <prefix>/make-crew-invite-only           {"name"}                         E
 POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
+POST <prefix>/sectors/{sectorID}/resend-crew-sector-invitation   {"invitationId"} → {"id","sent"}   Execute on ResendCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles (declares a warning)
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
@@ -4380,7 +4384,7 @@ which refuses every session that acts as someone else by itself as well), a grou
 `remove-crew-group-member`), a role given to a group or taken from it
 (`give-crew-group-role`, `take-crew-group-role`), an invitation sent or withdrawn, the
 one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
-`invite-crew-sector`, `withdraw-crew-invited-sector`), a sign-in method opened to sign-up
+`resend-crew-invitation`, `invite-crew-sector`, `withdraw-crew-invited-sector`), a sign-in method opened to sign-up
 or made invite only
 (`open-crew-sign-up`, `make-crew-invite-only`), and the switch that lets people ask at
 the sign-in page for a link that resets their own password
@@ -4730,8 +4734,9 @@ administrator hands out, the role file says, in the conditions of the Execute gr
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
 account of a person the sector manages, gives every role but the Marshal's own, takes
-a role away where the sector itself gave it, and withdraws an invitation that stands and
-gives no Marshal's role:
+a role away where the sector itself gave it, withdraws an invitation that stands and
+gives no Marshal's role, and sends again an invitation that gives no Marshal's role,
+whether it stands, has expired or could not be mailed:
 
 ```json
 "Execute": [
@@ -4739,7 +4744,8 @@ gives no Marshal's role:
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
-  { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" }
+  { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" },
+  { "resource": "ResendCrewSectorInvitation", "condition": "role != 'SectorMarshal'" }
 ]
 ```
 
@@ -4749,7 +4755,11 @@ whole application. `roles` is a list, judged role by role, and an invitation
 with no role is refused by a grant that reads `new.role`, since no value never permits.
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
-not the Marshal's to withdraw, and its row's Execute answer leaves the withdrawal out.
+not the Marshal's to withdraw or to send again, and its row's Execute answer leaves both
+out. The grant on Send again does not read `pending`: the method is for an invitation
+that has expired or could not be mailed as much as for one that stands, and it refuses
+one that was accepted or withdrawn itself (409), so `pending = true` there would only
+keep an administrator from the invitations Send again is for.
 
 **The invitation that makes a tenant.** Nobody creates a tenant directly (section 16,
 "How a tenant comes to exist"): staff bring an organization in by inviting one person,
@@ -5034,16 +5044,22 @@ grants each like any resource.
   application's unlink names an identity by its row, so a role file gives the unlink under
   the same condition as the methods on the account. `CrewSessionIdentities`, the
   identities table's own list, stays.
-- `CrewListedSessions` is the sessions as a page lists them: the session's columns and
-  `live`, whether a request that carries the session is still accepted (not ended, used
-  within the Auth's session timeout, and its impersonation record, where it has one,
-  neither ended nor past its time). A session that is neither `live` nor `expired` timed
-  out. `live` judges the session alone: a request is also refused where the session names
-  no account, or its account is disabled or gone, and disabling or deleting an account
-  ends its sessions. The Sessions page and the list of live sessions under an account list
-  it, it filters by `id`, `userId`, `username`, `expired`, `live` and `updatedAt`, and the
-  method that ends a session names its session by its row. `CrewSessions`, the sessions
-  table's own list, stays.
+- `CrewListedSessions` is the sessions as a page lists them: the session's columns under
+  the account's present username, the person's name, how the session signed in, the
+  browser, whether it is live, and its state in one word (live, timed out, ended). A
+  session that is neither `live` nor `expired` timed out. `live` judges the session alone:
+  a request is also refused where the session names no account, or its account is disabled
+  or gone, and disabling or deleting an account ends its sessions. The Sessions page and
+  the list of live sessions under an account list it, it filters by `id`, `userId`,
+  `username`, `expired`, `live`, `state`, `signedInWith` and `updatedAt`, and the method
+  that ends a session names its session by its row. `CrewSessions`, the sessions table's
+  own list, stays.
+- `CrewListedMailLinks` is the mailed links as a page lists them: the link's columns, its state
+  (open, accepted, withdrawn, expired, not mailed), the sender's name, and whether the invitation
+  makes a tenant.
+- `CrewListedSignInAttempts` is the failed sign-ins as a page lists them: the counts that are
+  locked or still being counted, each with what it counts, the account that holds the name, and
+  the limit that locks a name.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",
@@ -5240,7 +5256,8 @@ every policy store's schema holds it).
   someone else, each with its impersonation record. Ending all of a user's sessions is
   the same act without the disable.
 - One session ends by its id; an impersonated session also ends by its record, which is
-  then closed as revoked.
+  then closed as revoked. Before it runs, the method says what it does (Warning): for the
+  session the caller is using, that ending it signs them out.
 - A password change is required only of a user who has a password (400 otherwise): a
   person with none would be shut out with no way back in. Whether a user has one is
   asked of the database, never read into a row.
@@ -5301,6 +5318,9 @@ every policy store's schema holds it).
 - Withdrawing holds to invitations. A mail link of another kind (a verification, a
   sign-up) is not found, and neither is an invitation that was accepted, withdrawn or
   has expired (404).
+- Send again mails a new link with the same address, roles, place and name and withdraws
+  the one that stood; it is offered on an invitation that is open, has expired or could
+  not be mailed.
 
 **Who may sign up.** Whether a sign-in method admits a person who has no account and no
 invitation is chosen for each method in the running application, never in code. The
@@ -5489,8 +5509,9 @@ an invitation into every tenant from one into the whole application. A link whos
 could not be mailed ends where the mail failed, and its row says so: the table carries
 `MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true)`, a schema without it is
 refused at generation the same way, and the list serves it as `mailFailedAt`, so a page
-tells such a link from one that was used or withdrawn. An invitation is held to
-its place when it is sent. One that says every tenant takes roles that exist in every
+tells such a link from one that was used or withdrawn. A link that was taken back is
+consumed with `WithdrawnAt` set, so a list tells Withdrawn from Accepted. An invitation is
+held to its place when it is sent. One that says every tenant takes roles that exist in every
 tenant: a role of the whole application alone is refused (400), and a custom role whose
 name a role of the whole application carries too is invited like any other, the person
 being given the tenants' one. One that says neither takes roles of the
@@ -5953,7 +5974,7 @@ the tenant record's name where the application has one, and a side for each scop
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
 each holds (`users`, `roles`, `rolesToGive` (the list a role is picked from by the methods that give one), `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`invite`,
-`withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
+`withdrawInvitation`, `resendInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
 the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application

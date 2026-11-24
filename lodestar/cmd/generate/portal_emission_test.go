@@ -169,7 +169,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		}
 		names = append(names, m[1])
 	}
-	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersListedIdentities,MembersListedSessions,MembersListedUsers,MembersRoles,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,MembersListedRoleGrants,MembersRememberLengths,MembersSignInMethods,MembersSignInSettings,FeatureFlags"
+	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersListedIdentities,MembersListedMailLinks,MembersListedSessions,MembersListedSignInAttempts,MembersListedUsers,MembersRoles,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,MembersListedRoleGrants,MembersRememberLengths,MembersSignInMethods,MembersSignInSettings,FeatureFlags"
 	if strings.Join(names, ",") != want {
 		t.Errorf("portal resource interfaces = %v, want %s", names, want)
 	}

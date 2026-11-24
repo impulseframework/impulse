@@ -84,13 +84,14 @@ var guardedMethods = map[string]subjectRule{
 	// A person reached by another key: the account a sign-in identity or a token
 	// belongs to, a session of theirs, the name their failed sign-ins are counted
 	// under, and the address an invitation is mailed to.
-	"Manager.UnlinkIdentity": {by: "refuseImpersonatorAsSubject"},
-	"Manager.RevokeToken":    {by: "refuseImpersonatorAsSubject"},
-	"Manager.EndSession":     {by: "refuseImpersonatorsSession"},
-	"Manager.UnlockSignIn":   {by: "refuseImpersonatorsName"},
-	"Manager.Invite":         {by: "refuseImpersonatorsAddress"},
-	"Manager.InviteTenant":   {by: "refuseImpersonatorsAddress"},
-	"Tenant.Invite":          {by: "Manager.Invite"},
+	"Manager.UnlinkIdentity":   {by: "refuseImpersonatorAsSubject"},
+	"Manager.RevokeToken":      {by: "refuseImpersonatorAsSubject"},
+	"Manager.EndSession":       {by: "refuseImpersonatorsSession"},
+	"Manager.UnlockSignIn":     {by: "refuseImpersonatorsName"},
+	"Manager.Invite":           {by: "refuseImpersonatorsAddress"},
+	"Manager.InviteTenant":     {by: "refuseImpersonatorsAddress"},
+	"Manager.ResendInvitation": {by: "refuseImpersonatorsAddress"},
+	"Tenant.Invite":            {by: "Manager.Invite"},
 
 	// A person named, and nothing asked.
 	"Manager.RequireUser": {person: true, none: "it reads whether the account exists, and changes nothing"},

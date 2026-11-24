@@ -86,6 +86,9 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	// The list of the auth's sessions says which are live by the timeout the Auth judges a
 	// request by.
 	membersresources.SetMembersListedSessionTimeout(sessions.SessionTimeout())
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	membersresources.SetMembersListedSignInAttemptLimit(sessions.SignInFailureLimit)
 
 	return &Client{manager: manager}, nil
 }

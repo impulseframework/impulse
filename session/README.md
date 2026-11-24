@@ -78,8 +78,9 @@ person's name `Name` (`SessionNames`), the tenant an invitation makes, the mail
 links table's `NewTenant` column (`SessionTenantInvitations`), the mark that an
 invitation's roles are held in every tenant, its `EveryTenant` column
 (`SessionInvitationPlaces`), the time a link's message could not be mailed, its
-`MailFailedAt` column (`SessionUnmailedLinks`), and the invitation a code was mailed
-for, the factor codes table's `InvitationId` column (`SessionCodeInvitations`); see
+`MailFailedAt` column (`SessionUnmailedLinks`), the invitation a code was mailed
+for, the factor codes table's `InvitationId` column (`SessionCodeInvitations`), and the
+time a link was taken back, its `WithdrawnAt` column (`SessionWithdrawnLinks`); see
 "Users and their
 email address" for the two shapes the address columns take, "A person's name" and
 "Invitations".
@@ -1673,7 +1674,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, TenantID, EveryTenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
-| `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent ends the invitation and marks its row as not mailed (`MailFailedAt`), so a list of the links tells it from one that was used or withdrawn. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
+| `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent ends the invitation and marks its row as not mailed (`MailFailedAt`), so a list of the links tells it from one that was used or withdrawn. A link that was taken back is consumed with `WithdrawnAt` set, so a list tells Withdrawn from Accepted. The `SessionWithdrawnLinks` migration also stores `WithdrawnAt` and `MailFailedAt` in the index a tenant's list of its invitations reads without a row of the table. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
 
 **A seed that gives a user its roles.** A role is held by the id of an account, so a
 seed needs the id before the user exists. `session.SeedUserID(auth, username)` is that
@@ -2231,7 +2232,9 @@ their own live sessions, the one of the request first and marked, each with the 
 the browser it was signed in from ("Chrome on Android", worked out from the User-Agent
 header when the session was made; absent where it was not recognized), when it was
 signed in and when it was last used, and how many browsers are remembered for them.
-`Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
+The session read (`Authenticated`) carries `sessionId` for a signed-in request.
+`sessionId` is the id of the session the request arrived on: what a list of sessions
+marks as the reader's own. `Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
 sessions, never the request's own; `Auth.EndOtherSessions()` ends all but the request's
 own and answers how many of the listed ones ended. Both also end a session of the
 person's that has timed out and is no longer listed, so nothing can bring it back.

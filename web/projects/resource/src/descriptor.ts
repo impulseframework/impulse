@@ -371,7 +371,8 @@ export interface IdentityLists {
  * no row. On a tenant's side `assignRole` runs against a person and
  * `removeRole` against a role held; on the whole application's side both take the
  * person's name, since a role may be held by a name that has no account.
- * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
+ * `withdrawInvitation` and `resendInvitation` run against an invitation,
+ * `unlinkIdentity` against an identity,
  * `endSession` against a session, `unlockSignIn` against a counted name, `openSignUp`
  * and `makeInviteOnly` name a sign-in method, which the page fills from its row, and the
  * rest run against a person. The methods over groups: `createGroup` names no row;
@@ -389,6 +390,7 @@ export interface IdentityLists {
 export interface IdentityMethods {
   readonly invite?: string;
   readonly withdrawInvitation?: string;
+  readonly resendInvitation?: string;
   readonly assignRole?: string;
   readonly removeRole?: string;
   readonly disable?: string;
