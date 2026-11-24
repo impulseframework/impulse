@@ -1062,6 +1062,17 @@ export const switchParamsDefaults = {
   cases: [] as switchCase[],
 } satisfies SwitchConfigParam;
 
+/**
+ * A link a list draws under its rows (ListViewConfigOptions.more): the words, the page it
+ * opens, by the route that page's config names (routeData.route), and the query parameters
+ * it opens with, such as the column filters filterQueryParams answers.
+ */
+export interface ListLink {
+  label: string;
+  route: string;
+  queryParams?: Record<string, string | string[]>;
+}
+
 export interface ListViewConfigOptions extends BaseConfigOptions {
   showViewButton?: boolean;
   loadCreatedResource?: boolean;
@@ -1168,8 +1179,20 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * flags."). It is said only of the whole list: a list narrowed by a filter or the
    * search box that leaves no row says the plain text, and a refusal, a failed request
    * and a list with no column the person may see keep their own words.
+   *
+   * A list under a record (one drawn on a row's page from the row, by its parentRelation)
+   * that holds no row draws the sentence alone, in place of its table and its pager; one
+   * that gives no sentence says "No hangar passes.", from the word its rows go by.
    */
   emptyMessage?: string;
+  /**
+   * A link under the list to where the rest of it is: for a list that shows a part (a
+   * person's live sessions) of what another page lists whole (every session of theirs).
+   * It is asked with the row the list is under and drawn after the rows, or after the one
+   * line of a list that holds nothing. Answering nothing draws none. The page it opens
+   * decides who may open it, as for any link.
+   */
+  more?: (parent: RecordData | undefined) => ListLink | undefined;
   /**
    * The buttons every row carries ahead of its menu of methods; see RowButton. None by
    * default.
@@ -1263,6 +1286,8 @@ export interface ListViewConfig extends BaseConfig {
   notice?: (rows: RecordData[]) => string | undefined;
   /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */
   emptyMessage?: string;
+  /** The link under the list; see ListViewConfigOptions.more. */
+  more?: (parent: RecordData | undefined) => ListLink | undefined;
   /** The buttons every row carries; see ListViewConfigOptions.rowButtons. */
   rowButtons?: RowButton[];
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */

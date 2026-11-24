@@ -394,6 +394,15 @@ func (noSessionAPI) TenantName(accesstypes.Domain) string {
 	return ""
 }
 
+// SessionTimeout answers the served stack's timeout. The generated list of an auth's
+// sessions holds one timeout for the process, the one the identity client built last was
+// given, and the suites that serve a session manager run beside this one: answering their
+// length keeps what that list says on the served stack from turning on which client was
+// built last.
+func (noSessionAPI) SessionTimeout() time.Duration {
+	return servedSessionTimeout
+}
+
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
 // here to mail through, and each says so.
 func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {

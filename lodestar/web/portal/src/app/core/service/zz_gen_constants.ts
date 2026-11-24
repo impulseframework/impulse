@@ -26,6 +26,7 @@ export const Resources = {
   FeatureFlags: 'FeatureFlags' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
+  MembersListedSessions: 'MembersListedSessions' as Resource,
   MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
@@ -232,6 +233,29 @@ export namespace MembersListedRoleGrants {
   };
 }
 
+export namespace MembersListedSessions {
+  export const fieldName = {
+    authenticatedAt: 'authenticatedAt' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    expired: 'expired' as FieldName,
+    id: 'id' as FieldName,
+    live: 'live' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    authenticatedAt: 'MembersListedSessions.authenticatedAt' as Resource,
+    createdAt: 'MembersListedSessions.createdAt' as Resource,
+    expired: 'MembersListedSessions.expired' as Resource,
+    id: 'MembersListedSessions.id' as Resource,
+    live: 'MembersListedSessions.live' as Resource,
+    updatedAt: 'MembersListedSessions.updatedAt' as Resource,
+    userId: 'MembersListedSessions.userId' as Resource,
+    username: 'MembersListedSessions.username' as Resource,
+  };
+}
+
 export namespace MembersListedUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
@@ -244,6 +268,7 @@ export namespace MembersListedUsers {
     name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     roles: 'roles' as FieldName,
+    trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -257,6 +282,7 @@ export namespace MembersListedUsers {
     name: 'MembersListedUsers.name' as Resource,
     passwordChangeRequired: 'MembersListedUsers.passwordChangeRequired' as Resource,
     roles: 'MembersListedUsers.roles' as Resource,
+    trustedDevices: 'MembersListedUsers.trustedDevices' as Resource,
     username: 'MembersListedUsers.username' as Resource,
   };
 }

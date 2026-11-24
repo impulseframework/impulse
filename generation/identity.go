@@ -750,6 +750,8 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// What is held and why: a person's roles as one list, the groups with what each
 	// holds, and the taking of a role for a set time.
 	files = append(files, r.holdingSources(inst)...)
+	// The sessions as a page lists them, each saying whether it is live.
+	files = append(files, r.sessionListSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {

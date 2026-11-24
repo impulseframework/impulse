@@ -757,6 +757,8 @@ type fakeSessions struct {
 	labels map[sessioninfo.AuthMethod]string
 	// tenantNames are what the application calls its tenants, by key.
 	tenantNames map[accesstypes.Domain]string
+	// sessionTimeout is how long the Auth lets a session sit idle.
+	sessionTimeout time.Duration
 }
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
@@ -765,6 +767,10 @@ func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection st
 
 func (s fakeSessions) TenantName(tenant accesstypes.Domain) string {
 	return s.tenantNames[tenant]
+}
+
+func (s fakeSessions) SessionTimeout() time.Duration {
+	return s.sessionTimeout
 }
 
 // asked records a message the rules asked the session library to mail, and answers the

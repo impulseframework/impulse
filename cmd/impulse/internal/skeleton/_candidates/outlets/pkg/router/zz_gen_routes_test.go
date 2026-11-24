@@ -146,6 +146,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/members-listed-groups/testMembersListedGroupID", method: http.MethodPost},
 		{url: "/console/api/members-listed-group-roles", method: http.MethodGet},
 		{url: "/console/api/members-listed-group-roles", method: http.MethodPost},
+		{url: "/console/api/members-listed-sessions", method: http.MethodGet},
+		{url: "/console/api/members-listed-sessions", method: http.MethodPost},
+		{url: "/console/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
+		{url: "/console/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
 		{url: "/console/api/members-listed-users", method: http.MethodGet},
 		{url: "/console/api/members-listed-users", method: http.MethodPost},
 		{url: "/console/api/members-listed-users/testMembersListedUserID", method: http.MethodGet},
@@ -314,6 +318,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-listed-groups/testStaffListedGroupID", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-group-roles", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-group-roles", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-sessions", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-sessions", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-users", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-users", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
@@ -518,6 +526,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/members-listed-groups/testMembersListedGroupID", method: http.MethodPost},
 		{url: "/devices/members-listed-group-roles", method: http.MethodGet},
 		{url: "/devices/members-listed-group-roles", method: http.MethodPost},
+		{url: "/devices/members-listed-sessions", method: http.MethodGet},
+		{url: "/devices/members-listed-sessions", method: http.MethodPost},
+		{url: "/devices/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
+		{url: "/devices/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
 		{url: "/devices/members-listed-users", method: http.MethodGet},
 		{url: "/devices/members-listed-users", method: http.MethodPost},
 		{url: "/devices/members-listed-users/testMembersListedUserID", method: http.MethodGet},
@@ -614,6 +626,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-listed-groups/testStaffListedGroupID", method: http.MethodPost},
 		{url: "/devices/staff-listed-group-roles", method: http.MethodGet},
 		{url: "/devices/staff-listed-group-roles", method: http.MethodPost},
+		{url: "/devices/staff-listed-sessions", method: http.MethodGet},
+		{url: "/devices/staff-listed-sessions", method: http.MethodPost},
+		{url: "/devices/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet},
+		{url: "/devices/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost},
 		{url: "/devices/staff-listed-users", method: http.MethodGet},
 		{url: "/devices/staff-listed-users", method: http.MethodPost},
 		{url: "/devices/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
@@ -967,6 +983,7 @@ func generatedRouteParameters() []string {
 		"membersGroupUserGroupID",
 		"membersGroupUserUserID",
 		"membersListedGroupID",
+		"membersListedSessionID",
 		"membersListedUserID",
 		"membersSessionID",
 		"membersSessionIdentityID",
@@ -998,6 +1015,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserGroupID",
 		"staffGroupUserUserID",
 		"staffListedGroupID",
+		"staffListedSessionID",
 		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
@@ -1195,6 +1213,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/members-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "MembersListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sessions", method: http.MethodGet,
+			handlerFunc: "MembersListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sessions", method: http.MethodPost,
+			handlerFunc: "MembersListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet,
+			handlerFunc: "MembersListedSession",
+			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
+		},
+		{
+			url: "/portal/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost,
+			handlerFunc: "MembersListedSession",
+			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
 		},
 		{
 			url: "/portal/api/members-listed-users", method: http.MethodGet,
@@ -1695,6 +1733,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/staff-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "StaffListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-sessions", method: http.MethodGet,
+			handlerFunc: "StaffListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-sessions", method: http.MethodPost,
+			handlerFunc: "StaffListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet,
+			handlerFunc: "StaffListedSession",
+			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/console/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost,
+			handlerFunc: "StaffListedSession",
+			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
 		},
 		{
 			url: "/console/api/staff-listed-users", method: http.MethodGet,
@@ -2839,6 +2897,14 @@ func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
 }
 
+func (s *generatedHandlersStub) StaffListedSessions() http.HandlerFunc {
+	return s.record("StaffListedSessions")
+}
+
+func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
+	return s.record("StaffListedSession")
+}
+
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {
 	return s.record("StaffListedUsers")
 }
@@ -3225,6 +3291,14 @@ func (s *generatedHandlersStub) MembersListedGroups() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MembersListedRoleGrants() http.HandlerFunc {
 	return s.record("MembersListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) MembersListedSession() http.HandlerFunc {
+	return s.record("MembersListedSession")
+}
+
+func (s *generatedHandlersStub) MembersListedSessions() http.HandlerFunc {
+	return s.record("MembersListedSessions")
 }
 
 func (s *generatedHandlersStub) MembersListedUser() http.HandlerFunc {

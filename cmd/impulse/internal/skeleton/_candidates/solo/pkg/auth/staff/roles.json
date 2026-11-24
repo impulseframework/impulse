@@ -133,7 +133,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -142,6 +143,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -417,7 +430,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -426,6 +440,18 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "live",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
