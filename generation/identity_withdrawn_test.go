@@ -11,8 +11,7 @@ import (
 // links: the session library and the generated store write the column where a link is
 // withdrawn, and the generated list of the mail links reads it. An auth whose schema
 // keeps no mail links is asked for nothing.
-func Test_prepareIdentity_withdrawnColumn(t *testing.T) {
-	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+func Test_prepareIdentity_withdrawnColumn(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	t.Chdir(t.TempDir())
 
 	lacking := &tableMetadata{Columns: map[string]columnMeta{
@@ -57,8 +56,7 @@ func Test_prepareIdentity_withdrawnColumn(t *testing.T) {
 // statement that adds it, before the auth's store is written, for every auth that keeps
 // sessions: the session library writes the column where a session is made, and the
 // generated list of the sessions shows it.
-func Test_prepareIdentity_sessionBrowserColumn(t *testing.T) {
-	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+func Test_prepareIdentity_sessionBrowserColumn(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	t.Chdir(t.TempDir())
 
 	for _, tt := range []struct {

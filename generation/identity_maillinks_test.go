@@ -108,8 +108,10 @@ func Test_prepareIdentity_tenantMailLinksReadTheIndex(t *testing.T) { //nolint:p
 	if start < 0 {
 		t.Fatal("the ship's invitations hold no query")
 	}
-	query := source[start+len("const crewShipInvitationQuery = `"):]
-	query = query[:strings.Index(query, "`")]
+	query, _, found := strings.Cut(source[start+len("const crewShipInvitationQuery = `"):], "`")
+	if !found {
+		t.Fatal("the ship's invitations' query does not end")
+	}
 	read := regexp.MustCompile(`\bl\.([A-Za-z]+)`).FindAllStringSubmatch(query, -1)
 	if len(read) == 0 {
 		t.Fatalf("the ship's invitations read no column of the mail links table: %s", query)

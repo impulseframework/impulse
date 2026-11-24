@@ -153,16 +153,17 @@ func expectMailLinks(f *authFixture) *mailLinks {
 		defer links.mu.Unlock()
 		links.revokes++
 		for _, l := range links.rows {
-			if l.ID == id && l.ConsumedAt == nil {
-				now := time.Now()
-				l.ConsumedAt = &now
-				if links.withdrawn == nil {
-					links.withdrawn = make(map[impulse.UUID]bool)
-				}
-				links.withdrawn[id] = true
-
-				return nil
+			if l.ID != id || l.ConsumedAt != nil {
+				continue
 			}
+			now := time.Now()
+			l.ConsumedAt = &now
+			if links.withdrawn == nil {
+				links.withdrawn = make(map[impulse.UUID]bool)
+			}
+			links.withdrawn[id] = true
+
+			return nil
 		}
 
 		return httpio.NewNotFoundMessage("no live mail link")

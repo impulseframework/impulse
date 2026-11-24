@@ -188,8 +188,11 @@ func TestMigrations_withdrawnLinks(t *testing.T) {
 		up.WriteString(m.Up)
 	}
 	const column = "    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),\n"
-	table := up.String()[strings.Index(up.String(), "CREATE TABLE StaffSessionMailLinks ("):]
-	table = table[:strings.Index(table, ") PRIMARY KEY (Id);")]
+	_, table, found := strings.Cut(up.String(), "CREATE TABLE StaffSessionMailLinks (")
+	if !found {
+		t.Fatal("the migrations make no mail links table")
+	}
+	table, _, _ = strings.Cut(table, ") PRIMARY KEY (Id);")
 	if !strings.Contains(table, column) {
 		t.Errorf("the mail links table lacks %q:\n%s", column, table)
 	}

@@ -83,8 +83,10 @@ func Test_identityInstances_signIns(t *testing.T) {
 		}
 	}
 	want := []identitySignIn{
-		{Name: "google", Label: "Fleet Google", method: "google"}, {Name: "password", Label: "Password", method: "password"},
-		{Name: "lakeside", Label: "Lakeside", method: "azure"}, {Name: "persona", Label: "Persona", method: "oidc"},
+		{Name: "google", Label: "Fleet Google", method: "google"},
+		{Name: "password", Label: "Password", method: "password"},
+		{Name: "lakeside", Label: "Lakeside", method: "azure"},
+		{Name: "persona", Label: "Persona", method: "oidc"},
 	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(identitySignIn{})); diff != "" {
 		t.Errorf("the Members instance's sign-ins mismatch (-want +got):\n%s", diff)

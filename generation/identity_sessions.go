@@ -42,8 +42,8 @@ const (
 	applicationWords   = "Started by the application"
 )
 
-// SignedInWith is the SQL of the column that says how a session signed in, session
-// being the alias of the session's row: the method of its first auth event (the lowest
+// SignedInWith is the SQL of the column that says how a session signed in, row being
+// the alias of the session's row: the method of its first auth event (the lowest
 // Seq) in the words of the login page's button for it, the labels of the registrations
 // of one method joined by " or " in declaration order; an impersonation in words; a
 // sign-in word of the session library's (sessionSignInWords) that no registration
@@ -51,7 +51,7 @@ const (
 // registers; any other first event in the words of a session the application started,
 // since the library accepts a step of the application's own under no sign-in method's
 // name; and null where the session has no event.
-func (d *identitySourceData) SignedInWith(session string) string {
+func (d *identitySourceData) SignedInWith(row string) string {
 	var methods []string
 	labels := make(map[string][]string)
 	for _, signIn := range d.signIns {
@@ -74,7 +74,7 @@ func (d *identitySourceData) SignedInWith(session string) string {
 		"      ELSE "+sqlStringLiteral(applicationWords),
 		"    END",
 		"    FROM "+d.Tables.AuthEvents+" e",
-		"    WHERE e.SessionId = "+session+".Id",
+		"    WHERE e.SessionId = "+row+".Id",
 		"    ORDER BY e.Seq",
 		"    LIMIT 1) AS SignedInWith",
 	)

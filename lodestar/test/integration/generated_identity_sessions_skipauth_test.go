@@ -9,6 +9,7 @@ package integration
 // provider needs the simulated provider, so the suite runs with -tags skipAuth.
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,8 +38,12 @@ type userAgentTransport struct {
 func (u userAgentTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	r.Header.Set("User-Agent", u.header)
+	resp, err := u.next.RoundTrip(r)
+	if err != nil {
+		return nil, fmt.Errorf("sending %s %s with the browser's header: %w", r.Method, r.URL.Path, err)
+	}
 
-	return u.next.RoundTrip(r)
+	return resp, nil
 }
 
 // TestGeneratedIdentitySessionsSayStateAndHowSignedIn holds the list of the sessions on

@@ -141,7 +141,8 @@ func TestIdentityListedSessions_signedInWith(t *testing.T) {
 			name:   "two registrations of one method, one with a quote in its label",
 			tables: []identityTable{identitySessions, identityUsers, identityAuthEvents},
 			signIns: []identitySignIn{
-				{Name: "persona", Label: "Persona", method: "oidc"}, {Name: "password", Label: "Password", method: "password"},
+				{Name: "persona", Label: "Persona", method: "oidc"},
+				{Name: "password", Label: "Password", method: "password"},
 				{Name: "acme", Label: `Acme's \ directory`, method: "oidc"},
 			},
 			wantContains: []string{
