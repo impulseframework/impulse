@@ -118,14 +118,17 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// alone does not; and the two lists of a group's roles count from the memberships
 	// and name nobody, so a commit that writes an account alone does not tell them.
 	// Both lists of how a person signs in declare the accounts, and the sector's alone
-	// the memberships.
+	// the memberships. The list of the mailed links and a sector's list of its
+	// invitations name an invitation's sender from the users table.
 	named := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
 		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedMailLinks", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorInvitations", AllDomains: true},
 		{Resource: "CrewSectorSignInWays", AllDomains: true},
 		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},

@@ -311,6 +311,27 @@
               ]
             },
             {
+              "resource": "CrewListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
               "resource": "CrewSessionSignInAttempts",
               "fields": [
                 "failures",
@@ -424,6 +445,27 @@
                 "mailFailedAt",
                 "name",
                 "roleNames",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "MembersListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
                 "tenantId",
                 "userId",
                 "withdrawnAt"
@@ -769,6 +811,27 @@
               ]
             },
             {
+              "resource": "CrewListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
               "resource": "CrewSessionImpersonations",
               "fields": [
                 "actorRealm",
@@ -812,6 +875,27 @@
                 "mailFailedAt",
                 "name",
                 "roleNames",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "MembersListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
                 "tenantId",
                 "userId",
                 "withdrawnAt"
@@ -1701,9 +1785,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -2048,9 +2135,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },

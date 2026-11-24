@@ -1966,7 +1966,7 @@ const methodMap: MethodMap = {
   },
   [Methods.ResendCrewInvitation]: {
     route: 'resend-crew-invitation',
-    target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.CrewListedMailLinks, key: { invitationId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -2298,7 +2298,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawCrewInvitation]: {
     route: 'withdraw-crew-invitation',
-    target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.CrewListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

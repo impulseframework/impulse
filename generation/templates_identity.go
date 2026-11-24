@@ -312,7 +312,9 @@ type (
 	// consumed too, where the mail failed, and MailFailedAt says when: the one field
 	// that tells it from a link that was used. A link that was taken back is consumed
 	// too, with WithdrawnAt set: it tells a withdrawal from an acceptance. The link
-	// itself is in the message alone and its hash is not a field.
+	// itself is in the message alone and its hash is not a field. A page lists the
+	// links through {{ .ListedMailLink }}, which says what became of each and who sent
+	// it.
 	//
 	// @resource
 	// @suppress(patchHandler)

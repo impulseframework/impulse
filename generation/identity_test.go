@@ -395,6 +395,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/unlock_crew_sign_in.go",
 		"crewidentity/withdraw_crew_invitation.go",
 		"internal/crewresources/crew_held_roles.go",
+		"internal/crewresources/crew_listed_mail_links.go",
 		"internal/crewresources/crew_listed_sessions.go",
 		"internal/crewresources/crew_listed_users.go",
 		"internal/crewresources/crew_role_grants.go",
@@ -512,8 +513,8 @@ func Test_prepareIdentity(t *testing.T) {
 			"invitation := &identity.Invitation{Email: m.Email, Name: m.Name}",
 			"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
 		},
-		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
-		"crewidentity/resend_crew_invitation.go":   {"// @target(CrewSessionMailLink)", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })", "ResendCrewInvitationResult struct {"},
+		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewListedMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
+		"crewidentity/resend_crew_invitation.go":   {"// @target(CrewListedMailLink)", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })", "ResendCrewInvitationResult struct {"},
 		"crewidentity/disable_crew_user.go":        {"// @rpc", "// @outlet(default)", "// @target(CrewListedUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
 		// An address is asked for and never written: the method takes one, answers how
 		// the mailing went, and hands the manager the callback that tells it.

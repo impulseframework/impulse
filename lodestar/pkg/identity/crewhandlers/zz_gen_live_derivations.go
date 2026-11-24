@@ -53,6 +53,11 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 		}},
+		// CrewListedMailLinks: the tables its query reads.
+		{Resource: crewresources.CrewListedMailLink{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
 		// CrewListedSessions: the tables its query reads.
 		{Resource: crewresources.CrewListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: crewresources.CrewSessionImpersonation{}.Resource(), Global: true},
@@ -113,6 +118,7 @@ var LiveDerivations = &live.Derivations{
 		// CrewSectorInvitations: the tables its query reads.
 		{Resource: crewresources.CrewSectorInvitation{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
 		// CrewSectorSignInWays: the tables declared with @changedBy.
 		{Resource: crewidentity.CrewSectorSignInWay{}.Resource(), Tables: []live.SourceTable{

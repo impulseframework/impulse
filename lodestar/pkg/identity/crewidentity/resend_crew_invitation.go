@@ -26,7 +26,7 @@ type (
 	// @outlet(default)
 	// @class(access)
 	ResendCrewInvitation struct {
-		// @target(CrewSessionMailLink)
+		// @target(CrewListedMailLink)
 		InvitationID impulse.UUID
 	}
 	// ResendCrewInvitationResult answers the new invitation's id and whether

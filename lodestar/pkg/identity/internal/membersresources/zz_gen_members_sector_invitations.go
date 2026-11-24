@@ -32,9 +32,12 @@ type membersSectorInvitationRead struct {
 	Name            *string       `json:"name"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	SentBy          *string       `json:"sentBy"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+	State           string        `json:"state"`
 	Pending         bool          `json:"pending"`
 }
 
@@ -150,9 +153,12 @@ func (c *MembersSectorInvitationColumns) All() *MembersSectorInvitationColumns {
 		"Name",
 		"RoleNames",
 		"InvitedByUserID",
+		"SentBy",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"WithdrawnAt",
+		"State",
 		"Pending",
 	}
 
@@ -195,6 +201,12 @@ func (c *MembersSectorInvitationColumns) InvitedByUserID() *MembersSectorInvitat
 	return c
 }
 
+func (c *MembersSectorInvitationColumns) SentBy() *MembersSectorInvitationColumns {
+	c.fields = append(c.fields, "SentBy")
+
+	return c
+}
+
 func (c *MembersSectorInvitationColumns) CreatedAt() *MembersSectorInvitationColumns {
 	c.fields = append(c.fields, "CreatedAt")
 
@@ -209,6 +221,18 @@ func (c *MembersSectorInvitationColumns) ExpiresAt() *MembersSectorInvitationCol
 
 func (c *MembersSectorInvitationColumns) ConsumedAt() *MembersSectorInvitationColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *MembersSectorInvitationColumns) WithdrawnAt() *MembersSectorInvitationColumns {
+	c.fields = append(c.fields, "WithdrawnAt")
+
+	return c
+}
+
+func (c *MembersSectorInvitationColumns) State() *MembersSectorInvitationColumns {
+	c.fields = append(c.fields, "State")
 
 	return c
 }
@@ -245,6 +269,10 @@ func (p MembersSectorInvitationQueryPartialClause) Email() MembersSectorInvitati
 
 func (p MembersSectorInvitationQueryPartialClause) CreatedAt() MembersSectorInvitationQueryIdent[time.Time] {
 	return MembersSectorInvitationQueryIdent[time.Time]{Ident: resource.NewIdent[time.Time]("CreatedAt", p.partialClause, true)}
+}
+
+func (p MembersSectorInvitationQueryPartialClause) State() MembersSectorInvitationQueryIdent[string] {
+	return MembersSectorInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("State", p.partialClause, true)}
 }
 
 func (p MembersSectorInvitationQueryPartialClause) Pending() MembersSectorInvitationQueryIdent[bool] {
@@ -341,6 +369,10 @@ func (c *membersSectorInvitationSort) InvitedByUserID() *MembersSectorInvitation
 	return c.addField("InvitedByUserID")
 }
 
+func (c *membersSectorInvitationSort) SentBy() *MembersSectorInvitationSort {
+	return c.addField("SentBy")
+}
+
 func (c *membersSectorInvitationSort) CreatedAt() *MembersSectorInvitationSort {
 	return c.addField("CreatedAt")
 }
@@ -351,6 +383,14 @@ func (c *membersSectorInvitationSort) ExpiresAt() *MembersSectorInvitationSort {
 
 func (c *membersSectorInvitationSort) ConsumedAt() *MembersSectorInvitationSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *membersSectorInvitationSort) WithdrawnAt() *MembersSectorInvitationSort {
+	return c.addField("WithdrawnAt")
+}
+
+func (c *membersSectorInvitationSort) State() *MembersSectorInvitationSort {
+	return c.addField("State")
 }
 
 func (c *membersSectorInvitationSort) Pending() *MembersSectorInvitationSort {

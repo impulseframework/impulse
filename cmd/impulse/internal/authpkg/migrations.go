@@ -365,10 +365,11 @@ CREATE UNIQUE INDEX %[1]sSessionMailLinksByTokenHash ON %[1]sSessionMailLinks(To
 
 CREATE INDEX %[1]sSessionMailLinksByKind ON %[1]sSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A tenant's links, newest first, with the columns a tenant's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenantId ON %[1]sSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A tenant's links, newest first, with every column of the table a tenant's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenantId ON %[1]sSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
 
 -- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
 ALTER TABLE %[1]sSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));

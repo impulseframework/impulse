@@ -281,13 +281,14 @@ func (d *identitySourceData) SubjectIdentity() string {
 	return d.Identity()
 }
 
-// SubjectMailLink is the struct whose row a method names an invitation by: the mail
-// links table's for the whole application, and the tenant's list of invitations for a
-// tenant.
+// SubjectMailLink is the struct whose row a method names an invitation by: the list of
+// the mailed links a page shows for the whole application (ListedMailLink), and the
+// tenant's list of invitations for a tenant, so a row of the list a page shows offers
+// the methods.
 func (d *identitySourceData) SubjectMailLink() string {
 	if d.ForTenant {
 		return d.TenantMailLink()
 	}
 
-	return d.MailLink()
+	return d.ListedMailLink()
 }
