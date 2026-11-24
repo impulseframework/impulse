@@ -1377,10 +1377,11 @@ test signs people in with a password; where it has none (the start of Tenant-own
 users, by directory) the role carries no grant on a person's password, which such an
 application does not serve, and the test signs people in through the simulated directory,
 so it runs under `-tags skipAuth` and is skipped, saying so, under the default build.
-Every grant the test proves is the one role's, and the application's lint refuses a
-parameter that takes one value in every call, so the command writes the harness again
-beside the test with its `provesGrant` marked for the lint (`//nolint:unparam`, with the
-reason), as the tenanted skeleton's harness is; a harness with no such test beside it
+Where every grant the test proves is the one role's (a person belongs to one tenant, or the
+application's own administrator's grants were left as they were), the application's lint
+refuses a parameter that takes one value in every call, so the command writes the harness
+again beside the test with its `provesGrant` marked for the lint (`//nolint:unparam`, with
+the reason); a harness whose tests name two roles there, or with no such test beside it,
 carries no mark, since the lint refuses a mark that silences nothing. The
 command writes the test only where it holds as the application is: where a test of that
 name is there already, where the harness, `grants_test.go` or the sign-in helpers it
@@ -1395,7 +1396,14 @@ each with its proof, a tenant's administrator does none of them. The auth's
 deployment package's test of the first administrator's roles holds it to the role file,
 and the application's own administrator role gains the grants a tenant is made with: the
 record, the invitation that makes one, its withdrawal and the list of the invitations
-that stand. The role is written after the regeneration, since its grants are cut to what
+that stand. Where a person may be in several tenants that role is also held to the
+accounts no tenant manages, as the tenanted skeleton's `Administrator` is: each of its
+grants on a method of the whole application that acts on an account, the reset link among
+them, takes `managedByTenant = false`, and the same test proves each, as the
+application's administrator on a person a tenant manages and on one no tenant does. The
+command puts the condition on only with that proof: where it wrote no such test, or the
+role does not hold those grants as the skeleton's does, they stay as they were, and a line
+under what the command could not make names them and says why. The role is written after the regeneration, since its grants are cut to what
 that regeneration serves, and the generated metadata lists the roles a field may hold from
 the role file (`@roleOf`), so where the command added the role it runs `go generate ./...`
 once more. So the application starts, its served tests run and `impulse check`'s `regen`

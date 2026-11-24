@@ -1231,7 +1231,11 @@ grants on what the application serves, under the same condition. The command wri
 on the served application, because `impulse check` refuses a conditional grant that no
 test proves (`conditions-proven`). Where the auth has no password sign-in, the role and
 its test leave out the rows about a password, which such an application does not serve,
-and the test signs people in through the simulated directory (`-tags skipAuth`).
+and the test signs people in through the simulated directory (`-tags skipAuth`). Where a
+person may be in several tenants, the command also holds the application's own
+administrator role to the accounts no tenant manages (`managedByTenant = false` on each
+of its grants that acts on an account, the reset link among them), as the skeletons' role
+file does, and the same test proves that condition.
 
 `impulse check` has a check for the last row, named `tenant-accounts`. It fails when a
 grant lets a role held in a tenant run one of those operations on an account with no
