@@ -13,20 +13,25 @@ import { ListableFields, MetaOf } from '../search-box/search-fields';
 // it, and is the table's column under the name field's id, so a header click sorts by the
 // name and the column's filter names it, where the person may list the name. Where they
 // may not, the column stays on the id and asks for no name, since the server refuses a
-// list that asks for a field the person may not list. The list component and its store
-// wire what these answer; nothing else in them learns what a name is.
+// list that asks for a field the person may not list. A column which shows no name (the
+// list carries none beside its id, or the person may not list it) and has the page's
+// words for a tenant or a row (`tenantKey`, `fallback`) says those words on the id in
+// place of the stored value, and so offers neither sort nor filter. The list component
+// and its store wire what these answer; nothing else in them learns what a name is.
 
 const title = new CamelCaseToTitlePipe();
 
 /**
  * How a list draws a configured column:
- * - `field`: on its field's stored value, as any column: a field with no name beside it,
- *   a hidden column, a column that reads its cell itself, a button or an icon column, a
- *   column on an id whose name the person may not list;
+ * - `field`: on its field's stored value, as any column: a hidden column, a column that
+ *   reads its cell itself, a button or an icon column, a field that takes a fixed set of
+ *   values with no name field beside it, and a column which shows no name and has no
+ *   words of its own for a row;
  * - `name`: on the name beside its id, under the name field's id;
- * - `worded`: on its id, whose name the person may not list, in the page's words for a
- *   tenant (`tenantKey`) or for a row (`fallback`): its cells do not say the stored value,
- *   so it offers neither sort nor filter;
+ * - `worded`: on its id, which shows no name (the list carries none beside its id, or the
+ *   person may not list it), in the page's words for a tenant (`tenantKey`) or for a row
+ *   (`fallback`): its cells do not say the stored value, so it offers neither sort nor
+ *   filter;
  * - `enumerated`: on a field that takes one of a fixed set, whose values it names from the
  *   metadata as any such field, and which a header click sorts by the name field beside
  *   it, so the rows come in the order of the names they show.
@@ -67,7 +72,9 @@ export interface ListedColumn {
  * name column when it is a field column, shown, reads no cell of its own, and its field
  * has a name beside it, takes no fixed set of values, and points to a resource whose name
  * the person may list: nothing narrows the digest's set for it, or the set names the
- * name, or the name is the resource's key and the set is not empty.
+ * name, or the name is the resource's key and the set is not empty. Any other such column
+ * on a field that takes no fixed set of values is worded where it has the page's words for
+ * a tenant or a row, with a name field beside its field or none.
  */
 export function listedColumns(
   columns: readonly ColumnConfig[],
@@ -80,7 +87,13 @@ export function listedColumns(
   return columns.map((column) => listedColumn(column, names.get(column.id), fields.get(column.id), listableOf, metaOf));
 }
 
-/** How the list draws one configured column, given the name field beside it and its field's metadata. */
+/**
+ * How the list draws one configured column, given the name field beside it and its
+ * field's metadata, by four questions in turn: a column not drawn from its field is
+ * plain; one on a fixed set of values is enumerated where it has a name field and plain
+ * where it has none; one whose name the person may list is a name column; every other is
+ * worded where it has words of its own for a row, and plain where it has none.
+ */
 function listedColumn(
   column: ColumnConfig,
   name: NameFieldMeta | undefined,
@@ -96,13 +109,13 @@ function listedColumn(
     sortField: column.id,
     field,
   };
-  if (name === undefined || !drawnFromField(column)) {
+  if (!drawnFromField(column)) {
     return plain;
   }
   if (field?.enumeration !== undefined) {
-    return { ...plain, kind: 'enumerated', sortField: name.fieldName as FieldName, name };
+    return name === undefined ? plain : { ...plain, kind: 'enumerated', sortField: name.fieldName as FieldName, name };
   }
-  if (!nameListed(field?.enumeratedResource, listableOf, metaOf)) {
+  if (name === undefined || !nameListed(field?.enumeratedResource, listableOf, metaOf)) {
     return column.tenantKey || column.fallback ? { ...plain, kind: 'worded' } : plain;
   }
   const nameId = name.fieldName as FieldName;
@@ -158,9 +171,10 @@ function keyField(meta: ResourceMeta | undefined, field: string): boolean {
 }
 
 /**
- * The words of a name column's or a worded column's cell, given the row as the server
- * answered it: the name beside the id where the row carries one; where it carries none
- * (the id points to no row, or to one the reader may not see), on a column over a
+ * The words of a name column's cell, or of a worded column's, which shows no name (the
+ * list carries none beside its id, or the person may not list it), given the row as the
+ * server answered it: the name beside the id where the row carries one; where it carries
+ * none (the id points to no row, or to one the reader may not see), on a column over a
  * tenant's key, the name the person's own list of tenants gives the key
  * (`ownTenantName`); then the column's `fallback`; else the stored value as its field
  * writes it, or the column's empty text. A name that was found is said in the column's

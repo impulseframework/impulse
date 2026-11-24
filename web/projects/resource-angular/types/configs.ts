@@ -321,13 +321,18 @@ interface ColumnConfigBase {
   hidden?: boolean;
   emptyDataValue?: DataType;
   /**
-   * What the cell says for a row that shows no name, given the row: the id points to no
-   * row, or to one the reader may not see. Absent, the cell shows the stored value.
+   * What the cell says for a row that shows no name, given the row: the list carries no
+   * name beside the id, the id points to no row, or it points to one the reader may not
+   * see. Absent, the cell shows the stored value. Where the list has no name to show for
+   * the column (it carries none beside the id, or the person may not list it), the column
+   * offers neither sort nor filter, since its cells do not say the stored value.
    */
   fallback?: (data: any) => string;
   /**
    * The column's field holds a tenant's key. Where the row shows no name, the tenant is
-   * named as the person's own list of tenants names it, before `fallback` is asked.
+   * named as the person's own list of tenants names it, before `fallback` is asked. Where
+   * the list has no name to show for the column, it offers neither sort nor filter, as a
+   * column that sets `fallback` does.
    */
   tenantKey?: boolean;
   /**

@@ -1830,6 +1830,57 @@ describe('ResourceListComponent', () => {
       ]);
     });
 
+    it("on a list that carries no name beside the key, a plain column over it says the person's own name for a tenant or the page's words, asks for the key alone, and offers neither sort nor filter", async () => {
+      const worded: ColumnConfig = {
+        id: 'clientId' as FieldName,
+        header: 'Held in',
+        tenantKey: true,
+        said: (name: string) => `Sector ${name}`,
+        fallback: (row: Record<string, unknown>) =>
+          row['clientId'] ? 'A sector you cannot see' : 'The whole application',
+      };
+      await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, worded] }, rows, (request) => {
+        const path = request.url.split('?')[0];
+        if (path === '/api/clients') {
+          throw new Error('the column reads no record: nothing asks for the tenants');
+        }
+        if (path === '/api/user-domains') {
+          return { status: 200, body: [{ domain: 'a1111111-1111-4111-8111-111111111111', name: 'Anvil' }] };
+        }
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      });
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+      fixture.detectChanges();
+      await settle();
+      const element = fixture.nativeElement as HTMLElement;
+
+      // The ships' metadata carries no name beside the client's key: the list asks for the
+      // key and nothing else.
+      expect(
+        transport.requests
+          .filter((request) => request.url.split('?')[0] === '/api/ships')
+          .map((request) => new URL(request.url, 'http://list.test').searchParams.get('columns')),
+      ).toEqual(['name,clientId,id']);
+      const cells = Array.from(element.querySelectorAll('tr.impulse-row')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col')).map((td) => td.textContent?.trim()),
+      );
+      expect(cells).toEqual([
+        ['Kestrel', 'Sector Anvil'],
+        ['Vega', 'A sector you cannot see'],
+        ['Dishner', 'The whole application'],
+      ]);
+      expect(element.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+      // The cells do not say the stored key, so the server's sort and filter by it are not
+      // offered, though the field is indexed and filtered.
+      const headings = Array.from(element.querySelectorAll('th.data-col'))
+        .filter((th) => th.querySelector('.col-header'))
+        .map(
+          (th) =>
+            `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}, ${th.querySelector('button.filter-trigger') ? 'filter' : 'none'}`,
+        );
+      expect(headings).toEqual(['Name: a button, none', 'Held in: words, none']);
+    });
+
     describe('says nothing above its rows of a refused read whose cells already say the tenant cannot be seen', () => {
       let consoleError: ReturnType<typeof vi.spyOn>;
 

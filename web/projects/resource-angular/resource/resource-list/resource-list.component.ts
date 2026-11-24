@@ -1262,11 +1262,11 @@ export class ResourceListComponent implements OnInit {
           return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
         };
         // A column that says how its cell is read off the row (valueGetter) is read
-        // that way, then formatted like any other. A column drawn by a name (a name
-        // column, or one on an id whose name the person may not list that has the page's
-        // words for a tenant or a row) is read off the row by cellText: the name beside
-        // the id, else the page's words, else the stored value. Such a column on the id
-        // says no stored value, so it offers neither sort nor filter.
+        // that way, then formatted like any other. A name column, and a column which
+        // shows no name (the list carries none beside its id, or the person may not list
+        // it) but has the page's words for a tenant or a row, are read off the row by
+        // cellText: the name beside the id, else the page's words, else the stored value.
+        // The second says no stored value, so it offers neither sort nor filter.
         const named = listed.kind === 'name' || listed.kind === 'worded';
         const worded = listed.kind === 'worded';
         const shared = {

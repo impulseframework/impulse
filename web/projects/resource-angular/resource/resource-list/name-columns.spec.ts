@@ -5,9 +5,10 @@ import { askedNames, cellText, ListedColumn, listedColumns, requestSorts, tableS
 
 // A list over hangar passes, whose ids point to a squadron, a person, a pass code (a
 // resource whose rows are known by their key), a sector (the tenant), a hangar (which
-// declares no name) and a fixed level. The metadata's nameFields say which ids have a
-// name beside them; the digest says, for each pointed-to resource, whether the person may
-// list the name.
+// declares no name) and a fixed level. A pass also holds the key of its home sector, which
+// the list carries no name beside, and a grade, one of a fixed set with no name field. The
+// metadata's nameFields say which ids have a name beside them; the digest says, for each
+// pointed-to resource, whether the person may list the name.
 
 const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
   ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
@@ -42,6 +43,14 @@ const passes: ResourceMeta = {
       ],
     }),
     field('bay'),
+    field('homeSectorId', { isIndex: true, filterable: 'always' }),
+    field('gradeId', {
+      displayType: 'enumerated',
+      enumeration: [
+        { id: 'a', display: 'First' },
+        { id: 'b', display: 'Second' },
+      ],
+    }),
   ],
   nameFields: [
     { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains'] },
@@ -247,6 +256,78 @@ describe('listedColumns', () => {
       },
     },
     {
+      name: 'on a field with no name field, a column with words for a tenant and a fallback draws those words: it asks for its own field alone and keeps its own id',
+      column: column('homeSectorId', { tenantKey: true, fallback: () => 'A sector you cannot see' }),
+      listable: {},
+      want: {
+        kind: 'worded',
+        tableId: 'homeSectorId' as FieldName,
+        asks: ['homeSectorId'] as FieldName[],
+        sortField: 'homeSectorId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
+      name: 'on a field with no name field, a column with a fallback alone draws the fallback',
+      column: column('homeSectorId', { fallback: () => 'A sector you cannot see' }),
+      listable: {},
+      want: {
+        kind: 'worded',
+        tableId: 'homeSectorId' as FieldName,
+        asks: ['homeSectorId'] as FieldName[],
+        sortField: 'homeSectorId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
+      name: 'on a field with no name field, a column with no words of its own is a plain column',
+      column: column('homeSectorId'),
+      listable: {},
+      want: {
+        kind: 'field',
+        tableId: 'homeSectorId' as FieldName,
+        asks: ['homeSectorId'] as FieldName[],
+        sortField: 'homeSectorId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
+      name: 'a fixed enumeration with no name field is a plain column, a fallback set or not',
+      column: column('gradeId', { fallback: () => 'No grade' }),
+      listable: {},
+      want: {
+        kind: 'field',
+        tableId: 'gradeId' as FieldName,
+        asks: ['gradeId'] as FieldName[],
+        sortField: 'gradeId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
+      name: 'a hidden column is untouched, a fallback set or not',
+      column: column('homeSectorId', { hidden: true, fallback: () => 'A sector you cannot see' }),
+      listable: {},
+      want: {
+        kind: 'field',
+        tableId: 'homeSectorId' as FieldName,
+        asks: ['homeSectorId'] as FieldName[],
+        sortField: 'homeSectorId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
+      name: 'a column that reads its cell itself is untouched, a fallback set or not',
+      column: column('homeSectorId', { valueGetter: () => 'mine', fallback: () => 'A sector you cannot see' }),
+      listable: {},
+      want: {
+        kind: 'field',
+        tableId: 'homeSectorId' as FieldName,
+        asks: ['homeSectorId'] as FieldName[],
+        sortField: 'homeSectorId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
       name: 'a column that reads a related record itself is untouched',
       column: multiColumnConfig({
         id: 'squadronId' as FieldName,
@@ -355,6 +436,32 @@ describe('cellText', () => {
       listable: new Set(['callSign']),
       row: { squadronId: 'q-1' },
       want: 'A squadron you cannot see',
+    },
+    {
+      name: "on a field with no name field, a column over a tenant's key says the person's own name for the tenant, in the page's words",
+      column: column('homeSectorId', {
+        tenantKey: true,
+        said: (name: string) => `Sector ${name}`,
+        fallback: () => 'A sector you cannot see',
+      }),
+      row: { homeSectorId: anvil },
+      want: 'Sector Anvil',
+    },
+    {
+      name: "on a field with no name field, a column over a tenant's key the person's own list does not name asks the fallback",
+      column: column('homeSectorId', {
+        tenantKey: true,
+        said: (name: string) => `Sector ${name}`,
+        fallback: () => 'A sector you cannot see',
+      }),
+      row: { homeSectorId: 'b2222222-2222-4222-8222-222222222222' },
+      want: 'A sector you cannot see',
+    },
+    {
+      name: "on a field with no name field, a column over a tenant's key with no fallback says the stored value where the person's own list does not name it",
+      column: column('homeSectorId', { tenantKey: true }),
+      row: { homeSectorId: 'b2222222-2222-4222-8222-222222222222' },
+      want: 'b2222222-2222-4222-8222-222222222222',
     },
   ];
 
