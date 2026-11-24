@@ -219,6 +219,15 @@ describe('CreateTenantDialogComponent', () => {
     await taken;
     expect(o.component.refusal()).toBe('A tenant named West already exists. Choose another name.');
   });
+
+  it('picks the article by how the word is said, not by its first letter', async () => {
+    const o = await open(descriptorOf([{ name: 'name', required: true }], { one: 'Unit', many: 'Units' }));
+    o.component.form.controls['name'].setValue('West');
+    const taken = o.component.create();
+    o.http.expectOne('/console/api/create-office').flush(null, { status: 409, statusText: 'Conflict' });
+    await taken;
+    expect(o.component.refusal()).toBe('A unit named West already exists. Choose another name.');
+  });
 });
 
 describe('openCreateTenantDialog', () => {

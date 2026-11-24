@@ -190,7 +190,7 @@ function buildTenants(
       title: words.Many,
       primaryResource: listed ?? record,
       showRowCount: true,
-      ...(listed ? { emptyMessage: `There are no ${words.many} yet.` } : {}),
+      emptyMessage: `There are no ${words.many} yet.`,
       listColumns: columns,
       ...(nameField ? { rowTitle: (row: RecordData) => String(row[nameField] ?? '') } : {}),
       rowButtons: [opens],

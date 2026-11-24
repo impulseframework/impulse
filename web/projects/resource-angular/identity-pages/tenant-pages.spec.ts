@@ -417,7 +417,7 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(hiddenIds(list(built).listColumns)).toEqual(['id']);
     expect(list(built).above).toBeUndefined();
     expect(list(built).listMethods).toBeUndefined();
-    expect(list(built).emptyMessage).toBeUndefined();
+    expect(list(built).emptyMessage).toBe('There are no sectors yet.');
     expect(built.relatedConfigs).toEqual([]);
     expect(list(built).rowTitle?.({ id: 'a1', name: 'Driftmoor' })).toBe('Driftmoor');
     expect(list(built).rowButtons?.map((button) => button.label)).toEqual(['Open this sector']);

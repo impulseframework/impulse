@@ -9,6 +9,7 @@ import { ApiDescriptor, TenantCreationDescriptor } from '@impulseframework/resou
 import { inSentence, PlaceService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import {
+  articleFor,
   holdsValue,
   metadataTypeCoercion,
   ResourceLayoutComponent,
@@ -164,7 +165,8 @@ export class CreateTenantDialogComponent {
    */
   private refusalOf(failure: unknown, name: string): string {
     if (failure instanceof HttpErrorResponse && failure.status === 409) {
-      return `${/^[aeiou]/i.test(this.word) ? 'An' : 'A'} ${this.word} named ${name} already exists. Choose another name.`;
+      const article = articleFor(this.word) === 'an' ? 'An' : 'A';
+      return `${article} ${this.word} named ${name} already exists. Choose another name.`;
     }
     if (failure instanceof HttpErrorResponse) {
       const message: unknown = (failure.error as { message?: unknown } | null)?.message;
