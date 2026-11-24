@@ -212,3 +212,15 @@ func rolesOffered(roles []access.RoleInfo, may func(accesstypes.Role) (bool, err
 func (m *Manager) DirectoryName(directory signin.Directory) (name, label string) {
 	return m.sessions.DirectoryName(directory.Method, directory.Connection)
 }
+
+// SeatedAgainNote is the note a removal's warning carries where the tenant is open to its
+// directory and the person signs in through it: the directory gives a person who holds
+// nothing in the tenant its starting role at every sign-in, so the removal holds until
+// their next one. It speaks of the tenant in the application's word for one, and reads
+// nothing; whether the tenant is open and the person signs in through its directory is
+// the generated identity client's to answer (SeatedAgainBySignIn).
+func (t *Tenant) SeatedAgainNote() resource.WarningNote {
+	return resource.WarningNote{
+		Says: fmt.Sprintf("This %s is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out.", t.manager.tenantWord),
+	}
+}

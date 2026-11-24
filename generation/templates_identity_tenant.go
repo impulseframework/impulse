@@ -829,7 +829,9 @@ import (
 // person leaves a tenant from their own account page.
 //
 // The method declares a warning, which a person types "remove" under before the call is
-// confirmed: the roles that go, and whether the account goes with them.
+// confirmed: the roles that go, and whether the account goes with them.{{ if .ReadsSeatedAgain }}
+// Where the tenant is open to its directory and the person signs in through it, the
+// warning says they are seated again at their next sign-in.{{ end }}
 //
 // @rpc
 // @permissionScope(domain)
@@ -853,6 +855,15 @@ func (m *Remove{{ .Subject }}User) Warning(ctx context.Context, txn resource.Rea
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Tenant.RemovalWarning()")
 	}
+{{- if .ReadsSeatedAgain }}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
+	}
+	if again {
+		warning.Also = append(warning.Also, tenant.SeatedAgainNote())
+	}
+{{- end }}
 
 	return warning, nil
 }
