@@ -4,7 +4,6 @@ import {
   FieldMeta,
   ListViewConfig,
   MethodPresentation,
-  MOMENT_CELL_FORMAT,
   RecordData,
   ResourceMeta,
   RootConfig,
@@ -255,11 +254,8 @@ describe('Break glass', () => {
     expect(ends({})).toBe('');
   });
 
-  it('writes when an ended role began and ended in the words every list writes a moment in', () => {
-    expect([column(ended, 'startsAt').formatType, column(ended, 'endsAt').formatType]).toEqual([
-      MOMENT_CELL_FORMAT,
-      MOMENT_CELL_FORMAT,
-    ]);
+  it('leaves when an ended role began and ended to the list, which writes every moment by one rule', () => {
+    expect([column(ended, 'startsAt').formatType, column(ended, 'endsAt').formatType]).toEqual([undefined, undefined]);
   });
 
   it('takes a role through the method that names no person, above the list, with its fields in plain words', () => {

@@ -22,7 +22,6 @@ import {
   ListViewConfig,
   Method,
   MethodPresentation,
-  MOMENT_CELL_FORMAT,
   momentFormat,
   multiColumnConfig,
   nameInLowerWords,
@@ -1012,8 +1011,10 @@ class SideBuilder {
         ...(this.identity.tenant ? [] : ([['domainId', 'Domain']] as Named[])),
       ]).map((column) => ({ ...column, hidden: true })),
     ];
+    // No format of the page's own: the list writes each as it writes every moment, a
+    // far-off one with its whole year (momentFormat).
     const when = (id: string, header: string): ColumnConfig[] =>
-      this.has(taken, id) ? [{ id: id as FieldName, header, formatType: MOMENT_CELL_FORMAT, filterable: false }] : [];
+      this.has(taken, id) ? [{ id: id as FieldName, header, filterable: false }] : [];
     const ended = listViewConfig({
       title: 'Ended',
       primaryResource: taken,
