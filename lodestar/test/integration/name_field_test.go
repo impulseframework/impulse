@@ -624,6 +624,37 @@ func TestNameField_rostersAndAssignments(t *testing.T) {
 	}
 }
 
+// TestNameField_clientsByPartOfTheName pins a name read from a view matched by part of
+// it: the client rosters' name says which table column it projects (Clients.Name) and the
+// rosters project its token column, so the mission board and the missions, which show a
+// mission's client by the rosters' name, find the rows whose client's name holds a word.
+// The marshal at Anvil reads the rosters' names first, then each list with the name
+// beside each client's id, and the filter gives exactly the rows whose client's name
+// holds "halvard".
+func TestNameField_clientsByPartOfTheName(t *testing.T) {
+	t.Parallel()
+
+	_, h, _ := sharedWorld(t)
+
+	clients := namesByID(t, h, "marshal", sectorPath(anvil, "client-rosters?columns=id,name&limit=200"), "id", "name")
+	const part = "halvard"
+	for _, list := range []string{"mission-boards", "missions"} {
+		rows := namedRows(t, h, "marshal", sectorPath(anvil, list+"?columns=id,clientId,clientName&sort=id&limit=200"), "clientId", "clientName")
+		for _, r := range rows {
+			if want := clients[r.key]; r.name != want {
+				t.Errorf("%s row %s of client %s shows %q, want %q, the rosters' name", list, r.id, r.key, r.name, want)
+			}
+		}
+		want := idsWhere(rows, func(r namedRow) bool { return strings.Contains(strings.ToLower(r.name), part) })
+		if len(want) == 0 || len(want) == len(rows) {
+			t.Fatalf("%q is in the client names of %d of %d %s; the filter needs some in and some out", part, len(want), len(rows), list)
+		}
+		if got := filteredIDs(t, h, "marshal", anvil, list, "clientName:contains:"+part, rows); !slices.Equal(got, want) {
+			t.Errorf("%s clientName:contains:%s = %v, want %v", list, part, got, want)
+		}
+	}
+}
+
 // TestNameField_groupsKeptIn pins the whole application's list of groups shown with the
 // sector each is kept in by name: the governor reads every group with the sector's name
 // beside its id, as the sectors' list gives it, and none beside a group of the whole
