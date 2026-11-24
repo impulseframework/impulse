@@ -96,7 +96,9 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}
 
 	// Refused at the save: no default role, the Super Administrator's role, a role the
-	// application does not have, and a method the auth does not register.
+	// application does not have, and a method the auth does not register. That one is named
+	// as no registration can be (a registration's name is letters, digits and hyphens), so
+	// the refusal holds whichever sign-in methods the application adds.
 	refused := []struct {
 		name       string
 		body       string
@@ -106,7 +108,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it."},
 		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "The Super administrator role is never a default role, because every person who signed up would administer the application. Choose another role."},
 		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "Nobody is not a role held for the whole application. Choose one of the roles the picker lists."},
-		{name: "a method the auth does not register", body: `{"name":"google","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
+		{name: "a method the auth does not register", body: `{"name":"no such method","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
 	}
 	for _, call := range refused {
 		if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(call.body)); status != call.wantStatus || !strings.Contains(string(body), call.wantBody) {
