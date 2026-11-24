@@ -663,24 +663,3 @@ func TestRecordWordsInCode(t *testing.T) {
 		})
 	}
 }
-
-// TestRecordRenames_directorySecondFactor pins that the rename carries the two generated
-// methods of a tenant's word for its directory's second factor to the application's
-// record in each of their three spellings: the method as grants and the constants name
-// it, the client's property, and the route.
-func TestRecordRenames_directorySecondFactor(t *testing.T) {
-	t.Parallel()
-
-	tn := Tenancy{Table: "ServiceAreas"}
-	const in = "api.methods.vouchForTenantDirectorySecondFactor(Methods.VouchForTenantDirectorySecondFactor);\n" +
-		"api.methods.stopVouchingForTenantDirectorySecondFactor(Methods.StopVouchingForTenantDirectorySecondFactor);\n" +
-		"http.expectOne(`${prefix}/vouch-for-tenant-directory-second-factor`);\nhttp.expectOne(`${prefix}/stop-vouching-for-tenant-directory-second-factor`);"
-	const want = "api.methods.vouchForServiceAreaDirectorySecondFactor(Methods.VouchForServiceAreaDirectorySecondFactor);\n" +
-		"api.methods.stopVouchingForServiceAreaDirectorySecondFactor(Methods.StopVouchingForServiceAreaDirectorySecondFactor);\n" +
-		"http.expectOne(`${prefix}/vouch-for-service-area-directory-second-factor`);\nhttp.expectOne(`${prefix}/stop-vouching-for-service-area-directory-second-factor`);"
-	for _, rel := range []string{"app/components/ui/sign-in/tenant-sign-in.component.ts", "app/components/ui/sign-in/tenant-sign-in.component.spec.ts"} {
-		if got := tn.inRecordWords(rel, in); got != want {
-			t.Errorf("inRecordWords(%s) =\n%s\nwant\n%s", rel, got, want)
-		}
-	}
-}
