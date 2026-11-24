@@ -4442,7 +4442,10 @@ record named `Session`, `User` or `Listed`) is refused at generation:
   `heldHere` (the person holds something in this tenant itself), `heldInEveryTenant`
   (the person holds a role in every tenant at once), `managedHere` (this tenant manages
   the person's account) and `managedByAnotherDirectory` (the person signs in through
-  another tenant's directory, and that tenant manages the account).
+  another tenant's directory, and that tenant manages the account). `displayName` is what
+  a list that points to a person shows them by: their name, or their username when they
+  have none. It is the view's name (`@name`), so a field of another resource that holds a
+  person's id gets a name field read from it.
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not

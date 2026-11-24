@@ -915,6 +915,10 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		"internal/crewresources/crew_ship_users.go": {
 			generationHeader, "package crewresources", "// @virtual", "// @permissionScope(domain)", "// @outlet(default)", "// @order(Username asc)",
 			"CrewShipUser struct {", "// @primarykey", "// @domain", "// @attribute(heldElsewhere)", "// @attribute(heldGlobally)",
+			// What a list that points to a person shows them by: their name, or their
+			// username when they have none.
+			"// @name\n\t\tDisplayName            string     `spanner:\"DisplayName\"            allow_filter:\"true\"`",
+			"  u.Name AS Name,\n  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName,\n  u.Email AS Email,\n",
 			"const crewShipUserQuery = `",
 			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  ) OR EXISTS (",
 			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",

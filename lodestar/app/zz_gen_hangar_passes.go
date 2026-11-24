@@ -29,6 +29,8 @@ func (a *App) HangarPasses() http.HandlerFunc {
 		LevelID    string           `json:"levelId"    index:"true"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 		SectorName *string          `json:"sectorName" nameof:"SectorID" index:"true"`
+		UserName   *string          `json:"userName"   nameof:"UserID"   allow_filter:"true"`
+		GroupName  *string          `json:"groupName"  nameof:"GroupID"  index:"true"`
 		LevelName  *string          `json:"levelName"  nameof:"LevelID"  index:"true"`
 	}
 
@@ -142,6 +144,8 @@ func (a *App) HangarPass() http.HandlerFunc {
 		LevelID    string           `json:"levelId"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 		SectorName *string          `json:"sectorName" nameof:"SectorID"`
+		UserName   *string          `json:"userName"   nameof:"UserID"`
+		GroupName  *string          `json:"groupName"  nameof:"GroupID"`
 		LevelName  *string          `json:"levelName"  nameof:"LevelID"`
 	}
 

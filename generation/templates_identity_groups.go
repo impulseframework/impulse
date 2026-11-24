@@ -844,7 +844,8 @@ type (
 	// the tenant, holds roles there alone, and counts in a grant's condition
 	// (subject.{{ .GroupSet }}) in the tenant's own requests and in no other tenant's. The
 	// id is read by a condition itself (group), so a role file can show a person the
-	// groups they are in (group IN subject.{{ .GroupSet }}).
+	// groups they are in (group IN subject.{{ .GroupSet }}). Name is what a list that
+	// points to a group shows it by (@name).
 	//
 	// People is how many people are in the group, and Roles the roles it holds, a line
 	// each, by name. Both are what has not ended, a place or a role whose period has not
@@ -862,7 +863,8 @@ type (
 		// @attribute(group)
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
 		// @domain
-		DomainID    string    ` + "`spanner:\"DomainId\" index:\"true\"`" + `
+		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
+		// @name
 		Name        string    ` + "`spanner:\"Name\" index:\"true\"`" + `
 		Description string    ` + "`spanner:\"Description\"`" + `
 		UpdatedAt   time.Time ` + "`spanner:\"UpdatedAt\"`" + `

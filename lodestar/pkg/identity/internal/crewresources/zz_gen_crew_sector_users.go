@@ -30,6 +30,7 @@ type crewSectorUserRead struct {
 	DomainID                  string       `json:"domainId"`
 	Username                  string       `json:"username"`
 	Name                      *string      `json:"name"`
+	DisplayName               string       `json:"displayName"`
 	Email                     *string      `json:"email"`
 	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
 	Disabled                  bool         `json:"disabled"`
@@ -159,6 +160,7 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"DomainID",
 		"Username",
 		"Name",
+		"DisplayName",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -201,6 +203,12 @@ func (c *CrewSectorUserColumns) Username() *CrewSectorUserColumns {
 
 func (c *CrewSectorUserColumns) Name() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "Name")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) DisplayName() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "DisplayName")
 
 	return c
 }
@@ -331,6 +339,10 @@ func (p CrewSectorUserQueryPartialClause) Username() CrewSectorUserQueryIdent[st
 	return CrewSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("Username", p.partialClause, true)}
 }
 
+func (p CrewSectorUserQueryPartialClause) DisplayName() CrewSectorUserQueryIdent[string] {
+	return CrewSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, false)}
+}
+
 func (p CrewSectorUserQueryPartialClause) HeldElsewhere() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldElsewhere", p.partialClause, true)}
 }
@@ -443,6 +455,10 @@ func (c *crewSectorUserSort) Username() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) Name() *CrewSectorUserSort {
 	return c.addField("Name")
+}
+
+func (c *crewSectorUserSort) DisplayName() *CrewSectorUserSort {
+	return c.addField("DisplayName")
 }
 
 func (c *crewSectorUserSort) Email() *CrewSectorUserSort {

@@ -758,6 +758,7 @@ export namespace CrewSectorHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    groupPageName: 'groupPageName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewSectorHeldRoles.createdAt' as Resource,
@@ -940,6 +941,7 @@ export namespace CrewSectorUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -963,6 +965,7 @@ export namespace CrewSectorUsers {
     cannotEnter: 'CrewSectorUsers.cannotEnter' as Resource,
     createdAt: 'CrewSectorUsers.createdAt' as Resource,
     disabled: 'CrewSectorUsers.disabled' as Resource,
+    displayName: 'CrewSectorUsers.displayName' as Resource,
     domainId: 'CrewSectorUsers.domainId' as Resource,
     email: 'CrewSectorUsers.email' as Resource,
     emailVerifiedAt: 'CrewSectorUsers.emailVerifiedAt' as Resource,
@@ -1490,6 +1493,8 @@ export namespace HangarPasses {
     squadronId: 'squadronId' as FieldName,
     userId: 'userId' as FieldName,
     sectorName: 'sectorName' as FieldName,
+    userName: 'userName' as FieldName,
+    groupName: 'groupName' as FieldName,
     levelName: 'levelName' as FieldName,
   };
   export const resourceName = {
@@ -1762,6 +1767,7 @@ export namespace MembersSectorUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -1784,6 +1790,7 @@ export namespace MembersSectorUsers {
     cannotEnter: 'MembersSectorUsers.cannotEnter' as Resource,
     createdAt: 'MembersSectorUsers.createdAt' as Resource,
     disabled: 'MembersSectorUsers.disabled' as Resource,
+    displayName: 'MembersSectorUsers.displayName' as Resource,
     domainId: 'MembersSectorUsers.domainId' as Resource,
     email: 'MembersSectorUsers.email' as Resource,
     emailVerifiedAt: 'MembersSectorUsers.emailVerifiedAt' as Resource,
@@ -2443,6 +2450,7 @@ export namespace SquadronMemberships {
   export const fieldName = {
     squadronId: 'squadronId' as FieldName,
     userId: 'userId' as FieldName,
+    userName: 'userName' as FieldName,
   };
   export const resourceName = {
     squadronId: 'SquadronMemberships.squadronId' as Resource,

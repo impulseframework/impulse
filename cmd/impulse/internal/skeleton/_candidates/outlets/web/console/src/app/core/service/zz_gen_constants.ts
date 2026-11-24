@@ -871,6 +871,7 @@ export namespace StaffTenantHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    groupPageName: 'groupPageName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'StaffTenantHeldRoles.createdAt' as Resource,
@@ -1053,6 +1054,7 @@ export namespace StaffTenantUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -1076,6 +1078,7 @@ export namespace StaffTenantUsers {
     cannotEnter: 'StaffTenantUsers.cannotEnter' as Resource,
     createdAt: 'StaffTenantUsers.createdAt' as Resource,
     disabled: 'StaffTenantUsers.disabled' as Resource,
+    displayName: 'StaffTenantUsers.displayName' as Resource,
     domainId: 'StaffTenantUsers.domainId' as Resource,
     email: 'StaffTenantUsers.email' as Resource,
     emailVerifiedAt: 'StaffTenantUsers.emailVerifiedAt' as Resource,

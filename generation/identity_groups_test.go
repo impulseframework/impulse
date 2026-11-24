@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/generation/parser"
 )
 
 // The group tables of the fixture's two auths, as the permission store names them under
@@ -258,7 +260,9 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_ship_groups.go": {
-			"// @virtual", "// @permissionScope(domain)", "CrewShipGroup struct {", "// @primarykey\n\t\t// @attribute(group)\n\t\tID impulse.UUID", "// @domain\n\t\tDomainID    string",
+			"// @virtual", "// @permissionScope(domain)", "CrewShipGroup struct {", "// @primarykey\n\t\t// @attribute(group)\n\t\tID impulse.UUID", "// @domain\n\t\tDomainID string",
+			// What a list that points to a group shows it by.
+			"// @name\n\t\tName        string    `spanner:\"Name\"        index:\"true\"`",
 			// A group kept for the whole application is no tenant's.
 			"FROM CrewGroups g\nWHERE g.Kind = 'domain' AND g.Axis = ''\n`",
 		},
@@ -362,6 +366,61 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 	for _, file := range []string{"crewidentity/create_crew_ship_group.go", "crewidentity/give_crew_ship_group_role.go", "crewidentity/take_crew_ship_group_role.go"} {
 		if content := readTreeFile(t, file); strings.Contains(content, "Domain ") || strings.Contains(content, "EveryDomain") {
 			t.Errorf("%s takes a tenant in its request:\n%s", file, content)
+		}
+	}
+}
+
+// Test_prepareIdentity_tenantRowNames pins what a tenant's people and its groups are known
+// by: the resource read from the list of the tenant's people carries its row name on
+// DisplayName, and the one read from the list of the groups kept in the tenant on Name,
+// so a field of another resource that holds a person's or a group's id gets a name field
+// read from the view. The two lists are written as the run writes them, then read back as
+// the run reads the auth's resources.
+func Test_prepareIdentity_tenantRowNames(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	module, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() error = %v", err)
+	}
+	tree := t.TempDir()
+	t.Chdir(tree)
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables)...)
+	r.resource = "pkg/resources"
+	r.tableMap["Ships"] = shipsTable()
+	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	// The lists are loaded from the module's directory, which resolves their imports; a
+	// name another file of the generated package declares is a type error the load
+	// tolerates, as it tolerates stale output.
+	lists := filepath.Join(tree, "pkg", "identity", "internal", "crewresources")
+	t.Chdir(module)
+	pkgs, _, err := parser.LoadPackagesResilient(filepath.Join(lists, "crew_ship_users.go"), filepath.Join(lists, "crew_ship_groups.go"))
+	if err != nil {
+		t.Fatalf("parser.LoadPackagesResilient() error = %v", err)
+	}
+	pkg := pkgs["crewresources"]
+	if pkg == nil {
+		t.Fatalf("parser.LoadPackagesResilient() loaded %v, want crewresources", slices.Collect(maps.Keys(pkgs)))
+	}
+	structs := fixtureStructs(parser.ParsePackage(pkg))
+	for _, tt := range []struct{ list, want string }{
+		{list: "CrewShipUser", want: "DisplayName"},
+		{list: "CrewShipGroup", want: "Name"},
+	} {
+		pStruct := structs[tt.list]
+		if pStruct == nil {
+			t.Fatalf("the generated package declares no %s", tt.list)
+		}
+		views, err := r.structsToVirtualResources([]*parser.Struct{pStruct})
+		if err != nil {
+			t.Fatalf("structsToVirtualResources(%s) error = %v", tt.list, err)
+		}
+		if got := views[0].RowNameField; got == nil || got.Name() != tt.want {
+			t.Errorf("%s is known by %v, want %s (@name)", tt.list, got, tt.want)
 		}
 	}
 }
