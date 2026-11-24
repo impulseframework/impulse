@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -115,6 +116,14 @@ func (p *AuthAPI[S, U, Tx]) DirectoryName(method sessioninfo.AuthMethod, connect
 // the key, which is an id. It reads nothing.
 func (p *AuthAPI[S, U, Tx]) TenantName(tenant accesstypes.Domain) string {
 	return p.auth.tenantName(string(tenant))
+}
+
+// SessionTimeout answers how long a session of the Auth may sit idle before it times out:
+// what the application set (WithSessionTimeout), and ten minutes where it set none. A list
+// that says which sessions are live reads it, so the list and a request are judged by one
+// length. It reads nothing.
+func (p *AuthAPI[S, U, Tx]) SessionTimeout() time.Duration {
+	return p.auth.baseSession.SessionTimeout
 }
 
 // directoryName is DirectoryName: the registrations of the login page first, in its

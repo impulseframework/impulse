@@ -4228,6 +4228,7 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
 GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
+GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with whether each is live, most recently used first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
@@ -4279,7 +4280,7 @@ POST <prefix>/disable-crew-user               {"userId"}                       E
 POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewListedUsers
 POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewListedUsers
 POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
-POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
+POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
 POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
@@ -4982,10 +4983,22 @@ grants each like any resource.
   when the account's sign-in is locked by failed tries. A line names the tenant its role
   is held in by the name people call the tenant by, or by its key where the tenant record
   marks no name, so a grant of `roles` shows those names whatever the reader is granted
-  on the tenant record, as a line of `CrewListedGroups` does. The Accounts page lists it, it
+  on the tenant record, as a line of `CrewListedGroups` does. Where the schema holds the
+  trusted devices table it carries `trustedDevices` too: how many browsers are remembered
+  for the account and skip the second factor right now. The Accounts page lists it, it
   filters by `username`, `name` and `email`, and the whole application's methods on a
   person name their person by its row. `CrewSessionUsers`, the users table's own list,
   stays: a picker of a person reads it.
+- `CrewListedSessions` is the sessions as a page lists them: the session's columns and
+  `live`, whether a request that carries the session is still accepted (not ended, used
+  within the Auth's session timeout, and its impersonation record, where it has one,
+  neither ended nor past its time). A session that is neither `live` nor `expired` timed
+  out. `live` judges the session alone: a request is also refused where the session names
+  no account, or its account is disabled or gone, and disabling or deleting an account
+  ends its sessions. The Sessions page and the list of live sessions under an account list
+  it, it filters by `id`, `userId`, `username`, `expired`, `live` and `updatedAt`, and the
+  method that ends a session names its session by its row. `CrewSessions`, the sessions
+  table's own list, stays.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",

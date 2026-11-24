@@ -31,6 +31,7 @@ export const Resources = {
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
+  StaffListedSessions: 'StaffListedSessions' as Resource,
   StaffListedUsers: 'StaffListedUsers' as Resource,
   StaffRememberLengths: 'StaffRememberLengths' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
@@ -415,6 +416,29 @@ export namespace StaffListedRoleGrants {
   };
 }
 
+export namespace StaffListedSessions {
+  export const fieldName = {
+    authenticatedAt: 'authenticatedAt' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    expired: 'expired' as FieldName,
+    id: 'id' as FieldName,
+    live: 'live' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    authenticatedAt: 'StaffListedSessions.authenticatedAt' as Resource,
+    createdAt: 'StaffListedSessions.createdAt' as Resource,
+    expired: 'StaffListedSessions.expired' as Resource,
+    id: 'StaffListedSessions.id' as Resource,
+    live: 'StaffListedSessions.live' as Resource,
+    updatedAt: 'StaffListedSessions.updatedAt' as Resource,
+    userId: 'StaffListedSessions.userId' as Resource,
+    username: 'StaffListedSessions.username' as Resource,
+  };
+}
+
 export namespace StaffListedUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
@@ -427,6 +451,7 @@ export namespace StaffListedUsers {
     name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     roles: 'roles' as FieldName,
+    trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -440,6 +465,7 @@ export namespace StaffListedUsers {
     name: 'StaffListedUsers.name' as Resource,
     passwordChangeRequired: 'StaffListedUsers.passwordChangeRequired' as Resource,
     roles: 'StaffListedUsers.roles' as Resource,
+    trustedDevices: 'StaffListedUsers.trustedDevices' as Resource,
     username: 'StaffListedUsers.username' as Resource,
   };
 }

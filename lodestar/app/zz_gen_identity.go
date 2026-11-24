@@ -72,6 +72,14 @@ func (a *App) CrewListedGroupRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedGroupRoles()
 }
 
+func (a *App) CrewListedSessions() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSessions()
+}
+
+func (a *App) CrewListedSession() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSession()
+}
+
 func (a *App) CrewListedUsers() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedUsers()
 }
@@ -544,6 +552,14 @@ var _ = map[bool]struct{}{false: {}, members.Name == membersidentity.AuthName: {
 
 func (a *App) MembersHeldRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersHeldRoles()
+}
+
+func (a *App) MembersListedSessions() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSessions()
+}
+
+func (a *App) MembersListedSession() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSession()
 }
 
 func (a *App) MembersListedUsers() http.HandlerFunc {

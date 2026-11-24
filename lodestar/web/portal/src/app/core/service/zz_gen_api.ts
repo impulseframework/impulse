@@ -3,7 +3,7 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, Resou
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersListedUsers, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedRoleGrants, MembersRememberLengths, MembersSignInMethods, MembersSignInSettings, FeatureFlags } from './zz_gen_resources';
+import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersListedSessions, MembersListedUsers, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedRoleGrants, MembersRememberLengths, MembersSignInMethods, MembersSignInSettings, FeatureFlags } from './zz_gen_resources';
 import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RequireMembersSecondFactor, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersRememberedBrowsers, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, StopRequiringMembersSecondFactor, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
@@ -57,6 +57,9 @@ export type DistressCallsKey = [id: string];
 
 /** The primary key of MembersHeldRoles, in route order. */
 export type MembersHeldRolesKey = [userId: string, kind: string, axis: string, domainId: string, role: string, groupId: string];
+
+/** The primary key of MembersListedSessions, in route order. */
+export type MembersListedSessionsKey = [id: string];
 
 /** The primary key of MembersListedUsers, in route order. */
 export type MembersListedUsersKey = [id: string];
@@ -236,6 +239,17 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
+    },
+    [Resources.MembersListedSessions]: {
+      resource: Resources.MembersListedSessions,
+      property: 'membersListedSessions',
+      route: 'members-listed-sessions',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'updatedAt', direction: 'desc' }],
     },
     [Resources.MembersListedUsers]: {
       resource: Resources.MembersListedUsers,
@@ -530,7 +544,7 @@ export const apiDescriptor = defineApiDescriptor({
       sides: [
         {
           scope: 'global',
-          lists: { users: Resources.MembersListedUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts, signInMethods: Resources.MembersSignInMethods, signInSettings: Resources.MembersSignInSettings, rememberLengths: Resources.MembersRememberLengths },
+          lists: { users: Resources.MembersListedUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersListedSessions, signInAttempts: Resources.MembersSessionSignInAttempts, signInMethods: Resources.MembersSignInMethods, signInSettings: Resources.MembersSignInSettings, rememberLengths: Resources.MembersRememberLengths },
           methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn, requireSecondFactor: Methods.RequireMembersSecondFactor, stopRequiringSecondFactor: Methods.StopRequiringMembersSecondFactor, setRememberedBrowsers: Methods.SetMembersRememberedBrowsers },
         },
         {
@@ -547,6 +561,7 @@ export const apiDescriptor = defineApiDescriptor({
 export interface GlobalApi {
   clientContacts: ResourceHandle<ClientContacts, ClientContactsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ClientContactsCreate, ClientContactsPatch>;
   membersHeldRoles: ResourceHandle<MembersHeldRoles, MembersHeldRolesKey, 'list'>;
+  membersListedSessions: ResourceHandle<MembersListedSessions, MembersListedSessionsKey, 'list' | 'read'>;
   membersListedUsers: ResourceHandle<MembersListedUsers, MembersListedUsersKey, 'list' | 'read'>;
   membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
   membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
