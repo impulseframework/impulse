@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/generation/parser"
 )
 
 // declarationResources extracts the named tenantfixture structs and resolves the
@@ -47,19 +48,25 @@ func Test_namedDirectoryRules(t *testing.T) {
 		wantNamers []string
 		wantRules  string
 		// wantSwitch is the expression of the rules the directory-only switch's frame
-		// asks: the named rules, told what each auth says of the caller's password, and
-		// given the counters of each auth whose client answers who the switch keeps out.
+		// asks: the named rules, told what each auth says of the caller's password,
+		// given the people of each auth whose client answers who the switch keeps out,
+		// and, where the directories record carries the second-factor column, told what
+		// each auth's sign-in settings ask.
 		wantSwitch string
 		wantClosed string
 		// counting are the auths among auths whose client answers who the switch keeps
 		// out: their tenants declare the switch and they list the tenant's people.
 		counting []string
+		// inviting are the counting auths that have a password method and list the
+		// tenant's invitations.
+		inviting []string
 	}{
 		{
 			name: "two auths name the rules and the tenant list, in declaration order", auths: []string{"Staff", "Members"}, structs: []string{"Harbor", "HarborDirectory"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.MembersIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)",
-			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)" +
+				".SecondFactorsBy(a.StaffIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
 		},
 		{
@@ -69,12 +76,33 @@ func Test_namedDirectoryRules(t *testing.T) {
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)",
 			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)" +
 				".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword, a.GuestsIdentity().CallerPassword)" +
-				".CountedBy(resource.DirectoryCounter{Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders}, " +
-				"resource.DirectoryCounter{Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders})",
+				`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword}, ` +
+				`resource.DirectoryPeople{Label: "Guests", List: "GuestsHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword})` +
+				".SecondFactorsBy(a.StaffIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor, a.GuestsIdentity().AuthSecondFactor)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName, a.GuestsIdentity().DirectoryName",
 		},
 		{
+			name:  "an auth with a password method also reads who keeps the administrators' way in, and the invitations that would make another where it lists them",
+			auths: []string{"Staff", "Guests"}, counting: []string{"Staff", "Guests"}, inviting: []string{"Staff"}, structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.GuestsIdentity().DirectoryName"},
+			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.GuestsIdentity().DirectoryName)" +
+				".PasswordsBy(a.StaffIdentity().CallerPassword, a.GuestsIdentity().CallerPassword)" +
+				`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword, ` +
+				`Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffHarborInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations}, ` +
+				`resource.DirectoryPeople{Label: "Guests", List: "GuestsHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.GuestsIdentity().SeatedCount, Outsiders: a.GuestsIdentity().DirectoryOutsiders, AdministratorsEnter: a.GuestsIdentity().AdministratorsEnterWithPassword})` +
+				".SecondFactorsBy(a.StaffIdentity().AuthSecondFactor, a.GuestsIdentity().AuthSecondFactor)",
+			wantClosed: "a.StaffIdentity().DirectoryName, a.GuestsIdentity().DirectoryName",
+		},
+		{
 			name: "one auth", auths: []string{"Staff"}, structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
+			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).SecondFactorsBy(a.StaffIdentity().AuthSecondFactor)",
+			wantClosed: "a.StaffIdentity().DirectoryName",
+		},
+		{
+			name: "a directories record with no second-factor column asks no auth what its sign-in settings ask", auths: []string{"Staff"}, structs: []string{"Harbor", "Breakwater"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
 			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword)",
@@ -106,6 +134,10 @@ func Test_namedDirectoryRules(t *testing.T) {
 					directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"}
 					inst.tenant = &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directory: directory}
 					inst.tables = map[identityTable]bool{identityUsers: true, identityMemberships: true}
+				}
+				if slices.Contains(tt.inviting, auth) {
+					inst.password = true
+					inst.tables[identityMailLinks] = true
 				}
 				c.identity = append(c.identity, inst)
 			}
@@ -241,6 +273,21 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 			structs: []string{"Harbor", "Bollard"},
 			wantErr: "struct Bollard field Rank: @directoryDefaultSeat on a second column; field Seat carries it already",
 		},
+		{
+			name:    "@directorySecondFactor off the directories record is refused",
+			structs: []string{"Harbor", "HarborDirectory", "Gangway"},
+			wantErr: "struct Gangway field Vouched: @directorySecondFactor on a resource that is not the directories record; a tenant's word for its directory's second factor is the @tenantDirectory record's column, so annotate the record's struct @tenantDirectory first",
+		},
+		{
+			name:    "@directorySecondFactor on a column that is not a BOOL is refused",
+			structs: []string{"Harbor", "Capstan"},
+			wantErr: "struct Capstan field Vouched: @directorySecondFactor on a string column; a tenant's word for its directory's second factor is a BOOL, true when the tenant says its directory asks its people for one",
+		},
+		{
+			name:    "@directorySecondFactor on a second column is refused naming the first",
+			structs: []string{"Harbor", "Cleat"},
+			wantErr: "struct Cleat field Asks: @directorySecondFactor on a second column; field Vouched carries it already",
+		},
 	}
 
 	for _, tt := range tests {
@@ -285,6 +332,13 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 			if directories.DirectoryDefaultSeatField == nil || directories.DirectoryDefaultSeatField.Name() != "DefaultSeat" {
 				t.Errorf("%s.DirectoryDefaultSeatField = %v, want DefaultSeat", directories.Name(), directories.DirectoryDefaultSeatField)
 			}
+			// Nor the tenant's word for its directory's second factor: the tenant's own
+			// methods say it and take it back.
+			if directories.DirectorySecondFactorField == nil || directories.DirectorySecondFactorField.Name() != "AsksSecondFactor" {
+				t.Errorf("%s.DirectorySecondFactorField = %v, want AsksSecondFactor", directories.Name(), directories.DirectorySecondFactorField)
+			} else if !directories.DirectorySecondFactorField.IsOutputOnly() {
+				t.Errorf("%s.%s is writable by the wire, want it output-only: the tenant's own methods say it", directories.Name(), directories.DirectorySecondFactorField.Name())
+			}
 			if !directories.SignalsTenants() || !record.SignalsTenants() {
 				t.Error("both records' write paths keep the roster current")
 			}
@@ -292,6 +346,37 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 				t.Errorf("%s.DirectoryOnlyField = %v", record.Name(), record.DirectoryOnlyField)
 			}
 		})
+	}
+}
+
+// Test_setDirectorySecondFactorColumn_aColumnTheSchemaDoesNotHold pins the refusal of
+// the tenant's word on a field the resource does not carry as a column. Capture refuses
+// a spanner tag naming no column before the annotations are read, so the setter is
+// asked directly, of a directories record that carries no columns.
+func Test_setDirectorySecondFactorColumn_aColumnTheSchemaDoesNotHold(t *testing.T) {
+	t.Parallel()
+
+	pStruct := fixtureStructs(loadFixture(t, "tenantfixture"))["HarborDirectory"]
+	if pStruct == nil {
+		t.Fatal("the tenantfixture holds no HarborDirectory")
+	}
+	var field *parser.Field
+	for _, f := range pStruct.Fields() {
+		if f.Name() == "AsksSecondFactor" {
+			field = f
+		}
+	}
+	if field == nil {
+		t.Fatal("HarborDirectory holds no AsksSecondFactor field")
+	}
+	res := &resourceInfo{TypeInfo: pStruct.TypeInfo, IsTenantDirectory: true}
+
+	want := "struct HarborDirectory field AsksSecondFactor: @directorySecondFactor on a column the schema does not hold"
+	if err := res.setDirectorySecondFactorColumn(field); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("setDirectorySecondFactorColumn() error = %v, want %q", err, want)
+	}
+	if res.DirectorySecondFactorField != nil {
+		t.Errorf("DirectorySecondFactorField = %v, want none", res.DirectorySecondFactorField)
 	}
 }
 
@@ -307,17 +392,22 @@ func Test_declarationColumns(t *testing.T) {
 		want    *tenantDeclarationColumns
 	}{
 		{
-			name:    "the record's flag and the directories record's columns",
+			name:    "the record's flag and the directories record's columns, the seat and the tenant's word among them",
 			structs: []string{"Harbor", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
 			name:    "a record without the flag names no directory-only column",
 			structs: []string{"Sector", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
+			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
-			name:    "a directories record without the seat column names none",
+			name:    "a directories record with the tenant's word and no seat column names the key and the word's column",
+			structs: []string{"Harbor", "Landing"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
+		},
+		{
+			name:    "a directories record with neither the seat column nor the tenant's word names neither, nor the key",
 			structs: []string{"Harbor", "Breakwater"},
 			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Breakwaters", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 		},
@@ -401,7 +491,25 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"patch.SetHarborID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
 				"if err := patch.Buffer(ctx, txn, eventSource...); err != nil {",
 			},
-			wantNotContains: []string{"DefaultSeatColumn", "AdministratorRoles", "harborDirectoryRules"},
+			wantNotContains: []string{"DefaultSeatColumn", "DirectoriesKeyColumn", "SecondFactorColumn", "a second factor of its own", "AdministratorRoles", "harborDirectoryRules"},
+		},
+		{
+			name: "the tenant's word for its directory's second factor, with no seat column",
+			data: &tenantsData{
+				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Landing", SecondFactor: "AsksSecondFactor",
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
+				Directory:           harborDirectoryWrite(),
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+			},
+			wantContains: []string{
+				`DirectoriesKeyColumn: "Id",`,
+				`SecondFactorColumn: "AsksSecondFactor",`,
+				"with no default seat (the record carries no @directoryDefaultSeat column",
+				"// and with whether the harbor says the directory asks its people for a second\n// factor of its own (Landing.AsksSecondFactor),\n// read in the sign-in's own transaction.",
+			},
+			wantNotContains: []string{"DefaultSeatColumn"},
 		},
 		{
 			// An application whose tenants have no directories hands its auths the same

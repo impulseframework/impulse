@@ -78,4 +78,18 @@ describe('openMethodDialog', () => {
     openMethodDialog(dialog, offered({ labels: { domain: 'Sector' } }));
     expect('narrows' in opened[1]).toBe(false);
   });
+
+  it('hands the dialog the line the page says the method does, and nothing where it says none', () => {
+    const opened: MethodDialogData[] = [];
+    const dialog = {
+      open: (_component: unknown, config: { data: MethodDialogData }) => {
+        opened.push(config.data);
+        return { afterClosed: () => of(undefined) };
+      },
+    } as unknown as MatDialog;
+    openMethodDialog(dialog, offered({ says: 'The person is mailed a link to set a new password.' }));
+    expect(opened[0].says).toBe('The person is mailed a link to set a new password.');
+    openMethodDialog(dialog, offered({ labels: { domain: 'Sector' } }));
+    expect('says' in opened[1]).toBe(false);
+  });
 });

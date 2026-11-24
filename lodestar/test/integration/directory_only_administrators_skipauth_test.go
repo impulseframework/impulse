@@ -266,8 +266,8 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		})
 	}
 	bosunID := crewUserID(ctx, t, governor, "bosun").String()
-	pilotOnRigger := offeredOnRow(ctx, t, pilot, crewAccountsPath, riggerID)
-	pilotOnBosun := offeredOnRow(ctx, t, pilot, crewAccountsPath, bosunID)
+	pilotOnRigger := offeredOnRow(ctx, t, pilot, crewListedAccountsPath, riggerID)
+	pilotOnBosun := offeredOnRow(ctx, t, pilot, crewListedAccountsPath, bosunID)
 	if got := acts(pilotOnRigger); len(got) != 0 {
 		t.Errorf("the rigger's row of the fleet's accounts, as the pilot reads it, offers %v, want none of the acts on the account of Bastion's marshal", got)
 	}
@@ -277,10 +277,10 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if got, want := others(pilotOnRigger), others(pilotOnBosun); len(want) == 0 || !slices.Equal(got, want) {
 		t.Errorf("the rigger's row of the fleet's accounts, as the pilot reads it, offers beside them %v, want %v, as the bosun's row does", got, want)
 	}
-	if got := acts(offeredOnPage(ctx, t, pilot, crewAccountsPath, riggerID)); len(got) != 0 {
+	if got := acts(offeredOnPage(ctx, t, pilot, crewListedAccountsPath, riggerID)); len(got) != 0 {
 		t.Errorf("the rigger's account's page, as the pilot reads it, offers %v, want none of the acts on the account of Bastion's marshal", got)
 	}
-	if got := acts(offeredOnRow(ctx, t, governor, crewAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
+	if got := acts(offeredOnRow(ctx, t, governor, crewListedAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
 		t.Errorf("the rigger's row of the fleet's accounts, as the governor reads it, offers the acts on an account %v, want %v", got, accountActs)
 	}
 	if offered := offeredOnRow(ctx, t, pilot, "crew-session-identities", riggersLink); slices.Contains(offered, unlink) {
@@ -496,7 +496,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	judged := func(how string, administers bool) {
 		t.Helper()
 
-		offered := acts(offeredOnRow(ctx, t, pilot, crewAccountsPath, riggerID))
+		offered := acts(offeredOnRow(ctx, t, pilot, crewListedAccountsPath, riggerID))
 		status, answer := pilot.do(ctx, http.MethodPost, crewMethod("rename-crew-user"), jsonBody(t, sameName))
 		if !administers {
 			if !slices.Equal(offered, accountActs) {
@@ -628,13 +628,13 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		}
 	}
 
-	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(string(body)), `{"directoryOnly":true,`) {
+	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "sign-in-settings"), nil); status != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(string(body)), `{"directoryOnly":true,`) {
 		t.Fatalf("Bastion's switch as its marshal reads it, signed in with a password: status %d %s, want 200 saying it is on", status, body)
 	}
 	if status, body := rigger.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
 		t.Fatalf("turning Bastion's directory only off as its marshal, signed in with a password: status %d: %s", status, body)
 	}
-	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(string(body)), `{"directoryOnly":false`) {
+	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "sign-in-settings"), nil); status != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(string(body)), `{"directoryOnly":false`) {
 		t.Errorf("Bastion's switch once its marshal turned it off: status %d %s, want 200 saying it is off", status, body)
 	}
 	// Through the Workspace again, in a session opened since the change ended the one

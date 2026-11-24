@@ -45,6 +45,17 @@ type (
 	// the account's other columns are no filter keys, so a role file may grant any of
 	// them under a condition at no cost to a page.
 	//
+	// Roles (roles) is what the person holds in this tenant itself: the name of each role
+	// once, in alphabetical order, of the roles StaffTenantHeldRole lists for the person
+	// here, their own and the ones that come through a group. A role held in every tenant at
+	// once is not among them: HeldInEveryTenant says it, and a role file grants or keeps back
+	// each by itself. It is no filter key.
+	//
+	// LockedUntil (lockedUntil) is until when the person's sign-in is locked by failed
+	// tries, and nothing for a person who is not locked: the latest lock still ahead among
+	// the counts the session library keeps for the account under its username and under its
+	// id (session.AccountAttemptKeys with no address). It is no filter key either.
+	//
 	// Two more columns say what the tenant's directory-only switch does to the person.
 	// OutsideDirectory says the person has no sign-in through the tenant's directory, so
 	// the switch keeps them out while it is on: it is who turning the switch on would
@@ -86,6 +97,9 @@ type (
 		PasswordChangeRequired bool       `spanner:"PasswordChangeRequired"`
 		CreatedAt              time.Time  `spanner:"CreatedAt"`
 		LastSignInAt           *time.Time `spanner:"LastSignInAt"`
+		// @roleOf(Staff)
+		Roles       []string   `spanner:"Roles"`
+		LockedUntil *time.Time `spanner:"LockedUntil"`
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
@@ -127,6 +141,39 @@ SELECT
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
+  ARRAY(
+    SELECT DISTINCT hr.Role
+    FROM (
+      SELECT o.Role AS Role
+      FROM StaffUserRoles o
+      WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+        AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+      UNION ALL
+      SELECT gr AS Role
+      FROM StaffGroupMembers gm, UNNEST(ARRAY(
+        SELECT r.Role FROM StaffGroupRoles r
+        WHERE r.GroupId = gm.GroupId AND r.Kind = 'domain' AND r.Axis = '' AND r.DomainId = t.DomainId
+          AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+          AND (((r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())) OR NOT EXISTS (
+            SELECT 1 FROM StaffGroupRoles e
+            WHERE e.GroupId = r.GroupId AND e.Kind = 'every' AND e.Axis = r.Axis AND e.Role = r.Role
+              AND (e.StartsAt IS NULL OR e.StartsAt <= CURRENT_TIMESTAMP()) AND (e.EndsAt IS NULL OR e.EndsAt > CURRENT_TIMESTAMP())
+          ))
+          AND EXISTS (
+            SELECT 1 FROM StaffGroups hg
+            WHERE hg.Id = gm.GroupId AND r.Role != 'SuperAdministrator' AND (hg.Kind = 'global' OR (r.Kind = hg.Kind AND r.Axis = hg.Axis AND r.DomainId = hg.DomainId))
+          )
+  AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  AND (r.EndsAt IS NULL OR gm.StartsAt IS NULL OR gm.StartsAt < r.EndsAt)
+  AND (gm.EndsAt IS NULL OR r.StartsAt IS NULL OR r.StartsAt < gm.EndsAt)
+      )) AS gr
+      WHERE gm.UserId = u.Id
+    ) hr
+    ORDER BY hr.Role
+  ) AS Roles,
+  (SELECT MAX(la.LockedUntil) FROM StaffSessionSignInAttempts la
+   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
+     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
   (EXISTS (
     SELECT 1 FROM StaffUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''

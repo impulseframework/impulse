@@ -425,11 +425,12 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // stepUp names the application's own steps, each under a name of the application's
 // ("totp"). An event without a method, under a method that records a step the
 // library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
-// an attestation's), or under the name of a sign-in method the library runs (a
-// password, a directory's method the library ships, the method of a registration on
-// the Auth), is a BadRequest, and the pending identity stays as it was: the
-// mailed code is entered through Pending().VerifyCode() or VerifyEmailCode, which
-// record its event, and a sign-in is recorded by the method the person signs in through.
+// an attestation's, a tenant's word (sessioninfo.MethodVouchedByTenant)), or under the
+// name of a sign-in method the library runs (a password, a directory's method the
+// library ships, the method of a registration on the Auth), is a BadRequest, and the
+// pending identity stays as it was: the mailed code is entered through
+// Pending().VerifyCode() or VerifyEmailCode, which record its event, and a sign-in is
+// recorded by the method the person signs in through.
 //
 // The pending identity must wait for MFA (Conflict otherwise). It is consumed first, so
 // it completes once: a second completion finds it expired. The user is resolved again

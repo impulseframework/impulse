@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/types"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -23,7 +24,9 @@ import (
 // Google Workspace by its domain, a Microsoft Entra tenant by its tenant id), and
 // naming, when the record carries the column, the default seat (@directoryDefaultSeat:
 // the role a person is seated with in the tenant at their first sign-in through the
-// directory, NULL where the tenant admits a stranger from it by invitation only). A
+// directory, NULL where the tenant admits a stranger from it by invitation only) and,
+// when the record carries that column, the tenant's word that its directory asks its
+// people for a second factor of its own (@directorySecondFactor, a BOOL). A
 // tenant has one directory and a directory is one tenant's: the schema holds both with
 // a unique index each, which the generator requires, and the generated write paths
 // refuse each first (resource.TenantDirectoryRules). A directory is never typed in:
@@ -39,9 +42,10 @@ import (
 // (tenantDeleteTree).
 
 // resolveTenantDeclaration reads a table-backed struct's declaration annotations:
-// @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection
-// and @directoryDefaultSeat on its fields, each refused where it cannot mean anything,
-// and the record's @tenantName, the name the tenant list carries, beside them.
+// @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection,
+// @directoryDefaultSeat and @directorySecondFactor on its fields, each refused where it
+// cannot mean anything, and the record's @tenantName, the name the tenant list carries,
+// beside them.
 // The rules that read across structs (one directories record, the record it belongs
 // to) run once every struct is extracted (rejectSecondTenantDirectory,
 // validateTenantDeclaration). The scope and the tenant record resolve first.
@@ -90,6 +94,10 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			if err := res.setDirectorySeatColumn(field); err != nil {
 				return err
 			}
+		case fieldAnnotations.Has(directorySecondFactorKeyword):
+			if err := res.setDirectorySecondFactorColumn(field); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -133,6 +141,28 @@ func (r *resourceInfo) setDirectorySeatColumn(field *parser.Field) error {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directoryDefaultSeatKeyword)
 	}
 	r.DirectoryDefaultSeatField.IsDirectoryDefaultSeat = true
+
+	return nil
+}
+
+// setDirectorySecondFactorColumn records the directories record's column saying the
+// tenant says its directory asks its people for a second factor of its own
+// (@directorySecondFactor), refusing it off the record, on a column that is not a BOOL,
+// and declared twice.
+func (r *resourceInfo) setDirectorySecondFactorColumn(field *parser.Field) error {
+	switch {
+	case !r.IsTenantDirectory:
+		return errors.Newf("struct %s field %s: @%s on a resource that is not the directories record; a tenant's word for its directory's second factor is the @%s record's column, so annotate the record's struct @%s first", r.Name(), field.Name(), directorySecondFactorKeyword, tenantDirectoryKeyword, tenantDirectoryKeyword)
+	case !isBoolKinded(field.GoType()):
+		return errors.Newf("struct %s field %s: @%s on a %s column; a tenant's word for its directory's second factor is a BOOL, true when the tenant says its directory asks its people for one", r.Name(), field.Name(), directorySecondFactorKeyword, field.Type())
+	case r.DirectorySecondFactorField != nil:
+		return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already", r.Name(), field.Name(), directorySecondFactorKeyword, r.DirectorySecondFactorField.Name())
+	}
+	r.DirectorySecondFactorField = r.fieldNamed(field.Name())
+	if r.DirectorySecondFactorField == nil {
+		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directorySecondFactorKeyword)
+	}
+	r.DirectorySecondFactorField.IsDirectorySecondFactor = true
 
 	return nil
 }
@@ -429,17 +459,25 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 }
 
 // switchDirectoryRules is the expression of the rules the frame of a tenant's
-// directory-only switch asks, and the read of the switch as it stands with it, which
-// says the same things to the caller before they try: the named rules
+// directory-only switch asks, and the read of the tenant's sign-in settings with it,
+// which says the same things to the caller before they try: the named rules
 // (namedDirectoryRules), told what each of the program's auths says of the caller's
 // password (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the
 // generated identity client of every auth whose management the program generates, in
-// declaration order, and given the counters of every auth whose client answers who the
-// switch keeps out (resource.TenantDirectoryRules.CountedBy, directoryOnlyPeople), in
-// the same order, so the read of the switch says how many people it keeps out as the
-// warning counts them. The switch is turned on by a person who has a password, where
-// their auth has passwords; a program that generates no auth's management asks nothing
-// and counts nobody.
+// declaration order, and given the people of every auth whose client answers who the
+// switch keeps out (resource.TenantDirectoryRules.CountedBy, resource.DirectoryPeople,
+// directoryOnlyPeople), in the same order: what a page calls them, the tenant's list of
+// them with the fields that name a person, how many of them the tenant seats, who of
+// them the switch keeps out, and who keeps the administrators' way in. The read of the
+// tenant's sign-in settings counts them and the warning reads them from the same
+// entries, so the two say the same number. The switch is turned on by a person who has
+// a password, where their auth has passwords. Where the directories record carries the
+// second-factor column (@directorySecondFactor), the rules are last told what each
+// auth's sign-in settings ask (resource.TenantDirectoryRules.SecondFactorsBy), the
+// AuthSecondFactor of every generated identity client, in declaration order: a tenant
+// vouches for its directory's own second factor only where the application asks
+// somebody for one. A program that generates no auth's management asks nothing and
+// counts nobody.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {
@@ -450,17 +488,52 @@ func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 		readers = append(readers, fmt.Sprintf("%s.%s().CallerPassword", r.receiverName, inst.accessor()))
 	}
 	rules += ".PasswordsBy(" + strings.Join(readers, ", ") + ")"
-	people := r.directoryOnlyPeople()
-	if len(people) == 0 {
+	rules += r.directoryOnlyCounted()
+	if !record.HasDeclaration() || record.declaration.Directories.DirectorySecondFactorField == nil {
 		return rules
 	}
-	counters := make([]string, 0, len(people))
-	for _, auth := range people {
-		client := fmt.Sprintf("%s.%s()", r.receiverName, auth.Accessor)
-		counters = append(counters, fmt.Sprintf("resource.DirectoryCounter{Seated: %[1]s.SeatedCount, Outsiders: %[1]s.DirectoryOutsiders}", client))
+	factors := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		factors = append(factors, fmt.Sprintf("%s.%s().AuthSecondFactor", r.receiverName, inst.accessor()))
 	}
 
-	return rules + ".CountedBy(" + strings.Join(counters, ", ") + ")"
+	return rules + ".SecondFactorsBy(" + strings.Join(factors, ", ") + ")"
+}
+
+// directoryOnlyCounted is the call that gives the switch's rules the people of every
+// auth whose client answers who the switch keeps out (directoryOnlyPeople), empty where
+// none does.
+func (r *resourceGenerator) directoryOnlyCounted() string {
+	people := r.directoryOnlyPeople()
+	if len(people) == 0 {
+		return ""
+	}
+	entries := make([]string, 0, len(people))
+	for _, auth := range people {
+		client := fmt.Sprintf("%s.%s()", r.receiverName, auth.Accessor)
+		entry := fmt.Sprintf("resource.DirectoryPeople{Label: %q, List: %q, Fields: %s, Seated: %[4]s.SeatedCount, Outsiders: %[4]s.DirectoryOutsiders, AdministratorsEnter: %[4]s.AdministratorsEnterWithPassword",
+			auth.Label, auth.List, tagsLiteral(auth.Fields), client)
+		if auth.Administrators {
+			entry += fmt.Sprintf(", Administrators: %s.DirectoryAdministrators", client)
+		}
+		if auth.InvitationList != "" {
+			entry += fmt.Sprintf(", InvitationList: %q, InvitationFields: %s, Invitations: %s.DirectoryInvitations", auth.InvitationList, tagsLiteral(auth.InvitationFields), client)
+		}
+		entries = append(entries, entry+"}")
+	}
+
+	return ".CountedBy(" + strings.Join(entries, ", ") + ")"
+}
+
+// tagsLiteral is fields as a Go literal of the fields a grant names,
+// []accesstypes.Tag{"username", "name"}.
+func tagsLiteral(fields []string) string {
+	quoted := make([]string, 0, len(fields))
+	for _, field := range fields {
+		quoted = append(quoted, strconv.Quote(field))
+	}
+
+	return "[]accesstypes.Tag{" + strings.Join(quoted, ", ") + "}"
 }
 
 // DirectoryRules is the expression of the rules of a tenant's directory the
@@ -487,7 +560,8 @@ func (r *resourceInfo) DirectoryTenantWord() string {
 // tenantDeclarationColumns is the declaration as the generated constructors hand it to
 // resource.WithTenantDeclarations, resource.NewTenantDeclarationReader and
 // resource.NewTenantDirectoryReader: the column names behind the record's annotated
-// fields, the default seat's empty where the record carries none.
+// fields, the default seat's and the tenant's word's empty where the record carries
+// none.
 type tenantDeclarationColumns struct {
 	DirectoryOnly        string
 	DirectoriesTable     string
@@ -496,6 +570,7 @@ type tenantDeclarationColumns struct {
 	ConnectionColumn     string
 	DirectoriesKeyColumn string
 	DefaultSeatColumn    string
+	SecondFactorColumn   string
 }
 
 // declarationColumns reads the declaration's columns off the record, nil when the
@@ -514,9 +589,14 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 	if record.DirectoryOnlyField != nil {
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
-	if directories.DirectoryDefaultSeatField != nil {
+	if directories.DirectoryDefaultSeatField != nil || directories.DirectorySecondFactorField != nil {
 		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
+	}
+	if directories.DirectoryDefaultSeatField != nil {
 		columns.DefaultSeatColumn = spannerColumn(directories.DirectoryDefaultSeatField)
+	}
+	if directories.DirectorySecondFactorField != nil {
+		columns.SecondFactorColumn = spannerColumn(directories.DirectorySecondFactorField)
 	}
 
 	return columns

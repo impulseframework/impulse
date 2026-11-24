@@ -30,6 +30,8 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
 		CreatedAt                 time.Time    `json:"createdAt"`
 		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
 		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
 		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
 		HeldHere                  bool         `json:"heldHere"                  index:"true"`
@@ -121,6 +123,14 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 					if !row.Masked("lastSignInAt") {
 						rmap["lastSignInAt"] = rec.LastSignInAt
 					}
+				case "Roles":
+					if !row.Masked("roles") {
+						rmap["roles"] = rec.Roles
+					}
+				case "LockedUntil":
+					if !row.Masked("lockedUntil") {
+						rmap["lockedUntil"] = rec.LockedUntil
+					}
 				case "HeldElsewhere":
 					if !row.Masked("heldElsewhere") {
 						rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -186,6 +196,8 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
 		CreatedAt                 time.Time    `json:"createdAt"`
 		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
 		HeldElsewhere             bool         `json:"heldElsewhere"`
 		HeldGlobally              bool         `json:"heldGlobally"`
 		HeldHere                  bool         `json:"heldHere"`
@@ -264,6 +276,14 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 			case "LastSignInAt":
 				if !row.Masked("lastSignInAt") {
 					rmap["lastSignInAt"] = rec.LastSignInAt
+				}
+			case "Roles":
+				if !row.Masked("roles") {
+					rmap["roles"] = rec.Roles
+				}
+			case "LockedUntil":
+				if !row.Masked("lockedUntil") {
+					rmap["lockedUntil"] = rec.LockedUntil
 				}
 			case "HeldElsewhere":
 				if !row.Masked("heldElsewhere") {

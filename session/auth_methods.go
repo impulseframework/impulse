@@ -310,7 +310,7 @@ func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.Auth
 	// library's rules read those events as its own proof (recordsTheLibrarysStep).
 	if recordsTheLibrarysStep(method) {
 		panic(fmt.Sprintf("session: a sign-in method is registered as the method %q, the name of a step the library runs and records itself "+
-			"(the mailed code, a remembered browser, a connection's attestation): give the method a name of its own, such as \"partner\"", method))
+			"(the mailed code, a remembered browser, a connection's attestation, a tenant's word for its directory): give the method a name of its own, such as \"partner\"", method))
 	}
 	// The registration's state cookie is named for it; a name no cookie can carry is
 	// refused here rather than at the first login.

@@ -235,11 +235,13 @@ export const COMPANION_FILTER_HINT =
  * than MIN_TEXT_COLUMN_WIDTH. The table fills its frame while every column fits, and the
  * room the columns leave goes first to those that cut a value at their narrowest, as far
  * as each needs to show its values whole; with every value whole, the columns share the
- * frame equally but for one that needs more than its share. Where the columns do not
- * fit, each is as narrow as it goes, the table stays as wide as that and the frame scrolls
- * sideways, the page never. The first column is then held at the left edge, with the
- * select and expand columns, while the others scroll under it, as long as the widest of
- * the others can be seen whole beside it; no second column is ever held.
+ * frame equally but for one that needs more than its share. A column that draws its list
+ * a line each is given none of that room for a long line (`wholeFor`): it shares the frame
+ * as a column that cuts nothing does. Where the columns do not fit, each is as narrow as
+ * it goes, the table stays as wide as that and the frame scrolls sideways, the page never.
+ * The first column is then held at the left edge, with the select and expand columns,
+ * while the others scroll under it, as long as the widest of the others can be seen whole
+ * beside it; no second column is ever held.
  */
 @Component({
   selector: 'impulse-grid',
@@ -351,9 +353,11 @@ export class AppGridComponent {
    * What each column's heading and the values it has shown need to be drawn whole, in
    * pixels, by column id: its need without MIN_TEXT_COLUMN_WIDTH over it. A column whose
    * entry is more than its need is one the list cuts at its narrowest, and the room the
-   * list has left over goes to it before any other (`givenWidths`). It is read with
-   * `needs` and grows as that does; no entry is more than the frame was wide when it was
-   * read, which is as much as a column is ever given (`readAsFarAs`).
+   * list has left over goes to it before any other (`givenWidths`). A column that draws its
+   * list a line each is the one that is not: whatever its entry, it asks no more than its
+   * narrowest (`wholeFor`). It is read with `needs` and grows as that does; no entry is
+   * more than the frame was wide when it was read, which is as much as a column is ever
+   * given (`readAsFarAs`).
    */
   private readonly wholes = signal<ReadonlyMap<string, number>>(new Map());
   /**
@@ -476,6 +480,8 @@ export class AppGridComponent {
    * whole, a column that needs more than an equal share of the frame is given what it
    * needs and the rest share what is left, so in a frame with room to spare none is here
    * and the list is drawn as it always was. None is here where the frame is not measured.
+   * A column that draws its list a line each is never one that cuts a value here
+   * (`wholeFor`).
    *
    * In a frame the columns fit, one column that shares is never here: the table is as wide
    * as its frame only while a column is left to take what the others do not. A table whose
@@ -1364,10 +1370,22 @@ export class AppGridComponent {
   /**
    * What the column needs to show its heading and every value it has shown whole: its
    * own width where it has one, else what was read off them (`wholes`), which is its
-   * narrowest for a column that cuts nothing there and until the column has been read.
+   * narrowest for a column that cuts nothing there and until the column has been read. A
+   * column that draws its list a line each (`lines`) asks no more than its narrowest: it is
+   * read down, a line each, and does not grow wide for a long line. So it takes none of the
+   * room the list gives first to a column that cuts a value, shares the frame as a column
+   * that cuts nothing does, and is as wide as the columns that share beside it and no wider;
+   * a line longer than that is cut short and offered whole with the cell's other lines.
    */
   private wholeFor(col: ColumnConfig): number {
-    return this.widthFor(col) ?? Math.max(this.narrowestFor(col), this.wholes().get(col.id) ?? 0);
+    const own = this.widthFor(col);
+    if (own !== null) {
+      return own;
+    }
+    if (col.lines) {
+      return this.narrowestFor(col);
+    }
+    return Math.max(this.narrowestFor(col), this.wholes().get(col.id) ?? 0);
   }
 
   /**

@@ -148,6 +148,21 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
@@ -439,6 +454,21 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
@@ -697,6 +727,12 @@
             },
             {
               "resource": "MakeTenantInviteOnly"
+            },
+            {
+              "resource": "VouchForTenantDirectorySecondFactor"
+            },
+            {
+              "resource": "StopVouchingForTenantDirectorySecondFactor"
             }
           ],
           "List": [
@@ -705,6 +741,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]
@@ -731,7 +768,9 @@
                 "managedHere",
                 "managedByAnotherDirectory",
                 "outsideDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -877,6 +916,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]
@@ -902,7 +942,9 @@
                 "heldInEveryTenant",
                 "managedHere",
                 "managedByAnotherDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
