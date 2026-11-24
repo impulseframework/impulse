@@ -103,7 +103,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 	}
 	did := map[bool][]string{
 		false: {
-			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat, held to one for a tenant and to one tenant by its two unique indexes)",
+			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 			"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 			"pkg/config/data.go: dataConfig.staffSettings passes the declaration reader (app.NewTenantDeclarationReader()), the directory reader (app.NewTenantDirectoryReader()) and what makes a tenant from an accepted invitation (app.NewTenantMaker(tenants, liveService), over the roster built ahead of the auth) to the staff auth",
 			"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
@@ -378,6 +378,10 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"The declaration. Grants: the tenant's administrator role",
 		"`tenantSignInPage`",
 		"its directory and its rows with it, in one request, whether it is directory only or not, and its directory is then free for another tenant",
+		"Execute on the six generated methods of the tenant's own:",
+		", and `VouchFor<Record>DirectorySecondFactor` and `StopVouchingFor<Record>DirectorySecondFactor`, by which the tenant says its directory asks its people for a second factor of its own, " +
+			"so that the application stops asking them for its mailed code, and takes that back (saying so is done by a person signed in through the directory, and warns first: the person types `vouch`);",
+		"the record shows `defaultSeat` and `asksSecondFactor` and its own update writes neither;",
 	}
 	without := []string{
 		"No tenant has a directory in this application (`--tenant-directories=false`): the resource package declares no directories record and `Tenant` carries no directory-only switch, so nothing is taken when a tenant is made, no route sets a tenant's directory, no tenant is opened to a directory or made directory only, and the browser has no tenant Sign-in page. A tenant's people come by invitation alone.",
@@ -413,7 +417,10 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 			}
 		}
 		if noDirectories {
-			for _, word := range []string{"TenantDirectories", "DirectoryOnly`", "directory only (", "tenantSignInPage", "OpenTenantToDirectory", "MakeTenantDirectoryOnly"} {
+			for _, word := range []string{
+				"TenantDirectories", "DirectoryOnly`", "directory only (", "tenantSignInPage", "OpenTenantToDirectory", "MakeTenantDirectoryOnly",
+				"DirectorySecondFactor", "asksSecondFactor",
+			} {
 				if strings.Contains(meaning, word) {
 					t.Errorf("the brief of an application whose tenants have no directories names %s", word)
 				}

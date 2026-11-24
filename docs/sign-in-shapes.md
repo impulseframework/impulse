@@ -1122,20 +1122,22 @@ A tenant's administrator is a person who holds, in that tenant, a role the appli
 names as an administrator's role of a tenant. In the skeletons that role is
 `TenantAdministrator`, and the person who makes a tenant is given it.
 
-Where a tenant can have a directory, the tenant's administrator makes three choices, on
+Where a tenant can have a directory, the tenant's administrator makes four choices, on
 the tenant's Sign-in page.
 
 | Choice | What it does |
 | --- | --- |
 | The tenant's directory | Makes the directory the administrator is signed in through the tenant's own, or removes it. |
 | Open to the directory, or invite only | Open names the role each person from the directory is given at their first sign-in through it, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
+| The directory's second factor | Says that the tenant's directory asks its people for a second factor of its own. The application then stops asking the people who sign in through that directory for its mailed code, in this tenant and in every tenant that gave them a role. It is the tenant's word, and nothing checks it. A Super Administrator, and anyone who signs in with a password, are asked as before. Taking it back asks the directory's people again from their next sign-in. The choice is there where the application's directories carry it, and there is something to turn off only while the application asks everyone for a second factor. |
 | Directory only | Closes the tenant to every sign-in but one through its directory: no password, no personal account, no other organization's directory. That keeps out the application's own staff too. Two kinds of people still get in: an administrator of the tenant itself, with a password and a code mailed to their email address, and a Super Administrator. |
 
 A person from a tenant's directory gets in by the tenant's choice, whether or not the
 sign-in method is open to sign-up on the auth's Sign-in page.
 
-Opening the tenant to its directory and making it directory only each warn first, with
-who is affected, and are confirmed by typing a word (`open`, `close`). Removing a
+Opening the tenant to its directory, making it directory only and vouching for the
+directory's second factor each warn first, with who is affected, and are confirmed by
+typing a word (`open`, `close`, `vouch`). Removing a
 tenant's directory asks first too, in a dialog that names the directory.
 
 A tenant's administrator can turn directory only on once the tenant has its directory,
@@ -1151,6 +1153,10 @@ through an organization's directory and no other way. The password rule applies 
 when directory only is turned on from the page: the first administrator of a tenant made
 directory only may have no password until they choose one on the Your account page. The
 directory of a tenant that is directory only cannot be removed.
+
+A tenant's administrator vouches for the directory's second factor while signed in through
+that directory, as with directory only. Taking it back asks nothing of how the person
+signed in.
 
 A tenant's choices restrict who enters that tenant and no other. A tenant that is not
 directory only admits everyone it has given a role, however they signed in.

@@ -511,7 +511,7 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 
 // stationColumns names the declaration the roster tests' fixture carries: the
 // directory-only flag on Stations and the StationDirectories rows with their default
-// seat.
+// seat and the station's word for its directory's second factor.
 var stationColumns = &TenantDeclarationColumns{
 	DirectoryOnly:        "DirectoryOnly",
 	DirectoriesTable:     "StationDirectories",
@@ -520,6 +520,18 @@ var stationColumns = &TenantDeclarationColumns{
 	ConnectionColumn:     "Connection",
 	DirectoriesKeyColumn: "Id",
 	DefaultSeatColumn:    "DefaultSeat",
+	SecondFactorColumn:   "AsksSecondFactor",
+}
+
+// vouchForStationDirectory sets the station's word that its directory, the row
+// declareStation wrote at that index, asks its people for a second factor of its own.
+func vouchForStationDirectory(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain, index int) {
+	t.Helper()
+
+	mutation := spanner.Update("StationDirectories", []string{"Id", "AsksSecondFactor"}, []any{string(id) + "-" + strconv.Itoa(index), true})
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
 }
 
 // seatStationDirectory sets the default seat of a station's directory, the row
@@ -803,17 +815,24 @@ func TestOutsideSignIn(t *testing.T) {
 
 // TestNewTenantDirectoryReader pins the sign-in's directory reader over the emulator:
 // in the read-write transaction it is handed it answers the station whose directory it
-// is with the row's default seat ("" where the row names none); nothing for a directory
-// no station has; and nothing without a directories record, whatever the directory.
+// is with the row's default seat ("" where the row names none) and the station's word
+// for the directory's second factor (false where the record carries no such column);
+// nothing for a directory no station has; and nothing without a directories record,
+// whatever the directory.
 func TestNewTenantDirectoryReader(t *testing.T) {
 	t.Parallel()
 
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
 	entra := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}
+	vouched := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "vouched.example"}
 	db, _ := tenantDatabase(t, "directory-reader", "alpha", "beta", "gamma")
 	declareStation(t, db, "alpha", true, workspace)
 	declareStation(t, db, "beta", false, entra)
+	declareStation(t, db, "gamma", false, vouched)
 	seatStationDirectory(t, db, "alpha", 0, "Clerk")
+	vouchForStationDirectory(t, db, "gamma", 0)
+	noWord := *stationColumns
+	noWord.SecondFactorColumn = ""
 
 	tests := []struct {
 		name      string
@@ -823,6 +842,8 @@ func TestNewTenantDirectoryReader(t *testing.T) {
 	}{
 		{name: "a station's directory: the station with its seat", columns: stationColumns, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha", DefaultSeat: "Clerk"}}},
 		{name: "a row naming no seat: the empty seat", columns: stationColumns, directory: entra, want: []signin.DeclaredDirectory{{Tenant: "beta"}}},
+		{name: "a station that vouches: the word with the station", columns: stationColumns, directory: vouched, want: []signin.DeclaredDirectory{{Tenant: "gamma", SecondFactor: true}}},
+		{name: "a record without the column: the word false", columns: &noWord, directory: vouched, want: []signin.DeclaredDirectory{{Tenant: "gamma"}}},
 		{name: "a directory no station has: nothing", columns: stationColumns, directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "elsewhere.example"}, want: []signin.DeclaredDirectory{}},
 		{name: "a record without the seat column: the seat empty", columns: &TenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "StationDirectories", TenantColumn: "StationId", MethodColumn: "Method", ConnectionColumn: "Connection"}, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha"}}},
 		{name: "no directories record: nothing, with no read", columns: nil, directory: workspace, want: nil},

@@ -233,7 +233,9 @@ export const Methods = {
   MakeSectorInviteOnly: 'MakeSectorInviteOnly' as Method,
   OpenSectorToDirectory: 'OpenSectorToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
+  StopVouchingForSectorDirectorySecondFactor: 'StopVouchingForSectorDirectorySecondFactor' as Method,
   ViewAsUser: 'ViewAsUser' as Method,
+  VouchForSectorDirectorySecondFactor: 'VouchForSectorDirectorySecondFactor' as Method,
 };
 
 export namespace BriefingTemplates {
@@ -2260,6 +2262,7 @@ export namespace Refits {
 
 export namespace SectorDirectories {
   export const fieldName = {
+    asksSecondFactor: 'asksSecondFactor' as FieldName,
     connection: 'connection' as FieldName,
     defaultSeat: 'defaultSeat' as FieldName,
     id: 'id' as FieldName,
@@ -2268,6 +2271,7 @@ export namespace SectorDirectories {
     sectorName: 'sectorName' as FieldName,
   };
   export const resourceName = {
+    asksSecondFactor: 'SectorDirectories.asksSecondFactor' as Resource,
     connection: 'SectorDirectories.connection' as Resource,
     defaultSeat: 'SectorDirectories.defaultSeat' as Resource,
     id: 'SectorDirectories.id' as Resource,

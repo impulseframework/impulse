@@ -41,6 +41,14 @@ type (
 	// administrator removed is not given it back by signing in. The record shows it and
 	// its own update never writes it: the tenant's own methods name it and clear it.
 	//
+	// AsksSecondFactor says the tenant's administrator has said the directory asks its
+	// people for a second factor of its own. A person who signs in through the directory
+	// is then not asked for the mailed code, in this tenant and in every tenant that gave
+	// them a role; a super administrator, and anyone who signs in with a password, are
+	// asked as before. It is the tenant's word and nothing checks it. The record shows it
+	// and its own update never writes it: the tenant's own methods say it and take it
+	// back.
+	//
 	// The tenancy column is on the row itself (the bare @domain binding), as the
 	// directories record requires: a directory is the tenant's own declaration, stamped
 	// from the request's tenant on create, never written by the wire. The record is on
@@ -60,6 +68,8 @@ type (
 		Connection string `spanner:"Connection"`
 		// @directoryDefaultSeat
 		DefaultSeat *string `spanner:"DefaultSeat"`
+		// @directorySecondFactor
+		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
 	}
 )
 

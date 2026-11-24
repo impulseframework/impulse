@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, resource, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
@@ -6,16 +7,18 @@ import {
   AnyResourceHandle,
   CreatePermission,
   DeletePermission,
-  DirectoryOnlyCondition,
-  DirectoryOnlyState,
-  directoryOnlyState,
+  DirectorySecondFactor,
   Domain,
   ExecutePermission,
   ListPermission,
   Method,
   methodHandle,
   Permission,
+  ReadPermission,
   Resource,
+  TenantSignInCondition,
+  TenantSignInSettings,
+  tenantSignInSettings,
 } from '@impulseframework/resource';
 import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
@@ -25,7 +28,13 @@ import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular
 import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
-import { TenantSignIn, tenantSignInKey, tenantPeopleLine, tenantStandsLine } from './tenant-sign-in-says';
+import {
+  TenantSignIn,
+  tenantSignInKey,
+  tenantPeopleLine,
+  tenantShareLine,
+  tenantStandsLine,
+} from './tenant-sign-in-says';
 
 /** What each of the tenant's methods on the page is, by its name in the route's list. */
 type SignInMethod = keyof TenantSignIn['methods'];
@@ -36,17 +45,23 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * tenant's directory by the name people know it by, the role a person gets the first time
  * they sign in through it in plain words, and whether the tenant is directory only, with
  * how many of its people that keeps out, a count that opens those people on the People page.
+ * Where the application's directories carry it, the page also says whether the tenant
+ * vouches for its directory's own second factor, with the control that says so or takes it
+ * back.
  *
- * What it says comes from two reads: the read of the tenant's directory-only switch,
- * asked where the digest grants either method that turns it, which says it all in the
- * server's words for the person reading; and the list of the tenant's directories, asked
- * where the digest grants List on it, which says only whether there is one. A tenant has
- * one directory, and nobody types one in: a person who may create it and is signed in
- * through an organization's directory makes that one the tenant's, and the request names
- * none. Everything else the page changes is one of the tenant's own methods, run through
- * the library's method dialog; a method that warns is asked for its warning first, so a
- * refusal is shown on the page in the server's words and no dialog opens. After a write
- * the page reads both again.
+ * What it says comes from two reads: the read of the tenant's sign-in settings, asked
+ * where the digest grants any of the tenant's own sign-in methods the route names, which
+ * says it all in the server's words for the person reading; and the list of the tenant's
+ * directories, asked where the digest grants List on it, which says only whether there is
+ * one. A reader who holds none of the tenant's sign-in methods is served neither count nor
+ * control; where the digest lets them read the tenant record's directory-only field, the
+ * page reads the tenant's own row and says whether the tenant is directory only, and no
+ * more. A tenant has one directory, and nobody types one in: a person who may create it and
+ * is signed in through an organization's directory makes that one the tenant's, and the
+ * request names none. Everything else the page changes is one of the tenant's own methods,
+ * run through the library's method dialog; a method that warns is asked for its warning
+ * first, so a refusal is shown on the page in the server's words and no dialog opens.
+ * After a write the page reads both again.
  *
  * The route carries the names (tenantSignInRoute); the tenant is the one the page is open
  * in. The page draws nothing until the tenant's digest has loaded and each read it asks
@@ -55,7 +70,7 @@ type SignInMethod = keyof TenantSignIn['methods'];
 @Component({
   selector: 'impulse-tenant-sign-in-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatButtonModule, RouterLink],
+  imports: [MatButtonModule, NgTemplateOutlet, RouterLink],
   templateUrl: './tenant-sign-in-page.component.html',
   styleUrl: './tenant-sign-in-page.component.scss',
 })
@@ -99,15 +114,74 @@ export class TenantSignInPageComponent {
   readonly canInviteOnly = computed(() => this.grants('makeDirectoryInviteOnly'));
   readonly canMakeOnly = computed(() => this.grants('makeDirectoryOnly'));
   readonly canEndOnly = computed(() => this.grants('endDirectoryOnly'));
+  readonly canVouch = computed(() => this.grants('vouchForDirectorySecondFactor'));
+  readonly canStopVouching = computed(() => this.grants('stopVouchingForDirectorySecondFactor'));
+
+  /** Whether the reader is served the read of the sign-in settings: the digest grants one of the tenant's own sign-in methods the route names. */
+  private readonly readsSettings = computed(
+    () =>
+      this.canOpen() ||
+      this.canInviteOnly() ||
+      this.canMakeOnly() ||
+      this.canEndOnly() ||
+      this.canVouch() ||
+      this.canStopVouching(),
+  );
 
   /**
-   * The tenant's directory-only switch as it stands, read under the grant of either method
-   * that turns it: everything the page says in the server's words for the person reading.
+   * The tenant's sign-in settings as they stand, read under the grant of any of the
+   * tenant's own sign-in methods the route names: everything the page says in the server's
+   * words for the person reading.
    */
   private readonly read = resource({
-    params: () => ({ tenant: this.tenant(), readable: this.canMakeOnly() || this.canEndOnly() }),
-    loader: ({ params }): Promise<DirectoryOnlyState | undefined> =>
-      params.readable && params.tenant ? directoryOnlyState(this.client, params.tenant) : Promise.resolve(undefined),
+    params: () => ({ tenant: this.tenant(), readable: this.readsSettings() }),
+    loader: ({ params }): Promise<TenantSignInSettings | undefined> =>
+      params.readable && params.tenant ? tenantSignInSettings(this.client, params.tenant) : Promise.resolve(undefined),
+  });
+
+  /**
+   * Whether the tenant's own row of the tenant record is read, for what it says of the
+   * switch: the reader is served no read of the sign-in settings, the route names the record
+   * and its directory-only field, the digest grants Read on the record, and its Read names
+   * no field at all or names that field as granted or conditional on time.
+   */
+  readonly readsRecord = computed(() => {
+    const record = this.signIn.tenantRecord;
+    if (this.readsSettings() || !record || !this.allows(ReadPermission, record.resource)) {
+      return false;
+    }
+    const states = this.auth.fieldPermissionStates({ resource: record.resource, permission: ReadPermission });
+    if (Object.keys(states).length === 0) {
+      return true;
+    }
+    const state = states[record.directoryOnlyField];
+    return state === 'granted' || state === 'conditionalOnTime';
+  });
+
+  /** The tenant's own row of the tenant record, read by the tenant's key where readsRecord holds. */
+  private readonly recordRow = resource({
+    params: () => ({ tenant: this.tenant(), reads: this.readsRecord() }),
+    loader: ({ params }): Promise<Record<string, unknown> | undefined> => {
+      const record = this.signIn.tenantRecord;
+      if (!params.reads || !params.tenant || !record) {
+        return Promise.resolve(undefined);
+      }
+      const handle: AnyResourceHandle = this.client.define(this.client.descriptor.resources[record.resource]);
+      return handle.read([params.tenant]) as Promise<Record<string, unknown>>;
+    },
+  });
+
+  /**
+   * What the tenant's own row says of the switch: true or false, or undefined where the row
+   * is not read, is refused, or carries no such field.
+   */
+  readonly recordSays = computed((): boolean | undefined => {
+    const field = this.signIn.tenantRecord?.directoryOnlyField;
+    if (!field || !this.recordRow.hasValue()) {
+      return undefined;
+    }
+    const value = this.recordRow.value()?.[field];
+    return typeof value === 'boolean' ? value : undefined;
   });
 
   /** The tenant's rows of the directories record, listed where the digest grants List. */
@@ -118,9 +192,20 @@ export class TenantSignInPageComponent {
     defaultValue: [],
   });
 
-  /** The read of the switch, where it has answered. */
-  readonly facts = computed((): DirectoryOnlyState | undefined =>
+  /** The read of the tenant's sign-in settings, where it has answered. */
+  readonly facts = computed((): TenantSignInSettings | undefined =>
     this.read.hasValue() ? this.read.value() : undefined,
+  );
+
+  /**
+   * The read, where the part headed Directory only says more than its one sentence: it has
+   * answered and the route names a method of the switch. An application whose tenant has no
+   * switch draws no such part.
+   */
+  readonly switchFacts = computed((): TenantSignInSettings | undefined =>
+    this.signIn.methods.makeDirectoryOnly !== undefined || this.signIn.methods.endDirectoryOnly !== undefined
+      ? this.facts()
+      : undefined,
   );
 
   /** The tenant's directory: a tenant has one, so the one row the list holds, or none. */
@@ -140,7 +225,8 @@ export class TenantSignInPageComponent {
       !!tenant &&
       this.client.permissions.digest(tenant) !== undefined &&
       this.read.status() !== 'loading' &&
-      this.rows.status() !== 'loading'
+      this.rows.status() !== 'loading' &&
+      this.recordRow.status() !== 'loading'
     );
   });
 
@@ -155,8 +241,15 @@ export class TenantSignInPageComponent {
     }),
   );
 
-  /** Whether the reader may know anything here: the read of the switch or the list. */
-  readonly reads = computed(() => this.facts() !== undefined || this.canList());
+  /** Whether the reader may know anything here: the read of the sign-in settings or the list. */
+  readonly reads = computed(() => this.facts() !== undefined || this.canList() || this.recordSays() !== undefined);
+
+  /**
+   * Whether the tenant is directory only, as far as the reader may know it: from the read of
+   * the sign-in settings where the part is drawn from it (switchFacts), else from the
+   * tenant's own row (recordSays); undefined where neither says, and no part is drawn.
+   */
+  readonly switchOn = computed((): boolean | undefined => this.switchFacts()?.directoryOnly ?? this.recordSays());
 
   /** Whether the tenant has a directory, as far as the reader may know it. */
   readonly hasDirectory = computed(() => {
@@ -228,28 +321,74 @@ export class TenantSignInPageComponent {
    * The address of the tenant's People page, which the people line opens, or undefined: it
    * is drawn only where the read counts somebody directory only keeps out, the application
    * mounts a page of the tenant's people, the digest grants List on them in the tenant, and
-   * the list will filter by the mark the link opens it at: the List names no field (nothing
-   * narrows the list) or names the mark as granted or conditional on time. A link is drawn
-   * only where it will open what it says.
+   * the list will filter by the mark the link opens it at (the List names no field, so
+   * nothing narrows the list, or names the mark as granted or conditional on time), and the
+   * page's own people are everyone the read counts as kept out: where another auth's people
+   * are among them, each auth's share has a line and a link of its own (shareLines). A link
+   * is drawn only where it will open what it says.
    */
   readonly peopleLink = computed((): string | undefined => {
     const people = this.signIn.people;
-    if (!people || !this.facts()?.people?.outside) {
+    if (!people || !this.facts()?.people?.outside || !this.ownShareIsAll()) {
       return undefined;
     }
-    const route = resourcePageRoute(people);
-    if (route === undefined || !this.allows(ListPermission, people) || !this.filtersByMark(people)) {
-      return undefined;
+    return this.keptOutPage(people);
+  });
+
+  /**
+   * Whether the people line may be the link to the page's own people: the read says no
+   * share of its count, or the share of the page's own people is everyone it counts as kept
+   * out.
+   */
+  readonly ownShareIsAll = computed(() => {
+    const people = this.facts()?.people;
+    if (!people?.shares || people.shares.length === 0) {
+      return true;
     }
-    return '/' + this.resolvePage(route);
+    const mine = people.shares.find((share) => share.people === this.signIn.people);
+    return mine !== undefined && mine.outside === people.outside;
+  });
+
+  /**
+   * A line for each auth's share of the people directory only keeps out, in the read's
+   * order, where the people line is not the whole of the page's own people
+   * (ownShareIsAll); none otherwise. A share with nobody kept out has no line. Each line is
+   * a link to that auth's people where the people line's link would be for them: the
+   * application mounts a page of the share's record, the digest grants List on it in the
+   * tenant, and the list will filter by the mark.
+   */
+  readonly shareLines = computed((): { text: string; link?: string }[] => {
+    const people = this.facts()?.people;
+    if (!people?.outside || this.ownShareIsAll()) {
+      return [];
+    }
+    return (people.shares ?? [])
+      .filter((share) => share.outside > 0)
+      .map((share) => {
+        const link = this.keptOutPage(share.people as Resource);
+        return link ? { text: tenantShareLine(share), link } : { text: tenantShareLine(share) };
+      });
   });
 
   /** The People page's filter the people line opens it at: the people directory only keeps out. */
   readonly keptOutFilter = filterQueryParams([{ field: 'outsideDirectory', operator: 'eq', value: 'true' }]);
 
   /** What turning directory only takes of the person reading that they do not meet, in the server's sentences. */
-  readonly unmet = computed((): DirectoryOnlyCondition[] =>
+  readonly unmet = computed((): TenantSignInCondition[] =>
     (this.facts()?.conditions ?? []).filter((condition) => !condition.met),
+  );
+
+  /**
+   * The second factor's part of the read: whether the tenant vouches for its directory's
+   * own second factor, in the server's words. Absent for a tenant with no directory and
+   * where the application's directories carry no word for it, and the page then draws no
+   * such part.
+   */
+  readonly secondFactor = computed((): DirectorySecondFactor | undefined => this.facts()?.secondFactor);
+
+  /** What saying the directory asks for a second factor takes of the person reading that they do not meet, in the server's sentences. */
+  readonly unmetToVouch = computed((): TenantSignInCondition[] =>
+    (this.secondFactor()?.conditions ?? []).filter((condition) => !condition.met),
   );
 
   /** What the sentence beside the button that turns directory only off says of who is kept out. */
@@ -337,12 +476,25 @@ export class TenantSignInPageComponent {
     });
   }
 
+  /** Says the tenant's directory asks its people for a second factor of its own, behind the method's warning. */
+  async vouch(): Promise<void> {
+    await this.run('vouchForDirectorySecondFactor', 'Say the directory asks for a second factor', {}, {});
+  }
+
+  /** Takes back the tenant's word for its directory's second factor, once the person confirms. */
+  async stopVouching(): Promise<void> {
+    await this.run('stopVouchingForDirectorySecondFactor', 'Ask them for a code again', {
+      confirm:
+        'People who sign in through the directory will be asked for a mailed code again, from their next sign-in.',
+    });
+  }
+
   /**
    * Runs one of the tenant's methods through the library's method dialog, which draws it
    * from the method's metadata and calls it in the tenant. A method that warns is asked
    * for its warning first, with `warnedWith` as the body: the server's refusal is shown on
    * the page in its own words and no dialog opens. Once the method has run the page reads
-   * the switch and the list again.
+   * the sign-in settings and the list again.
    */
   private async run(
     kind: SignInMethod,
@@ -372,10 +524,11 @@ export class TenantSignInPageComponent {
     });
   }
 
-  /** Reads the switch and the list again. */
+  /** Reads the sign-in settings, the list and the tenant's own row again. */
   private reload(): void {
     this.read.reload();
     this.rows.reload();
+    this.recordRow.reload();
   }
 
   private async write(act: () => Promise<void>): Promise<void> {
@@ -393,6 +546,19 @@ export class TenantSignInPageComponent {
   /** A handle on the tenant's directories, bound to the tenant. */
   private directories(tenant: Domain): AnyResourceHandle {
     return this.client.define(this.client.descriptor.resources[this.signIn.directories], tenant);
+  }
+
+  /**
+   * The address of a page of the tenant's people that the kept-out filter opens, or
+   * undefined: the application mounts a page of the record, the digest grants List on it in
+   * the tenant, and the reader's list of it filters by the mark.
+   */
+  private keptOutPage(people: Resource): string | undefined {
+    const route = resourcePageRoute(people);
+    if (route === undefined || !this.allows(ListPermission, people) || !this.filtersByMark(people)) {
+      return undefined;
+    }
+    return '/' + this.resolvePage(route);
   }
 
   /** Whether the digest grants the permission in the tenant, asked again when a digest loads. */

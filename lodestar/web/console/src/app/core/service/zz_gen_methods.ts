@@ -1176,6 +1176,14 @@ export interface OpenSectorToDirectory {
 export interface MakeSectorInviteOnlyConfig {}
 export interface MakeSectorInviteOnly {}
 
+/** The body VouchForSectorDirectorySecondFactor takes. The method says the sector's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; the person calling is signed in through that directory, and the method warns first. */
+export interface VouchForSectorDirectorySecondFactorConfig {}
+export interface VouchForSectorDirectorySecondFactor {}
+
+/** The body StopVouchingForSectorDirectorySecondFactor takes. The method takes back the sector's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in. */
+export interface StopVouchingForSectorDirectorySecondFactorConfig {}
+export interface StopVouchingForSectorDirectorySecondFactor {}
+
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -2301,6 +2309,17 @@ const methodMap: MethodMap = {
   },
   [Methods.MakeSectorInviteOnly]: {
     route: 'make-sector-invite-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.VouchForSectorDirectorySecondFactor]: {
+    route: 'vouch-for-sector-directory-second-factor',
+    dryRun: true,
+    warning: { typed: 'vouch' },
+    fields: [],
+  },
+  [Methods.StopVouchingForSectorDirectorySecondFactor]: {
+    route: 'stop-vouching-for-sector-directory-second-factor',
     dryRun: true,
     fields: [],
   },

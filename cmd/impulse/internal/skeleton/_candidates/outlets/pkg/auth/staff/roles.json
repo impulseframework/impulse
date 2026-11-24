@@ -727,6 +727,12 @@
             },
             {
               "resource": "MakeTenantInviteOnly"
+            },
+            {
+              "resource": "VouchForTenantDirectorySecondFactor"
+            },
+            {
+              "resource": "StopVouchingForTenantDirectorySecondFactor"
             }
           ],
           "List": [
@@ -735,6 +741,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]
@@ -909,6 +916,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]

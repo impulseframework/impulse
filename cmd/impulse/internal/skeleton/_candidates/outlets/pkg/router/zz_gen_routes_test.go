@@ -2412,8 +2412,8 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
-			handlerFunc: "DirectoryOnly",
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/sign-in-settings", method: http.MethodGet,
+			handlerFunc: "TenantSignInSettings",
 			parameters:  map[string]string{},
 		},
 		{
@@ -2434,6 +2434,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-invite-only", method: http.MethodPost,
 			handlerFunc: "MakeTenantInviteOnly", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/vouch-for-tenant-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "VouchForTenantDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-tenant-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "StopVouchingForTenantDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{
@@ -2577,8 +2587,8 @@ func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 	return s.record("DescribeStaffTenantGroup")
 }
 
-func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
-	return s.record("DirectoryOnly")
+func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
+	return s.record("TenantSignInSettings")
 }
 
 func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {
@@ -2595,6 +2605,14 @@ func (s *generatedHandlersStub) OpenTenantToDirectory() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MakeTenantInviteOnly() http.HandlerFunc {
 	return s.record("MakeTenantInviteOnly")
+}
+
+func (s *generatedHandlersStub) VouchForTenantDirectorySecondFactor() http.HandlerFunc {
+	return s.record("VouchForTenantDirectorySecondFactor")
+}
+
+func (s *generatedHandlersStub) StopVouchingForTenantDirectorySecondFactor() http.HandlerFunc {
+	return s.record("StopVouchingForTenantDirectorySecondFactor")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {

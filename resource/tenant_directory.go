@@ -51,9 +51,15 @@ type TenantDirectoryRules struct {
 	// a password (PasswordsBy): the directory-only switch is turned on by a person who
 	// has one.
 	passwords []CallerPassword
-	// counters count, one for each auth, the people a tenant seats and the ones its
-	// directory-only switch keeps out (CountedBy), for the read of the switch.
-	counters []DirectoryCounter
+	// secondFactors answer, one for each auth, whether its sign-in settings ask everyone
+	// for a second factor now (SecondFactorsBy): a tenant vouches for its directory's own
+	// second factor only where the application asks somebody for one.
+	secondFactors []AuthSecondFactor
+	// people are, one for each auth, the readers of the people a tenant seats, the ones
+	// its directory-only switch keeps out and the ones who keep the administrators' way
+	// in, with the tenant's lists of them (CountedBy), for the read of the switch and the
+	// warning that turns it on.
+	people []DirectoryPeople
 }
 
 // NewTenantDirectoryRules builds the rules over the tenant record's table and key
@@ -110,25 +116,19 @@ func (r *TenantDirectoryRules) PasswordsBy(readers ...CallerPassword) *TenantDir
 // it (SeatedCount); an application names none.
 type SeatedCount func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (int, error)
 
-// DirectoryCounter is one auth's part of the count the read of a tenant's directory-only
-// switch says (DirectoryOnlyState.People): how many people the tenant's list holds, and
-// who of them the switch keeps out, read by the same reader the warning that turns the
-// switch on asks, so the read and the warning always say the same number. A nil reader
-// counts nobody.
-type DirectoryCounter struct {
-	Seated    SeatedCount
-	Outsiders DirectoryOutsiders
-}
-
-// CountedBy answers the rules with the counters of the application's auths whose people
-// a tenant seats, one for each: the read of a tenant's switch (State) then says how many
-// people the tenant's list holds and how many of them the switch keeps out, before
-// anyone turns it on. The generated frames of a tenant's own methods pass the readers of
-// each auth's generated identity client. Rules built without counters count nobody, and
-// the read says no number.
-func (r *TenantDirectoryRules) CountedBy(counters ...DirectoryCounter) *TenantDirectoryRules {
+// CountedBy answers the rules with the application's auths whose people a tenant seats,
+// one entry for each: the readers of whom the directory-only switch keeps out and of who
+// keeps the administrators' way in, how many people the tenant's list holds, and the
+// tenant's lists that decide whether a caller is told who they are (DirectoryPeople). The
+// read of a tenant's sign-in settings (SignInSettings) says the counts from them before
+// anyone turns it on, and the warning that turns it on (DirectoryOnlyWarning) reads the
+// same entries, so the two always say the same number. The generated frames of a tenant's
+// own methods pass each auth's generated identity client's readers. Rules built without
+// entries count nobody: the read says no number, and the warning says who will lose
+// access without one.
+func (r *TenantDirectoryRules) CountedBy(people ...DirectoryPeople) *TenantDirectoryRules {
 	counted := *r
-	counted.counters = counters
+	counted.people = people
 
 	return &counted
 }

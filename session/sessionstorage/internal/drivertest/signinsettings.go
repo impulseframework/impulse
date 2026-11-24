@@ -2,6 +2,7 @@ package drivertest
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -291,6 +292,160 @@ func testSecondFactorRequiredNotCarried(ctx context.Context, t *testing.T, h *Au
 	lakesideEvent := sessioninfo.AuthEvent{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}}
 	_, _, err := signInWithEvents(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonStepUp, []sessioninfo.AuthEvent{lakesideEvent})
 	heldFor(t, err, user, sessioninfo.MethodEmailCode)
+}
+
+// counted is read, counting in asked each time it is read.
+func counted(
+	asked *atomic.Int32, read func(context.Context, HookTx, signin.Directory) ([]signin.DeclaredDirectory, error),
+) func(context.Context, HookTx, signin.Directory) ([]signin.DeclaredDirectory, error) {
+	return func(ctx context.Context, tx HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+		asked.Add(1)
+
+		return read(ctx, tx, directory)
+	}
+}
+
+func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHarness) {
+	lakesideDirectory := signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside"}
+	lakesideEvent := sessioninfo.AuthEvent{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}}
+	vouchedEvent := sessioninfo.AuthEvent{Method: sessioninfo.MethodVouchedByTenant, Connection: "conn_lakeside"}
+	tests := []struct {
+		name string
+		// vouches is the tenant's word on its directory; policy the sign-in rule's
+		// answer, nil for an Auth with no rule; row the sign-in settings row; password
+		// signs in with a password in place of the directory; roleNames are the role
+		// names the sign-in's method asserted, nil for a method that synchronizes none.
+		vouches   bool
+		policy    *signin.Decision
+		row       SettingsRow
+		password  bool
+		roleNames []string
+		// wantEvents are the session's events, nil for a sign-in that is held for
+		// wantFactors; wantUnread says the directory reader is not asked.
+		wantEvents  []sessioninfo.AuthEvent
+		wantFactors []sessioninfo.AuthMethod
+		wantUnread  bool
+	}{
+		{
+			name:    "the tenant vouches and the setting asks everyone: a session that records the tenant's word after the sign-in",
+			vouches: true, row: RequiredRow,
+			wantEvents: []sessioninfo.AuthEvent{lakesideEvent, vouchedEvent},
+		},
+		{
+			name: "the tenant declares the directory and does not vouch: held for the mailed code",
+			row:  RequiredRow, wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+		},
+		{
+			name:    "the tenant vouches and the rule holds for the mailed code, as a super administrator's does: held for the mailed code",
+			vouches: true, policy: signin.RequireMFA(sessioninfo.MethodEmailCode), row: RequiredRow,
+			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+		},
+		{
+			name:    "the tenant vouches and the rule holds for its own factor: held for that factor",
+			vouches: true, policy: signin.RequireMFA("totp"), row: RequiredRow,
+			wantFactors: []sessioninfo.AuthMethod{"totp"},
+		},
+		{
+			name:    "the tenant vouches and the setting is off: a session with the sign-in's own event alone, and the word is not read",
+			vouches: true, row: NotRequiredRow,
+			wantEvents: []sessioninfo.AuthEvent{lakesideEvent}, wantUnread: true,
+		},
+		{
+			name:    "a password sign-in while the tenant vouches: held for the mailed code, and the word is not read",
+			vouches: true, row: RequiredRow, password: true,
+			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}, wantUnread: true,
+		},
+		{
+			name:    "a sign-in through a method whose directory writes the roles while the tenant vouches: held for the mailed code, and the word is not read",
+			vouches: true, row: RequiredRow, roleNames: []string{"Teacher"},
+			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}, wantUnread: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			var asked atomic.Int32
+			declared := signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member", SecondFactor: tt.vouches}
+			cfg := AuthConfig{
+				Auth: true, AuthEvents: true, Settings: tt.row,
+				Admission: &DirectoryAdmission{Directories: counted(&asked, declaringOnly(t, lakesideDirectory, declared))},
+			}
+			if tt.policy != nil {
+				cfg.Policy = func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+					return tt.policy, nil
+				}
+			}
+			in := h.New(ctx, t, Auth, cfg)
+
+			var (
+				user *dbtype.SessionUser
+				id   impulse.UUID
+				err  error
+			)
+			if tt.password {
+				user = passwordUser(ctx, t, in.Driver, "pat@lakeside.edu")
+				_, err = passwordSignIn(ctx, in, user, sessioninfo.ReasonLogin)
+			} else {
+				user = createUser(ctx, t, in.Driver, "jane@lakeside.edu")
+				mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
+				identity := lakeside("idp_jane")
+				req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: identity.Email, Identity: identity, RoleNames: tt.roleNames}
+				id, err = in.SignIn(ctx, newInsertSession(identity.Email), req)
+			}
+			if tt.wantEvents == nil {
+				heldFor(t, err, user, tt.wantFactors...)
+			} else {
+				if err != nil {
+					t.Fatalf("sign-in error = %v, want a session", err)
+				}
+				sess := mustSession(ctx, t, in.Driver, id)
+				want := make([]sessioninfo.AuthEvent, 0, len(tt.wantEvents))
+				for _, e := range tt.wantEvents {
+					e.At = sess.CreatedAt
+					want = append(want, e)
+				}
+				if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {
+					t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
+				}
+			}
+			if n := asked.Load(); tt.wantUnread && n != 0 {
+				t.Errorf("the directory reader was asked %d times, want none", n)
+			}
+		})
+	}
+
+	// The word is read at each sign-in: taken back between two sign-ins the second is
+	// held, and given again the next gets its session, with nothing restarted.
+	t.Run("the word is read at each sign-in", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		var vouches atomic.Bool
+		vouches.Store(true)
+		read := func(_ context.Context, _ HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+			if directory != lakesideDirectory {
+				return nil, nil
+			}
+
+			return []signin.DeclaredDirectory{{Tenant: "lakeside", DefaultSeat: "Member", SecondFactor: vouches.Load()}}, nil
+		}
+		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, AuthEvents: true, Settings: RequiredRow, Admission: &DirectoryAdmission{Directories: read}})
+		user := createUser(ctx, t, in.Driver, "jane@lakeside.edu")
+		mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
+
+		if _, _, err := signIn(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonLogin); err != nil {
+			t.Errorf("sign-in while the tenant vouches error = %v, want a session", err)
+		}
+		vouches.Store(false)
+		_, _, err := signIn(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonLogin)
+		heldFor(t, err, user, sessioninfo.MethodEmailCode)
+		vouches.Store(true)
+		if _, _, err := signIn(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonLogin); err != nil {
+			t.Errorf("sign-in once the tenant vouches again error = %v, want a session", err)
+		}
+	})
 }
 
 func testSecondFactorSettingUndecidedReason(ctx context.Context, t *testing.T, h *AuthHarness) {

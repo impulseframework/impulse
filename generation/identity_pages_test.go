@@ -178,12 +178,13 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
-			name:      "a tenant's side names the directories record and the four methods that set how its people enter, and the whole application's side none",
+			name:      "a tenant's side names the directories record, the four methods that set how its people enter and the two of its word for its directory's second factor, and the whole application's side none",
 			outlet:    "console",
 			instances: []*identityInstance{directed},
 			served: []string{
 				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
 				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector",
@@ -195,6 +196,8 @@ func Test_identityOn(t *testing.T) {
 						Methods: []identityPart{
 							part("openToDirectory", "OpenSectorToDirectory"), part("makeDirectoryInviteOnly", "MakeSectorInviteOnly"),
 							part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly"),
+							part("vouchForDirectorySecondFactor", "VouchForSectorDirectorySecondFactor"),
+							part("stopVouchingForDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor"),
 						},
 					},
 				},
@@ -224,6 +227,7 @@ func Test_identityOn(t *testing.T) {
 			served: []string{
 				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
 				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector",
@@ -326,12 +330,63 @@ func Test_identityOn(t *testing.T) {
 	}
 }
 
+// Test_identityOn_tenantDirectoryOnlyField pins the tenant record's directory-only field
+// in the identity block: named as the wire names it where the outlet serves the record
+// and the record declares the switch, and absent where the record declares none or the
+// outlet does not serve it.
+func Test_identityOn_tenantDirectoryOnlyField(t *testing.T) {
+	t.Parallel()
+
+	staff := &identityInstance{auth: "Staff", outlets: []string{"console"}, tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", directories: "HarborDirectory"}}
+	tests := []struct {
+		name         string
+		switched     bool
+		served       []string
+		wantResource string
+		wantField    string
+	}{
+		{name: "a record that declares the switch, on an outlet that serves it", switched: true, served: []string{"StaffHarborUsers", "Harbors"}, wantResource: "Harbors", wantField: "directoryOnly"},
+		{name: "a record that declares no switch", served: []string{"StaffHarborUsers", "Harbors"}, wantResource: "Harbors"},
+		{name: "an outlet that does not serve the record", switched: true, served: []string{"StaffHarborUsers"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{tableMap: tenantFixtureTables(), identity: []*identityInstance{staff}}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, fixtureStructs(loadFixture(t, "tenantfixture")), "Harbor", "HarborDirectory"))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			if !tt.switched {
+				for _, res := range resources {
+					res.DirectoryOnlyField = nil
+				}
+			}
+			c.resources = resources
+			data := &tsAPIData{}
+			for _, name := range tt.served {
+				data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+			}
+			gen := &typescriptGenerator{client: c, outletName: "console"}
+
+			got := gen.identityOn(data)
+			if len(got) != 1 {
+				t.Fatalf("identityOn() = %d auths, want 1", len(got))
+			}
+			if got[0].TenantResource != tt.wantResource || got[0].TenantDirectoryOnlyField != tt.wantField {
+				t.Errorf("identityOn() TenantResource = %q, TenantDirectoryOnlyField = %q, want %q and %q", got[0].TenantResource, got[0].TenantDirectoryOnlyField, tt.wantResource, tt.wantField)
+			}
+		})
+	}
+}
+
 // Test_typescriptAPITemplate_identity pins the block as the template writes it.
 func Test_typescriptAPITemplate_identity(t *testing.T) {
 	t.Parallel()
 
 	data := &tsAPIData{Identity: []*tsAPIIdentity{{
-		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors", TenantDirectoryOnlyField: "directoryOnly",
 		Sides: []*tsAPIIdentitySide{
 			{
 				Scope:   accesstypes.GlobalPermissionScope,
@@ -347,7 +402,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
 	for _, want := range []string{
-		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      sides: [",
+		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      tenantDirectoryOnlyField: 'directoryOnly',\n      sides: [",
 		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewSessions },\n          methods: { disable: Methods.DisableCrewUser },",
 		"          scope: 'domain',\n          lists: { users: Resources.CrewSectorUsers },\n          methods: {  },",
 	} {

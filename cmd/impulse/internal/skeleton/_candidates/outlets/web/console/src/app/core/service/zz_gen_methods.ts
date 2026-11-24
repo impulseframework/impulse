@@ -708,6 +708,14 @@ export interface OpenTenantToDirectory {
 export interface MakeTenantInviteOnlyConfig {}
 export interface MakeTenantInviteOnly {}
 
+/** The body VouchForTenantDirectorySecondFactor takes. The method says the tenant's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; the person calling is signed in through that directory, and the method warns first. */
+export interface VouchForTenantDirectorySecondFactorConfig {}
+export interface VouchForTenantDirectorySecondFactor {}
+
+/** The body StopVouchingForTenantDirectorySecondFactor takes. The method takes back the tenant's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in. */
+export interface StopVouchingForTenantDirectorySecondFactorConfig {}
+export interface StopVouchingForTenantDirectorySecondFactor {}
+
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -1417,6 +1425,17 @@ const methodMap: MethodMap = {
   },
   [Methods.MakeTenantInviteOnly]: {
     route: 'make-tenant-invite-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.VouchForTenantDirectorySecondFactor]: {
+    route: 'vouch-for-tenant-directory-second-factor',
+    dryRun: true,
+    warning: { typed: 'vouch' },
+    fields: [],
+  },
+  [Methods.StopVouchingForTenantDirectorySecondFactor]: {
+    route: 'stop-vouching-for-tenant-directory-second-factor',
     dryRun: true,
     fields: [],
   },
