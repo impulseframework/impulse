@@ -343,7 +343,7 @@ How it is wired:
   once the publish knows which tables change it. The generator reads each virtual
   resource's tables off its embedded query with memefish's lexer, the names in table
   positions: Mission Boards carries Missions' rows
-  (`@rowsOf`) and reads Clients and Squadrons; Squadron Rosters and Pilot Assignments
+  (`@rowsOf`) and reads no other table; Squadron Rosters and Pilot Assignments
   carry SquadronMemberships' rows and read Squadrons, Wings and, for the rosters, Pilots;
   Client Rosters, Fee By Kinds and Open Missions By Squadrons carry no table's rows and
   read Clients, ClientContacts, Missions, Sectors and Squadrons between them. The hazard
@@ -364,7 +364,8 @@ How it is wired:
   sector's open list ([`auth.tenant-lists`](cmd/generate/generator.go)). A
   mission's write reaches the mission board's row and list subscribers under the
   mission's own key, as Missions' own; a client's write, Clients being global, reaches
-  every board subscriber in every sector as one resource document; a ship's write
+  every subscriber of the client rosters in every sector as one resource document, a
+  mission board that shows its clients by name among them; a ship's write
   reaches the hazard board's subscribers in its sector. The integration suite plays all
   three ([`live_test.go`](test/integration/live_test.go)).
 
@@ -445,11 +446,13 @@ A list page over a resource with search fields draws the box above the grid, and
 grid's column filters beside it; both narrow one request. The page sends its own filter,
 the complete column filters and the box as conjuncts of one AND, the first two
 parenthesized and the box bare, `(statusId:eq:open),*:search:"survey"`. The server
-gathers the box's key set and applies the rest of the filter over the joined rows, the
-count and the cursor pages carry the whole, and the declared order stands. The box is the
+applies the box and the rest of the filter in one WHERE where the box searches one index,
+and gathers the box's key set and applies the rest of the filter over the joined rows where
+it spans several (the clients' box, with their contacts); either way the count and the
+cursor pages carry the whole, and the declared order stands. The box is the
 indexed touch a companion-only column waits for, so on the
-[Missions page](web/console/src/app/configs/missions.config.ts), the board over two
-tables' indexes with filters on status, squadron, kind, deadline and days left, a
+[Missions page](web/console/src/app/configs/missions.config.ts), the board, whose box searches the
+mission's title, with filters on status, squadron, kind, deadline and days left, a
 days-left filter rides beside the box alone and leaves when the last indexed touch, the
 box or a status filter, is cleared; the deadline's menu takes a date as a person writes
 it (below). The filter is placed as a whole: on the

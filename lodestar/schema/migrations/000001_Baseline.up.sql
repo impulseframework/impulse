@@ -1602,8 +1602,8 @@ CREATE SEARCH INDEX SquadronsSearch ON Squadrons(Name_Search);
 
 CREATE SEARCH INDEX MissionsSearch ON Missions(Title_Search, Deadline_Search) PARTITION BY SectorId;
 
--- The mission board's box also reaches Clients' index, and comes back to the missions
--- through ClientId: the key set costs the matches only with this index.
+-- A filter by the client's name, on the missions and on the mission board, comes back to
+-- the missions through ClientId: this index answers it.
 CREATE INDEX MissionsBySectorIdClientId ON Missions(SectorId, ClientId);
 
 CREATE INDEX HangarsBySectorIdNameLower ON Hangars(SectorId, Name_Lower);

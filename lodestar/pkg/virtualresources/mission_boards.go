@@ -24,10 +24,11 @@ type (
 	// its metadata says filterable: withIndexed, and the browser offers a days-left
 	// filter only beside one on an indexed column, the rule the database parse enforces.
 	//
-	// The board's box searches the mission's title: Title names Missions.Title, the SQL
-	// projects its token column, and a box over the board gathers each term's key set
-	// from the index and joins it back on the key; the box then joins the rest of the
-	// filter with AND alone.
+	// The board's box searches the mission's title: Title names Missions.Title and the SQL
+	// projects its token column, so the box and Title's matches ride MissionsSearch. It is
+	// a box over one index, so it stands anywhere in a filter, inside an OR too. A client
+	// is found by the Client column's own filter, which tests the name the client rosters
+	// give (ClientName).
 	//
 	// The board is live without a declaration: the generator reads the tables its query
 	// names off mission_boards.sql with memefish's lexer (Missions), records them in this
@@ -37,7 +38,7 @@ type (
 	// do; a page of the board that shows a client's or a squadron's name registers the
 	// list the name is read from, so a write to a client or a squadron reaches it there.
 	//
-	// Demonstrates: @rowsOf, @rowsOf.same-row, @virtual, virtual.domain, metadata.filterable, search.view, search.key-set, live.derived.
+	// Demonstrates: @rowsOf, @rowsOf.same-row, @virtual, virtual.domain, metadata.filterable, search.view, live.derived.
 	//
 	// @virtual
 	// @rowsOf(Missions)

@@ -38,7 +38,11 @@ type (
 	// tokens are anchored, so Name answers startswith and endswith beside contains, and
 	// the other two answer contains alone. @searchAlso adds
 	// the client contact's display name to the box through the contact table's own index,
-	// joined on ClientId. ContactEmail is PII, so a filter carrying the box posts. The
+	// joined on ClientId. The box so spans two search indexes, the clients' and the
+	// contacts': each term's keys are gathered from each index and joined back on the
+	// client's key, so the box joins the rest of a filter with AND alone, and a box inside
+	// an OR is refused with the way out. ContactEmail is PII, so a filter carrying the box
+	// posts. The
 	// ClientBrowser role reads name alone under `trusted = true`: its box drops the
 	// contact fields and the branch without a word and so travels in the URL, matches a
 	// name only on a trusted row, and an explicit `contactEmail:contains:` from that role
@@ -49,7 +53,7 @@ type (
 	// documents are under a client only through the mission, so they need no place in
 	// the list.
 	//
-	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search, @deleteCascade, delete.rows-under-refusal.
+	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.key-set, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search, @deleteCascade, delete.rows-under-refusal.
 	//
 	// @resource
 	// @deleteCascade(ClientContact, refusedBy: Mission, Consignment)
