@@ -10,7 +10,6 @@ import {
   IDLE_TIMEOUT_REQUIRE_CONFIRMATION,
   IDLE_WARNING_DURATION,
 } from '@impulseframework/resource-angular/types';
-import { UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import { interval, Subscription } from 'rxjs';
 
@@ -19,7 +18,6 @@ import { interval, Subscription } from 'rxjs';
 })
 export class IdleService implements OnDestroy {
   private auth = inject(AuthService);
-  private core = inject(UiCoreService);
   private router = inject(Router);
   private notifications = inject(NotificationService);
   private readonly signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
@@ -55,6 +53,7 @@ export class IdleService implements OnDestroy {
   });
 
   private alertId: number | undefined;
+  private signedOutNoticeId: number | undefined;
   private mainTickerSubscription: Subscription | undefined;
   private keepAliveSubscription: Subscription | undefined;
 
@@ -67,9 +66,12 @@ export class IdleService implements OnDestroy {
   /**
    * Starts the idle monitoring service: the idle ticker, the activity listeners, and the
    * keep-alive, which asks the server for the session every IDLE_KEEPALIVE_DURATION seconds
-   * while the session is authenticated. Nothing runs before this call.
+   * while the session is authenticated. Nothing runs before this call. A sign-in page calls it
+   * when the person has signed in, so it first takes down the signed-out notice the last
+   * session's end left on the screen, and no other notice.
    */
   start(): void {
+    this.dismissSignedOutNotice();
     if (this.isActive()) {
       return;
     }
@@ -82,8 +84,9 @@ export class IdleService implements OnDestroy {
   }
 
   /**
-   * Stops the idle monitoring service and cleans up timers and alerts. The keep-alive ends
-   * with the ticker, so a logged-out application has no timer due and can settle.
+   * Stops the idle monitoring service and cleans up its timers and its warning notice; the
+   * signed-out notice stays (logoutAndStop). The keep-alive ends with the ticker, so a
+   * logged-out application has no timer due and can settle.
    */
   stop(): void {
     this.isActive.set(false);
@@ -97,7 +100,11 @@ export class IdleService implements OnDestroy {
   /**
    * Logs the user out due to inactivity: runs the configured idle logout action, stops the
    * service and sends the browser to the sign-out route (FRONTEND_SIGN_OUT_PATH), whose page
-   * ends the session and forwards to the login page.
+   * ends the session and forwards to the login page. It says why in one persistent notice: the
+   * person it is for is away from the screen, so the alert's own auto-dismiss would hide it
+   * before they are back. The notice stays until the person closes it or signs back in, when
+   * start() takes it down; stop() leaves it, since the sign-out page and the login page both
+   * stop the service while it shows.
    */
   logoutAndStop(): void {
     try {
@@ -108,10 +115,11 @@ export class IdleService implements OnDestroy {
     this.stop();
 
     this.router.navigate([this.signOutPath]);
-    this.core.publishError({
+    this.signedOutNoticeId = this.notifications.addGlobalNotification({
       message: 'You have been logged out due to inactivity.',
       type: AlertType.IDLE,
       link: '',
+      persistent: true,
     });
   }
 
@@ -221,6 +229,13 @@ export class IdleService implements OnDestroy {
     if (this.alertId !== undefined) {
       this.notifications.dismissGlobalNotificationById(this.alertId);
       this.alertId = undefined;
+    }
+  }
+
+  private dismissSignedOutNotice(): void {
+    if (this.signedOutNoticeId !== undefined) {
+      this.notifications.dismissGlobalNotificationById(this.signedOutNoticeId);
+      this.signedOutNoticeId = undefined;
     }
   }
 }
