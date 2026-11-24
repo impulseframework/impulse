@@ -2127,8 +2127,9 @@ var _ interface {
 } = (*{{ .ApplicationName }})(nil)
 
 // {{ .HandlerFunc }} serves the create-your-{{ .RecordLower }} route, POST {{ .RoutePath }}: a signed-in person
-// who holds no {{ .RecordLower }} creates one and becomes its administrator, while an administrator has
-// a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
+// who holds no {{ .RecordLower }} creates one and becomes its administrator, when the session
+// signed in through a method of the {{ .Auth }} auth that an administrator has open to sign-up.
+// No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
 // one is refused (403). The rule is asked twice. The request's permissions answer it
@@ -2144,10 +2145,10 @@ var _ interface {
 // acts with no mask creates the {{ .RecordLower }} as the person would. Nobody is the subject of what
 // they do while they act as someone else: in a session that acts as a role the person
 // who would become the administrator is the real person behind it, who is refused
-// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether sign-up
-// is open is read in the transaction that writes the row, from the auth's sign-in
-// methods table: while every method is invite only the call is refused (403) and
-// nothing is written. The row is written first, in
+// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether the
+// session's own sign-in method is open to sign-up is read in the transaction that writes
+// the row, from the auth's sign-in methods table: a session that came through an
+// invite-only method is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -2157,14 +2158,15 @@ var _ interface {
 // in the {{ .RecordLower }}; the tenants kind is signaled last, so every instance serves it at
 // once.
 {{- if .Directory }}
-// The {{ .RecordLower }}'s directory is the one its creator came through: a person who
-// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
-// tenant) has it set on the new {{ .RecordLower }} in the row's transaction
-// (Set{{ .Record }}Directory, which writes the {{ .Directory.Record }} row), so the {{ .RecordLower }} admits
-// them at once. A directory belongs to one {{ .RecordLower }}: a person whose organization has a
-// {{ .RecordLower }} already is refused (409) and nothing is written. A person who signed in by
-// password, or with a personal account, which is no organization's directory, sets
-// none, and the {{ .RecordLower }} admits both as every {{ .RecordLower }} with no directory does.
+// The {{ .RecordLower }} takes no directory from its creator: a person who signed up creates a
+// {{ .RecordLower }} that has none, and its administrator takes the organization's directory
+// afterwards, as a step of its own. The exception is an application that holds a person
+// to one tenant (identity.WithOneTenantPerPerson, asked while the application runs): there
+// a creator who signed in through an organization's directory has it set on the new
+// {{ .RecordLower }} in the row's transaction (Set{{ .Record }}Directory), and a person whose
+// organization has a {{ .RecordLower }} already is refused (409) with nothing written. A
+// creator who signed in by password, or with a personal account, sets none in either
+// kind of application.
 // The roster must list the {{ .RecordLower }} and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a {{ .RecordLower }} the roster does
 // not know admits nobody who came through a directory.
@@ -2247,13 +2249,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			if holds {
 				return httpio.NewForbiddenMessage("{{ .Refusal }}")
 			}
-			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
-			// while an administrator has a sign-in method open to sign-up. A person who
-			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
-			// decided here, before the refusal, when that invitation exists.
-			open, err := identityClient.AnySignInMethodOpen(ctx, txn)
+			// Who is admitted: a person with no {{ .RecordLower }} whose session signed in through
+			// a method an administrator has open to sign-up now. That another method is
+			// open admits nobody. A person invited to create a {{ .RecordLower }} never comes
+			// here: the invitation's acceptance makes it.
+			open, err := identityClient.SessionSignInMethodOpen(ctx, txn)
 			if err != nil {
-				return errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()")
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().SessionSignInMethodOpen()")
 			}
 			if !open {
 				return httpio.NewForbiddenMessage("{{ .ClosedRefusal }}")
@@ -2271,15 +2273,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Record }}CreatePatch.Buffer()")
 			}
 			{{- if .Directory }}
-			// The creator's directory, written with the row: the organization's directory
-			// the creator is signed in through, held to the rules of a {{ .RecordLower }}'s
-			// directory, so a directory another {{ .RecordLower }} has refuses the creation and
-			// nothing is written. None for a creator who came by password or with a
-			// personal account, which is no organization's directory.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
-				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
-					if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
-						return errors.Wrap(err, "Set{{ .Record }}Directory()")
+			// The creator's directory, written with the row only where the application
+			// holds a person to one tenant: the organization's directory the creator is
+			// signed in through, held to the rules of a {{ .RecordLower }}'s directory, so a
+			// directory another {{ .RecordLower }} has refuses the creation and nothing is
+			// written. None for a creator who came by password or with a personal account,
+			// which is no organization's directory. Elsewhere a {{ .RecordLower }} made by
+			// sign-up takes no directory: its administrator takes it afterwards.
+			if identityClient.OneTenantPerPerson() {
+				if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+					if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+						if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
+							return errors.Wrap(err, "Set{{ .Record }}Directory()")
+						}
 					}
 				}
 			}
@@ -2329,8 +2335,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 // same four facts: the session's permission mask does not refuse the action {{ .Action }}
 // (resource.MaskRefusesAction), the creator would not be the real person behind a
 // session that acts as someone else (identity.ImpersonatorIs), the session holds a
-// grant in no {{ .RecordLower }}, and an administrator has a sign-in method of the {{ .Auth }} auth open to
-// sign-up, read as committed. No grant admits the call, which any signed-in person
+// grant in no {{ .RecordLower }}, and the session signed in through a method of the {{ .Auth }} auth
+// that an administrator has open to sign-up, read as committed. No grant admits the call,
+// which any signed-in person
 // makes, and nothing is written or logged. The POST decides again in its own
 // transaction: what is offered here may be refused there a moment later.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() http.HandlerFunc {
@@ -2365,9 +2372,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() h
 		if len(held) > 0 {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		open, err := identityClient.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
+		open, err := identityClient.SessionSignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
 		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().SessionSignInMethodOpen()"))
 		}
 
 		return httpio.NewEncoder(w).Ok(offer{Offered: open})

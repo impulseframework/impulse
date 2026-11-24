@@ -396,9 +396,10 @@ type tenantCreationData struct {
 	Fields  []*tenantCreationField
 	Setters []string
 	// Refusal is the sentence a person who already holds a tenant is answered with, and
-	// ClosedRefusal the one everyone is answered with while no sign-in method is open
-	// to sign-up. OwnCreation is what the route does, as the end of "you cannot", for
-	// the refusal of the real person behind a session that acts as someone else.
+	// ClosedRefusal the one a person is answered with when the sign-in method their
+	// session came through is not open to sign-up. OwnCreation is what the route does,
+	// as the end of "you cannot", for the refusal of the real person behind a session
+	// that acts as someone else.
 	Refusal       string
 	ClosedRefusal string
 	OwnCreation   string
@@ -558,11 +559,12 @@ func tenantCreationOwnCreation(record string) string {
 	return fmt.Sprintf("create %s of your own", withArticle(lower))
 }
 
-// tenantCreationClosedRefusal is what a person is answered with while every sign-in
-// method is invite only: nobody signs up, so nobody creates a tenant of their own. Its
-// second sentence is the person's own next step.
+// tenantCreationClosedRefusal is what a person is answered with when the sign-in method
+// their session came through is invite only: they did not sign up through it, so they
+// create no tenant of their own, whatever other methods are open. Its second sentence is
+// the person's own next step.
 func tenantCreationClosedRefusal(record string) string {
-	return fmt.Sprintf("Sign-up is not open, so you cannot %s. Ask an administrator of the application to create one for you, or to invite you to one.", tenantCreationOwnCreation(record))
+	return fmt.Sprintf("Sign-up is not open for the way you signed in, so you cannot %s. Ask an administrator of the application to create one for you, or to invite you to one.", tenantCreationOwnCreation(record))
 }
 
 // withArticle is the word with its article, as a sentence names one of them: "a

@@ -957,7 +957,9 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 
 // Test_tenantCreationTemplate_declaration pins the create-your-tenant route of a record
 // that declares who may enter a tenant: the request leaves the key and the
-// directory-only flag out, and the new tenant's directory is the one its creator came
+// directory-only flag out, and a tenant made by sign-up takes no directory, except in an
+// application that holds a person to one tenant (the identity client's
+// OneTenantPerPerson): there the new tenant's directory is the one its creator came
 // through, set in the row's transaction through the generated Set<Record>Directory,
 // which holds it to the rules of a tenant's directory, when the session was established
 // through an organization's directory, under the id the create generated: the id itself
@@ -1049,7 +1051,9 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				"patch, err := resources.NewHarborCreatePatch()",
 				"id = patch.ID()",
 				`"github.com/impulseframework/impulse/session/signin"`,
-				"if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {",
+				// The creator's directory is set only where the application holds a person
+				// to one tenant: elsewhere a tenant made by sign-up takes none.
+				"if identityClient.OneTenantPerPerson() {\n\t\t\t\tif established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {",
 				// A password and a personal account are no organization's directory:
 				// neither sets one.
 				"if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {",
