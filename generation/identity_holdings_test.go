@@ -100,6 +100,19 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 			// An application with no tenant record holds every role where its groups are kept.
 			"  ARRAY(SELECT cr.Role FROM CrewGroupRoles cr WHERE cr.GroupId = g.Id AND " + standingSQL("cr") + " ORDER BY cr.Role) AS Roles\nFROM CrewGroups g\n`",
 		},
+		// The accounts with what each holds: the account's columns, the four a list filters
+		// by, a line for each role the person holds as the one list of their roles has it,
+		// and the lock of an auth whose schema counts failed sign-ins. An application with
+		// no tenant record holds every role in the whole application: a line is the role's
+		// name, and the query joins no tenant.
+		"internal/crewresources/crew_listed_users.go": {
+			"// @virtual\n\t// @outlet(default)\n\t// @order(Username asc)\n\t// @page(default: 25, max: 200)\n\t// @rowWord(account)\n\tCrewListedUser struct {",
+			"// @primarykey\n\t\tID                     impulse.UUID `spanner:\"Id\"                     index:\"true\"`\n\t\tUsername               string       `spanner:\"Username\"               index:\"true\"`\n\t\tName                   *string      `spanner:\"Name\"                   index:\"true\"`\n\t\tEmail                  *string      `spanner:\"Email\"                  index:\"true\"`\n\t\tEmailVerifiedAt        *time.Time   `spanner:\"EmailVerifiedAt\"`",
+			"// @roleOf(Crew)\n\t\tRoles       []string   `spanner:\"Roles\"`\n\t\tLockedUntil *time.Time `spanner:\"LockedUntil\"`\n\t}",
+			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role AS Line\n    FROM (` + crewHeldRoleQuery + `) hr\n    WHERE hr.UserId = u.Id\n    ORDER BY Line\n  ) AS Roles,\n" +
+				"  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil\nFROM CrewSessionUsers u\n`",
+			"func (CrewListedUser) Subquery() (query string, params map[string]any) {\n\treturn crewListedUserQuery, nil\n}",
+		},
 		"internal/crewresources/crew_listed_group_roles.go": {
 			"// @virtual\n\t// @suppress(readHandler)",
 			"Losing    int64      `spanner:\"Losing\"`",
@@ -137,6 +150,10 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 			"  m.Reason AS Reason\nFROM MembersUserRoles m\nJOIN MembersSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\n`",
 		},
 	})
+	// The Members auth's schema holds no sign-in attempts table: its accounts carry no lock.
+	if listed := readTreeFile(t, "internal/membersresources/members_listed_users.go"); !strings.Contains(listed, "  ) AS Roles\nFROM MembersSessionUsers u\n`") || strings.Contains(listed, "LockedUntil") {
+		t.Errorf("the Members auth's accounts are not listed with their roles alone, and its schema counts no failed sign-in:\n%s", listed)
+	}
 	if held := readTreeFile(t, "internal/membersresources/members_held_roles.go"); strings.Contains(held, "UNION ALL") || strings.Contains(held, "@enumerate") {
 		t.Errorf("the Members auth's one list of roles reads roles through a group or links to one, and the auth keeps none:\n%s", held)
 	}
@@ -297,6 +314,12 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 		"internal/crewresources/crew_listed_groups.go": {
 			"      WHEN cr.Kind = 'every' THEN CONCAT(cr.Role, ' in every ship')\n      WHEN cr.Kind = 'domain' THEN CONCAT(cr.Role, ' in ship ', cr.DomainId)\n      ELSE CONCAT(cr.Role, ' for the whole application')\n    END\n    FROM CrewGroupRoles cr\n",
 		},
+		// A line of the whole application's accounts says where a role is held, in the words
+		// the groups list uses; the tenant record marks no name, so the line names the key and
+		// the query joins no tenant.
+		"internal/crewresources/crew_listed_users.go": {
+			"    SELECT DISTINCT CASE WHEN hr.Kind = 'every' THEN CONCAT(hr.Role, ' in every ship') WHEN hr.Kind = 'domain' THEN CONCAT(hr.Role, ' in ship ', hr.DomainId) ELSE hr.Role END AS Line\n    FROM (` + crewHeldRoleQuery + `) hr\n    WHERE hr.UserId = u.Id\n",
+		},
 		"internal/crewresources/crew_ship_group_roles.go": {
 			"Losing    int64      `spanner:\"Losing\"`",
 			"  r.EndsAt AS EndsAt,\n" + losingSQL() + "\nFROM CrewGroups g\nJOIN CrewGroupRoles r ON r.GroupId = g.Id\n",
@@ -352,11 +375,12 @@ func Test_identityInstance_rolesFrom(t *testing.T) {
 }
 
 // Test_identityOn_holdings pins what the generated API description says of what is held
-// and why: the whole application's side names a person's roles by the one list, the
-// groups and their roles by the lists that say what each holds, and the roles held for
-// a set time with the method that takes one, each only where the outlet serves it; and
-// an auth whose directory writes its roles names the directory, in the words of its
-// login page, a quote in them written so the description still reads.
+// and why: the whole application's side names its accounts, the groups and their roles
+// by the lists that say what each holds, a person's roles by the one list, and the roles
+// held for a set time with the method that takes one, each only where the outlet serves
+// it; an auth whose directory writes its roles names the directory, in the words of its
+// login page, a quote in them written so the description still reads; and an auth whose
+// schema holds no memberships names its accounts by the users table's list.
 func Test_identityOn_holdings(t *testing.T) {
 	t.Parallel()
 
@@ -367,9 +391,12 @@ func Test_identityOn_holdings(t *testing.T) {
 		tables:  map[identityTable]bool{identityUsers: true, identityMemberships: true},
 		signIns: []identitySignIn{{Name: "google", Label: "Lakeside's Google", syncsRoles: true}, {Name: "entra", Label: "Microsoft", syncsRoles: true}},
 	}
+	// With no memberships table nothing is held: the accounts are the users table's list.
+	guests := &identityInstance{auth: "Guests", outlets: []string{"console"}, tables: map[identityTable]bool{identityUsers: true}}
 	served := []string{
-		"CrewSessionUsers", "CrewUserRoles", "CrewHeldRoles", "CrewGroups", "CrewListedGroups", "CrewGroupRoles", "CrewListedGroupRoles", "CrewTakenRoles",
-		"MembersSessionUsers", "MembersUserRoles", "MembersHeldRoles",
+		"CrewSessionUsers", "CrewListedUsers", "CrewUserRoles", "CrewHeldRoles", "CrewGroups", "CrewListedGroups", "CrewGroupRoles", "CrewListedGroupRoles", "CrewTakenRoles",
+		"MembersSessionUsers", "MembersListedUsers", "MembersUserRoles", "MembersHeldRoles",
+		"GuestsSessionUsers",
 	}
 	data := &tsAPIData{Methods: []*tsAPIMethod{{Name: "TakeCrewRole"}, {Name: "DeleteCrewGroup"}}}
 	for _, name := range served {
@@ -379,14 +406,14 @@ func Test_identityOn_holdings(t *testing.T) {
 		return identityPart{Key: key, Name: name}
 	}
 
-	generator := &typescriptGenerator{client: &client{identity: []*identityInstance{crew, members}}, outletName: "console"}
+	generator := &typescriptGenerator{client: &client{identity: []*identityInstance{crew, members, guests}}, outletName: "console"}
 	want := []*tsAPIIdentity{
 		{
 			Auth: "Crew", Label: "Crew",
 			Sides: []*tsAPIIdentitySide{{
 				Scope: accesstypes.GlobalPermissionScope,
 				Lists: []identityPart{
-					part("users", "CrewSessionUsers"), part("roles", "CrewHeldRoles"), part("groups", "CrewListedGroups"),
+					part("users", "CrewListedUsers"), part("roles", "CrewHeldRoles"), part("groups", "CrewListedGroups"),
 					part("groupRoles", "CrewListedGroupRoles"), part("takenRoles", "CrewTakenRoles"),
 				},
 				Methods: []identityPart{part("deleteGroup", "DeleteCrewGroup"), part("takeRole", "TakeCrewRole")},
@@ -396,7 +423,14 @@ func Test_identityOn_holdings(t *testing.T) {
 			Auth: "Members", Label: "Members", RolesFrom: `Lakeside\'s Google or Microsoft`,
 			Sides: []*tsAPIIdentitySide{{
 				Scope: accesstypes.GlobalPermissionScope,
-				Lists: []identityPart{part("users", "MembersSessionUsers"), part("roles", "MembersHeldRoles")},
+				Lists: []identityPart{part("users", "MembersListedUsers"), part("roles", "MembersHeldRoles")},
+			}},
+		},
+		{
+			Auth: "Guests", Label: "Guests",
+			Sides: []*tsAPIIdentitySide{{
+				Scope: accesstypes.GlobalPermissionScope,
+				Lists: []identityPart{part("users", "GuestsSessionUsers")},
 			}},
 		},
 	}

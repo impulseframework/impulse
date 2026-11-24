@@ -393,6 +393,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/unlock_crew_sign_in.go",
 		"crewidentity/withdraw_crew_invitation.go",
 		"internal/crewresources/crew_held_roles.go",
+		"internal/crewresources/crew_listed_users.go",
 		"internal/crewresources/crew_role_grants.go",
 		"internal/crewresources/crew_roles.go",
 		"internal/crewresources/crew_session_auth_events.go",
@@ -410,6 +411,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_user_roles.go",
 		"internal/crewresources/resources.go",
 		"internal/membersresources/members_held_roles.go",
+		"internal/membersresources/members_listed_users.go",
 		"internal/membersresources/members_roles.go",
 		"internal/membersresources/members_session_users.go",
 		"internal/membersresources/members_sessions.go",
@@ -479,7 +481,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/store.go":                         {"identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID,", "crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()", "func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":        string(sessionstorage.MailLinkInvitation),`, `"EveryTenant": row.EveryTenant,`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":    {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go": {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
-		"crewidentity/remove_crew_password.go":          {"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(credential)\ntype RemoveCrewPassword struct {\n\t// @target(CrewSessionUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
+		"crewidentity/remove_crew_password.go":          {"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(credential)\ntype RemoveCrewPassword struct {\n\t// @target(CrewListedUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
 		// How a person signs in: a computed list of one person's ways, the password and
 		// the identities that count, read through the identity package's judgment and
 		// named by the words the generator program declares for the auth's sign-ins.
@@ -492,7 +494,7 @@ func Test_prepareIdentity(t *testing.T) {
 			"var signInWords = map[string]string{\n\t\"password\": \"Password\",\n\t\"google\":   \"" + fleetDirectory + "\",\n}",
 			"func signInThrough(way *identity.SignInWay) string {",
 		},
-		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewSessionUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
+		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewListedUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
 		"crewidentity/invite_crew_user.go": {
@@ -504,11 +506,11 @@ func Test_prepareIdentity(t *testing.T) {
 			"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
 		},
 		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
-		"crewidentity/disable_crew_user.go":        {"// @rpc", "// @outlet(default)", "// @target(CrewSessionUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
+		"crewidentity/disable_crew_user.go":        {"// @rpc", "// @outlet(default)", "// @target(CrewListedUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
 		// An address is asked for and never written: the method takes one, answers how
 		// the mailing went, and hands the manager the callback that tells it.
 		"crewidentity/set_crew_user_email.go": {
-			"// @target(CrewSessionUser)", "Email  string `validate:\"required\"`", "SetCrewUserEmailResult struct {",
+			"// @target(CrewListedUser)", "Email  string `validate:\"required\"`", "SetCrewUserEmailResult struct {",
 			"client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {",
 		},
 		// Whether people may reset their own password is one question, written as the one
@@ -519,11 +521,11 @@ func Test_prepareIdentity(t *testing.T) {
 			"client.manager.SetSelfServiceReset(ctx, txn, m.On)",
 		},
 		"crewidentity/send_crew_user_password_reset_link.go": {
-			"// @target(CrewSessionUser)", "SendCrewUserPasswordResetLinkResult struct {",
+			"// @target(CrewListedUser)", "SendCrewUserPasswordResetLinkResult struct {",
 			"client.manager.SendPasswordResetLink(ctx, txn, m.UserID, func(sent bool, reason string) {",
 		},
-		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
-		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
+		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewListedUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
+		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersListedUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"internal/crewresources/crew_session_users.go":      {"Name                   *string      `spanner:\"Name\"`"},
 		"internal/crewresources/crew_session_mail_links.go": {"Name        *string       `spanner:\"Name\"`", "EveryTenant bool          `spanner:\"EveryTenant\"`", "MailFailedAt    *time.Time    `spanner:\"MailFailedAt\"`", "(first-password), a password reset (password-reset)"},
 		// A role is given to and taken from a person by the id of their account, and given
@@ -649,6 +651,13 @@ func Test_prepareIdentity_noMemberships(t *testing.T) {
 			},
 			wantNot: []string{"errNoMemberships"},
 		},
+		{
+			// With no memberships there is nothing held to list beside the accounts: a
+			// method on a person names the users table's row.
+			file:    "membersidentity/rename_members_user.go",
+			want:    []string{"// @target(MembersSessionUser)"},
+			wantNot: []string{"MembersListedUser"},
+		},
 	} {
 		content, err := os.ReadFile(filepath.Join("pkg", "identity", tt.file))
 		if err != nil {
@@ -664,6 +673,14 @@ func Test_prepareIdentity_noMemberships(t *testing.T) {
 				t.Errorf("%s holds %q:\n%s", tt.file, line, content)
 			}
 		}
+	}
+	// The accounts are listed with what each holds where the schema holds the memberships,
+	// and not where it does not.
+	if _, err := os.Stat(filepath.Join("pkg", "identity", "internal", "crewresources", "crew_listed_users.go")); err != nil {
+		t.Errorf("the Crew auth's accounts are not listed with what each holds: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join("pkg", "identity", "internal", "membersresources", "members_listed_users.go")); !os.IsNotExist(err) {
+		t.Errorf("os.Stat(members_listed_users.go) error = %v, want the file not written", err)
 	}
 }
 
@@ -914,6 +931,15 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"// @attribute(managedHere)\n\t\tManagedHere bool", "// @attribute(managedByAnotherDirectory)\n\t\tManagedByAnotherDirectory bool",
 			"const crewShipUserQuery = `\nSELECT\n  *,\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\nSELECT\n  u.Id AS Id,",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n) p\n`",
+			// What the person holds in the tenant itself, a line for each role: for an auth
+			// that keeps no groups, the person's own memberships in the row's tenant that have
+			// not ended, read as the tenant's list of the roles held reads them.
+			"// @roleOf(Crew)\n\t\tRoles       []string   `spanner:\"Roles\"`\n\t\tLockedUntil *time.Time `spanner:\"LockedUntil\"`\n",
+			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role\n    FROM (\n      SELECT o.Role AS Role\n      FROM CrewUserRoles o\n" +
+				"      WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId\n        AND " + standingSQL("o") + "\n    ) hr\n    ORDER BY hr.Role\n  ) AS Roles,\n",
+			// Until when the person's sign-in is locked: the schema holds the sign-in attempts
+			// table, so the lock is read by the account's three keys.
+			"  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,\n  (EXISTS (",
 		},
 		"internal/crewresources/crew_ship_user_roles.go": {
 			"CrewShipUserRole struct {", "// @order(Username asc, Role asc)", "// @attribute(everyDomain)",
@@ -938,7 +964,10 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\nJOIN CrewSessionIdentities i ON i.UserId = u.Id",
 		},
-		"internal/membersresources/members_ship_users.go": {"// @outlet(portal, default)", "MembersShipUser struct {", "FROM MembersUserRoles m", "JOIN MembersSessionUsers u ON"},
+		"internal/membersresources/members_ship_users.go": {
+			"// @outlet(portal, default)", "MembersShipUser struct {", "FROM MembersUserRoles m", "JOIN MembersSessionUsers u ON",
+			"// @roleOf(Members)\n\t\tRoles []string `spanner:\"Roles\"`\n", ") AS Roles,\n  (EXISTS (",
+		},
 	} {
 		content, err := os.ReadFile(filepath.Join("pkg", "identity", file))
 		if err != nil {
@@ -960,9 +989,18 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		// whole for every tenant, and a fact that puts the two kinds of membership under
 		// one OR read the memberships table by its key for every listed person. A key
 		// joined from two values is one the database cannot look a row up by: a read of
-		// one row of the roles held joined the tenant's memberships whole.
+		// one row of the roles held joined the tenant's memberships whole. The two keys
+		// the lock of a person's sign-in is read by (identitySourceData.LockedUntil) are
+		// not that form and are taken out before the forms are looked for: each is a
+		// value made from the person's own row that another table, the sign-in attempts,
+		// is looked up by its key with, and no column of the list. Any other value joined
+		// from two is refused as before.
+		searched := string(content)
+		for _, prefix := range []string{firstPasswordAttemptPrefix, codeGuessAttemptPrefix} {
+			searched = strings.ReplaceAll(searched, "CONCAT('"+prefix+"', u.Id)", "")
+		}
 		for _, form := range []string{"NORMALIZE_AND_CASEFOLD", "o.Kind = 'every' OR", "CONCAT("} {
-			if strings.Contains(string(content), form) {
+			if strings.Contains(searched, form) {
 				t.Errorf("%s holds %q, a form the database plans as a whole-table read:\n%s", file, form, content)
 			}
 		}
@@ -974,6 +1012,16 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 	if content := readTreeFile(t, "internal/crewresources/crew_ship_identities.go"); strings.Contains(content, "HeldHere bool") || strings.Contains(content, "HeldInEveryTenant") ||
 		!strings.Contains(content, "* EXCEPT (HeldHere),\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\n") {
 		t.Errorf("the list of identities carries a fact of the list of people's alone, or reads who manages the account otherwise than the list of people:\n%s", content)
+	}
+
+	// For an auth that keeps no groups, what the person holds in the tenant itself is
+	// their own memberships alone: the column reads no second branch.
+	users := readTreeFile(t, "internal/crewresources/crew_ship_users.go")
+	from, to := strings.Index(users, "  ARRAY(\n    SELECT DISTINCT hr.Role"), strings.Index(users, ") AS Roles,")
+	if from < 0 || to < from {
+		t.Errorf("crew_ship_users.go lacks the Roles column:\n%s", users)
+	} else if column := users[from:to]; strings.Contains(column, "UNION") {
+		t.Errorf("crew_ship_users.go reads a second branch of roles for an auth that keeps no groups:\n%s", column)
 	}
 
 	// The generated file that stands beside a list's source goes with it.

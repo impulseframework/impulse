@@ -26,7 +26,7 @@ type (
 	// @outlet(default)
 	// @class(credential)
 	SendStaffUserPasswordResetLink struct {
-		// @target(StaffSessionUser)
+		// @target(StaffListedUser)
 		UserID impulse.UUID
 	}
 	// SendStaffUserPasswordResetLinkResult answers whether the link was mailed

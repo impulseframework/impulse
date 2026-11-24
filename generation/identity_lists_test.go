@@ -228,6 +228,19 @@ func Test_identityInstance_refuseListNamesTaken(t *testing.T) {
 			tenant:  &identityTenant{name: "User"},
 			wantErr: "the tenant record User gives a list a tenant keeps of the auth's people the name CrewUserRole",
 		},
+		{
+			// A record named Listed names a tenant's people as the whole application's
+			// accounts are named (CrewListedUser), and its groups as the groups listed with
+			// what each holds are (CrewListedGroup), which is the name found first.
+			name:    "a record named Listed names a tenant's people and groups as the lists of what each holds are named",
+			tenant:  &identityTenant{name: "Listed"},
+			wantErr: "the tenant record Listed gives a list a tenant keeps of the auth's people the name CrewListedGroup",
+		},
+	}
+	// The whole application's accounts list is among the names a tenant's list must not
+	// take, so a record named Listed is refused for its people's list as for its groups'.
+	if names := (&identityInstance{auth: "Crew"}).holdingNames(); !slices.Contains(names, "Crew"+listedUserSuffix) {
+		t.Errorf("holdingNames() = %v, want one that is the accounts list's name, CrewListedUser", names)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -460,12 +473,13 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 	if len(account) == 0 {
 		t.Fatal("no field found in identityUsersTemplate: the pattern no longer reads the template")
 	}
-	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally", "HeldHere", "HeldInEveryTenant", "ManagedHere", "ManagedByAnotherDirectory", "OutsideDirectory", "CannotEnter", "AdministratorWithPassword")
+	listed := columns(identityTenantUsersTemplate, "DomainID", "Roles", "LockedUntil", "HeldElsewhere", "HeldGlobally", "HeldHere", "HeldInEveryTenant", "ManagedHere", "ManagedByAnotherDirectory", "OutsideDirectory", "CannotEnter", "AdministratorWithPassword")
 	if diff := cmp.Diff(account, listed); diff != "" {
 		t.Errorf("the people's list against the users declaration (-declaration +list):\n%s", diff)
 	}
-	// Every column of the list is selected under its own name.
-	for _, column := range columns(identityTenantUsersTemplate) {
+	// Every column of the list is selected under its own name; the lock's is written by
+	// identitySourceData.LockedUntil, which selects it AS LockedUntil.
+	for _, column := range columns(identityTenantUsersTemplate, "LockedUntil") {
 		name := column[strings.LastIndex(column, " ")+1:]
 		if !strings.Contains(identityTenantUsersTemplate, " AS "+name) {
 			t.Errorf("the people's query selects nothing AS %s", name)

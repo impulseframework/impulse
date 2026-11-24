@@ -39,6 +39,8 @@ export interface MethodDialogData {
   preset: Record<string, unknown>;
   /** The question asked before a method that takes nothing more than the row. */
   confirm?: string;
+  /** One line that says what the method does, drawn at the top of the dialog, above whatever it asks. */
+  says?: string;
   /** The words above an input, by the request field's name; a field not named is labeled with its name in words. */
   labels?: Record<string, string>;
   /**

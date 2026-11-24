@@ -31,6 +31,7 @@ export const Resources = {
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
+  StaffListedUsers: 'StaffListedUsers' as Resource,
   StaffRememberLengths: 'StaffRememberLengths' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
   StaffSessionAuthEvents: 'StaffSessionAuthEvents' as Resource,
@@ -411,6 +412,35 @@ export namespace StaffListedRoleGrants {
     role: 'StaffListedRoleGrants.role' as Resource,
     skipped: 'StaffListedRoleGrants.skipped' as Resource,
     updatedAt: 'StaffListedRoleGrants.updatedAt' as Resource,
+  };
+}
+
+export namespace StaffListedUsers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    disabled: 'disabled' as FieldName,
+    email: 'email' as FieldName,
+    emailVerifiedAt: 'emailVerifiedAt' as FieldName,
+    id: 'id' as FieldName,
+    lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'StaffListedUsers.createdAt' as Resource,
+    disabled: 'StaffListedUsers.disabled' as Resource,
+    email: 'StaffListedUsers.email' as Resource,
+    emailVerifiedAt: 'StaffListedUsers.emailVerifiedAt' as Resource,
+    id: 'StaffListedUsers.id' as Resource,
+    lastSignInAt: 'StaffListedUsers.lastSignInAt' as Resource,
+    lockedUntil: 'StaffListedUsers.lockedUntil' as Resource,
+    name: 'StaffListedUsers.name' as Resource,
+    passwordChangeRequired: 'StaffListedUsers.passwordChangeRequired' as Resource,
+    roles: 'StaffListedUsers.roles' as Resource,
+    username: 'StaffListedUsers.username' as Resource,
   };
 }
 
@@ -1032,11 +1062,13 @@ export namespace StaffTenantUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -1053,11 +1085,13 @@ export namespace StaffTenantUsers {
     heldInEveryTenant: 'StaffTenantUsers.heldInEveryTenant' as Resource,
     id: 'StaffTenantUsers.id' as Resource,
     lastSignInAt: 'StaffTenantUsers.lastSignInAt' as Resource,
+    lockedUntil: 'StaffTenantUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'StaffTenantUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'StaffTenantUsers.managedHere' as Resource,
     name: 'StaffTenantUsers.name' as Resource,
     outsideDirectory: 'StaffTenantUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'StaffTenantUsers.passwordChangeRequired' as Resource,
+    roles: 'StaffTenantUsers.roles' as Resource,
     username: 'StaffTenantUsers.username' as Resource,
   };
 }

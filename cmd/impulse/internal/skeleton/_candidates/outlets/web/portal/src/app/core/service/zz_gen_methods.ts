@@ -773,7 +773,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteMembersUser]: {
     route: 'delete-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -811,7 +811,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableMembersUser]: {
     route: 'disable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -829,7 +829,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableMembersUser]: {
     route: 'enable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -856,7 +856,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersUserSessions]: {
     route: 'end-members-user-sessions',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -980,7 +980,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameMembersUser]: {
     route: 'rename-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1014,7 +1014,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeMembersUserTrustedDevices]: {
     route: 'revoke-members-user-trusted-devices',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1051,7 +1051,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -1061,7 +1061,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetMembersUserName]: {
     route: 'set-members-user-name',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

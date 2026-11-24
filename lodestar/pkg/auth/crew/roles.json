@@ -142,6 +142,21 @@
               ]
             },
             {
+              "resource": "CrewListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "CrewSessions",
               "fields": [
                 "userId",
@@ -172,6 +187,21 @@
                 "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "MembersListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -573,6 +603,21 @@
               ]
             },
             {
+              "resource": "CrewListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "CrewSessions",
               "fields": [
                 "userId",
@@ -594,6 +639,21 @@
                 "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "MembersListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -1065,6 +1125,12 @@
               ]
             },
             {
+              "resource": "CrewListedUsers",
+              "fields": [
+                "username"
+              ]
+            },
+            {
               "resource": "CrewSessionImpersonations",
               "fields": [
                 "actorRealm",
@@ -1526,7 +1592,9 @@
                 "managedHere",
                 "managedByAnotherDirectory",
                 "outsideDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -1885,7 +1953,9 @@
                 "heldInEveryTenant",
                 "managedHere",
                 "managedByAnotherDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {

@@ -23,7 +23,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type SetStaffUserName struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID impulse.UUID
 	Name   *string
 }

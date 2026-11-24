@@ -22,7 +22,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type EnableStaffUser struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID impulse.UUID
 }
 

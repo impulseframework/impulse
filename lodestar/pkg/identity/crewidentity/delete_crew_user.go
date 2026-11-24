@@ -27,7 +27,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type DeleteCrewUser struct {
-	// @target(CrewSessionUser)
+	// @target(CrewListedUser)
 	UserID impulse.UUID
 }
 

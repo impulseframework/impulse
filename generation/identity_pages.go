@@ -123,18 +123,19 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		return parts
 	}
 
-	// A person's roles are one list where the schema holds what it reads, and the
-	// groups and their roles are listed with what each holds (identity_holdings.go).
-	roles, groups, groupRoles := data.Membership(), data.Group(), data.GroupRole()
+	// A person's roles are one list, and the accounts are listed with what each holds,
+	// where the schema holds what they read, and the groups and their roles are listed
+	// with what each holds (identity_holdings.go).
+	users, roles, groups, groupRoles := data.User(), data.Membership(), data.Group(), data.GroupRole()
 	if i.listsHeldRoles() {
-		roles = data.HeldRole()
+		users, roles = data.ListedUser(), data.HeldRole()
 	}
 	if i.keepsGroups() {
 		groups, groupRoles = data.ListedGroup(), data.ListedGroupRole()
 	}
 
 	parts := []identityPart{
-		{identityListUsers, data.User()},
+		{identityListUsers, users},
 		{identityListRoles, roles},
 		{identityListRolesToGive, data.GivableRole()},
 		{identityListIdentities, data.Identity()},

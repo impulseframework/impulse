@@ -18,7 +18,7 @@ import {
  * runs: a server sends a moment in UTC, and the cell is in the viewer's time zone.
  */
 function atViewersClock(iso: string): string {
-  return format(parseISO(iso), 'M/d/yyyy h:mm a');
+  return format(parseISO(iso), 'M/d/yy h:mm a');
 }
 
 /** The base64 of 32 zero bytes: what a SHA-256 digest column carries. */
@@ -42,7 +42,7 @@ describe('formatByDisplayType', () => {
       name: 'a date is its day and its time of day',
       displayType: 'date',
       value: '2026-11-23T15:15:00',
-      want: '11/23/2026 3:15 PM',
+      want: '11/23/26 3:15 PM',
     },
     {
       name: "a date the server sends is written on the viewer's clock",
@@ -105,7 +105,7 @@ describe('formatByDisplayType', () => {
       name: 'a date array writes each element with its time of day',
       displayType: 'date[]',
       value: ['2026-09-21T08:05:00', '2026-10-01T12:00:00Z'],
-      want: `9/21/2026 8:05 AM, ${atViewersClock('2026-10-01T12:00:00Z')}`,
+      want: `9/21/26 8:05 AM, ${atViewersClock('2026-10-01T12:00:00Z')}`,
     },
     {
       name: 'a civildate array formats each element',
@@ -139,6 +139,70 @@ describe('formatByDisplayType', () => {
     { name: 'null is empty text, so the column placeholder applies', displayType: 'bytes', value: null, want: '' },
     { name: 'undefined is empty text', displayType: 'object', value: undefined, want: '' },
     { name: "no display type is the value's text", displayType: undefined, value: 42, want: '42' },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(formatByDisplayType(tt.displayType, tt.value)).toBe(tt.want);
+    });
+  }
+
+  it('writes the longest moment, whose month, day and hour each take two digits, in seventeen characters', () => {
+    const longest = formatByDisplayType('date', '2026-12-31T12:59:00');
+    expect(longest).toBe('12/31/26 12:59 PM');
+    expect(longest).toHaveLength(17);
+  });
+});
+
+// A moment whose year two digits would not tell is written with its whole year: the session
+// library keeps a lock that no time ends as a moment a hundred years off. The clock is fixed at
+// noon of 11/23/2026 on the viewer's clock, so the year of now is the same wherever the suite runs.
+describe('formatByDisplayType, a moment far from this year', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 23, 12, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const cases: { name: string; displayType: ValidDisplayTypes; value: unknown; want: string }[] = [
+    {
+      name: 'a moment a hundred years on is written with its whole year',
+      displayType: 'date',
+      value: '2126-11-23T15:15:00',
+      want: '11/23/2126 3:15 PM',
+    },
+    {
+      name: 'the last moment of the year forty-nine years on keeps two digits',
+      displayType: 'date',
+      value: '2075-12-31T23:59:00',
+      want: '12/31/75 11:59 PM',
+    },
+    {
+      name: 'the first moment of the year fifty years on is written with its whole year',
+      displayType: 'date',
+      value: '2076-01-01T00:00:00',
+      want: '1/1/2076 12:00 AM',
+    },
+    {
+      name: 'the first moment of the year forty-nine years back keeps two digits',
+      displayType: 'date',
+      value: '1977-01-01T00:00:00',
+      want: '1/1/77 12:00 AM',
+    },
+    {
+      name: 'the last moment of the year fifty years back is written with its whole year',
+      displayType: 'date',
+      value: '1976-12-31T23:59:00',
+      want: '12/31/1976 11:59 PM',
+    },
+    {
+      name: 'each moment of a date[] is written by its own year',
+      displayType: 'date[]',
+      value: ['2026-09-21T08:05:00', '2126-09-21T08:05:00'],
+      want: '9/21/26 8:05 AM, 9/21/2126 8:05 AM',
+    },
   ];
 
   for (const tt of cases) {
