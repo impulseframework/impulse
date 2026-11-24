@@ -2069,6 +2069,22 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"userId", "username", "expired", "live", "updatedAt"},
 			},
 			{
+				Name:        "StaffListedTenants",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
+				Tags: []resource.TagData{
+					{Name: "administrators", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "directory", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "id"},
+					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "people", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "since", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+				},
+				Order:     []accesstypes.Tag{"name"},
+				QueryKeys: []accesstypes.Tag{"name"},
+			},
+			{
 				Name:        "StaffListedUsers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},

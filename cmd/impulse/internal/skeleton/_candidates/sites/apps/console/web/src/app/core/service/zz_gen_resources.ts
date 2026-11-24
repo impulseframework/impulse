@@ -101,6 +101,16 @@ export interface StaffListedSessions {
   updatedAt?: Date;
 }
 
+export interface StaffListedTenants {
+  id: string;
+  name?: string;
+  directoryOnly?: boolean;
+  people?: number;
+  since?: Date;
+  directory?: string;
+  administrators?: string[];
+}
+
 export interface StaffListedUsers {
   id: string;
   username?: string;
@@ -682,6 +692,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.StaffListedTenants]: {
+    route: 'staff-listed-tenants',
+    rowsOf: Resources.Tenants,
+    live: true,
+    rowWords: { one: 'tenant', many: 'tenants' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administrators', displayType: 'string[]', required: true, isIndex: false, sortable: false },
     ],
   },
   [Resources.StaffListedUsers]: {
@@ -1392,6 +1417,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffListedGroups]: PermissionScopes.global,
   [Resources.StaffListedGroupRoles]: PermissionScopes.global,
   [Resources.StaffListedSessions]: PermissionScopes.global,
+  [Resources.StaffListedTenants]: PermissionScopes.global,
   [Resources.StaffListedUsers]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,

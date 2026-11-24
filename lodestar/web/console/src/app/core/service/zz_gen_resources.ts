@@ -128,6 +128,18 @@ export interface CrewListedGroupRoles {
   losing?: number;
 }
 
+export interface CrewListedSectors {
+  id: string;
+  name?: string;
+  region?: string;
+  established?: Date;
+  directoryOnly?: boolean;
+  people?: number;
+  since?: Date;
+  directory?: string;
+  administrators?: string[];
+}
+
 export interface CrewListedSessions {
   id: string;
   userId?: string;
@@ -1337,6 +1349,23 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
+    ],
+  },
+  [Resources.CrewListedSectors]: {
+    route: 'crew-listed-sectors',
+    rowsOf: Resources.Sectors,
+    live: true,
+    rowWords: { one: 'sector', many: 'sectors' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administrators', displayType: 'string[]', required: true, isIndex: false, sortable: false },
     ],
   },
   [Resources.CrewListedSessions]: {
@@ -2935,6 +2964,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewHeldRoles]: PermissionScopes.global,
   [Resources.CrewListedGroups]: PermissionScopes.global,
   [Resources.CrewListedGroupRoles]: PermissionScopes.global,
+  [Resources.CrewListedSectors]: PermissionScopes.global,
   [Resources.CrewListedSessions]: PermissionScopes.global,
   [Resources.CrewListedUsers]: PermissionScopes.global,
   [Resources.CrewRoles]: PermissionScopes.global,

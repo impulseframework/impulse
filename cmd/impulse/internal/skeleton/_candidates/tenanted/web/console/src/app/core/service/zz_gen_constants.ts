@@ -32,6 +32,7 @@ export const Resources = {
   StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
   StaffListedSessions: 'StaffListedSessions' as Resource,
+  StaffListedTenants: 'StaffListedTenants' as Resource,
   StaffListedUsers: 'StaffListedUsers' as Resource,
   StaffRememberLengths: 'StaffRememberLengths' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
@@ -436,6 +437,27 @@ export namespace StaffListedSessions {
     updatedAt: 'StaffListedSessions.updatedAt' as Resource,
     userId: 'StaffListedSessions.userId' as Resource,
     username: 'StaffListedSessions.username' as Resource,
+  };
+}
+
+export namespace StaffListedTenants {
+  export const fieldName = {
+    administrators: 'administrators' as FieldName,
+    directory: 'directory' as FieldName,
+    directoryOnly: 'directoryOnly' as FieldName,
+    id: 'id' as FieldName,
+    name: 'name' as FieldName,
+    people: 'people' as FieldName,
+    since: 'since' as FieldName,
+  };
+  export const resourceName = {
+    administrators: 'StaffListedTenants.administrators' as Resource,
+    directory: 'StaffListedTenants.directory' as Resource,
+    directoryOnly: 'StaffListedTenants.directoryOnly' as Resource,
+    id: 'StaffListedTenants.id' as Resource,
+    name: 'StaffListedTenants.name' as Resource,
+    people: 'StaffListedTenants.people' as Resource,
+    since: 'StaffListedTenants.since' as Resource,
   };
 }
 

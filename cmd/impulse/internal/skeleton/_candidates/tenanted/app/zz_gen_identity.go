@@ -77,6 +77,14 @@ func (a *App) StaffListedSession() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedSession()
 }
 
+func (a *App) StaffListedTenants() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedTenants()
+}
+
+func (a *App) StaffListedTenant() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedTenant()
+}
+
 func (a *App) StaffListedUsers() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedUsers()
 }

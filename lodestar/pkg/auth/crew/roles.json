@@ -28,6 +28,18 @@
               ]
             },
             {
+              "resource": "CrewListedSectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "people",
+                "since",
+                "directory"
+              ]
+            },
+            {
               "resource": "ShipClasses",
               "fields": [
                 "designation",
@@ -587,6 +599,19 @@
                 "invitedByUserId",
                 "createdAt",
                 "expiresAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "people",
+                "since",
+                "directory",
+                "administrators"
               ]
             },
             {
@@ -1366,6 +1391,19 @@
                 "invitedByUserId",
                 "createdAt",
                 "expiresAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "people",
+                "since",
+                "directory",
+                "administrators"
               ]
             },
             {

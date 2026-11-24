@@ -35,6 +35,7 @@ export const Resources = {
   CrewListedGroupRoles: 'CrewListedGroupRoles' as Resource,
   CrewListedGroups: 'CrewListedGroups' as Resource,
   CrewListedRoleGrants: 'CrewListedRoleGrants' as Resource,
+  CrewListedSectors: 'CrewListedSectors' as Resource,
   CrewListedSessions: 'CrewListedSessions' as Resource,
   CrewListedUsers: 'CrewListedUsers' as Resource,
   CrewRememberLengths: 'CrewRememberLengths' as Resource,
@@ -603,6 +604,31 @@ export namespace CrewListedRoleGrants {
     role: 'CrewListedRoleGrants.role' as Resource,
     skipped: 'CrewListedRoleGrants.skipped' as Resource,
     updatedAt: 'CrewListedRoleGrants.updatedAt' as Resource,
+  };
+}
+
+export namespace CrewListedSectors {
+  export const fieldName = {
+    administrators: 'administrators' as FieldName,
+    directory: 'directory' as FieldName,
+    directoryOnly: 'directoryOnly' as FieldName,
+    established: 'established' as FieldName,
+    id: 'id' as FieldName,
+    name: 'name' as FieldName,
+    people: 'people' as FieldName,
+    region: 'region' as FieldName,
+    since: 'since' as FieldName,
+  };
+  export const resourceName = {
+    administrators: 'CrewListedSectors.administrators' as Resource,
+    directory: 'CrewListedSectors.directory' as Resource,
+    directoryOnly: 'CrewListedSectors.directoryOnly' as Resource,
+    established: 'CrewListedSectors.established' as Resource,
+    id: 'CrewListedSectors.id' as Resource,
+    name: 'CrewListedSectors.name' as Resource,
+    people: 'CrewListedSectors.people' as Resource,
+    region: 'CrewListedSectors.region' as Resource,
+    since: 'CrewListedSectors.since' as Resource,
   };
 }
 

@@ -439,6 +439,32 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewListedSectors denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-listed-sectors",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewListedSectors granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-listed-sectors",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "CrewListedSector denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-listed-sectors/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewListedSector granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-listed-sectors/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewListedSessions denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-listed-sessions",

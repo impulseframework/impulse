@@ -72,6 +72,14 @@ func (a *App) CrewListedGroupRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedGroupRoles()
 }
 
+func (a *App) CrewListedSectors() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSectors()
+}
+
+func (a *App) CrewListedSector() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSector()
+}
+
 func (a *App) CrewListedSessions() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedSessions()
 }

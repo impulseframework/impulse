@@ -182,6 +182,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserUserID",
 		"staffListedGroupID",
 		"staffListedSessionID",
+		"staffListedTenantID",
 		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
@@ -379,6 +380,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost,
 			handlerFunc: "StaffListedSession",
 			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/api/staff-listed-tenants", method: http.MethodGet,
+			handlerFunc: "StaffListedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-tenants", method: http.MethodPost,
+			handlerFunc: "StaffListedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodGet,
+			handlerFunc: "StaffListedTenant",
+			parameters:  map[string]string{"staffListedTenantID": "testStaffListedTenantID"},
+		},
+		{
+			url: "/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodPost,
+			handlerFunc: "StaffListedTenant",
+			parameters:  map[string]string{"staffListedTenantID": "testStaffListedTenantID"},
 		},
 		{
 			url: "/api/staff-listed-users", method: http.MethodGet,
@@ -1378,6 +1399,14 @@ func (s *generatedHandlersStub) StaffListedSessions() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
 	return s.record("StaffListedSession")
+}
+
+func (s *generatedHandlersStub) StaffListedTenants() http.HandlerFunc {
+	return s.record("StaffListedTenants")
+}
+
+func (s *generatedHandlersStub) StaffListedTenant() http.HandlerFunc {
+	return s.record("StaffListedTenant")
 }
 
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {
