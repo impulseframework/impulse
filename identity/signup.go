@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -525,18 +526,14 @@ func rowNamed(rows []SignInMethodRow, name string) *SignInMethodRow {
 // withArticle is the word with its article, as a sentence names one of them: "a
 // sector", "an outlet".
 func withArticle(word string) string {
-	if word != "" && strings.ContainsRune("aeiouAEIOU", rune(word[0])) {
-		return "an " + word
-	}
-
-	return "a " + word
+	return words.WithArticle(word)
 }
 
 // sentenceStart is words with their first letter in upper case, as a sentence starts.
-func sentenceStart(words string) string {
-	if words == "" {
-		return words
+func sentenceStart(text string) string {
+	if text == "" {
+		return text
 	}
 
-	return strings.ToUpper(words[:1]) + words[1:]
+	return strings.ToUpper(text[:1]) + text[1:]
 }

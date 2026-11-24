@@ -568,11 +568,7 @@ func tenantCreationClosedRefusal(record string) string {
 // withArticle is the word with its article, as a sentence names one of them: "a
 // tenant", "an outlet".
 func withArticle(word string) string {
-	if word != "" && strings.ContainsRune("aeiouAEIOU", rune(word[0])) {
-		return "an " + word
-	}
-
-	return "a " + word
+	return words.WithArticle(word)
 }
 
 // tenantCreationRoutes builds the create-your-tenant route under an outlet prefix: a
