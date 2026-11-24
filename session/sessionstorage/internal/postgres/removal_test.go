@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
@@ -243,7 +244,7 @@ func TestAuth_LinkInsertSkipsAHeldRow(t *testing.T) {
 
 	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
 	held := insertDueLink(ctx, t, in.Raw, "held")
-	tx, err := queryer(t, in.Raw).Begin(ctx)
+	tx, err := queryer(t, in.Raw).BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		t.Fatalf("Begin() error = %v", err)
 	}
@@ -294,6 +295,25 @@ func TestAuth_LinkInsertStandsWhenItsRemovalFails(t *testing.T) {
 	}
 }
 
+// txQueryer is a transaction the test hands a driver as its connection: what the driver
+// sends runs in the transaction, and a transaction the driver begins is a savepoint of it,
+// at the transaction's own level.
+type txQueryer struct {
+	pgx.Tx
+}
+
+// BeginTx opens a savepoint of the transaction; the options are the transaction's.
+//
+//nolint:gocritic // The signature is Queryer's, which takes the options by value as pgx's pool does.
+func (q txQueryer) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
+	savepoint, err := q.Begin(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "pgx.Tx.Begin()")
+	}
+
+	return savepoint, nil
+}
+
 // TestAuth_ActivityUpdateWritesNoIndex proves what the sessions removal's index rests on:
 // the store's activity update moves UpdatedAt and leaves the day of it where it was, so
 // it changes no indexed column, and PostgreSQL makes it a heap-only update, one that
@@ -306,13 +326,13 @@ func TestAuth_ActivityUpdateWritesNoIndex(t *testing.T) {
 	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
 	id := signInAs(ctx, t, in, "pat@lakeside.edu")
 
-	tx, err := queryer(t, in.Raw).Begin(ctx)
+	tx, err := queryer(t, in.Raw).BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		t.Fatalf("Begin() error = %v", err)
 	}
 	// Rolled back on every path: the transaction only reads its own counters.
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := NewSessionStorageDriver(tx).UpdateSessionActivity(ctx, id); err != nil {
+	if err := NewSessionStorageDriver(txQueryer{tx}).UpdateSessionActivity(ctx, id); err != nil {
 		t.Fatalf("UpdateSessionActivity() error = %v", err)
 	}
 
