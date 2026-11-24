@@ -912,10 +912,20 @@ through their directory alone and have none to remove. A row's menu holds the
 methods the server says the caller may run on that row, so a role that holds no grant on
 a method sees no entry for it, and the members' pages offer nothing that gives a role,
 adds an account or invites one. Headquarters holds the grants
-(`pkg/auth/crew/roles.json`), those that change an account or mail its password reset
-link only for the accounts no sector manages (`managedByTenant = false`): a person a
-sector manages is listed like anyone, and their row offers Headquarters none of those
-methods.
+(`pkg/auth/crew/roles.json`). Those that change a crew member's account or mail its
+password reset link it holds only for the accounts no sector manages
+(`managedByTenant = false`): a crew member a sector manages is listed like anyone, and
+their row offers Headquarters none of those methods. Giving and taking the crew's roles,
+ending one session, revoking a token and clearing a lockout name no account's row and
+stay Headquarters' whoever manages the account. Two things follow: a role Headquarters
+gives for the whole fleet, or in a second sector, makes the account of a person who
+signs in through no sector's directory the fleet's to manage; and the last thing
+it takes from a person takes the account with it, unless another sector's directory
+signs the person in. The members' accounts are Headquarters' to change, all of them,
+whoever the list says manages each: a client's roles are their company directory's,
+held for the whole fleet or in every sector, and no sector's role holds a method on
+a member's account, so under the condition a member who signs in through a sector's
+directory would have nobody to manage the account. Those grants carry no condition.
 
 Lodestar has a tenant record, so the generated management also declares, per auth, the
 lists a sector keeps of the auth's people. An account is one row for the whole
@@ -1023,8 +1033,8 @@ would hand over her sign-in or shut her out (a password, a sign-in name, an addr
 identity unlinked, the account disabled, enabled or deleted), each with a sentence that
 says who does it:
 one of Bastion's marshals, or a super administrator, as the governor is. Headquarters
-reads those sentences on her account where no sector manages it, as when she holds a
-role in a second sector and signs in through no sector's directory; an account a sector
+reads those sentences on her account where no sector manages it, as when she holds a role
+in a second sector and signs in through no sector's directory; a crew account a sector
 manages is not Headquarters' to change at all, a marshal's or anyone's. Headquarters
 is not shown those actions on the row of a directory-only sector's marshal: the row's
 menu leaves them out, as the server would refuse them. Nor is it shown the removal of

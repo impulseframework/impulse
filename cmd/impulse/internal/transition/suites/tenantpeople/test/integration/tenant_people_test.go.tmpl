@@ -230,9 +230,9 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// person signs in with are read under the same condition: north lists nora's, and no
 	// identity of the others, whose links it does not find.
 	for name, managed := range map[string]bool{"nora": true, "gail": false, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
-		people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
+		northsPeople := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
 		for where, row := range map[string]map[string]any{
-			"list": people[ids[name]],
+			"list": northsPeople[ids[name]],
 			"read": tenantRow(ctx, t, member, north, "staff-[[.Kebab]]-users", ids[name]),
 		} {
 			if row["username"] != name {
@@ -381,9 +381,9 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// name they were created with, and their links stand.
 [[- if .OneTenant]] So is erin.
 [[- end]]
-	people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
+	northsPeople := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
 	for _, name := range []string{"sam", "gail"[[if .OneTenant]], "erin"[[end]]} {
-		if row := people[ids[name]]; row["username"] != name || row["name"] != name+" of north" || row["disabled"] != false {
+		if row := northsPeople[ids[name]]; row["username"] != name || row["name"] != name+" of north" || row["disabled"] != false {
 			t.Errorf("%s after the refused calls = %v, want the account as it was", name, row)
 		}
 		if _, err := s.db.Single().ReadRow(ctx, "StaffSessionIdentities", spanner.Key{links[name]}, []string{"Id"}); err != nil {

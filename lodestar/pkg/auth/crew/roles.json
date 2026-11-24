@@ -89,7 +89,7 @@
       },
       {
         "name": "Headquarters",
-        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, brings a new sector in by inviting its first marshal, manages the crew's and the clients' accounts and seats, and issues bulletins.",
+        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, brings a new sector in by inviting its first marshal, seats the crew, manages the clients' accounts and the crew's accounts that no sector manages, and issues bulletins.",
         "permissions": {
           "List": [
             {

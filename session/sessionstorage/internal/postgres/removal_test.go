@@ -246,7 +246,7 @@ func TestAuth_LinkInsertSkipsAHeldRow(t *testing.T) {
 	held := insertDueLink(ctx, t, in.Raw, "held")
 	tx, err := queryer(t, in.Raw).BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		t.Fatalf("Begin() error = %v", err)
+		t.Fatalf("BeginTx() error = %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM "SessionMailLinks" WHERE "Id" = $1 FOR UPDATE`, held.ID); err != nil {
@@ -328,7 +328,7 @@ func TestAuth_ActivityUpdateWritesNoIndex(t *testing.T) {
 
 	tx, err := queryer(t, in.Raw).BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		t.Fatalf("Begin() error = %v", err)
+		t.Fatalf("BeginTx() error = %v", err)
 	}
 	// Rolled back on every path: the transaction only reads its own counters.
 	defer func() { _ = tx.Rollback(ctx) }()

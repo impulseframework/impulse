@@ -1224,9 +1224,22 @@ and the grants carry no condition. To act on an account a tenant manages, a supe
 administrator gives themselves that tenant's administrator role in the tenant and acts
 from the tenant's side; the role given is recorded like any other.
 
+The condition goes on those twelve methods, the ones in the last two rows of the table,
+and on no other. Giving and taking a role, or a place in a group, ending one session,
+revoking a token and clearing a lockout name no account's row, so they stay with
+the application's administrators whoever manages the account. Two things follow from
+the roles. For a person who signs in through no tenant's directory, who manages the
+account follows from what the person holds: a role given for the whole application,
+or in a second tenant, makes the account the application's to manage, and it is the
+tenant's again once the person holds something in that tenant alone. And the last thing
+taken from a person takes the account with it, whoever takes it, unless another tenant
+manages the account through its directory. An application that wants its everyday
+administrators to do neither gives the methods that give and take roles to another role.
+
 An application that `impulse new` makes with tenants, or that `impulse add tenancy` gives
-them, starts with this role in its own names (`<Record>Administrator`): each of these
-grants on what the application serves, under the same condition. The command writes
+them, starts with the tenant's administrator role in its own names
+(`<Record>Administrator`): each grant of the table above on what the application serves,
+under the same condition. The command writes
 `test/integration/tenant_people_test.go` with it, the test that proves each condition
 on the served application, because `impulse check` refuses a conditional grant that no
 test proves (`conditions-proven`). Where the auth has no password sign-in, the role and
