@@ -156,8 +156,8 @@ func membership(scope accesstypes.PolicyScope, role, user string, starts, ends t
 }
 
 // group writes a group kept in the sector with its members, and the role it holds there
-// where one is given, and answers the group's id.
-func (w *listedWorld) group(ctx context.Context, sector, name, role string, members ...string) string {
+// where one is given.
+func (w *listedWorld) group(ctx context.Context, sector, name, role string, members ...string) {
 	w.t.Helper()
 
 	id := newID(w.t)
@@ -175,8 +175,6 @@ func (w *listedWorld) group(ctx context.Context, sector, name, role string, memb
 		}))
 	}
 	w.apply(ctx, mutations...)
-
-	return id
 }
 
 // createdAt reads when the membership's row was written.
@@ -193,8 +191,6 @@ func createdAt(ctx context.Context, t *testing.T, db *initiator.SpannerDB, scope
 // each kind of directory, and who Administrators names, in what words and in what order;
 // what each role reads of it under the shipped role file; and its order and its filter by
 // the name.
-//
-// Demonstrates: auth.generated-identity, tenancy.tenant-record.
 func TestListedSectors(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -339,8 +335,6 @@ func TestListedSectors(t *testing.T) {
 // invitations that stand and no row of the list of sectors; once the invited person has
 // signed in for the first time, it is no invitation that stands and is a row of the list,
 // with that person its one person and among its administrators.
-//
-// Demonstrates: tenancy.invited-tenant, auth.generated-identity.
 func TestListedSectorsInvitedThenMade(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

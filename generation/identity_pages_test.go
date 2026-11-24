@@ -191,7 +191,7 @@ func Test_identityOn(t *testing.T) {
 			instances: []*identityInstance{listing},
 			// The schema holds the accounts and the memberships, so the people are listed with
 			// what each holds.
-			served:    []string{"CrewListedUsers", "CrewInvitedSectors", "CrewListedSectors", "CrewSectorUsers", "Sectors"},
+			served: []string{"CrewListedUsers", "CrewInvitedSectors", "CrewListedSectors", "CrewSectorUsers", "Sectors"},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
 				Sides: []*tsAPIIdentitySide{

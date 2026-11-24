@@ -139,7 +139,7 @@ func listedCitadelQuery(t *testing.T, source string) string {
 // as the record is, with the record's fields the invitation carries and the four facts;
 // and the crew's client, which hands the list the roles that administer a citadel. The
 // members, whose people make no citadel, have no such list.
-func Test_prepareIdentity_listedTenant(t *testing.T) {
+func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
 
@@ -226,10 +226,10 @@ func Test_prepareIdentity_listedTenant(t *testing.T) {
 // Test_prepareIdentity_listedTenant_shapes pins what the list of tenants carries of a
 // record that marks less, of an auth that keeps less, of the field shapes another package
 // writes, and which auths declare the list at all.
-func Test_prepareIdentity_listedTenant_shapes(t *testing.T) {
+func Test_prepareIdentity_listedTenant_shapes(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: each case's working directory is the process's, no
 	// t.Parallel.
-	t.Run("a record that marks no name, declares no switch and has no directories record", func(t *testing.T) {
+	t.Run("a record that marks no name, declares no switch and has no directories record", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Chdir(t.TempDir())
 
 		if err := citadelGenerator(t, oneFieldCitadel("", ""), nil).prepareIdentity(); err != nil {
@@ -250,7 +250,7 @@ func Test_prepareIdentity_listedTenant_shapes(t *testing.T) {
 		assertContains(t, "the list's query", listedCitadelQuery(t, listed), nil, []string{"CrewGroups", "CrewGroupMembers", "CrewGroupRoles", "UNION DISTINCT", "JOIN"})
 	})
 
-	t.Run("a record that declares a directory, for an auth that keeps no identities", func(t *testing.T) {
+	t.Run("a record that declares a directory, for an auth that keeps no identities", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Chdir(t.TempDir())
 
 		r := citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) { delete(r.tableMap, "CrewSessionIdentities") })
@@ -263,7 +263,7 @@ func Test_prepareIdentity_listedTenant_shapes(t *testing.T) {
 		assertContains(t, "the list's query", query, []string{"FROM CitadelDirectories d\n WHERE d.CitadelId = s.Id\n LIMIT 1) AS Directory,"}, []string{"CrewSessionIdentities", "dr."})
 	})
 
-	t.Run("the four field shapes come through as written, with their imports", func(t *testing.T) {
+	t.Run("the four field shapes come through as written, with their imports", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Chdir(t.TempDir())
 
 		source := oneFieldCitadel("\t\"cloud.google.com/go/civil\"\n",
@@ -312,7 +312,7 @@ func Test_prepareIdentity_listedTenant_shapes(t *testing.T) {
 			source: strings.Replace(citadelTenantSource, "// @resource\n\t// @tenant\n", "// @resource\n\t// @tenant\n\t// @outlet(droids)\n", 1),
 		},
 	}
-	for _, tt := range none {
+	for _, tt := range none { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Run(tt.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 
@@ -450,7 +450,7 @@ func Test_identityInstance_refuseListedTenantNamesTaken(t *testing.T) {
 
 // Test_prepareIdentity_listedTenantNamesTaken pins that the run refuses a record with a
 // field named as a column the list of tenants adds before any source is written.
-func Test_prepareIdentity_listedTenantNamesTaken(t *testing.T) {
+func Test_prepareIdentity_listedTenantNamesTaken(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
 
@@ -470,7 +470,7 @@ func Test_prepareIdentity_listedTenantNamesTaken(t *testing.T) {
 // generator takes: loaded beside the tenant record as the run loads the declarations
 // packages, its key, its scope and its outlet are the record's, and its @rowsOf resolves to
 // the record.
-func Test_listedTenant_rowsOf(t *testing.T) {
+func Test_listedTenant_rowsOf(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
 
