@@ -10,6 +10,7 @@ import {
   RootConfig,
 } from '@impulseframework/resource-angular/types';
 import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
+import { format } from 'date-fns';
 import { identityMenuPages, identityPages, identityRoutes } from './identity-pages';
 
 // The pages over an Auth's people are built from the API's description alone: which
@@ -1352,11 +1353,12 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
           'heldGlobally',
           'heldHere',
           'heldInEveryTenant',
+          'managedHere',
         )
       : resourceMeta(resource);
   const [people] = identityPages(removing, removingMetas, { auth: 'Crew', scope: 'domain' });
 
-  it('offers Remove from the sector after Enable, warned by the server, and Delete only on a row that does not offer it', () => {
+  it('offers Remove from the sector after Enable, warned by the server, and Delete on a row that does not offer it', () => {
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
       ['SetCrewSectorUserName', 'Change the name'],
@@ -1371,8 +1373,8 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       undefined,
       'The person was removed.',
     ]);
-    // Delete is drawn on a row whose answer does not list the removal, and on no row whose
-    // answer does.
+    // Delete is drawn on a row whose answer does not list the removal, and not on one whose
+    // answer does and that says nothing of who manages the account.
     const answered = (capabilities: { Execute?: string[] }): RecordData =>
       ({ zzCapabilities: capabilities }) as unknown as RecordData;
     const deleteEntry = presentation(list(people).rowMethods, 'DeleteCrewSectorUser');
@@ -1407,6 +1409,57 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(presentation(children(people)[0].listMethods, 'AssignCrewSectorRole').group).toBeUndefined();
   });
 
+  it('draws Delete beside the removal, or alone, where the row says the sector manages the account through its directory and the removal would leave the account standing', () => {
+    const remove = presentation(list(people).rowMethods, 'RemoveCrewSectorUser').when;
+    const del = presentation(list(people).rowMethods, 'DeleteCrewSectorUser').when;
+    const offering = (execute: string[], facts: Record<string, unknown>): RecordData =>
+      ({ zzCapabilities: { Execute: execute }, ...facts }) as unknown as RecordData;
+    const both = ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'];
+    // The removal is not offered on the row: Delete as the server offers it.
+    expect(del?.(offering(['DeleteCrewSectorUser'], { heldHere: true, managedHere: false }))).toBe(true);
+    // The removal is offered: [Remove from the sector, Delete] by what the row says.
+    const drawn = (facts: Record<string, unknown>): [boolean | undefined, boolean | undefined] => [
+      remove?.(offering(both, facts)),
+      del?.(offering(both, facts)),
+    ];
+    expect([
+      // The person holds nothing in the sector itself, and the sector does not manage the account.
+      drawn({ heldHere: false, managedHere: false }),
+      drawn({ heldHere: false }),
+      // A person of the sector's directory who holds nothing in the sector itself.
+      drawn({ heldHere: false, managedHere: true }),
+      // A person of the sector's directory who holds roles elsewhere too.
+      drawn({ heldHere: true, managedHere: true, heldElsewhere: true, heldGlobally: false }),
+      drawn({ heldHere: true, managedHere: true, heldElsewhere: false, heldGlobally: true }),
+      // The sector holds the person alone: the removal takes the account.
+      drawn({ heldHere: true, managedHere: true, heldElsewhere: false, heldGlobally: false }),
+      // The sector does not manage the account, or the row does not say.
+      drawn({ heldHere: true, managedHere: false, heldElsewhere: true, heldGlobally: false }),
+      drawn({ heldHere: true, heldElsewhere: true }),
+    ]).toEqual([
+      [false, false],
+      [false, false],
+      [false, true],
+      [true, true],
+      [true, true],
+      [true, false],
+      [true, false],
+      [true, false],
+    ]);
+  });
+
+  it('asks before a delete, on both sides, that the account goes from every sector and that Disable keeps it', () => {
+    const ask = (rowMethods: ListViewConfig['rowMethods'], method: string): string =>
+      (presentation(rowMethods, method).confirm as (row: RecordData) => string)({ username: 'ada' });
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    const question =
+      'Delete ada? The account is removed from every sector, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.';
+    expect([
+      ask(list(people).rowMethods, 'DeleteCrewSectorUser'),
+      ask(list(accounts).rowMethods, 'DeleteCrewUser'),
+    ]).toEqual([question, question]);
+  });
+
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
     const when = presentation(list(people).rowMethods, 'RemoveCrewSectorUser').when;
     expect([when?.({ heldHere: false }), when?.({ heldHere: true }), when?.({})]).toEqual([false, true, true]);
@@ -1429,14 +1482,21 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(stateOf(list(accounts))({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([]);
   });
 
-  it('reads with each person whether they hold something in the sector itself, and does not draw it', () => {
-    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldInEveryTenant', 'heldGlobally', 'heldHere']);
+  it('reads with each person whether they hold something in the sector itself and whether the sector manages the account, and draws neither', () => {
+    expect(hiddenColumns(list(people))).toEqual([
+      'heldElsewhere',
+      'heldInEveryTenant',
+      'heldGlobally',
+      'heldHere',
+      'managedHere',
+    ]);
     expect(pageFields(people).filter(([, , drawn]) => drawn === false)).toEqual([
       ['field', 'disabled', false],
       ['field', 'heldElsewhere', false],
       ['field', 'heldInEveryTenant', false],
       ['field', 'heldGlobally', false],
       ['field', 'heldHere', false],
+      ['field', 'managedHere', false],
     ]);
   });
 });
@@ -1752,7 +1812,7 @@ describe('identityRoutes', () => {
 describe("identityPages, the headings of the whole application's pages", () => {
   const titles = (on: ApiDescriptor): [string | undefined, string][] =>
     identityPages(on, resourceMeta, { auth: 'Crew', scope: 'global' })
-      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins'].includes(config.page?.label ?? ''))
+      .filter((config) => ['Mailed links', 'Sessions', 'Failed sign-ins', 'Sign-in'].includes(config.page?.label ?? ''))
       .map((config) => [config.page?.label, list(config).title]);
 
   it('are the words alone where the application manages one auth', () => {
@@ -1760,6 +1820,7 @@ describe("identityPages, the headings of the whole application's pages", () => {
       ['Mailed links', 'Mailed links'],
       ['Sessions', 'Sessions'],
       ['Failed sign-ins', 'Failed sign-ins'],
+      ['Sign-in', 'Sign-in'],
     ]);
   });
 
@@ -1768,6 +1829,7 @@ describe("identityPages, the headings of the whole application's pages", () => {
       ['Mailed links', 'Crew mailed links'],
       ['Sessions', 'Crew sessions'],
       ['Failed sign-ins', 'Crew failed sign-ins'],
+      ['Sign-in', 'Crew sign-in'],
     ]);
   });
 
@@ -1840,6 +1902,128 @@ describe("identityPages, the people lists lead with the person's name", () => {
     expect(list(alone).title).toBe('Accounts');
     expect(list(accounts).title).toBe('Crew accounts');
     expect(list(people).title).toBe('People');
+  });
+});
+
+describe("identityPages, what Invite's dialog says", () => {
+  const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+  const [people, invitations] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
+
+  it("says that the person is mailed a link and given the roles once they use it, above the Accounts list and a tenant's People and Invitations", () => {
+    const said = 'The person is mailed a link. They sign in or sign up with it, and are then given the roles.';
+    expect([
+      presentation(list(accounts).listMethods, 'InviteCrewUser').says,
+      presentation(list(people).listMethods, 'InviteCrewSectorUser').says,
+      presentation(list(invitations).listMethods, 'InviteCrewSectorUser').says,
+    ]).toEqual([said, said, said]);
+  });
+});
+
+describe('identityPages, the people lists say what each person holds, and a lock', () => {
+  // The people lists as a server serves them with what each person holds and until when
+  // their sign-in is locked.
+  const holding = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSessionUsers' || resource === 'CrewSectorUsers'
+      ? fields(...metas[resource].fields.map((field) => field.fieldName), 'roles', 'lockedUntil')
+      : metas[resource];
+  // A description of its own: the same request answers the same pages.
+  const [accounts] = identityPages({ ...descriptor }, holding, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages({ ...descriptor }, holding, { auth: 'Crew', scope: 'domain' });
+  const sides: [string, RootConfig][] = [
+    ['the Accounts list', accounts],
+    ['the People list', people],
+  ];
+
+  for (const [side, config] of sides) {
+    it(`${side} draws what each person holds after Email, a line for each role, and reads the lock without drawing it`, () => {
+      expect(visibleColumns(list(config))).toEqual([
+        ['name', 'Name'],
+        ['username', 'Username'],
+        ['email', 'Email'],
+        ['roles', 'Roles'],
+        ['disabled', 'State'],
+        ['lastSignInAt', 'Last sign-in'],
+      ]);
+      const roles = columnOf(list(config), 'roles');
+      expect([roles.lines, roles.filterable]).toEqual([true, false]);
+      expect(hiddenColumns(list(config))).toContain('lockedUntil');
+    });
+  }
+
+  it('draws no Roles column and reads no lock where the server says neither', () => {
+    for (const scope of ['global', 'domain'] as const) {
+      const [plain] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope });
+      expect(list(plain).listColumns.map((column) => column.id)).not.toContain('roles');
+      expect(list(plain).listColumns.map((column) => column.id)).not.toContain('lockedUntil');
+      expect(pageFields(plain).map(([, name]) => name)).not.toContain('lockedUntil');
+    }
+  });
+
+  describe('the State', () => {
+    // Noon on the viewer's clock: a minute later is the same day and a day later is not,
+    // wherever the suite runs.
+    const noon = new Date(2026, 10, 23, 12, 0);
+    const later = (minutes: number): Date => new Date(noon.getTime() + minutes * 60_000);
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(noon);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("says until when a sign-in is locked after the account's own lines: the time alone on the same day", () => {
+      const at = later(1);
+      const locked = `Locked until ${format(at, 'h:mm a')}`;
+      expect(stateOf(list(accounts))({ disabled: true, lockedUntil: at.toISOString() })).toEqual(['Disabled', locked]);
+      expect(
+        stateOf(list(accounts))({ disabled: true, passwordChangeRequired: true, lockedUntil: at.toISOString() }),
+      ).toEqual(['Disabled', 'Must change password', locked]);
+      expect(stateOf(list(accounts))({ lockedUntil: at.toISOString() })).toEqual([locked]);
+      // On a tenant's list the lock is the account's, said before the other places that hold the person.
+      expect(stateOf(list(people))({ disabled: true, lockedUntil: at.toISOString(), heldElsewhere: true })).toEqual([
+        'Disabled',
+        locked,
+        'Also in another sector',
+      ]);
+    });
+
+    it('says the day too where the lock passes on another day', () => {
+      const at = later(24 * 60);
+      expect(stateOf(list(accounts))({ lockedUntil: at.toISOString() })).toEqual([
+        `Locked until ${format(at, 'M/d/yy h:mm a')}`,
+      ]);
+    });
+
+    it('says a lock that no time ends with its whole year, so it is not read as one that ends this year', () => {
+      // The session library's own length for such a lock: a hundred years.
+      const at = later(100 * 365 * 24 * 60);
+      const [line] = stateOf(list(accounts))({ lockedUntil: at.toISOString() });
+      expect(line).toBe(`Locked until ${format(at, 'M/d/yyyy h:mm a')}`);
+      expect(line).toContain('2126');
+    });
+
+    it('says nothing of a lock that has passed, of an empty one and of one that is no moment', () => {
+      for (const config of [accounts, people]) {
+        const says = stateOf(list(config));
+        expect(says({ disabled: true, lockedUntil: later(-1).toISOString() })).toEqual(['Disabled']);
+        expect(says({ lockedUntil: noon.toISOString() })).toEqual([]);
+        expect(says({ lockedUntil: '' })).toEqual([]);
+        expect(says({ lockedUntil: null })).toEqual([]);
+        expect(says({ lockedUntil: 'soon' })).toEqual([]);
+      }
+    });
+
+    it("says the same line on a person's page, whose form holds the lock and does not draw it", () => {
+      const at = later(1);
+      for (const config of [accounts, people]) {
+        expect(pageFields(config)).toContainEqual(['field', 'lockedUntil', false]);
+        expect(sayingOf(config, 'State')({ disabled: true, lockedUntil: at })).toEqual([
+          `Disabled, Locked until ${format(at, 'h:mm a')}`,
+          true,
+        ]);
+      }
+    });
   });
 });
 
@@ -2573,6 +2757,19 @@ describe('identityPages, an application without tenants', () => {
       groupId: 'g-1',
       role: 'Clerk',
     });
+  });
+
+  it('asks before a delete that the account goes, and that Disable keeps it, naming no tenant', () => {
+    const [side] = office.sides;
+    const deleting = {
+      ...officeDescriptor,
+      identity: [{ ...office, sides: [{ ...side, methods: { ...side.methods, delete: 'DeleteOfficeUser' } }] }],
+    } as ApiDescriptor;
+    const [people] = identityPages(deleting, (resource) => officeMetas[resource], { auth: 'Office', scope: 'global' });
+    const question = presentation(list(people).rowMethods, 'DeleteOfficeUser').confirm as (row: RecordData) => string;
+    expect(question({ username: 'ada' })).toBe(
+      'Delete ada? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.',
+    );
   });
 
   it('says "tenant" nowhere: no heading, no title, no button and no word above an input', () => {

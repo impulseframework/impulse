@@ -36,31 +36,34 @@ const memberUser = "member"
 //
 // An account is one row for the whole application: a person who holds a role in two
 // tenants is one account, and so is a person who holds a role of the whole application
-// beside a tenant's. The methods a tenant acts on an account through (a new name, a new
-// address, a delete) change that one account, so the role file grants them to a
-// tenant's administrator for the people the tenant holds alone and nobody else
-// (heldElsewhere = false AND heldGlobally = false). Without the condition north's
-// administrator could change an account that also manages the application. The same
-// reasoning hides the address and the directory's subject of a person another tenant
-// holds too (heldElsewhere = false),
-[[- if .Password]] and whether such a person has a password (password
-// = false OR heldElsewhere = false on the list of how a person signs in),
-[[- end]] leaves a role
-// held in every tenant for the application's administrator to take (everyDomain =
-// false), and lets an invitation be withdrawn while it stands and not after (pending =
-// true).
+// beside a tenant's. One party manages it: the tenant whose directory the person signs
+// in through, otherwise the one tenant the person holds roles in, otherwise the
+// application's own administrators. The methods a tenant acts on an account through (a
+// new name, a new address, a delete) change that one account, so the role file grants
+// them to a tenant's administrator for the people whose account the tenant manages and
+// nobody else (managedHere = true). Without the condition north's administrator could
+// change an account that also manages the application. The same reasoning keeps the
+// rest of the account to those people (managedHere = true): beyond the name, the
+// address and whether the account is disabled, its dates, and the identities they sign
+// in with
+[[- if .Password]] and how they sign in. A password reset link goes to everyone but a
+// person another tenant's directory manages (managedHere = true OR
+// managedByAnotherDirectory = false)
+[[- end]]. A role held in every tenant is the
+// application's administrator's to take (everyDomain = false), and an invitation is
+// withdrawn while it stands and not after (pending = true).
 //
 // The people: nora holds a role in north alone; sam in north and in south; gail in
-// north and, for the whole application, FeatureAdministrator.
-[[- if .OneTenant]] A person belongs to one
-// tenant here unless they hold a role of the whole application, so sam is given
-// FeatureAdministrator before the role in south: the address and the subject, which
-// north reads of gail and not of sam, still tell a person another tenant holds from one
-// the whole application holds. Both hold a role of the whole application, which alone
-// keeps north from changing their accounts, so a fourth person shows the other half of
-// that condition at work: erin holds a role in north and the tenants' role in every
-// tenant, which no tenant owns, and no role of the whole application. Only
-// heldElsewhere = false keeps north from changing her account.
+// north and, for the whole application, FeatureAdministrator. Nobody here signs in
+// through a tenant's directory, so north manages nora's account and nobody else's.
+[[- if .OneTenant]] A
+// person belongs to one tenant here unless they hold a role of the whole application,
+// so sam is given FeatureAdministrator before the role in south. Both hold a role of
+// the whole application, which alone keeps north from managing their accounts, so a
+// fourth person shows the other way an account is not a tenant's: erin holds a role in
+// north and the tenants' role in every tenant, which no tenant owns, and no role of the
+// whole application. What keeps north from managing her account is the role she holds
+// in every tenant.
 [[- end]] The member is north's administrator and nothing else,
 // so every answer here is the role file's.
 func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *testing.T) {
@@ -68,25 +71,26 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 
 	// The conditional grants this test proves, pinned to the role file: impulse check
 	// reads these calls to find a conditional grant no test names.
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]Users", "heldElsewhere = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Read", "Staff[[.Record]]Users", "heldElsewhere = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]Identities", "heldElsewhere = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Read", "Staff[[.Record]]Identities", "heldElsewhere = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "DisableStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "EnableStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "DeleteStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RenameStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserName", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserEmail", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]Users", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Read", "Staff[[.Record]]Users", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]Identities", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Read", "Staff[[.Record]]Identities", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "DisableStaff[[.Record]]User", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "EnableStaff[[.Record]]User", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "DeleteStaff[[.Record]]User", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RenameStaff[[.Record]]User", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserName", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserEmail", "managedHere = true")
 [[- if .Password]]
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RequireStaff[[.Record]]PasswordChange", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RequireStaff[[.Record]]PasswordChange", "managedHere = true")
 [[- end]]
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RevokeStaff[[.Record]]UserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "EndStaff[[.Record]]UserSessions", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "UnlinkStaff[[.Record]]SessionIdentity", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RevokeStaff[[.Record]]UserTrustedDevices", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "EndStaff[[.Record]]UserSessions", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "UnlinkStaff[[.Record]]SessionIdentity", "managedHere = true")
 [[- if .Password]]
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RemoveStaff[[.Record]]Password", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]SignInWays", "password = false OR heldElsewhere = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RemoveStaff[[.Record]]Password", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]SignInWays", "managedHere = true")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SendStaff[[.Record]]UserPasswordResetLink", "managedHere = true OR managedByAnotherDirectory = false")
 [[- end]]
 	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RemoveStaff[[.Record]]Role", "everyDomain = false")
 	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "WithdrawStaff[[.Record]]Invitation", "pending = true")
@@ -175,13 +179,16 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		t.Fatalf("writing the identity links: %v", err)
 	}
 
-	// The private fields of a person are answered where no other tenant holds them. gail
-	// holds a role of the whole application and none in another tenant, so the condition
-	// on the fields (heldElsewhere = false) holds for her as for nora.
-[[- if .OneTenant]] erin's role in
-	// every tenant is held outside north, so her fields are hidden as sam's are.
-[[- end]]
-	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
+	// The rest of a person's account is answered where north manages it: for nora alone.
+	// The address is answered for everyone in the list, as the name is. gail holds a role
+	// of the whole application, so the application's administrators manage her account,
+	// and its rest is not north's to read, as sam's is not.
+[[- if .OneTenant]] erin's role in every
+	// tenant is held outside north, so her account is no tenant's either.
+[[- end]] The identities a
+	// person signs in with are read under the same condition: north lists nora's, and no
+	// identity of the others, whose links it does not find.
+	for name, managed := range map[string]bool{"nora": true, "gail": false, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
 		people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
 		for where, row := range map[string]map[string]any{
 			"list": people[ids[name]],
@@ -195,20 +202,30 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 			if row["name"] != name+" of north" {
 				t.Errorf("%s: the name in the %s = %v, want %q", name, where, row["name"], name+" of north")
 			}
-			if _, got := row["email"]; got != want {
-				t.Errorf("%s: the address in the %s is answered = %v, want %v: %v", name, where, got, want, row)
+			if _, got := row["email"]; !got {
+				t.Errorf("%s: the address in the %s is not answered, and it is for everyone in the list: %v", name, where, row)
+			}
+			if _, got := row["createdAt"]; got != managed {
+				t.Errorf("%s: the date the account was created, in the %s, is answered = %v, want %v: %v", name, where, got, managed, row)
 			}
 		}
 		identities := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-identities")
+		if !managed {
+			if row, listed := identities[links[name]]; listed {
+				t.Errorf("%s: north lists the identity of a person whose account it does not manage: %v", name, row)
+			}
+			if status, body := member.do(ctx, http.MethodGet, "/api/[[.Segment]]/"+north+"/staff-[[.Kebab]]-identities/"+links[name], nil); status != http.StatusNotFound {
+				t.Errorf("%s: north's read of the identity: status %d, want 404: %s", name, status, body)
+			}
+
+			continue
+		}
 		for where, row := range map[string]map[string]any{
 			"list": identities[links[name]],
 			"read": tenantRow(ctx, t, member, north, "staff-[[.Kebab]]-identities", links[name]),
 		} {
-			if row["method"] != "google" {
-				t.Errorf("%s: the %s of north's identities answers %v, want the link with the fields the grant carries with no condition", name, where, row)
-			}
-			if _, got := row["subject"]; got != want {
-				t.Errorf("%s: the directory's subject in the %s is answered = %v, want %v: %v", name, where, got, want, row)
+			if row["method"] != "google" || row["subject"] != "subject-of-"+name {
+				t.Errorf("%s: the %s of north's identities answers %v, want the link with its method and the directory's subject", name, where, row)
 			}
 		}
 	}
@@ -219,24 +236,45 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// person signs in and the removal of a password are both judged by it.
 	linkSignsIn := len(s.auth.Session().API().SignsInThrough(sessioninfo.MethodGoogle, "example.com")) > 0
 
-	// How a person signs in is read under the same reasoning as their private fields. An
-	// identity that signs them in is listed for every person of the tenant, as their
-	// identities are, and the password only of a person no other tenant holds: north
-	// does not learn whether sam, whom south holds too, has a password, as it does not
-	// learn whether sam must change it, and a page that offers the removal by these rows
-	// offers none for sam.
-	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
+	// How a person signs in is read under the same condition as the rest of the account:
+	// north lists nora's password and, where it signs her in, her identity, and nothing
+	// of a person whose account it does not manage. A page that offers the removal of a
+	// password by these rows offers none for them.
+	for name, managed := range map[string]bool{"nora": true, "gail": false, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
 		ways := tenantWays(ctx, t, member, north, ids[name])
-		if _, got := ways["password"]; got != want {
-			t.Errorf("%s: the password among the ways north reads = %v, want %v: %v", name, got, want, ways)
+		if !managed {
+			if len(ways) != 0 {
+				t.Errorf("%s: north reads how a person whose account it does not manage signs in: %v", name, ways)
+			}
+
+			continue
+		}
+		if _, got := ways["password"]; !got {
+			t.Errorf("%s: the ways north reads leave out the password: %v", name, ways)
 		}
 		if _, got := ways[links[name]]; got != linkSignsIn {
 			t.Errorf("%s: the identity among the ways north reads = %v, want %v, since the list holds the identities that can sign a person in: %v", name, got, linkSignsIn, ways)
 		}
 	}
+
+	// A password reset link goes to a person whose account the tenant does not manage
+	// too, unless another tenant's directory manages it: north and south each send one
+	// to sam, whom both hold, once the address is one sam confirmed.
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("StaffSessionUsers", map[string]any{"Id": ids["sam"], "EmailVerifiedAt": spanner.CommitTimestamp})}); err != nil {
+		t.Fatalf("confirming sam's address: %v", err)
+	}
+	for _, by := range []struct {
+		who    string
+		b      *browser
+		tenant string
+	}{{"north's administrator", member, north}, {"the administrator of every tenant, in south", admin, south}} {
+		if status, body := tenantPost(ctx, by.b, by.tenant, "send-staff-[[.Kebab]]-user-password-reset-link", map[string]any{"userId": ids["sam"]}); status != http.StatusOK {
+			t.Errorf("%s sending sam a reset link: status %d, want 200: %s", by.who, status, body)
+		}
+	}
 [[end]]
 	// The methods that act on an account, each with the body it takes and the answer it
-	// gives for a person who is north's alone.
+	// gives for a person whose account north manages.
 	user := func(name string) map[string]any {
 		return map[string]any{"userId": ids[name]}
 	}
@@ -285,8 +323,8 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		{"delete-staff-[[.Kebab]]-user", user, http.StatusNoContent},
 	}
 
-	// An account another tenant or the whole application holds too is not north's to
-	// change: every method is refused for sam and for gail.
+	// An account north does not manage is not north's to change: every method is refused
+	// for sam and for gail.
 [[- if .OneTenant]] sam and gail hold a role
 	// of the whole application, which refuses them whatever else they hold; erin holds
 	// none, so what refuses every method for her is the role she holds in every tenant.
@@ -303,18 +341,17 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 [[- if .OneTenant]] So is erin.
 [[- end]]
 	people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
-	identities := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-identities")
 	for _, name := range []string{"sam", "gail"[[if .OneTenant]], "erin"[[end]]} {
 		if row := people[ids[name]]; row["username"] != name || row["name"] != name+" of north" || row["disabled"] != false {
 			t.Errorf("%s after the refused calls = %v, want the account as it was", name, row)
 		}
-		if identities[links[name]] == nil {
-			t.Errorf("%s's identity link is gone after a refused call", name)
+		if _, err := s.db.Single().ReadRow(ctx, "StaffSessionIdentities", spanner.Key{links[name]}, []string{"Id"}); err != nil {
+			t.Errorf("%s's identity link after the refused calls: %v, want it kept", name, err)
 		}
 	}
 
-	// An account north holds alone is north's to change: every method is north's to
-	// call for nora, in the order above, and answers as the method does.
+	// An account north manages is north's to change: every method is north's to call
+	// for nora, in the order above, and answers as the method does.
 	for _, m := range accountMethods {
 		if status, body := tenantPost(ctx, member, north, m.method, m.body("nora")); status != m.want {
 			t.Fatalf("%s on nora: status %d, want %d: %s", m.method, status, m.want, body)
@@ -367,40 +404,37 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	}
 }
 [[if .Password]]
-// TestTenantPeople_theWaysAPersonSignsInAreListedButForAPasswordAnotherTenantSharesIn
-// proves both halves of the condition on a tenant administrator's list of how a person
-// signs in (password = false OR heldElsewhere = false), on the condition itself.
+// TestTenantPeople_aResetLinkGoesToEveryoneButAPersonAnotherTenantsDirectoryManages
+// proves each half of the condition on a tenant administrator's grant to send a
+// password reset link (managedHere = true OR managedByAnotherDirectory = false), on the
+// condition itself.
 //
-// The half that lists what is not the password is what lets a tenant read the
-// identities of a person another tenant holds too. The served test above shows it at
-// work wherever the login page offers a sign-in through a directory. Where the page
-// offers the password alone, no identity signs anybody in: the list holds no row but
-// the password, and no request can show that half. So the grant is read from the role
-// file and judged the way the list judges its rows, over the row an identity is and the
-// row a password is, for a person the tenant holds alone and for one it does not.
-func TestTenantPeople_theWaysAPersonSignsInAreListedButForAPasswordAnotherTenantSharesIn(t *testing.T) {
+// The served test above sends one to a person the tenant does not manage, whom two
+// tenants hold. Nobody there signs in through a tenant's directory, so no request shows
+// the half that refuses: a person another tenant's directory manages. So the grant is read from the role file and judged the
+// way the method judges the person's row, over the rows of the three kinds of person.
+func TestTenantPeople_aResetLinkGoesToEveryoneButAPersonAnotherTenantsDirectoryManages(t *testing.T) {
 	t.Parallel()
 
-	listed := signInWaysCondition(t)
-	for row, tt := range map[string]struct{ password, heldElsewhere, want bool }{
-		"an identity of a person the tenant holds alone":        {false, false, true},
-		"an identity of a person another tenant holds too":      {false, true, true},
-		"the password of a person the tenant holds alone":       {true, false, true},
-		"the password of a person another tenant holds too":     {true, true, false},
+	sent := resetLinkCondition(t)
+	for row, tt := range map[string]struct{ managedHere, managedByAnotherDirectory, want bool }{
+		"a person whose account the tenant manages":             {true, false, true},
+		"a person nobody's directory manages, held elsewhere too": {false, false, true},
+		"a person another tenant's directory manages":           {false, true, false},
 	} {
-		truth, err := condition.Evaluate(listed, &condition.Image{Pre: map[string]any{"password": tt.password, "heldElsewhere": tt.heldElsewhere}})
+		truth, err := condition.Evaluate(sent, &condition.Image{Pre: map[string]any{"managedHere": tt.managedHere, "managedByAnotherDirectory": tt.managedByAnotherDirectory}})
 		if err != nil {
 			t.Fatalf("judging %s: %v", row, err)
 		}
 		if truth.Permits() != tt.want {
-			t.Errorf("%s is listed for the tenant's administrator = %v, want %v", row, truth.Permits(), tt.want)
+			t.Errorf("the tenant's administrator sends a reset link to %s = %v, want %v", row, truth.Permits(), tt.want)
 		}
 	}
 }
 
-// signInWaysCondition reads, from the role file, the condition on the tenant
-// administrator's grant to list how a person signs in, parsed as the engine parses it.
-func signInWaysCondition(t *testing.T) condition.Expr {
+// resetLinkCondition reads, from the role file, the condition on the tenant
+// administrator's grant to send a password reset link, parsed as the engine parses it.
+func resetLinkCondition(t *testing.T) condition.Expr {
 	t.Helper()
 
 	parsed, err := staff.Roles().Parse()
@@ -411,8 +445,8 @@ func signInWaysCondition(t *testing.T) condition.Expr {
 		if r.Name != "[[.Record]]Administrator" {
 			continue
 		}
-		for _, g := range r.Permissions["List"] {
-			if g.Resource != "Staff[[.Record]]SignInWays" {
+		for _, g := range r.Permissions["Execute"] {
+			if g.Resource != "SendStaff[[.Record]]UserPasswordResetLink" {
 				continue
 			}
 			expr, err := condition.Parse(g.Condition)
@@ -423,7 +457,7 @@ func signInWaysCondition(t *testing.T) condition.Expr {
 			return expr
 		}
 	}
-	t.Fatal("the role file grants the tenant's administrator no list of how a person signs in")
+	t.Fatal("the role file grants the tenant's administrator no reset link to send")
 
 	return nil
 }

@@ -8,8 +8,8 @@ import {
   ApiDescriptor,
   ClientBase,
   createClient,
-  DirectoryOnlyCondition,
-  DirectoryOnlyState,
+  DirectoryOnlyCount,
+  DirectorySecondFactor,
   Domain,
   Method,
   MethodMeta,
@@ -17,6 +17,8 @@ import {
   PermissionDigest,
   PermissionDigestState,
   Resource,
+  TenantSignInCondition,
+  TenantSignInSettings,
   TransportRequest,
   TransportResponse,
 } from '@impulseframework/resource';
@@ -70,6 +72,15 @@ const descriptor: ApiDescriptor = {
       keys: ['id'],
       operations: ['list', 'read', 'create', 'remove', 'batch'],
     },
+    Teams: {
+      resource: 'Teams' as Resource,
+      property: 'teams',
+      route: 'teams',
+      scope: 'global',
+      consolidated: true,
+      keys: ['id'],
+      operations: ['list', 'read'],
+    },
     StaffTeamDirectoryRoles: {
       resource: 'StaffTeamDirectoryRoles' as Resource,
       property: 'staffTeamDirectoryRoles',
@@ -105,6 +116,18 @@ const descriptor: ApiDescriptor = {
       route: 'end-team-directory-only',
       scope: 'domain',
     },
+    VouchForTeamDirectorySecondFactor: {
+      method: 'VouchForTeamDirectorySecondFactor' as Method,
+      property: 'vouchForTeamDirectorySecondFactor',
+      route: 'vouch-for-team-directory-second-factor',
+      scope: 'domain',
+    },
+    StopVouchingForTeamDirectorySecondFactor: {
+      method: 'StopVouchingForTeamDirectorySecondFactor' as Method,
+      property: 'stopVouchingForTeamDirectorySecondFactor',
+      route: 'stop-vouching-for-team-directory-second-factor',
+      scope: 'domain',
+    },
   },
   domainRoute: { segment: 'teams', param: 'teamID' },
   consolidatedRoute: 'resources',
@@ -116,6 +139,7 @@ const descriptor: ApiDescriptor = {
       label: 'Staff',
       tenant: 'Team',
       tenantResource: 'Teams',
+      tenantDirectoryOnlyField: 'directoryOnly',
       sides: [
         {
           scope: 'domain',
@@ -125,6 +149,8 @@ const descriptor: ApiDescriptor = {
             makeDirectoryInviteOnly: 'MakeTeamInviteOnly',
             makeDirectoryOnly: 'MakeTeamDirectoryOnly',
             endDirectoryOnly: 'EndTeamDirectoryOnly',
+            vouchForDirectorySecondFactor: 'VouchForTeamDirectorySecondFactor',
+            stopVouchingForDirectorySecondFactor: 'StopVouchingForTeamDirectorySecondFactor',
           },
         },
       ],
@@ -153,6 +179,17 @@ const methodMeta: Record<string, MethodMeta> = {
   MakeTeamInviteOnly: { route: 'make-team-invite-only', dryRun: true, fields: [] },
   MakeTeamDirectoryOnly: { route: 'make-team-directory-only', dryRun: true, warning: { typed: 'close' }, fields: [] },
   EndTeamDirectoryOnly: { route: 'end-team-directory-only', dryRun: true, fields: [] },
+  VouchForTeamDirectorySecondFactor: {
+    route: 'vouch-for-team-directory-second-factor',
+    dryRun: true,
+    warning: { typed: 'vouch' },
+    fields: [],
+  },
+  StopVouchingForTeamDirectorySecondFactor: {
+    route: 'stop-vouching-for-team-directory-second-factor',
+    dryRun: true,
+    fields: [],
+  },
 };
 
 /** How the person signed in: through the team's Workspace, or by password, which reports no directory. */
@@ -167,42 +204,44 @@ const administrator: PermissionDigest = {
   MakeTeamInviteOnly: { Execute: 'granted' },
   MakeTeamDirectoryOnly: { Execute: 'granted' },
   EndTeamDirectoryOnly: { Execute: 'granted' },
+  VouchForTeamDirectorySecondFactor: { Execute: 'granted' },
+  StopVouchingForTeamDirectorySecondFactor: { Execute: 'granted' },
 };
 /** A reader who may list the team's directory and nothing more. */
 const lister: PermissionDigest = { TeamDirectories: { List: 'granted' } };
 
 /** What turning directory only takes of the person reading, as the server says it. */
-const throughTheDirectory: DirectoryOnlyCondition = {
+const throughTheDirectory: TenantSignInCondition = {
   sentence:
     "Directory only is turned on by a person who is signed in through this team's directory, Google Workspace riverside.example: that shows the directory works, and that you will not shut yourself out.",
   met: true,
 };
-const hasAPassword: DirectoryOnlyCondition = {
+const hasAPassword: TenantSignInCondition = {
   sentence:
     'Directory only is turned on by a person who has a password: an administrator of this team enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.',
   met: true,
 };
-const notThroughTheDirectory: DirectoryOnlyCondition = {
+const notThroughTheDirectory: TenantSignInCondition = {
   ...throughTheDirectory,
   met: false,
   toDo: 'Sign in through Google Workspace riverside.example, then try again.',
 };
 
-/** The read of the switch for a team with no directory, by a person signed in through Workspace. */
-const noDirectoryThroughWorkspace: DirectoryOnlyState = {
+/** The read of the sign-in settings for a team with no directory, by a person signed in through Workspace. */
+const noDirectoryThroughWorkspace: TenantSignInSettings = {
   directoryOnly: false,
   passwords: true,
   signedIn: 'You signed in through Google Workspace riverside.example.',
   sessionDirectory: directory,
 };
 /** The same, by a person signed in with a password. */
-const noDirectoryByPassword: DirectoryOnlyState = {
+const noDirectoryByPassword: TenantSignInSettings = {
   directoryOnly: false,
   passwords: true,
   signedIn: 'You signed in with a password.',
 };
-/** The read of the switch for a team with its directory, invitation only, off, by a person who meets both conditions. */
-const withDirectory: DirectoryOnlyState = {
+/** The read of the sign-in settings for a team with its directory, invitation only, off, by a person who meets both conditions. */
+const withDirectory: TenantSignInSettings = {
   directoryOnly: false,
   directory,
   passwords: true,
@@ -213,7 +252,7 @@ const withDirectory: DirectoryOnlyState = {
 };
 
 /** The same, by a person signed in with a password, who is not signed in through the directory. */
-const withDirectoryByPassword: DirectoryOnlyState = {
+const withDirectoryByPassword: TenantSignInSettings = {
   directoryOnly: false,
   directory,
   passwords: true,
@@ -222,6 +261,49 @@ const withDirectoryByPassword: DirectoryOnlyState = {
   conditions: [notThroughTheDirectory, hasAPassword],
 };
 
+/** What saying the team's word for its directory's second factor takes of the person reading, as the server says it. */
+const throughTheDirectoryToVouch: TenantSignInCondition = {
+  sentence:
+    "Only a person who is signed in through this team's directory, Google Workspace riverside.example, can say that it asks its people for a second factor.",
+  met: true,
+};
+/** The second factor's part of the read where the application asks everyone, for a person signed in through the directory. */
+const asksEveryone: DirectorySecondFactor = {
+  vouched: false,
+  asked: true,
+  says: 'People who sign in through Google Workspace riverside.example are asked for a code mailed to their address, as everyone is.',
+  conditions: [throughTheDirectoryToVouch],
+};
+/** The same, for a person signed in with a password, who does not meet the condition. */
+const asksEveryoneByPassword: DirectorySecondFactor = {
+  ...asksEveryone,
+  conditions: [
+    {
+      ...throughTheDirectoryToVouch,
+      met: false,
+      toDo: 'You signed in with a password. Sign in through Google Workspace riverside.example and try again.',
+    },
+  ],
+};
+/** The part where the application asks nobody for a second factor now. */
+const asksNobody: DirectorySecondFactor = {
+  vouched: false,
+  asked: false,
+  says: 'This application asks nobody for a second factor now, so there is nothing to turn off for people who sign in through Google Workspace riverside.example.',
+};
+/** The part where the team says its directory asks for a second factor. */
+const vouched: DirectorySecondFactor = {
+  vouched: true,
+  asked: true,
+  says: 'This team says that Google Workspace riverside.example asks its people for a second factor when they sign in, so they are not asked for a code.',
+};
+
+/** What the server says the team's word for its directory's second factor would do. */
+const wouldVouch: MethodWarning = {
+  consequence:
+    'You are saying that Google Workspace riverside.example asks its people for a second factor when they sign in. This application will stop asking them for a code.',
+  confirm: 'Stop asking people who sign in through Google Workspace riverside.example for a code',
+};
 /** What the server says making the team directory only would do. */
 const wouldKeepOut: MethodWarning = {
   consequence:
@@ -241,15 +323,19 @@ const wouldOpen = (role: string): MethodWarning => ({
 interface World {
   /** The grants in the team. */
   digest: PermissionDigest;
+  /** The grants of the whole application; none unless given. */
+  globalDigest?: PermissionDigest;
+  /** The team's own row of the tenant record; refused unless given. */
+  record?: Record<string, unknown>;
   session?: object;
-  /** The read of the switch; a team with no directory, off, unless given. */
-  state?: DirectoryOnlyState;
+  /** The read of the sign-in settings; a team with no directory, off, unless given. */
+  state?: TenantSignInSettings;
   directories?: RecordData[];
   /** The server's answer to a write. */
   write?: TransportResponse;
   /** The server's answer to a request for a method's warning; the warnings above unless given. */
   warning?: TransportResponse;
-  /** Where given, the server answers a read of the switch once this settles. */
+  /** Where given, the server answers a read of the sign-in settings once this settles. */
   held?: Promise<void>;
   /** The names the page's route carries; the library's placing unless given. */
   route?: TenantSignIn;
@@ -261,6 +347,8 @@ const ownMethods = [
   'make-team-invite-only',
   'make-team-directory-only',
   'end-team-directory-only',
+  'vouch-for-team-directory-second-factor',
+  'stop-vouching-for-team-directory-second-factor',
 ];
 
 function serverFor(world: World): (request: TransportRequest) => TransportResponse | Promise<TransportResponse> {
@@ -269,7 +357,13 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
     const own = ownMethods.find((route) => url.pathname === `/api/teams/${team}/${route}`);
     if (own && request.headers?.['X-Warning'] === 'true') {
       const role = (request.body as { role?: string } | undefined)?.role ?? '';
-      return world.warning ?? { status: 200, body: own === 'open-team-to-directory' ? wouldOpen(role) : wouldKeepOut };
+      const warned =
+        own === 'open-team-to-directory'
+          ? wouldOpen(role)
+          : own === 'vouch-for-team-directory-second-factor'
+            ? wouldVouch
+            : wouldKeepOut;
+      return world.warning ?? { status: 200, body: warned };
     }
     if (own) {
       return world.write ?? { status: 200, body: undefined };
@@ -278,13 +372,20 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
       case '/api/user/session':
         return { status: 200, body: world.session ?? byPassword };
       case '/api/permission-digest':
-        return { status: 200, body: url.searchParams.get('domain') === team ? world.digest : {} };
+        return {
+          status: 200,
+          body: url.searchParams.get('domain') === team ? world.digest : (world.globalDigest ?? {}),
+        };
       case '/api/user-domains':
         return { status: 200, body: [{ domain: team, name: 'Riverside' }] };
-      case `/api/teams/${team}/directory-only`: {
+      case `/api/teams/${team}/sign-in-settings`: {
         const read: TransportResponse = { status: 200, body: world.state ?? { directoryOnly: false } };
         return world.held ? world.held.then(() => read) : read;
       }
+      case `/api/teams/${team}`:
+        return world.record
+          ? { status: 200, body: world.record }
+          : { status: 403, body: { message: 'Your role does not cover this team.' } };
       case `/api/teams/${team}/team-directories`:
         return { status: 200, body: world.directories ?? [] };
       case `/api/teams/${team}/staff-team-directory-roles`:
@@ -380,17 +481,23 @@ describe('TenantSignInPageComponent', () => {
     sent(route)
       .filter((request) => request.kind === 'call')
       .map((request) => request.body);
-  /** How many times the page read the switch. */
-  const readsOfTheSwitch = (): number =>
-    transport.requests.filter((r) => r.url.replace(/\?.*$/, '') === `/api/teams/${team}/directory-only`).length;
+  /** How many times the page read the sign-in settings. */
+  const readsOfTheSettings = (): number =>
+    transport.requests.filter((r) => r.url.replace(/\?.*$/, '') === `/api/teams/${team}/sign-in-settings`).length;
 
   it('is headed Sign-in settings, with a heading for each part, and names its elements for the page', async () => {
-    await pageFor({ digest: administrator, session: throughWorkspace, state: withDirectory, directories: [workspace] });
+    await pageFor({
+      digest: administrator,
+      session: throughWorkspace,
+      state: { ...withDirectory, secondFactor: asksEveryone },
+      directories: [workspace],
+    });
 
     expect(texts('h1')).toEqual(['Sign-in settings']);
     expect(texts('h2')).toEqual([
       'Directory',
       'The role a person gets the first time they sign in through it',
+      'Second factor',
       'Directory only',
     ]);
     expect(notNamedFor('impulse-tenant-sign-in-', element())).toEqual([]);
@@ -409,7 +516,7 @@ describe('TenantSignInPageComponent', () => {
     expect(element().querySelector('.impulse-tenant-sign-in-how-to-set')).toBeNull();
     // No field takes a method or a connection: a directory is never typed in.
     expect(element().querySelectorAll('input, form').length).toBe(0);
-    expect(readsOfTheSwitch()).toBe(1);
+    expect(readsOfTheSettings()).toBe(1);
 
     button('make-directory')?.click();
     await turn();
@@ -417,8 +524,8 @@ describe('TenantSignInPageComponent', () => {
     // The server sets the directory the session came through, so the create carries nothing.
     expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
     expect(texts('.impulse-tenant-sign-in-refusal')).toEqual([]);
-    // After the write the page reads the switch again.
-    expect(readsOfTheSwitch()).toBe(2);
+    // After the write the page reads the sign-in settings again.
+    expect(readsOfTheSettings()).toBe(2);
   });
 
   it('stays drawn while it reads again after a write, and the new answer replaces the old one', async () => {
@@ -441,9 +548,9 @@ describe('TenantSignInPageComponent', () => {
     await drawn();
     await drawn();
     await drawn();
-    // The write succeeded and the switch is read again; until the server answers, the page says what it said.
+    // The write succeeded and the sign-in settings are read again; until the server answers, the page says what it said.
     expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
-    expect(readsOfTheSwitch()).toBe(2);
+    expect(readsOfTheSettings()).toBe(2);
     expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
       'People enter Riverside with a password or by invitation. No directory is set.',
     ]);
@@ -779,6 +886,246 @@ describe('TenantSignInPageComponent', () => {
     expect(writes()).toEqual([]);
   });
 
+  describe("says whether the team vouches for its directory's second factor", () => {
+    const line = (): string[] => texts('.impulse-tenant-sign-in-second-factor');
+    const headed = (): boolean => texts('h2').includes('Second factor');
+
+    it('not vouched, where the application asks: a holder of the method who meets its condition is offered the button', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksEveryone.says]);
+      expect(texts('.impulse-tenant-sign-in-vouch')).toEqual(['Say the directory asks for a second factor']);
+      expect(texts('.impulse-tenant-sign-in-vouch + .impulse-tenant-sign-in-note')).toEqual([
+        'You are shown what this does before it is saved.',
+      ]);
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+      expect(button('stop-vouching')).toBeNull();
+    });
+
+    it('not vouched, where the application asks: a holder who does not meet the condition is told it and what to do, with no button', async () => {
+      await pageFor({
+        digest: { VouchForTeamDirectorySecondFactor: { Execute: 'granted' } },
+        session: byPassword,
+        state: { ...withDirectoryByPassword, secondFactor: asksEveryoneByPassword },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksEveryoneByPassword.says]);
+      const [unmet] = asksEveryoneByPassword.conditions ?? [];
+      expect(texts('.impulse-tenant-sign-in-condition')).toEqual([`${unmet?.sentence} ${unmet?.toDo}`]);
+      expect(texts('.impulse-tenant-sign-in-condition strong')).toEqual([unmet?.toDo ?? '']);
+      expect(button('vouch')).toBeNull();
+    });
+
+    it('not vouched, where the application asks: a reader who does not hold the method is told how it stands, and nothing more', async () => {
+      await pageFor({
+        digest: { MakeTeamDirectoryOnly: { Execute: 'granted' } },
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksEveryone.says]);
+      expect(button('vouch')).toBeNull();
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+    });
+
+    it('not vouched, where the application asks nobody: the line says there is nothing to turn off, with no button and no condition', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksNobody },
+        directories: [workspace],
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([asksNobody.says]);
+      expect(button('vouch')).toBeNull();
+      expect(button('stop-vouching')).toBeNull();
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+    });
+
+    it('vouched: a reader who holds only the method that takes it back is offered it', async () => {
+      await pageFor({
+        digest: { StopVouchingForTeamDirectorySecondFactor: { Execute: 'granted' } },
+        session: byPassword,
+        state: { ...withDirectoryByPassword, secondFactor: vouched },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([vouched.says]);
+      expect(texts('.impulse-tenant-sign-in-stop-vouching')).toEqual(['Ask them for a code again']);
+      expect(button('vouch')).toBeNull();
+    });
+
+    it('vouched: a reader who does not hold the method that takes it back is told how it stands, and nothing more', async () => {
+      await pageFor({
+        digest: { MakeTeamDirectoryOnly: { Execute: 'granted' } },
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: vouched },
+      });
+
+      expect(headed()).toBe(true);
+      expect(line()).toEqual([vouched.says]);
+      expect(button('stop-vouching')).toBeNull();
+    });
+
+    it('where the read says no second factor part, the page draws no such part', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: withDirectory,
+        directories: [workspace],
+      });
+
+      expect(headed()).toBe(false);
+      expect(element().querySelector('.impulse-tenant-sign-in-second-factor')).toBeNull();
+      expect(button('vouch')).toBeNull();
+      expect(button('stop-vouching')).toBeNull();
+    });
+
+    it("the team's word is said behind the server's warning and the typed word, and the page then says it stands", async () => {
+      const world: World = {
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      };
+      await pageFor(world);
+      world.state = { ...withDirectory, secondFactor: vouched };
+
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      // The page asked the server first, and nothing has run.
+      expect(sent('vouch-for-team-directory-second-factor')[0]).toEqual({ kind: 'warning', body: {} });
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([]);
+      expect(dialogText('[mat-dialog-title]')).toBe('Say the directory asks for a second factor');
+      expect(dialogText('.warning-consequence')).toBe(wouldVouch.consequence);
+      expect(runButton().textContent?.trim()).toBe(wouldVouch.confirm);
+      expect(dialogText('.typed-word mat-label')).toBe('Type vouch to confirm');
+      expect(runButton().disabled).toBe(true);
+      await typeWord('vouch');
+      expect(runButton().disabled).toBe(false);
+      const reads = readsOfTheSettings();
+
+      runButton().click();
+      await turn();
+      await turn();
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([{}]);
+      expect(readsOfTheSettings()).toBe(reads + 1);
+      expect(line()).toEqual([vouched.says]);
+      expect(texts('.impulse-tenant-sign-in-stop-vouching')).toEqual(['Ask them for a code again']);
+      expect(button('vouch')).toBeNull();
+    });
+
+    it("a person who cancels the warning's dialog says nothing", async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      });
+
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      (inDialog('mat-dialog-actions button:not(.run)') as HTMLButtonElement).click();
+      await turn();
+      await turn();
+      expect(inDialog('[mat-dialog-title]')).toBeNull();
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([]);
+      expect(button('vouch')?.disabled).toBe(false);
+    });
+
+    it("the server's refusal of the warning is shown in its own words, with no dialog and no call", async () => {
+      const sentence =
+        'This application asks nobody for a second factor now, so there is nothing to turn off for people who sign in through Google Workspace riverside.example.';
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+        warning: { status: 409, body: { message: sentence } },
+      });
+
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      expect(texts('.impulse-tenant-sign-in-refusal')).toEqual([sentence]);
+      expect(inDialog('[mat-dialog-title]')).toBeNull();
+      expect(calls('vouch-for-team-directory-second-factor')).toEqual([]);
+    });
+
+    it('the word is taken back on a plain confirmation, and the page reads again; a person who cancels takes nothing back', async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: vouched },
+        directories: [workspace],
+      });
+
+      button('stop-vouching')?.click();
+      await turn();
+      expect(sent('stop-vouching-for-team-directory-second-factor')).toEqual([]);
+      expect(dialogText('[mat-dialog-title]')).toBe('Ask them for a code again');
+      expect(dialogText('.question')).toBe(
+        'People who sign in through the directory will be asked for a mailed code again, from their next sign-in.',
+      );
+      expect(inDialog('.typed-word')).toBeNull();
+      (inDialog('mat-dialog-actions button:not(.run)') as HTMLButtonElement).click();
+      await turn();
+      await turn();
+      expect(sent('stop-vouching-for-team-directory-second-factor')).toEqual([]);
+
+      button('stop-vouching')?.click();
+      await turn();
+      const reads = readsOfTheSettings();
+      runButton().click();
+      await turn();
+      await turn();
+      expect(sent('stop-vouching-for-team-directory-second-factor')).toEqual([{ kind: 'call', body: {} }]);
+      expect(readsOfTheSettings()).toBe(reads + 1);
+    });
+
+    it("nothing of the directory's connection is on the page, nor in the dialog that says the word", async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: asksEveryone },
+        directories: [workspace],
+      });
+
+      expect(element().textContent).not.toContain(connection);
+      button('vouch')?.click();
+      await turn();
+      await turn();
+      expect(dialogText('.warning-consequence')).not.toBe('');
+      expect(document.querySelector('.cdk-overlay-container')?.textContent).not.toContain(connection);
+    });
+
+    it("nothing of the directory's connection is in the dialog that takes the word back", async () => {
+      await pageFor({
+        digest: administrator,
+        session: throughWorkspace,
+        state: { ...withDirectory, secondFactor: vouched },
+        directories: [workspace],
+      });
+
+      expect(element().textContent).not.toContain(connection);
+      button('stop-vouching')?.click();
+      await turn();
+      expect(dialogText('.question')).not.toBe('');
+      expect(document.querySelector('.cdk-overlay-container')?.textContent).not.toContain(connection);
+    });
+  });
+
   describe("links the count of the people directory only keeps out to the team's People page, filtered to them", () => {
     // The application mounts the list of the team's people at its People page; a record of
     // people it mounts no page for is the second.
@@ -786,6 +1133,13 @@ describe('TenantSignInPageComponent', () => {
     const unmounted = 'StaffTeamGuests' as Resource;
     registerResourcePage(people, 'teams/:teamID/people');
     const listsPeople: PermissionDigest = { ...administrator, StaffTeamUsers: { List: 'granted' } };
+    /** The count with one share, the page's own people's, which is the whole of it. */
+    const own = (record: Resource, seated: number, outside: number): DirectoryOnlyCount => ({
+      seated,
+      outside,
+      shares: [{ label: 'Staff', people: record, seated, outside }],
+    });
+    const counted: TenantSignInSettings = { ...withDirectory, people: own(people, 4, 2) };
     const link = (): HTMLAnchorElement | null =>
       element().querySelector<HTMLAnchorElement>('.impulse-tenant-sign-in-people a.impulse-tenant-sign-in-people-link');
     /** The link's path and its filters, as the router reads its address. */
@@ -798,7 +1152,7 @@ describe('TenantSignInPageComponent', () => {
     };
 
     it('with the switch off, the sentence is the link, and the words are the same', async () => {
-      await pageFor({ digest: listsPeople, state: withDirectory, directories: [workspace] });
+      await pageFor({ digest: listsPeople, state: counted, directories: [workspace] });
 
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([
         '2 of 4 people here have never signed in through the directory and would be kept out.',
@@ -807,12 +1161,14 @@ describe('TenantSignInPageComponent', () => {
         '2 of 4 people here have never signed in through the directory and would be kept out.',
       );
       expect(opens()).toEqual({ path: `/teams/${team}/people`, filters: ['outsideDirectory:eq:true'] });
+      // The page's own people are everyone kept out: no share has a line of its own.
+      expect(element().querySelector('.impulse-tenant-sign-in-share')).toBeNull();
     });
 
     it('with the switch on, the sentence is the link, and the words are the same', async () => {
       await pageFor({
         digest: listsPeople,
-        state: { directoryOnly: true, directory, passwords: true, people: { seated: 4, outside: 1 } },
+        state: { directoryOnly: true, directory, passwords: true, people: own(people, 4, 1) },
         directories: [workspace],
       });
 
@@ -828,7 +1184,7 @@ describe('TenantSignInPageComponent', () => {
     it('where nobody is kept out, the sentence links nowhere', async () => {
       await pageFor({
         digest: listsPeople,
-        state: { ...withDirectory, people: { seated: 4, outside: 0 } },
+        state: { ...withDirectory, people: own(people, 4, 0) },
         directories: [workspace],
       });
 
@@ -839,7 +1195,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the application mounts no page of its people, the sentence links nowhere', async () => {
       await pageFor({
         digest: { ...administrator, StaffTeamGuests: { List: 'granted' } },
-        state: withDirectory,
+        state: { ...withDirectory, people: own(unmounted, 4, 2) },
         directories: [workspace],
         route: { ...signIn, people: unmounted },
       });
@@ -851,7 +1207,7 @@ describe('TenantSignInPageComponent', () => {
     });
 
     it('where the reader may not list the people, the sentence links nowhere', async () => {
-      await pageFor({ digest: administrator, state: withDirectory, directories: [workspace] });
+      await pageFor({ digest: administrator, state: counted, directories: [workspace] });
 
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([
         '2 of 4 people here have never signed in through the directory and would be kept out.',
@@ -872,7 +1228,7 @@ describe('TenantSignInPageComponent', () => {
     const sentence = '2 of 4 people here have never signed in through the directory and would be kept out.';
 
     it('where the List on the people names no field, the sentence is the link', async () => {
-      await pageFor({ digest: listing({}), state: withDirectory, directories: [workspace] });
+      await pageFor({ digest: listing({}), state: counted, directories: [workspace] });
 
       expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
     });
@@ -880,7 +1236,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as granted, the sentence is the link', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'granted' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
@@ -891,7 +1247,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as conditional on time, the sentence is the link', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'conditionalOnTime' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
@@ -901,7 +1257,7 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names other fields and not the mark, the sentence links nowhere', async () => {
       await pageFor({
         digest: listing({ username: 'granted', cannotEnter: 'granted' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
@@ -912,12 +1268,116 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as conditional, the sentence links nowhere', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'conditional' }),
-        state: withDirectory,
+        state: counted,
         directories: [workspace],
       });
 
       expect(texts('.impulse-tenant-sign-in-people')).toEqual([sentence]);
       expect(link()).toBeNull();
+    });
+
+    // Where another auth's people are among those kept out, the sentence opens no page: a
+    // link never says more people than it opens. Each auth's share has a line of its own,
+    // a link to that auth's people on the same four conditions.
+    const members = 'MembersTeamUsers' as Resource;
+    registerResourcePage(members, 'teams/:teamID/members');
+    const shared = (mine: number, theirs: number, record: Resource = members): TenantSignInSettings => ({
+      ...withDirectory,
+      people: {
+        seated: 12,
+        outside: mine + theirs,
+        shares: [
+          { label: 'Staff', people, seated: 8, outside: mine },
+          { label: 'Members', people: record, seated: 4, outside: theirs },
+        ],
+      },
+    });
+    const shareLink = (index: number): string =>
+      element()
+        .querySelectorAll('.impulse-tenant-sign-in-share')
+        .item(index)
+        ?.querySelector('a.impulse-tenant-sign-in-share-link')
+        ?.getAttribute('href') ?? '';
+    const withMembers: PermissionDigest = { ...listsPeople, MembersTeamUsers: { List: 'granted' } };
+
+    it("where another auth's people are among those kept out, the sentence is plain, and each share is a line that opens its own people", async () => {
+      await pageFor({ digest: withMembers, state: shared(3, 5), directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '8 of 12 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link()).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      const router = TestBed.inject(Router);
+      expect(shareLink(0).replace(/\?.*$/, '')).toBe(`/teams/${team}/people`);
+      expect(router.parseUrl(shareLink(0)).queryParamMap.getAll('filter')).toEqual(['outsideDirectory:eq:true']);
+      expect(shareLink(1).replace(/\?.*$/, '')).toBe(`/teams/${team}/members`);
+      expect(router.parseUrl(shareLink(1)).queryParamMap.getAll('filter')).toEqual(['outsideDirectory:eq:true']);
+    });
+
+    it("a share's line is plain where no page of its people is mounted", async () => {
+      await pageFor({
+        digest: { ...listsPeople, StaffTeamGuests: { List: 'granted' } },
+        state: shared(3, 5, unmounted),
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(0)).not.toBe('');
+      expect(shareLink(1)).toBe('');
+    });
+
+    it("a share's line is plain where the reader may not list its people", async () => {
+      await pageFor({ digest: listsPeople, state: shared(3, 5), directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(0)).not.toBe('');
+      expect(shareLink(1)).toBe('');
+    });
+
+    it("a share's line is plain where the List on its people names fields and not the mark", async () => {
+      await pageFor({
+        digest: { ...withMembers, [`${members}.username`]: { List: 'granted' } },
+        state: shared(3, 5),
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(0)).not.toBe('');
+      expect(shareLink(1)).toBe('');
+    });
+
+    it("where another auth's people are everyone kept out, the sentence is plain and only their share has a line", async () => {
+      await pageFor({ digest: withMembers, state: shared(0, 5), directories: [workspace] });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '5 of 12 people here have never signed in through the directory and would be kept out.',
+      ]);
+      expect(link()).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Members: 5 of them']);
+    });
+
+    it('a count that says no shares is the link, as it always was', async () => {
+      await pageFor({ digest: listsPeople, state: withDirectory, directories: [workspace] });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+      expect(element().querySelector('.impulse-tenant-sign-in-share')).toBeNull();
+    });
+
+    it('both states of the switch draw the same lines', async () => {
+      const on = shared(3, 5);
+      await pageFor({
+        digest: withMembers,
+        state: { ...on, directoryOnly: true, conditions: undefined },
+        directories: [workspace],
+      });
+
+      expect(texts('.impulse-tenant-sign-in-people')).toEqual([
+        '8 of 12 people here have never signed in through the directory and are kept out.',
+      ]);
+      expect(link()).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-share')).toEqual(['Staff: 3 of them', 'Members: 5 of them']);
+      expect(shareLink(1).replace(/\?.*$/, '')).toBe(`/teams/${team}/members`);
     });
   });
 
@@ -928,8 +1388,8 @@ describe('TenantSignInPageComponent', () => {
     // Nothing would stand under a heading: the list does not name the directory, and the reader may not remove it.
     expect(texts('h2')).toEqual([]);
     expect(element().querySelectorAll('button').length).toBe(0);
-    // The read of the switch is asked only under the grant of a method that turns it.
-    expect(readsOfTheSwitch()).toBe(0);
+    // The read of the sign-in settings is asked only under the grant of one of the team's own sign-in methods.
+    expect(readsOfTheSettings()).toBe(0);
   });
 
   it('a reader who may not set a directory, of a team with none, gets no Directory heading', async () => {
@@ -945,6 +1405,62 @@ describe('TenantSignInPageComponent', () => {
     expect(texts('h2')).toEqual(['Directory only']);
   });
 
+  it('a reader who holds only the method that opens the team to its directory is served the read once, and sees the role that stands', async () => {
+    await pageFor({
+      digest: { OpenTeamToDirectory: { Execute: 'granted' } },
+      session: throughWorkspace,
+      state: { ...withDirectory, defaultRole: 'Editor' },
+    });
+
+    expect(readsOfTheSettings()).toBe(1);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
+    expect(texts('.impulse-tenant-sign-in-default-role')).toEqual(['Editor']);
+    expect(texts('.impulse-tenant-sign-in-change-role')).toEqual(['Change the role']);
+    // The Directory only part says how the team stands, with no button to turn it.
+    expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+      'Off: a person who holds a role here enters however they signed in.',
+    ]);
+    expect(button('make-only')).toBeNull();
+    expect(button('end-only')).toBeNull();
+  });
+
+  it("a reader who holds none of the team's own sign-in methods is served no read of the sign-in settings", async () => {
+    await pageFor({
+      digest: {
+        TeamDirectories: { List: 'granted', Create: 'granted', Delete: 'granted' },
+        StaffTeamDirectoryRoles: { List: 'granted' },
+      },
+      session: throughWorkspace,
+      state: withDirectory,
+      directories: [workspace],
+    });
+
+    expect(readsOfTheSettings()).toBe(0);
+    expect(texts('.impulse-tenant-sign-in-stands')).toEqual(['This team has a directory.']);
+    expect(element().querySelector('.impulse-tenant-sign-in-default-role')).toBeNull();
+  });
+
+  it('where the route names neither method of the switch, no part is headed Directory only, though the read answers', async () => {
+    await pageFor({
+      digest: administrator,
+      session: throughWorkspace,
+      state: withDirectory,
+      directories: [workspace],
+      route: {
+        ...signIn,
+        methods: {
+          openToDirectory: signIn.methods.openToDirectory,
+          makeDirectoryInviteOnly: signIn.methods.makeDirectoryInviteOnly,
+        },
+      },
+    });
+
+    expect(readsOfTheSettings()).toBe(1);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
+    expect(texts('h2')).toEqual(['Directory', 'The role a person gets the first time they sign in through it']);
+    expect(element().querySelector('.impulse-tenant-sign-in-directory-only')).toBeNull();
+  });
+
   it('a reader without the grants is told their role does not cover the page, and nothing is requested under the team', async () => {
     await pageFor({ digest: {}, session: throughWorkspace });
 
@@ -953,6 +1469,122 @@ describe('TenantSignInPageComponent', () => {
     ]);
     expect(element().querySelectorAll('h2, button').length).toBe(0);
     expect(transport.requests.map((r) => r.url).filter((u) => u.includes(`/teams/${team}`))).toEqual([]);
+  });
+
+  describe("a reader who holds none of the team's sign-in methods reads the switch from the team's own row", () => {
+    /** How many times the page read the team's own row of the tenant record. */
+    const readsOfTheRow = (): number =>
+      transport.requests.filter((r) => r.method === 'GET' && r.url.replace(/\?.*$/, '') === `/api/teams/${team}`)
+        .length;
+    const readsTeams: PermissionDigest = { Teams: { Read: 'granted' } };
+
+    it('a reader who holds one of the methods is answered by the read of the sign-in settings, and the row is not read', async () => {
+      await pageFor({
+        digest: administrator,
+        globalDigest: readsTeams,
+        session: throughWorkspace,
+        state: withDirectory,
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(readsOfTheSettings()).toBe(1);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        'Off: a person who holds a role here enters however they signed in.',
+      ]);
+    });
+
+    it('a reader who may read the field is told the switch is on, and nothing more', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: readsTeams,
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(readsOfTheSettings()).toBe(0);
+      expect(texts('h2')).toEqual(['Directory only']);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        "On: only people who sign in through this team's directory enter it.",
+      ]);
+      expect(element().querySelector('.impulse-tenant-sign-in-people')).toBeNull();
+      expect(element().querySelector('.impulse-tenant-sign-in-condition')).toBeNull();
+      expect(element().querySelectorAll('button').length).toBe(0);
+    });
+
+    it('a reader who may read the field is told the switch is off, and nothing more', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { ...readsTeams, 'Teams.name': { Read: 'granted' }, 'Teams.directoryOnly': { Read: 'granted' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: false },
+      });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(texts('h2')).toEqual(['Directory only']);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        'Off: a person who holds a role here enters however they signed in.',
+      ]);
+      expect(element().querySelector('.impulse-tenant-sign-in-note')).toBeNull();
+      expect(element().querySelectorAll('button').length).toBe(0);
+    });
+
+    it('where the Read names other fields and not the switch, the row is not read', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { ...readsTeams, 'Teams.name': { Read: 'granted' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
+
+    it('where the Read names the switch on a condition, the row is not read', async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { ...readsTeams, 'Teams.directoryOnly': { Read: 'conditional' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
+
+    it('where the reader may not read the tenant record, the row is not read', async () => {
+      await pageFor({ digest: lister, directories: [workspace], record: { id: team, directoryOnly: true } });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
+
+    it('a refusal of the row draws no part and no alert', async () => {
+      await pageFor({ digest: lister, globalDigest: readsTeams, directories: [workspace] });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(texts('h2')).toEqual([]);
+      expect(element().querySelector('[role=alert]')).toBeNull();
+      expect(texts('.impulse-tenant-sign-in-stands')).toEqual(['This team has a directory.']);
+    });
+
+    it('route data that names no tenant record asks nothing of it', async () => {
+      const unnamed: TenantSignIn = { ...signIn };
+      delete unnamed.tenantRecord;
+      await pageFor({
+        digest: lister,
+        globalDigest: readsTeams,
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+        route: unnamed,
+      });
+
+      expect(readsOfTheRow()).toBe(0);
+      expect(texts('h2')).toEqual([]);
+    });
   });
 
   // Opened by its address (a reload, a bookmark), the page renders before the team's digest

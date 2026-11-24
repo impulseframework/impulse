@@ -1072,6 +1072,11 @@ type servedOptions struct {
 	// the suite that proves the library refuses a portal request asked of another auth's
 	// engine.
 	crewEngineAsMembers bool
+	// crewNotAdministered configures the crew auth's Workspace as one the fleet does not
+	// administer (auth.Directory.Administered false), so a sign-in through it carries no
+	// second factor of its own, for the suite that proves a sector's word for its
+	// directory's second factor.
+	crewNotAdministered bool
 }
 
 // newServedWith is the served stack under the options.
@@ -1121,7 +1126,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 			RedirectURL:  "http://" + server.Listener.Addr().String() + consoleAPI + "/user/google/callback",
 			Connection:   "example",
 			HostedDomain: "example.com",
-			Administered: true,
+			Administered: !opts.crewNotAdministered,
 			GroupPrefix:  "crew-",
 		},
 		SignUpRedirectURL:  "http://" + server.Listener.Addr().String() + consoleAPI + "/user/" + crew.SignUpRegistration + "/callback",

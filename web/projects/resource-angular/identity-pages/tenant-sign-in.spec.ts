@@ -1,9 +1,10 @@
-import { ApiDescriptor, DirectoryOnlyState, Method, Resource } from '@impulseframework/resource';
+import { ApiDescriptor, Method, Resource, TenantSignInSettings } from '@impulseframework/resource';
 import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
 import {
   TenantSignIn,
   tenantSignInKey,
   tenantPeopleLine,
+  tenantShareLine,
   tenantSignInPage,
   tenantSignInRoute,
   tenantStandsLine,
@@ -12,7 +13,8 @@ import {
 // A tenant's Sign-in settings page is placed from the API's description alone: the
 // tenant's side of an Auth names the directories record and the tenant's methods that
 // set how its people enter. The page's first line and its line on the people the
-// directory-only switch keeps out are said from the read of the switch, as two tables.
+// directory-only switch keeps out are said from the read of the tenant's sign-in
+// settings, as two tables.
 
 const side = (scope: 'global' | 'domain', lists: Record<string, string>, methods: Record<string, string> = {}) => ({
   scope,
@@ -81,6 +83,65 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
     expect(route.data?.[tenantSignInKey]).toEqual(carried);
   });
 
+  it("the route carries the methods of the tenant's word for its directory's second factor where the side names them, and neither where it names none", () => {
+    const vouching: ApiDescriptor = {
+      ...descriptor,
+      identity: [
+        {
+          auth: 'Staff',
+          label: 'Staff',
+          tenant: 'Team',
+          tenantResource: 'Teams',
+          sides: [
+            side('global', {}),
+            side(
+              'domain',
+              { directories: 'TeamDirectories' },
+              {
+                ...methods,
+                vouchForDirectorySecondFactor: 'VouchForTeamDirectorySecondFactor',
+                stopVouchingForDirectorySecondFactor: 'StopVouchingForTeamDirectorySecondFactor',
+              },
+            ),
+          ],
+        },
+      ],
+    };
+
+    const carried = tenantSignInRoute(vouching, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+    expect(carried.methods.vouchForDirectorySecondFactor).toBe('VouchForTeamDirectorySecondFactor');
+    expect(carried.methods.stopVouchingForDirectorySecondFactor).toBe('StopVouchingForTeamDirectorySecondFactor');
+    const plain = tenantSignInRoute(descriptor, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+    expect(Object.keys(plain.methods)).not.toContain('vouchForDirectorySecondFactor');
+    expect(Object.keys(plain.methods)).not.toContain('stopVouchingForDirectorySecondFactor');
+  });
+
+  it('the route carries the tenant record and its directory-only field where the description names both, and neither where it names one', () => {
+    const named = (identity: { tenantResource?: string; tenantDirectoryOnlyField?: string }): ApiDescriptor => ({
+      ...descriptor,
+      identity: [
+        {
+          auth: 'Staff',
+          label: 'Staff',
+          tenant: 'Team',
+          ...identity,
+          sides: [side('global', {}), side('domain', { directories: 'TeamDirectories' }, methods)],
+        },
+      ],
+    });
+    const carried = (d: ApiDescriptor): TenantSignIn =>
+      tenantSignInRoute(d, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+
+    expect(carried(named({ tenantResource: 'Teams', tenantDirectoryOnlyField: 'directoryOnly' })).tenantRecord).toEqual(
+      {
+        resource: 'Teams',
+        directoryOnlyField: 'directoryOnly',
+      },
+    );
+    expect(carried(named({ tenantResource: 'Teams' })).tenantRecord).toBeUndefined();
+    expect(carried(named({ tenantDirectoryOnlyField: 'directoryOnly' })).tenantRecord).toBeUndefined();
+  });
+
   it('refuse an Auth the description does not carry', () => {
     expect(() => tenantSignInPage(descriptor, { auth: 'Visitors' })).toThrowError(
       'tenantSignInPage: the API description carries no generated management of the auth Visitors (it carries: Staff, Members, Guests); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it',
@@ -110,7 +171,7 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
 });
 
 describe('tenantStandsLine', () => {
-  const said = (facts: DirectoryOnlyState | undefined, lists = false, row = false): string =>
+  const said = (facts: TenantSignInSettings | undefined, lists = false, row = false): string =>
     tenantStandsLine({ word: 'team', name: 'Riverside', facts, lists, row });
   const off = { directoryOnly: false };
   const workspace = 'Google Workspace riverside.example';
@@ -157,5 +218,24 @@ describe('tenantPeopleLine', () => {
     expect(tenantPeopleLine({ seated: 4, outside: 3 }, true)).toBe(
       '3 of 4 people here have never signed in through the directory and are kept out.',
     );
+  });
+});
+
+describe('tenantShareLine', () => {
+  it("says one auth's share of the people kept out, by the words the read gives its people", () => {
+    expect(tenantShareLine({ label: 'Crew', people: 'CrewSectorUsers', seated: 8, outside: 1 })).toBe(
+      'Crew: 1 of them',
+    );
+    expect(tenantShareLine({ label: 'Crew', people: 'CrewSectorUsers', seated: 8, outside: 3 })).toBe(
+      'Crew: 3 of them',
+    );
+  });
+
+  it('says each share in its own words, for several', () => {
+    const shares = [
+      { label: 'Staff', people: 'StaffTeamUsers', seated: 8, outside: 3 },
+      { label: 'Night crew', people: 'NightCrewTeamUsers', seated: 4, outside: 5 },
+    ];
+    expect(shares.map(tenantShareLine)).toEqual(['Staff: 3 of them', 'Night crew: 5 of them']);
   });
 });

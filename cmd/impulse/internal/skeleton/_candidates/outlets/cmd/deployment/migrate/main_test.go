@@ -140,15 +140,14 @@ func stopFirestore(ctx context.Context, f *initiator.FirestoreContainer) {
 // cases run one at a time, from the module root, where the migrations are read from as
 // they are in the image.
 //
-// No case names a mailbox, so the data level writes its mail to the log, as an
-// environment does before the mailbox's hand step: the command then refuses to invite a
-// first administrator and says what to give, whether the auth has no account or accounts
-// that hold nothing, and an auth where somebody holds the Super Administrator role needs
-// no invitation, no address and no mailbox. Whatever a case does, no invitation's link
-// is in what the command wrote:
-// its output, its errors and its log are read for one after every run. The invitation
-// itself, mailed, accepted and sent again, is proven where the auth mails to a recorder
-// (test/integration).
+// No case names a mailbox, so the data level writes its mail to the log, as development
+// does (APP_ENVIRONMENT=development, which the cases run in): the command then refuses to
+// invite a first administrator and says what to give, whether the auth has no account or
+// accounts that hold nothing, and an auth where somebody holds the Super Administrator
+// role needs no invitation, no address and no mailbox. Whatever a case does, no
+// invitation's link is in what the command wrote: its output, its errors and its log are
+// read for one after every run. The invitation itself, mailed, accepted and sent again,
+// is proven where the auth mails to a recorder (test/integration).
 func TestExecute(t *testing.T) {
 	emulators(t)
 	// The foothold's settings, which a case may override, and no mailbox, whatever the
@@ -157,6 +156,9 @@ func TestExecute(t *testing.T) {
 	t.Setenv(members.AdministratorVariable, membersAddress)
 	t.Setenv("APP_MAIL_MAILBOX", "")
 	t.Setenv("APP_MAIL_APP_PASSWORD", "")
+	// The data level opens without a mailbox in development alone, where the log takes
+	// the mail, so the cases say they run in development.
+	t.Setenv("APP_ENVIRONMENT", "development")
 	last := lastMigration(t)
 
 	tests := []struct {

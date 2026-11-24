@@ -17,7 +17,8 @@ import (
 )
 
 // librarySteps are the methods the library records its own steps under: the mailed
-// code, a remembered browser standing in for it, and a connection's attestation.
+// code, a remembered browser standing in for it, a connection's attestation and a
+// tenant's word for its directory's second factor.
 var librarySteps = []struct {
 	name   string
 	method sessioninfo.AuthMethod
@@ -26,6 +27,7 @@ var librarySteps = []struct {
 	{name: "a remembered browser", method: sessioninfo.MethodTrustedDevice},
 	{name: "a connection's attestation by evidence", method: sessioninfo.MethodAttestedByEvidence},
 	{name: "a connection's attestation by declaration", method: sessioninfo.MethodAttestedByDeclaration},
+	{name: "a tenant's word for its directory", method: sessioninfo.MethodVouchedByTenant},
 }
 
 // ownMethodRegistration is the registration of an application's own redirect method

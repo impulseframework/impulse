@@ -27,10 +27,12 @@ import (
 const passwordDisabledSentence = "Your organization does not sign in with a password here, so there is none to choose. Keep signing in the way your organization has set up"
 
 // passwordCheck is a password-disabled check that answers disabled, or fails with err,
-// and records whom it was asked about and the directories it was handed.
+// and records whom it was asked about and the directories it was handed. With only set
+// it answers disabled for that user alone.
 type passwordCheck struct {
 	mu       sync.Mutex
 	disabled bool
+	only     impulse.UUID
 	err      error
 	asked    []impulse.UUID
 	handed   [][]sessioninfo.UserDirectory
@@ -42,8 +44,19 @@ func (c *passwordCheck) check(_ context.Context, userID impulse.UUID, directorie
 	defer c.mu.Unlock()
 	c.asked = append(c.asked, userID)
 	c.handed = append(c.handed, directories)
+	if c.only != impulse.NilUUID && userID != c.only {
+		return false, c.err
+	}
 
 	return c.disabled, c.err
+}
+
+// setDisabled changes what the check answers from now on: the tenants' sign-in
+// settings changed.
+func (c *passwordCheck) setDisabled(disabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.disabled = disabled
 }
 
 // askedAbout is whom the check was asked about, in order.
@@ -532,6 +545,102 @@ func TestAuth_FirstPassword_passwordDisabled(t *testing.T) {
 		links.mu.Unlock()
 		if inserted != 0 {
 			t.Errorf("%d mail link rows were inserted, want none", inserted)
+		}
+	})
+}
+
+// TestAuth_PasswordReset_passwordDisabled holds the password reset link to the check
+// that refuses a first password: a person whose password the tenants' sign-in settings
+// disable is mailed no link, whoever asks, and a link mailed before the settings changed
+// is dead, since a password would not sign the person in. The check answers false for
+// everyone else, who is mailed the link as before.
+func TestAuth_PasswordReset_passwordDisabled(t *testing.T) {
+	t.Parallel()
+
+	const refused = "No link was sent: this account signs in through its organization's directory only, so a password would not sign it in"
+
+	t.Run("an administrator's send is a Conflict that says so, with nothing mailed and nothing counted; another person is mailed the link", func(t *testing.T) {
+		t.Parallel()
+		pat, sam := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+		f, recorder, _ := newMailFixture(t, gomock.NewController(t))
+		check := &passwordCheck{disabled: true, only: pat}
+		f.auth.SetPasswordDisabledCheck(check.check)
+		f.store.EXPECT().User(gomock.Any(), pat).Return(passwordPerson(t, pat), nil).AnyTimes()
+		other := passwordPerson(t, sam)
+		other.Username, other.Email = "sam", strPtr("sam@lakeside.edu")
+		f.store.EXPECT().User(gomock.Any(), sam).Return(other, nil).AnyTimes()
+
+		err := f.auth.API().SendPasswordReset(context.Background(), pat, AskedByApplication())
+		if !httpio.HasConflict(err) || httpio.Message(err) != refused {
+			t.Errorf("SendPasswordReset() for a person whose password is disabled error = %v, want the Conflict %q", err, refused)
+		}
+		if msgs := recorder.Messages(); len(msgs) != 0 {
+			t.Errorf("messages = %+v, want none", msgs)
+		}
+		if record := f.attemptsRecord("RESET:pat@lakeside.edu"); record != nil {
+			t.Errorf("the address's count of reset links after the refusal = %+v, want none", record)
+		}
+
+		if err := f.auth.API().SendPasswordReset(context.Background(), sam, AskedByApplication()); err != nil {
+			t.Fatalf("SendPasswordReset() for a person whose password is not disabled error = %v", err)
+		}
+		if msgs := recorder.Messages(); len(msgs) != 1 || msgs[0].To != "sam@lakeside.edu" {
+			t.Errorf("messages = %+v, want the link mailed to sam", msgs)
+		}
+	})
+
+	t.Run("the person's own request is answered as every request is, and mails nothing", func(t *testing.T) {
+		t.Parallel()
+		pat := impulse.Must(impulse.NewUUID())
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		check := &passwordCheck{disabled: true, only: pat}
+		f.auth.SetPasswordDisabledCheck(check.check)
+		on := true
+		resetSetting(f, &on)
+		links.holds("pat@lakeside.edu", passwordPerson(t, pat))
+		links.expectAccounts(f)
+
+		rr := f.serve(f.auth.PasswordReset().Request(), http.MethodPost, "/reset", map[string]string{"email": "pat@lakeside.edu"}, nil)
+		f.auth.API().WaitForMail()
+		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != "{}" {
+			t.Errorf("Request() = %d %s, want 200 {} as for any address", rr.Code, rr.Body.String())
+		}
+		if msgs := recorder.Messages(); len(msgs) != 0 {
+			t.Errorf("messages = %+v, want nothing mailed", msgs)
+		}
+		links.mu.Lock()
+		inserted := len(links.rows)
+		links.mu.Unlock()
+		if inserted != 0 {
+			t.Errorf("%d mail link rows were inserted, want none", inserted)
+		}
+		if diff := cmp.Diff([]impulse.UUID{pat}, check.askedAbout()); diff != "" {
+			t.Errorf("whom the check was asked about mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a link mailed before the settings disabled the password is dead: it neither opens nor completes, and the password stands", func(t *testing.T) {
+		t.Parallel()
+		pat := impulse.Must(impulse.NewUUID())
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		check := &passwordCheck{only: pat}
+		f.auth.SetPasswordDisabledCheck(check.check)
+		f.store.EXPECT().User(gomock.Any(), pat).Return(passwordPerson(t, pat), nil).AnyTimes()
+		token := mailedReset(t, f, recorder, pat)
+
+		check.setDisabled(true)
+		if rr := f.serve(f.auth.PasswordReset().Open(), http.MethodPost, "/reset/open", map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
+			t.Errorf("Open() = %d %s, want 404: the link no longer counts for the account", rr.Code, rr.Body.String())
+		}
+		// No password write is expected of the store: one fails the test.
+		if rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword}, nil); rr.Code != http.StatusNotFound {
+			t.Errorf("Complete() = %d %s, want 404", rr.Code, rr.Body.String())
+		}
+		links.mu.Lock()
+		spent := links.rows[0].ConsumedAt != nil
+		links.mu.Unlock()
+		if spent {
+			t.Error("the dead link was spent, want it left as it was")
 		}
 	})
 }

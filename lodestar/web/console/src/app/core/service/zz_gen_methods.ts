@@ -1176,6 +1176,14 @@ export interface OpenSectorToDirectory {
 export interface MakeSectorInviteOnlyConfig {}
 export interface MakeSectorInviteOnly {}
 
+/** The body VouchForSectorDirectorySecondFactor takes. The method says the sector's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; the person calling is signed in through that directory, and the method warns first. */
+export interface VouchForSectorDirectorySecondFactorConfig {}
+export interface VouchForSectorDirectorySecondFactor {}
+
+/** The body StopVouchingForSectorDirectorySecondFactor takes. The method takes back the sector's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in. */
+export interface StopVouchingForSectorDirectorySecondFactorConfig {}
+export interface StopVouchingForSectorDirectorySecondFactor {}
+
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -1436,7 +1444,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteCrewUser]: {
     route: 'delete-crew-user',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1454,7 +1462,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteMembersUser]: {
     route: 'delete-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1492,7 +1500,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableCrewUser]: {
     route: 'disable-crew-user',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1510,7 +1518,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableMembersUser]: {
     route: 'disable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1528,7 +1536,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableCrewUser]: {
     route: 'enable-crew-user',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1546,7 +1554,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableMembersUser]: {
     route: 'enable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1582,7 +1590,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndCrewUserSessions]: {
     route: 'end-crew-user-sessions',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1609,7 +1617,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersUserSessions]: {
     route: 'end-members-user-sessions',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1791,7 +1799,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveCrewPassword]: {
     route: 'remove-crew-password',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1865,7 +1873,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameCrewUser]: {
     route: 'rename-crew-user',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1885,7 +1893,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameMembersUser]: {
     route: 'rename-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1904,7 +1912,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RequireCrewPasswordChange]: {
     route: 'require-crew-password-change',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1961,7 +1969,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeCrewUserTrustedDevices]: {
     route: 'revoke-crew-user-trusted-devices',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1979,7 +1987,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeMembersUserTrustedDevices]: {
     route: 'revoke-members-user-trusted-devices',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2006,7 +2014,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SendCrewUserPasswordResetLink]: {
     route: 'send-crew-user-password-reset-link',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -2051,7 +2059,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetCrewUserEmail]: {
     route: 'set-crew-user-email',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -2061,7 +2069,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetCrewUserName]: {
     route: 'set-crew-user-name',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2099,7 +2107,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -2109,7 +2117,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetMembersUserName]: {
     route: 'set-members-user-name',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2301,6 +2309,17 @@ const methodMap: MethodMap = {
   },
   [Methods.MakeSectorInviteOnly]: {
     route: 'make-sector-invite-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.VouchForSectorDirectorySecondFactor]: {
+    route: 'vouch-for-sector-directory-second-factor',
+    dryRun: true,
+    warning: { typed: 'vouch' },
+    fields: [],
+  },
+  [Methods.StopVouchingForSectorDirectorySecondFactor]: {
+    route: 'stop-vouching-for-sector-directory-second-factor',
     dryRun: true,
     fields: [],
   },

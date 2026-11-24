@@ -29,6 +29,7 @@ export const Resources = {
   MembersListedGroupRoles: 'MembersListedGroupRoles' as Resource,
   MembersListedGroups: 'MembersListedGroups' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
+  MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
   MembersSessionAuthEvents: 'MembersSessionAuthEvents' as Resource,
@@ -351,6 +352,35 @@ export namespace MembersListedRoleGrants {
     role: 'MembersListedRoleGrants.role' as Resource,
     skipped: 'MembersListedRoleGrants.skipped' as Resource,
     updatedAt: 'MembersListedRoleGrants.updatedAt' as Resource,
+  };
+}
+
+export namespace MembersListedUsers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    disabled: 'disabled' as FieldName,
+    email: 'email' as FieldName,
+    emailVerifiedAt: 'emailVerifiedAt' as FieldName,
+    id: 'id' as FieldName,
+    lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'MembersListedUsers.createdAt' as Resource,
+    disabled: 'MembersListedUsers.disabled' as Resource,
+    email: 'MembersListedUsers.email' as Resource,
+    emailVerifiedAt: 'MembersListedUsers.emailVerifiedAt' as Resource,
+    id: 'MembersListedUsers.id' as Resource,
+    lastSignInAt: 'MembersListedUsers.lastSignInAt' as Resource,
+    lockedUntil: 'MembersListedUsers.lockedUntil' as Resource,
+    name: 'MembersListedUsers.name' as Resource,
+    passwordChangeRequired: 'MembersListedUsers.passwordChangeRequired' as Resource,
+    roles: 'MembersListedUsers.roles' as Resource,
+    username: 'MembersListedUsers.username' as Resource,
   };
 }
 
@@ -779,6 +809,8 @@ export namespace MembersTenantIdentities {
     heldGlobally: 'heldGlobally' as FieldName,
     id: 'id' as FieldName,
     lastUsedAt: 'lastUsedAt' as FieldName,
+    managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
+    managedHere: 'managedHere' as FieldName,
     method: 'method' as FieldName,
     subject: 'subject' as FieldName,
     tenant: 'tenant' as FieldName,
@@ -794,6 +826,8 @@ export namespace MembersTenantIdentities {
     heldGlobally: 'MembersTenantIdentities.heldGlobally' as Resource,
     id: 'MembersTenantIdentities.id' as Resource,
     lastUsedAt: 'MembersTenantIdentities.lastUsedAt' as Resource,
+    managedByAnotherDirectory: 'MembersTenantIdentities.managedByAnotherDirectory' as Resource,
+    managedHere: 'MembersTenantIdentities.managedHere' as Resource,
     method: 'MembersTenantIdentities.method' as Resource,
     subject: 'MembersTenantIdentities.subject' as Resource,
     tenant: 'MembersTenantIdentities.tenant' as Resource,
@@ -910,9 +944,13 @@ export namespace MembersTenantUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
+    managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -928,9 +966,13 @@ export namespace MembersTenantUsers {
     heldInEveryTenant: 'MembersTenantUsers.heldInEveryTenant' as Resource,
     id: 'MembersTenantUsers.id' as Resource,
     lastSignInAt: 'MembersTenantUsers.lastSignInAt' as Resource,
+    lockedUntil: 'MembersTenantUsers.lockedUntil' as Resource,
+    managedByAnotherDirectory: 'MembersTenantUsers.managedByAnotherDirectory' as Resource,
+    managedHere: 'MembersTenantUsers.managedHere' as Resource,
     name: 'MembersTenantUsers.name' as Resource,
     outsideDirectory: 'MembersTenantUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersTenantUsers.passwordChangeRequired' as Resource,
+    roles: 'MembersTenantUsers.roles' as Resource,
     username: 'MembersTenantUsers.username' as Resource,
   };
 }

@@ -29,7 +29,10 @@ import (
 // A person who removes a role from themselves keeps an administrator role nobody else
 // would hold in the tenant (identity.WithAdministratorRoles names them). A person left
 // with no role anywhere is deleted with their identity links and sessions, in the same
-// transaction: an account nothing admits is not kept.
+// transaction: an account nothing admits is not kept. An account that signs in through a
+// tenant's directory is that tenant's to delete: it goes this way only with the last thing
+// it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's
+// list of its people.
 //
 // The method declares a warning with no word to type: asked first, the server says whose
 // role goes and where it is held, and, where it is the last thing the person holds, that

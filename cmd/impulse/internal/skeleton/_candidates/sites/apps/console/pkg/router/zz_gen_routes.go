@@ -37,6 +37,7 @@ const (
 	StaffGroupUserGroupID           httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID            httpio.ParamType = "staffGroupUserUserID"
 	StaffListedGroupID              httpio.ParamType = "staffListedGroupID"
+	StaffListedUserID               httpio.ParamType = "staffListedUserID"
 	StaffSessionID                  httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID          httpio.ParamType = "staffSessionIdentityID"
 	StaffSessionMailLinkID          httpio.ParamType = "staffSessionMailLinkID"
@@ -118,11 +119,13 @@ type GeneratedHandlers interface {
 
 	DescribeStaffTenantGroup() http.HandlerFunc
 
-	DirectoryOnly() http.HandlerFunc
+	TenantSignInSettings() http.HandlerFunc
 	MakeTenantDirectoryOnly() http.HandlerFunc
 	EndTenantDirectoryOnly() http.HandlerFunc
 	OpenTenantToDirectory() http.HandlerFunc
 	MakeTenantInviteOnly() http.HandlerFunc
+	VouchForTenantDirectorySecondFactor() http.HandlerFunc
+	StopVouchingForTenantDirectorySecondFactor() http.HandlerFunc
 
 	DisableStaffTenantUser() http.HandlerFunc
 
@@ -230,6 +233,9 @@ type GeneratedHandlers interface {
 	StaffListedGroupRoles() http.HandlerFunc
 
 	StaffListedRoleGrants() http.HandlerFunc
+
+	StaffListedUsers() http.HandlerFunc
+	StaffListedUser() http.HandlerFunc
 
 	StaffRememberLengths() http.HandlerFunc
 
@@ -398,7 +404,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/tenants/{tenantID}/describe-staff-tenant-group", domainGuard(h.DescribeStaffTenantGroup()))
 
-	bounded.Get("/api/tenants/{tenantID}/directory-only", domainGuard(h.DirectoryOnly()))
+	bounded.Get("/api/tenants/{tenantID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
 
 	asked.Post("/api/tenants/{tenantID}/make-tenant-directory-only", domainGuard(h.MakeTenantDirectoryOnly()))
 
@@ -407,6 +413,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/api/tenants/{tenantID}/open-tenant-to-directory", domainGuard(h.OpenTenantToDirectory()))
 
 	asked.Post("/api/tenants/{tenantID}/make-tenant-invite-only", domainGuard(h.MakeTenantInviteOnly()))
+
+	asked.Post("/api/tenants/{tenantID}/vouch-for-tenant-directory-second-factor", domainGuard(h.VouchForTenantDirectorySecondFactor()))
+
+	asked.Post("/api/tenants/{tenantID}/stop-vouching-for-tenant-directory-second-factor", domainGuard(h.StopVouchingForTenantDirectorySecondFactor()))
 
 	asked.Post("/api/tenants/{tenantID}/disable-staff-tenant-user", domainGuard(h.DisableStaffTenantUser()))
 
@@ -551,6 +561,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
 	bounded.Get("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 	bounded.Post("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+
+	staffListedUsersHandler := h.StaffListedUsers()
+	bounded.Get("/api/staff-listed-users", staffListedUsersHandler)
+	bounded.Post("/api/staff-listed-users", staffListedUsersHandler)
+
+	staffListedUserHandler := h.StaffListedUser()
+	bounded.Get("/api/staff-listed-users/{staffListedUserID}", staffListedUserHandler)
+	bounded.Post("/api/staff-listed-users/{staffListedUserID}", staffListedUserHandler)
 
 	staffRememberLengthsHandler := h.StaffRememberLengths()
 	bounded.Get("/api/staff-remember-lengths", staffRememberLengthsHandler)

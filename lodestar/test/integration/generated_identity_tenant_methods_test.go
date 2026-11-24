@@ -13,8 +13,9 @@ package integration
 // against it. The Sector Marshal's grants say what a sector may do:
 //
 //   - an act on the account (disable, enable, delete, rename, the address, the sessions,
-//     the second factor) only on a person the sector holds alone
-//     (heldElsewhere = false AND heldGlobally = false);
+//     the second factor) only on a person whose account the sector manages
+//     (managedHere = true): none of these people signs in through a sector's directory,
+//     so the sector manages a person it holds alone;
 //   - a role given, at a create or to a person already there, in every role but the
 //     Marshal's own (new.role != 'SectorMarshal');
 //   - a role taken away where the sector itself gave it, the Marshal's own excepted
@@ -124,26 +125,26 @@ func executeAnswer(t *testing.T, h http.Handler, user accesstypes.User, sector, 
 	return methods
 }
 
-// TestGeneratedIdentitySectorAccountMethods holds the methods a sector acts on an
-// account through: each goes through for a person the sector holds alone, is refused for
-// one who holds a role outside it, and does not find a person of another sector; the
-// row's Execute answer says the same before anything is asked; and the rules of the
-// whole application's methods stand here too.
+// TestGeneratedIdentitySectorAccountMethods holds the methods a sector acts on an account
+// through: each goes through for a person the sector manages (here, one it holds alone),
+// is refused for one it does not manage (here, one who holds a role outside it), and does
+// not find a person of another sector; the row's Execute answer says the same before
+// anything is asked; and the rules of the whole application's methods stand here too.
 func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
 	ctx := t.Context()
 
 	// The Execute grants this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DisableCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EnableCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DeleteCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RenameCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserEmail", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserName", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RevokeCrewSectorUserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EndCrewSectorUserSessions", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DisableCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EnableCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DeleteCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RenameCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserEmail", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserName", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RevokeCrewSectorUserTrustedDevices", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EndCrewSectorUserSessions", "managedHere = true")
 
 	// mara is a Marshal of Anvil with an account, for the rule on a person's own account.
 	w.seat(ctx, t, "mara", "SectorMarshal", anvil)
@@ -152,8 +153,8 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 		"DeleteCrewSectorUser", "DisableCrewSectorUser", "EnableCrewSectorUser", "EndCrewSectorUserSessions", "RenameCrewSectorUser",
 		"RequireCrewSectorPasswordChange", "RevokeCrewSectorUserTrustedDevices", "SetCrewSectorUserEmail", "SetCrewSectorUserName",
 	}
-	// The row's Execute answer: the account methods on a person the sector holds alone,
-	// none of them on a person who holds a role outside it, and the method that gives a
+	// The row's Execute answer: the account methods on a person whose account the sector
+	// manages, none of them on a person it does not manage, and the method that gives a
 	// role on both, since its grant reads the request and not the row.
 	for name, alone := range map[string]bool{"ada": true, "bo": false, "cy": false, "eve": false, "fay": false} {
 		t.Run("the row's Execute answer for "+name, func(t *testing.T) {
@@ -489,20 +490,20 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 }
 
 // TestGeneratedIdentitySectorIdentities holds the identities of a sector's people, the
-// fourth of a sector's lists, and the method that unlinks one: each sector lists the
-// identity links of its own people, a person of two sectors' in each; the link's
-// subject and address are the Marshal's to see only where the sector holds the person
-// alone (heldElsewhere = false); and the Marshal unlinks an identity of a person the
-// sector holds alone, never the last way in of a person with no password.
+// fourth of a sector's lists, and the method that unlinks one: a sector lists every
+// field of the identity links of the people whose account it manages
+// (managedHere = true), and no link of a person another party manages, one of two
+// sectors or of the whole application; and the Marshal unlinks an identity of a person
+// the sector manages, never the last way in of a person with no password.
 func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
 	ctx := t.Context()
 
 	// The grants this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorIdentities", "heldElsewhere = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorIdentities", "heldElsewhere = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "UnlinkCrewSectorSessionIdentity", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorIdentities", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorIdentities", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "UnlinkCrewSectorSessionIdentity", "managedHere = true")
 
 	const identitiesPath = "crew-sector-identities"
 	// The links, written as the session library writes one: ada signs in two ways and
@@ -545,8 +546,8 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 		sector string
 		want   []string
 	}{
-		{name: "Anvil's people's identities", user: "marshal", sector: anvil, want: []string{"ada-fleet", "ada-yard", "bo-fleet", "fay-fleet"}},
-		{name: "Bastion's: the person of both sectors is linked there too", user: "governor", sector: bastion, want: []string{"bo-fleet", "di-fleet"}},
+		{name: "Anvil's: the identities of the person it manages", user: "marshal", sector: anvil, want: []string{"ada-fleet", "ada-yard"}},
+		{name: "Bastion's: none, for the person of both sectors and the one of the whole application are not Bastion's to manage", user: "governor", sector: bastion},
 		{name: "Cinder's people have none", user: "governor", sector: cinder},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -569,35 +570,43 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 		})
 	}
 
-	// The subject and the address the directory vouched for are one grant of the
-	// Marshal's with a condition on the fact: answered for the people the sector holds
-	// alone or with the whole application, and left out for a person of another sector,
-	// in the list and in the keyed read.
-	for name, want := range map[string]bool{"ada-fleet": true, "fay-fleet": true, "bo-fleet": false} {
-		t.Run("the Marshal sees the subject of "+name+" only where no other sector holds the person", func(t *testing.T) {
-			check := func(where string, row map[string]any) {
-				for _, field := range []string{"subject", "emailAtLink"} {
-					if _, got := row[field]; got != want {
-						t.Errorf("%s: %s in the %s = %v, want %v: %v", name, field, where, got, want, row)
-					}
-				}
-				if _, ok := row["method"]; !ok {
-					t.Errorf("%s: the %s leaves out the method, which the grant carries with no condition: %v", name, where, row)
+	// Every field of a link is one grant of the Marshal's under managedHere = true:
+	// answered for a person the sector manages, in the list and in the keyed read, and a
+	// link of a person it does not manage (fay holds a role for the whole application,
+	// bo one at Bastion too) is neither listed nor read.
+	t.Run("the Marshal sees every field of a link of a person the sector manages", func(t *testing.T) {
+		check := func(where string, row map[string]any) {
+			for _, field := range []string{"method", "connection", "subject", "emailAtLink", "createdAt", "lastUsedAt", "managedHere", "managedByAnotherDirectory"} {
+				if _, ok := row[field]; !ok {
+					t.Errorf("ada-fleet: the %s leaves out %s: %v", where, field, row)
 				}
 			}
-			check("list", sectorList(t, w.h, "marshal", anvil, identitiesPath)[ids[name]])
+			if row["managedHere"] != true || row["managedByAnotherDirectory"] != false {
+				t.Errorf("ada-fleet: the %s says managedHere = %v, managedByAnotherDirectory = %v, want true and false", where, row["managedHere"], row["managedByAnotherDirectory"])
+			}
+		}
+		check("list", sectorList(t, w.h, "marshal", anvil, identitiesPath)[ids["ada-fleet"]])
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, identitiesPath+"/"+ids["ada-fleet"]), "")
+		assertStatus(t, status, http.StatusOK, body)
+		check("read", decodeRow(t, body))
+	})
+	for _, name := range []string{"fay-fleet", "bo-fleet"} {
+		t.Run("a link of "+name+" is neither listed nor read where the sector does not manage the person", func(t *testing.T) {
+			if row, ok := sectorList(t, w.h, "marshal", anvil, identitiesPath)[ids[name]]; ok {
+				t.Errorf("the list holds %s: %v", name, row)
+			}
 			status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, identitiesPath+"/"+ids[name]), "")
-			assertStatus(t, status, http.StatusOK, body)
-			check("read", decodeRow(t, body))
+			assertStatus(t, status, http.StatusNotFound, body)
 		})
 	}
-	t.Run("a link is read within the sectors of its person, and a person's links are filtered by the account", func(t *testing.T) {
+	t.Run("a link is read only within a sector that manages its person, and a person's links are filtered by the account", func(t *testing.T) {
 		for _, tt := range []struct {
 			sector, link string
 			want         int
 		}{
-			{sector: anvil, link: "bo-fleet", want: http.StatusOK},
-			{sector: bastion, link: "bo-fleet", want: http.StatusOK},
+			{sector: anvil, link: "ada-fleet", want: http.StatusOK},
+			{sector: anvil, link: "bo-fleet", want: http.StatusNotFound},
+			{sector: bastion, link: "bo-fleet", want: http.StatusNotFound},
 			{sector: bastion, link: "ada-fleet", want: http.StatusNotFound},
 			{sector: anvil, link: "di-fleet", want: http.StatusNotFound},
 		} {
@@ -618,15 +627,13 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 	unlink := func(user accesstypes.User, sector, name string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, "unlink-crew-sector-session-identity"), fmt.Sprintf(`{"identityId":%q}`, ids[name]))
 	}
-	t.Run("the row's Execute answer says whose identity the Marshal unlinks", func(t *testing.T) {
-		for name, want := range map[string]bool{"ada-fleet": true, "bo-fleet": false, "fay-fleet": false} {
-			methods := executeAnswer(t, w.h, "marshal", anvil, identitiesPath, ids[name])
-			if got := slices.Contains(methods, "UnlinkCrewSectorSessionIdentity"); got != want {
-				t.Errorf("%s: the answer %v lists UnlinkCrewSectorSessionIdentity = %v, want %v", name, methods, got, want)
-			}
+	t.Run("the row's Execute answer says the Marshal unlinks an identity of a person the sector manages", func(t *testing.T) {
+		methods := executeAnswer(t, w.h, "marshal", anvil, identitiesPath, ids["ada-fleet"])
+		if !slices.Contains(methods, "UnlinkCrewSectorSessionIdentity") {
+			t.Errorf("ada-fleet: the answer %v leaves out UnlinkCrewSectorSessionIdentity", methods)
 		}
 	})
-	t.Run("an identity is unlinked for a person the sector holds alone", func(t *testing.T) {
+	t.Run("an identity is unlinked for a person the sector manages", func(t *testing.T) {
 		for _, name := range []string{"bo-fleet", "fay-fleet"} {
 			status, body := unlink("marshal", anvil, name)
 			assertStatus(t, status, http.StatusForbidden, body)

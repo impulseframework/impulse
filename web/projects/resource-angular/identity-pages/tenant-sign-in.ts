@@ -4,7 +4,7 @@ import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-f
 import { ListPermission, nameInLowerWords } from '@impulseframework/resource-angular/types';
 import { TenantSignIn, tenantSignInKey } from './tenant-sign-in-says';
 
-export { tenantSignInKey, tenantStandsLine, tenantPeopleLine } from './tenant-sign-in-says';
+export { tenantSignInKey, tenantStandsLine, tenantPeopleLine, tenantShareLine } from './tenant-sign-in-says';
 export type { TenantSignIn, TenantStands } from './tenant-sign-in-says';
 
 // A tenant's Sign-in settings page, built from the API's own description.
@@ -13,9 +13,10 @@ export type { TenantSignIn, TenantStands } from './tenant-sign-in-says';
 // through, a row of the tenant's directories record, set from a sign-in through it. The
 // tenant's side of an Auth's generated management names that record and the tenant's
 // methods that say how the directory's people enter: the role a person gets the first
-// time they sign in through it, and whether the tenant is directory only. These functions
-// place the page that shows and sets them; the page reads the rest at run time, from the
-// read of the tenant's directory-only switch and the digest of the tenant.
+// time they sign in through it, whether the tenant is directory only, and whether the
+// tenant vouches for its directory's own second factor. These functions place the page
+// that shows and sets them; the page reads the rest at run time, from the read of the
+// tenant's sign-in settings and the digest of the tenant.
 
 /** Which Auth's tenant side the Sign-in settings page is for. */
 export interface TenantSignInOptions {
@@ -95,7 +96,14 @@ function buildSignIn(descriptor: ApiDescriptor, options: TenantSignInOptions): B
       `tenantSignInPage: a tenant's pages of ${options.auth} live under the API's tenant segment, and the API description declares none (domainRoute)`,
     );
   }
-  const { openToDirectory, makeDirectoryInviteOnly, makeDirectoryOnly, endDirectoryOnly } = side.methods;
+  const {
+    openToDirectory,
+    makeDirectoryInviteOnly,
+    makeDirectoryOnly,
+    endDirectoryOnly,
+    vouchForDirectorySecondFactor,
+    stopVouchingForDirectorySecondFactor,
+  } = side.methods;
   return {
     page: page({
       label: 'Sign-in settings',
@@ -107,11 +115,25 @@ function buildSignIn(descriptor: ApiDescriptor, options: TenantSignInOptions): B
       word: identity.tenant ? nameInLowerWords(identity.tenant) : 'tenant',
       directories: directories as Resource,
       ...(side.lists.users ? { people: side.lists.users as Resource } : {}),
+      ...(identity.tenantResource && identity.tenantDirectoryOnlyField
+        ? {
+            tenantRecord: {
+              resource: identity.tenantResource as Resource,
+              directoryOnlyField: identity.tenantDirectoryOnlyField,
+            },
+          }
+        : {}),
       methods: {
         ...(openToDirectory ? { openToDirectory: openToDirectory as Method } : {}),
         ...(makeDirectoryInviteOnly ? { makeDirectoryInviteOnly: makeDirectoryInviteOnly as Method } : {}),
         ...(makeDirectoryOnly ? { makeDirectoryOnly: makeDirectoryOnly as Method } : {}),
         ...(endDirectoryOnly ? { endDirectoryOnly: endDirectoryOnly as Method } : {}),
+        ...(vouchForDirectorySecondFactor
+          ? { vouchForDirectorySecondFactor: vouchForDirectorySecondFactor as Method }
+          : {}),
+        ...(stopVouchingForDirectorySecondFactor
+          ? { stopVouchingForDirectorySecondFactor: stopVouchingForDirectorySecondFactor as Method }
+          : {}),
       },
     },
   };

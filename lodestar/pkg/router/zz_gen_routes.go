@@ -43,6 +43,7 @@ const (
 	CrewGroupUserGroupID              httpio.ParamType = "crewGroupUserGroupID"
 	CrewGroupUserUserID               httpio.ParamType = "crewGroupUserUserID"
 	CrewListedGroupID                 httpio.ParamType = "crewListedGroupID"
+	CrewListedUserID                  httpio.ParamType = "crewListedUserID"
 	CrewSectorGroupID                 httpio.ParamType = "crewSectorGroupID"
 	CrewSectorGroupRoleGroupID        httpio.ParamType = "crewSectorGroupRoleGroupID"
 	CrewSectorGroupRoleRole           httpio.ParamType = "crewSectorGroupRoleRole"
@@ -74,6 +75,7 @@ const (
 	FeeByKindKindID                   httpio.ParamType = "feeByKindKindID"
 	HangarID                          httpio.ParamType = "hangarID"
 	HangarPassID                      httpio.ParamType = "hangarPassID"
+	MembersListedUserID               httpio.ParamType = "membersListedUserID"
 	MembersSectorIdentityID           httpio.ParamType = "membersSectorIdentityID"
 	MembersSectorInvitationID         httpio.ParamType = "membersSectorInvitationID"
 	MembersSectorUserID               httpio.ParamType = "membersSectorUserID"
@@ -211,6 +213,9 @@ type GeneratedHandlers interface {
 
 	CrewListedRoleGrants() http.HandlerFunc
 
+	CrewListedUsers() http.HandlerFunc
+	CrewListedUser() http.HandlerFunc
+
 	CrewRememberLengths() http.HandlerFunc
 
 	CrewRoles() http.HandlerFunc
@@ -305,11 +310,13 @@ type GeneratedHandlers interface {
 
 	DescribeCrewSectorGroup() http.HandlerFunc
 
-	DirectoryOnly() http.HandlerFunc
+	TenantSignInSettings() http.HandlerFunc
 	MakeSectorDirectoryOnly() http.HandlerFunc
 	EndSectorDirectoryOnly() http.HandlerFunc
 	OpenSectorToDirectory() http.HandlerFunc
 	MakeSectorInviteOnly() http.HandlerFunc
+	VouchForSectorDirectorySecondFactor() http.HandlerFunc
+	StopVouchingForSectorDirectorySecondFactor() http.HandlerFunc
 
 	DisableCrewSectorUser() http.HandlerFunc
 
@@ -396,6 +403,9 @@ type GeneratedHandlers interface {
 	MembersHeldRoles() http.HandlerFunc
 
 	MembersListedRoleGrants() http.HandlerFunc
+
+	MembersListedUsers() http.HandlerFunc
+	MembersListedUser() http.HandlerFunc
 
 	MembersRememberLengths() http.HandlerFunc
 
@@ -788,6 +798,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
 	bounded.Post("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
 
+	crewListedUsersHandler := h.CrewListedUsers()
+	bounded.Get("/console/api/crew-listed-users", crewListedUsersHandler)
+	bounded.Post("/console/api/crew-listed-users", crewListedUsersHandler)
+
+	crewListedUserHandler := h.CrewListedUser()
+	bounded.Get("/console/api/crew-listed-users/{crewListedUserID}", crewListedUserHandler)
+	bounded.Post("/console/api/crew-listed-users/{crewListedUserID}", crewListedUserHandler)
+
 	crewRememberLengthsHandler := h.CrewRememberLengths()
 	bounded.Get("/console/api/crew-remember-lengths", crewRememberLengthsHandler)
 	bounded.Post("/console/api/crew-remember-lengths", crewRememberLengthsHandler)
@@ -992,7 +1010,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/sectors/{sectorID}/describe-crew-sector-group", domainGuard(h.DescribeCrewSectorGroup()))
 
-	bounded.Get("/console/api/sectors/{sectorID}/directory-only", domainGuard(h.DirectoryOnly()))
+	bounded.Get("/console/api/sectors/{sectorID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
 
 	asked.Post("/console/api/sectors/{sectorID}/make-sector-directory-only", domainGuard(h.MakeSectorDirectoryOnly()))
 
@@ -1001,6 +1019,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/open-sector-to-directory", domainGuard(h.OpenSectorToDirectory()))
 
 	asked.Post("/console/api/sectors/{sectorID}/make-sector-invite-only", domainGuard(h.MakeSectorInviteOnly()))
+
+	asked.Post("/console/api/sectors/{sectorID}/vouch-for-sector-directory-second-factor", domainGuard(h.VouchForSectorDirectorySecondFactor()))
+
+	asked.Post("/console/api/sectors/{sectorID}/stop-vouching-for-sector-directory-second-factor", domainGuard(h.StopVouchingForSectorDirectorySecondFactor()))
 
 	asked.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
 
@@ -1129,6 +1151,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	membersListedRoleGrantsHandler := h.MembersListedRoleGrants()
 	bounded.Get("/console/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/console/api/members-listed-role-grants", membersListedRoleGrantsHandler)
+
+	membersListedUsersHandler := h.MembersListedUsers()
+	bounded.Get("/console/api/members-listed-users", membersListedUsersHandler)
+	bounded.Post("/console/api/members-listed-users", membersListedUsersHandler)
+
+	membersListedUserHandler := h.MembersListedUser()
+	bounded.Get("/console/api/members-listed-users/{membersListedUserID}", membersListedUserHandler)
+	bounded.Post("/console/api/members-listed-users/{membersListedUserID}", membersListedUserHandler)
 
 	membersRememberLengthsHandler := h.MembersRememberLengths()
 	bounded.Get("/console/api/members-remember-lengths", membersRememberLengthsHandler)
@@ -1680,6 +1710,9 @@ type GeneratedPortalHandlers interface {
 
 	MembersListedRoleGrants() http.HandlerFunc
 
+	MembersListedUsers() http.HandlerFunc
+	MembersListedUser() http.HandlerFunc
+
 	MembersRememberLengths() http.HandlerFunc
 
 	MembersRoles() http.HandlerFunc
@@ -1858,6 +1891,14 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersListedRoleGrantsHandler := h.MembersListedRoleGrants()
 	bounded.Get("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
+
+	membersListedUsersHandler := h.MembersListedUsers()
+	bounded.Get("/portal/api/members-listed-users", membersListedUsersHandler)
+	bounded.Post("/portal/api/members-listed-users", membersListedUsersHandler)
+
+	membersListedUserHandler := h.MembersListedUser()
+	bounded.Get("/portal/api/members-listed-users/{membersListedUserID}", membersListedUserHandler)
+	bounded.Post("/portal/api/members-listed-users/{membersListedUserID}", membersListedUserHandler)
 
 	membersRememberLengthsHandler := h.MembersRememberLengths()
 	bounded.Get("/portal/api/members-remember-lengths", membersRememberLengthsHandler)

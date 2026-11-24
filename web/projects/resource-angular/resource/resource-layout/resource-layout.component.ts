@@ -23,6 +23,12 @@ export class ResourceLayoutComponent implements OnInit {
   relatedData = input<RecordData>();
   parentClass = input<string>();
   layoutNestingDepth = input<number>(1);
+  /**
+   * Whether a field that stands alone, in no section, is drawn in a section's box. A page's
+   * form says nothing and keeps the box; an action's dialog says false, and the field is
+   * drawn in its own frame alone.
+   */
+  framed = input(true);
 
   maxLayoutNestingDepth = maxLayoutNestingDepth;
 

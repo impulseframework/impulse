@@ -31,6 +31,11 @@ describe('UiCoreService login messages', () => {
       want: DEFAULT_LOGIN_MESSAGES['directory_only'],
     },
     {
+      name: 'a session the application starts itself where every organization is directory only answers a sentence that names no password',
+      code: 'directory_only_session',
+      want: 'Your organization admits only people who sign in through its own directory. Please sign in the way your organization has set up.',
+    },
+    {
       name: 'a personal account where every organization is directory only answers a sentence that names no password',
       code: 'directory_only_personal_account',
       want: "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
@@ -44,6 +49,21 @@ describe('UiCoreService login messages', () => {
       name: 'a person of one organization who would join a second answers its default sentence',
       code: 'other_tenant',
       want: DEFAULT_LOGIN_MESSAGES['other_tenant'],
+    },
+    {
+      name: "a sign-in through a second organization's directory says the account signs in through another and how to sign in",
+      code: 'second_directory',
+      want: "This account already signs in through another organization's directory, so it cannot sign in through this one. Please sign in the way you have before.",
+    },
+    {
+      name: 'a sign-in that proves an address an account with a password holds unconfirmed says to sign in to that account and enter the code',
+      code: 'address_held_unconfirmed',
+      want: 'An account here already has this email address and has not confirmed it. Sign in to that account with its password and enter the code we email you. After that you can sign in this way too.',
+    },
+    {
+      name: 'a sign-in that proves an address an account with no password holds unconfirmed says whom to ask',
+      code: 'address_held_no_password',
+      want: 'An account here already has this email address and has not confirmed it. Ask your administrator for help.',
     },
     {
       name: "an invitation accepted through an organization's directory alone, met another way, says what to sign in with",
@@ -89,6 +109,8 @@ describe('UiCoreService login messages', () => {
       'personal_account',
       'organization_mismatch',
       'identity_rejected',
+      'address_held_unconfirmed',
+      'address_held_no_password',
       'not_invited',
       'guest_account',
       'policy_denied',
@@ -102,6 +124,7 @@ describe('UiCoreService login messages', () => {
       'no_tenant',
       'connection_not_in_tenant',
       'directory_only',
+      'directory_only_session',
       'directory_only_personal_account',
       'invitation_only',
       'invitation_address',
@@ -110,6 +133,7 @@ describe('UiCoreService login messages', () => {
       'codes_spent',
       'invitation_not_open',
       'other_tenant',
+      'second_directory',
       'organization_account_required',
       'organization_has_tenant',
     ];

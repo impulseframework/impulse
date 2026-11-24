@@ -1362,6 +1362,7 @@ func TestCarriesSecondFactor(t *testing.T) {
 		{name: "a password, then a link confirmation", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodLinkConfirmation}, want: false},
 		{name: "a password, then the application's own factor", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, "totp"}, want: true},
 		{name: "a directory, then its attestation", events: []sessioninfo.AuthMethod{sessioninfo.MethodWorkOS, sessioninfo.MethodAttestedByEvidence}, want: true},
+		{name: "a directory, then its tenant's word", events: []sessioninfo.AuthMethod{sessioninfo.MethodWorkOS, sessioninfo.MethodVouchedByTenant}, want: true},
 		{name: "a password, then the mailed code", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodEmailCode}, want: true},
 		{name: "a password, a link confirmation, then the application's own factor", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodLinkConfirmation, "totp"}, want: true},
 	}

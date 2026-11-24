@@ -36,11 +36,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 	tenantDecoder := NewDecoder[resources.Tenant, tenantRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type tenantDirectoryRequest struct {
-		ID          impulse.UUID `json:"-"`
-		TenantID    impulse.UUID `json:"-"`
-		Method      string       `json:"-"`
-		Connection  string       `json:"-"`
-		DefaultSeat *string      `json:"-"`
+		ID               impulse.UUID `json:"-"`
+		TenantID         impulse.UUID `json:"-"`
+		Method           string       `json:"-"`
+		Connection       string       `json:"-"`
+		DefaultSeat      *string      `json:"-"`
+		AsksSecondFactor bool         `json:"-"`
 	}
 	tenantDirectoryDecoder := NewDecoder[resources.TenantDirectory, tenantDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 

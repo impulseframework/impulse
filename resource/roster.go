@@ -91,8 +91,8 @@ type TenantDeclarationColumns struct {
 	ConnectionColumn string
 	// DirectoriesKeyColumn is the directories record's key column, which the methods
 	// that say how a tenant admits its directory's people write the tenant's row
-	// through (TenantDirectoryRules.Directory); empty where the record carries no
-	// default seat column.
+	// through (TenantDirectoryRules.Directory); empty where the record carries neither
+	// a default seat column nor a second-factor column.
 	DirectoriesKeyColumn string
 	// DefaultSeatColumn is the directories record's column naming the role a person is
 	// seated with in the tenant at their first sign-in through its directory, NULL or
@@ -101,6 +101,13 @@ type TenantDeclarationColumns struct {
 	// by invitation only. Read by the sign-in's directory reader
 	// (NewTenantDirectoryReader), never by the roster.
 	DefaultSeatColumn string
+	// SecondFactorColumn is the directories record's BOOL column saying the tenant says
+	// its directory asks its people for a second factor of its own, so a sign-in through
+	// the directory is not held for the mailed code the auth's sign-in settings ask of
+	// everyone; empty when the record carries no such column, and no tenant vouches for
+	// its directory. Read by the sign-in's directory reader (NewTenantDirectoryReader)
+	// and by the rules of a tenant's directory, never by the roster.
+	SecondFactorColumn string
 }
 
 // declared reports whether the roster reads a declaration: the columns are given and
@@ -564,7 +571,9 @@ func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarat
 // signin.DirectoryReader): the directories record's row whose method and connection
 // are the directory's, as its tenant with the directory's default seat
 // (DefaultSeatColumn, "" where the record carries no such column or the row names
-// none), read in the sign-in's own transaction on Spanner. A directory is one tenant's,
+// none) and with whether the tenant vouches for the directory's own second factor
+// (SecondFactorColumn, false where the record carries no such column), read in the
+// sign-in's own transaction on Spanner. A directory is one tenant's,
 // so the answer names one tenant at most. The generated New<Record>DirectoryReader
 // constructor supplies the columns; an application calls that one. A directory no
 // tenant has answers nothing, and so does a record that declares no directories. The
@@ -579,22 +588,27 @@ func NewTenantDirectoryReader(columns *TenantDeclarationColumns) signin.Director
 		if columns.DefaultSeatColumn != "" {
 			seat = fmt.Sprintf("COALESCE(%s, '')", g.quoteIdentifier(columns.DefaultSeatColumn))
 		}
+		secondFactor := sqlFalse
+		if columns.SecondFactorColumn != "" {
+			secondFactor = g.quoteIdentifier(columns.SecondFactorColumn)
+		}
 		statement := spanner.Statement{
-			SQL: fmt.Sprintf("SELECT CAST(%s AS %s) AS Domain, %s AS DefaultSeat FROM %s WHERE %s = @method AND %s = @connection ORDER BY %s",
-				g.quoteIdentifier(columns.TenantColumn), columnTypeString, seat, g.quoteIdentifier(columns.DirectoriesTable),
+			SQL: fmt.Sprintf("SELECT CAST(%s AS %s) AS Domain, %s AS DefaultSeat, %s AS SecondFactor FROM %s WHERE %s = @method AND %s = @connection ORDER BY %s",
+				g.quoteIdentifier(columns.TenantColumn), columnTypeString, seat, secondFactor, g.quoteIdentifier(columns.DirectoriesTable),
 				g.quoteIdentifier(columns.MethodColumn), g.quoteIdentifier(columns.ConnectionColumn), g.quoteIdentifier(columns.TenantColumn)),
 			Params: map[string]any{"method": string(directory.Method), "connection": directory.Connection},
 		}
 		var rows []struct {
-			Domain      string `spanner:"Domain"`
-			DefaultSeat string `spanner:"DefaultSeat"`
+			Domain       string `spanner:"Domain"`
+			DefaultSeat  string `spanner:"DefaultSeat"`
+			SecondFactor bool   `spanner:"SecondFactor"`
 		}
 		if err := spxscan.Select(ctx, txn, &rows, statement); err != nil {
 			return nil, errors.Wrap(err, "spxscan.Select()")
 		}
 		declared := make([]signin.DeclaredDirectory, 0, len(rows))
 		for _, row := range rows {
-			declared = append(declared, signin.DeclaredDirectory{Tenant: accesstypes.Domain(row.Domain), DefaultSeat: accesstypes.Role(row.DefaultSeat)})
+			declared = append(declared, signin.DeclaredDirectory{Tenant: accesstypes.Domain(row.Domain), DefaultSeat: accesstypes.Role(row.DefaultSeat), SecondFactor: row.SecondFactor})
 		}
 
 		return declared, nil

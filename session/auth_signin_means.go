@@ -216,7 +216,8 @@ func (a *Auth[S, U, Tx]) signInMeans(ctx context.Context, userID impulse.UUID, l
 // on an Auth that holds no check or registers no password method. The check is handed
 // the directories the account signs in through, read with the Auth's directory reader
 // (SetDirectoryAdmission), and none, with the store not asked, on an Auth that holds
-// no reader. The read of what a person signs in with and the first password ask it.
+// no reader. The read of what a person signs in with, the first password and the
+// password reset link ask it.
 func (a *Auth[S, U, Tx]) passwordDisabled(ctx context.Context, userID impulse.UUID) (bool, error) {
 	if a.passwordDisabledCheck == nil || !a.registered().passwordRegistered() {
 		return false, nil

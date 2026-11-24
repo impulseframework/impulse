@@ -90,6 +90,20 @@ export interface StaffListedGroupRoles {
   losing?: number;
 }
 
+export interface StaffListedUsers {
+  id: string;
+  username?: string;
+  name?: string;
+  email?: string;
+  emailVerifiedAt?: Date;
+  disabled?: boolean;
+  passwordChangeRequired?: boolean;
+  createdAt?: Date;
+  lastSignInAt?: Date;
+  roles?: string[];
+  lockedUntil?: Date;
+}
+
 export interface StaffRoles {
   kind: string;
   axis: string;
@@ -267,6 +281,8 @@ export interface StaffTenantIdentities {
   lastUsedAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface StaffTenantInvitations {
@@ -293,10 +309,14 @@ export interface StaffTenantUsers {
   passwordChangeRequired?: boolean;
   createdAt?: Date;
   lastSignInAt?: Date;
+  roles?: string[];
+  lockedUntil?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
   heldHere?: boolean;
   heldInEveryTenant?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
   administratorWithPassword?: boolean;
@@ -366,6 +386,7 @@ export interface TenantDirectories {
   method?: string;
   connection?: string;
   defaultSeat?: string;
+  asksSecondFactor?: boolean;
   tenantName?: string;
 }
 
@@ -472,6 +493,8 @@ export interface StaffTenantSignInWays {
   through?: string;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 /**
@@ -632,6 +655,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffListedUsers]: {
+    route: 'staff-listed-users',
+    live: true,
+    rowWords: { one: 'account', many: 'accounts' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffRoles]: {
@@ -903,6 +944,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.StaffTenantInvitations]: {
@@ -937,10 +980,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["TenantAdministrator"] },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'administratorWithPassword', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
@@ -1042,6 +1089,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'asksSecondFactor', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
     nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
@@ -1267,6 +1315,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'managedHere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.FeatureFlags]: {
@@ -1313,6 +1363,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffHeldRoles]: PermissionScopes.global,
   [Resources.StaffListedGroups]: PermissionScopes.global,
   [Resources.StaffListedGroupRoles]: PermissionScopes.global,
+  [Resources.StaffListedUsers]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,
   [Resources.StaffSessionAuthEvents]: PermissionScopes.global,

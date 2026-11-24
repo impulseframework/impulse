@@ -136,9 +136,9 @@ func TestDirectoryStart_Apply_administratorLeft(t *testing.T) {
 			name: "the data level says something else of its mail sender",
 			edit: func(t *testing.T, a *app.App) {
 				t.Helper()
-				rewriteOnce(t, a, baseDataLevel, "// refused until it is. The log is no mailbox", "// refused until then. The log is no mailbox")
+				rewriteOnce(t, a, baseDataLevel, "a log is no place for them. The\n// log is no mailbox", "a log is no place for those. The\n// log is no mailbox")
 			},
-			wantWhy: `pkg/config/data.go is not as the base writes it ("// relay takes over once the version is pinned; a release to any other environment is\n// refused until it is." is not there once)`,
+			wantWhy: `pkg/config/data.go is not as the base writes it ("// application with no mailbox, or with a mailbox and no app password yet, does not\n// start: the links and codes it mails are secrets, and a log is no place for them." is not there once)`,
 		},
 	}
 	for _, tt := range tests {
@@ -158,7 +158,7 @@ func TestDirectoryStart_Apply_administratorLeft(t *testing.T) {
 				}
 			}
 			level := read(t, a, baseDataLevel)
-			for _, kept := range []string{"Administrator string `env:\"APP_STAFF_ADMINISTRATOR\"`\n", "\treturn c.env.StaffAdministrator\n", "invite its first\n// administrator through it"} {
+			for _, kept := range []string{"Administrator string `env:\"APP_STAFF_ADMINISTRATOR\"`\n", "\treturn c.env.StaffAdministrator\n", "invite its first administrator\n// through it"} {
 				if !strings.Contains(level, kept) {
 					t.Errorf("%s lost %q, and what invites a first administrator was to be left as it is", baseDataLevel, kept)
 				}

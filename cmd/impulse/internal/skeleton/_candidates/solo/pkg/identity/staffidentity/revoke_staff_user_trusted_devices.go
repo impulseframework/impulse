@@ -20,7 +20,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type RevokeStaffUserTrustedDevices struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID impulse.UUID
 }
 

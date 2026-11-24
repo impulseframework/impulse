@@ -10,9 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/securehash"
+	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	gomock "go.uber.org/mock/gomock"
@@ -102,6 +105,86 @@ func TestAuth_ChangeUserPassword_continuesItsSession(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAuth_ChangeUserPassword_madeWhenItsSessionCannotStart pins a change whose
+// password the store wrote, ending every session of the person with it, and whose
+// continued session then could not be started (here, the store refuses its insert): the
+// change is answered as made, on the route (200) and through the API (nil), with the new
+// password the one written and no session cookie set, so the person signs in again with
+// the password they now hold.
+func TestAuth_ChangeUserPassword_madeWhenItsSessionCannotStart(t *testing.T) {
+	t.Parallel()
+
+	const oldPassword, newPassword = "the old one", "the new one, chosen with care"
+	// expectWrite has the store write the password and refuse the continued session's
+	// insert, and returns where the hash written is kept.
+	expectWrite := func(t *testing.T, f *authFixture, userID impulse.UUID, users int) **securehash.Hash {
+		t.Helper()
+		old := hashed(t, oldPassword)
+		written := new(*securehash.Hash)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil).Times(users)
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).DoAndReturn(
+			func(_ context.Context, _ impulse.UUID, _, hash *securehash.Hash) error {
+				*written = hash
+
+				return nil
+			})
+		f.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(impulse.NilUUID, errors.New("the store refused the session's insert"))
+
+		return written
+	}
+	// madeWithNoSession checks that the hash written is the new password's and that the
+	// response carries no session.
+	madeWithNoSession := func(t *testing.T, written *securehash.Hash, rr *httptest.ResponseRecorder) {
+		t.Helper()
+		if written == nil {
+			t.Fatal("ChangeUserPassword() was given no hash, want the new password's")
+		}
+		if _, err := securehash.New(securehash.Argon2()).Compare(written, newPassword); err != nil {
+			t.Errorf("the hash written is not the new password's: %v", err)
+		}
+		if c := cookieNamed(rr, internalcookie.AuthCookieName); c != nil && c.Value != "" {
+			t.Error("the response sets a session cookie, want none: the session that goes on from the change could not be started")
+		}
+	}
+
+	t.Run("on the route, 200", func(t *testing.T) {
+		t.Parallel()
+
+		userID, sessionID := newIDs()
+		f := newAuthFixture(t, gomock.NewController(t))
+		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(&sessioninfo.SessionData{
+			SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()},
+			UserID:      impulse.NullUUIDFromUUID(userID),
+		}, nil)
+		written := expectWrite(t, f, userID, 2)
+
+		rr := httptest.NewRecorder()
+		f.password.ChangeUserPassword().ServeHTTP(rr, passwordChangeRequest(sessionID, map[string]string{"oldPassword": oldPassword, "newPassword": newPassword}))
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("ChangeUserPassword() = %d %s, want 200: the password was changed", rr.Code, rr.Body.String())
+		}
+		madeWithNoSession(t, *written, rr)
+	})
+
+	t.Run("through the API, nil", func(t *testing.T) {
+		t.Parallel()
+
+		userID, sessionID := newIDs()
+		f := newAuthFixture(t, gomock.NewController(t))
+		written := expectWrite(t, f, userID, 1)
+		ctx := context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+			SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat"}, UserID: impulse.NullUUIDFromUUID(userID),
+		})
+
+		rr := httptest.NewRecorder()
+		if err := f.auth.API().ChangeSessionUserPassword(ctx, rr, userID, &ChangeSessionUserPasswordRequest{OldPassword: oldPassword, NewPassword: newPassword}); err != nil {
+			t.Errorf("ChangeSessionUserPassword() error = %v, want nil: the password was changed", err)
+		}
+		madeWithNoSession(t, *written, rr)
+	})
 }
 
 // TestAuthAPI_ChangeSessionUserPassword_nothingToContinue pins the change made with no

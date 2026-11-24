@@ -826,6 +826,26 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+// ManagingTenants lists the tenants whose own list of their people
+// (StaffTenantUser) says they manage the user's account, the rows of the user whose
+// ManagedHere is true, read in the caller's transaction through the list's query type.
+// A removal that would leave the person holding nothing asks it
+// (identity.Store.ManagingTenants).
+func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
+	query := staffresources.NewStaffTenantUserQuery().
+		AddColumns(staffresources.NewStaffTenantUserColumns().DomainID()).
+		Where(staffresources.NewStaffTenantUserQueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))
+	var tenants []accesstypes.Domain
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "staffresources.StaffTenantUserQuery.List()")
+		}
+		tenants = append(tenants, accesstypes.Domain(row.Data.DomainID))
+	}
+
+	return tenants, nil
+}
+
 // DirectoryOutsiders lists the people of the Staff auth who hold a role in the
 // tenant, in it or in every tenant, and have no sign-in through its directory: the
 // people the tenant's directory-only switch keeps out while it is on, and who turning
@@ -853,12 +873,13 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	return outsiders, nil
 }
 
-// SeatedCount counts the people of the Staff auth who hold a role in the
-// tenant, in it or in every tenant: the rows of the tenant's own list of its people
-// (StaffTenantUser) for it, one row a person, the list DirectoryOutsiders reads, in the
-// caller's transaction. The read of the tenant's directory-only switch says it beside
-// the people DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a
-// page that shows the switch says how many of the tenant's people it keeps out.
+// SeatedCount counts the people of the Staff auth in the tenant's own
+// list of its people (StaffTenantUser): who holds a role in the tenant, in it or in
+// every tenant, and, where the tenant has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the tenant's directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the tenant's people it keeps out.
 func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
 	query := staffresources.NewStaffTenantUserQuery().
 		AddColumns(staffresources.NewStaffTenantUserColumns().ID()).

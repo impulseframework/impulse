@@ -307,11 +307,11 @@ describe('ResourceListComponent', () => {
       expect(row['name']).toBe('Kestrel');
       expect(row['cargoBays']).toBe('60, 60, 30');
       expect(row['digest']).toBe('32 B');
-      expect(row['lastRefitAt']).toBe('9/21/2026 12:00 PM');
+      expect(row['lastRefitAt']).toBe('9/21/26 12:00 PM');
       const cells = Array.from(
         (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
       ).map((td) => td.textContent?.trim());
-      expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026 12:00 PM']);
+      expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/26 12:00 PM']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
     });
 

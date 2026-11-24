@@ -215,7 +215,9 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // such a user, made on the name, is held to more: it is made only as the user's first
 // identity unless the user holds the identity's verified address (ErrLinkSecondIdentity),
 // and as a first identity only when something vouches for it (see AccountRule).
-// Never
+// Where the application reads its tenants' directories, an identity from one tenant's
+// directory is never linked to a user who already signs in through another tenant's,
+// trusted or not (ErrLinkSecondDirectory). Never
 // choose userID by an email address or another claim the identity's provider does not
 // verify, unless the connection itself is one the application trusts, and then say so
 // with trusted.
@@ -248,7 +250,9 @@ func Provision(user *NewUser, onProvisioned func(ctx context.Context, userID imp
 // confirm (the confirmation answers 401), so Confirm is for users that sign in with a
 // password; a password-less user is linked with Link or refused with Reject. On an Auth
 // that registers no password method nobody can enter a password, so the sign-in is
-// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject.
+// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject. A
+// confirmation whose link would put the account under a second tenant's directory is
+// refused before any password is asked for (ErrLinkSecondDirectory).
 func Confirm(userID impulse.UUID, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: RequireConfirmation, userID: userID}
 	for _, opt := range opts {
@@ -423,6 +427,15 @@ var (
 	// is sessioninfo.RefusedIdentityRejected.
 	ErrLinkNeedsAddress = errors.New(
 		"signin: an identity can't be linked on a sign-in name its method does not vouch for to a user who holds no email address")
+	// ErrLinkSecondDirectory is the cause when an identity that came through a directory
+	// a tenant declares would be linked to a user who already signs in through a
+	// directory another tenant declares. The tenant whose directory a person signs in
+	// through manages their account, so an account signs in through one tenant's
+	// directory at most: the link is refused however it was asked for (a password's
+	// confirmation, a registration's own rule, trusted or not), before any confirmation
+	// is asked for, and nothing is linked. The code is sessioninfo.RefusedSecondDirectory.
+	ErrLinkSecondDirectory = errors.New(
+		"signin: an identity from one tenant's directory can't be linked to a user who already signs in through another tenant's directory")
 	// ErrAddressHeldByAnother is the cause when a sign-in whose method vouches for its
 	// address (Google, for a Gmail address or a Workspace account's) reaches a user who
 	// holds no confirmed address while another user holds that address, confirmed. The
@@ -431,7 +444,8 @@ var (
 	// sign-in name, beside the user who holds the address, is reached so. Which of the
 	// two is the person's account is an administrator's to settle, by removing the
 	// duplicate account or its sign-in name, so the sign-in is refused and nothing is
-	// linked. An address another user holds unconfirmed refuses nobody. The code is
+	// linked. An address another user holds unconfirmed refuses nobody here; it refuses
+	// the making of a new user (ErrEmailHeldUnconfirmed). The code is
 	// sessioninfo.RefusedIdentityRejected.
 	ErrAddressHeldByAnother = errors.New(
 		"signin: the address the method vouches for is held, confirmed, by another user than the one the sign-in reached, who holds no confirmed address")
@@ -441,6 +455,17 @@ var (
 	// it provisions, so the sign-in is refused rather than a second user made for one
 	// person. The code is sessioninfo.RefusedIdentityRejected.
 	ErrEmailHeld = errors.New("signin: the identity's verified email address belongs to another user")
+	// ErrEmailHeldUnconfirmed is the cause when an account rule provisioned a new user
+	// for an identity whose verified address a user holds unconfirmed. That user may be
+	// the person, and a second user made beside it would hold no address and none of its
+	// roles, so the sign-in is refused and nothing is written. The identity is not
+	// linked to the holder either: whoever typed the address there may know that
+	// account's password. The holder confirms the address by signing in with the
+	// password and entering the code mailed to it, and the sign-in then finds the
+	// account. The code is sessioninfo.RefusedAddressHeldUnconfirmed, or
+	// sessioninfo.RefusedAddressHeldNoPassword where the holder has no password to sign
+	// in with.
+	ErrEmailHeldUnconfirmed = errors.New("signin: the identity's verified email address is held, unconfirmed, by a user")
 	// ErrGuestAccount is the cause when the standard rule refused a guest of the
 	// directory (Identity.Guest). The code is sessioninfo.RefusedGuestAccount.
 	ErrGuestAccount = errors.New("signin: the identity is a guest of its directory, not a member")
@@ -499,8 +524,9 @@ var (
 	// ErrDirectoryOnly is the cause when the tenant policy refused a sign-in that is not
 	// through a directory because every tenant of the person admits its people through
 	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly for a
-	// password or a session the application starts itself, and
-	// sessioninfo.RefusedDirectoryOnlyPersonalAccount for a personal account.
+	// password, sessioninfo.RefusedDirectoryOnlySession for a session the application
+	// starts itself, and sessioninfo.RefusedDirectoryOnlyPersonalAccount for a personal
+	// account.
 	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through its own directory only")
 	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
 	// The code is sessioninfo.RefusedUserDisabled.

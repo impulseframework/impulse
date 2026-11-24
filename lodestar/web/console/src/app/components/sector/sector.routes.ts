@@ -58,7 +58,7 @@ export const deckPages = {
 /**
  * Who may enter the sector: its declared directories and whether they are the only way in.
  *
- * Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
+ * Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat, tenancy.directory-second-factor.
  */
 export const sectorSignInPage = tenantSignInPage(apiDescriptor, { auth: 'Crew' });
 

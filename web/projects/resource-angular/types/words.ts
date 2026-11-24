@@ -69,3 +69,38 @@ function lowerWords(name: string): string {
  * in the viewer's time zone. A date-fns format, which a column takes as its `formatType`.
  */
 export const dayAndMinuteFormat = 'MMM d, yyyy, h:mm a';
+
+/**
+ * How a cell writes a moment (a `date`, a `time.Time` on the server): the day and the time
+ * of day, in the viewer's time zone (`11/23/26 3:15 PM`). A day alone (a `civildate`) is
+ * written M/d/yyyy. The year is written with two digits so that the longest moment is
+ * seventeen characters, which a column at the narrowest a column of text goes shows whole
+ * on a phone. A moment whose year two digits would not tell is written with
+ * FAR_MOMENT_CELL_FORMAT (momentFormat).
+ */
+export const MOMENT_CELL_FORMAT = 'M/d/yy h:mm a';
+
+/**
+ * How a list writes a moment whose year two digits would not tell: with the whole year
+ * (`11/23/2126 3:15 PM`).
+ */
+export const FAR_MOMENT_CELL_FORMAT = 'M/d/yyyy h:mm a';
+
+/**
+ * How many years from this one two digits still tell a year. A moment whose year is this far
+ * off or further, before or after, is written with its whole year.
+ */
+export const TWO_DIGIT_YEAR_REACH = 50;
+
+/**
+ * The date-fns format a list writes the moment in, as read at `now`: MOMENT_CELL_FORMAT, or
+ * FAR_MOMENT_CELL_FORMAT for a moment whose year is TWO_DIGIT_YEAR_REACH or more from the year
+ * of `now`, both on the viewer's calendar. A lock that no time ends is kept as a moment a
+ * hundred years off, and two digits would write its year as this one's.
+ */
+export function momentFormat(moment: Date, now: number): string {
+  if (Math.abs(moment.getFullYear() - new Date(now).getFullYear()) >= TWO_DIGIT_YEAR_REACH) {
+    return FAR_MOMENT_CELL_FORMAT;
+  }
+  return MOMENT_CELL_FORMAT;
+}

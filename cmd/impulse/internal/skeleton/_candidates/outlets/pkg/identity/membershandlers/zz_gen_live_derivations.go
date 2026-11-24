@@ -52,6 +52,16 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
+		// MembersListedUsers: the tables its query reads.
+		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
+		}},
 		// MembersTakenRoles: the tables its query reads.
 		{Resource: membersresources.MembersTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
@@ -94,6 +104,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
 			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// MembersTenantInvitations: the tables its query reads.
@@ -106,6 +117,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 			{Name: resources.TenantDirectory{}.Resource()},

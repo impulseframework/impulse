@@ -29,6 +29,13 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
+		// MembersListedUsers: the tables its query reads.
+		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.Sector{}.Resource(), Global: true},
+		}},
 		// MembersSectorHeldRoles: the tables its query reads.
 		{Resource: membersresources.MembersSectorHeldRole{}.Resource(), Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
@@ -40,6 +47,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// MembersSectorInvitations: the tables its query reads.
@@ -49,6 +57,7 @@ var LiveDerivations = &live.Derivations{
 		// MembersSectorUsers: the tables its query reads.
 		{Resource: membersresources.MembersSectorUser{}.Resource(), Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 			{Name: resources.SectorDirectory{}.Resource()},

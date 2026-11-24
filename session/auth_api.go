@@ -59,11 +59,12 @@ func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, p
 // events names the application's own steps, each under a name of the application's
 // ("magic-link"). An event without a method, under a method that records a step the
 // library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
-// an attestation's), or under the name of a sign-in method the library runs (a
-// password, sessioninfo.MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC and the
-// method of every registration on the Auth), is a BadRequest, and nothing is started:
-// the session's first event says how the person signed in, and only a sign-in the
-// library ran says it was a password's or a directory's.
+// an attestation's, a tenant's word (sessioninfo.MethodVouchedByTenant)), or under the
+// name of a sign-in method the library runs (a password, sessioninfo.MethodAzure,
+// MethodGoogle, MethodWorkOS, MethodOIDC and the method of every registration on the
+// Auth), is a BadRequest, and nothing is started: the session's first event says how
+// the person signed in, and only a sign-in the library ran says it was a password's or
+// a directory's.
 //
 // An event with a zero At records the session's creation time. Optional customData
 // (at most one *S) is written atomically with the session insert, and the custom
@@ -249,14 +250,16 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // together, or neither is. A caller that holds a session of the user's own then
 // continues in a new session (ReasonRegeneration) that carries the auth events of the
 // session the change was made in, its establishment and its factors
-// (continuedAuthEvents). A call with no session of the user's own in the context (a
-// call of the application's, another person's session, a session that views as the
-// user, a request a bearer token stands in for) starts no session: the password is
-// changed, the user's sessions are ended, and the user signs in again, where the
-// sign-in policy decides. An application that wants a session there starts one with
-// StartAuthenticatedSession, which the policy decides too. The new password is held to
-// the judgment every password is (strongEnough), against the user's username, name and
-// address; one the judgment refuses is 400.
+// (continuedAuthEvents). Once the password is written the change is answered as made: a
+// session that could not be started to go on from it is logged, and the person signs in
+// again with the password they now hold. A call with no session of the user's own in
+// the context (a call of the application's, another person's session, a session that
+// views as the user, a request a bearer token stands in for) starts no session: the
+// password is changed, the user's sessions are ended, and the user signs in again,
+// where the sign-in policy decides. An application that wants a session there starts
+// one with StartAuthenticatedSession, which the policy decides too. The new password is
+// held to the judgment every password is (strongEnough), against the user's username,
+// name and address; one the judgment refuses is 400.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -313,8 +316,14 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		ProviderSessionID:     own.ProviderSessionID,
 		ProviderSessionIssuer: own.ProviderSessionIssuer,
 	})
+	if err != nil {
+		// The password is written and every session of the user ended with it, so the
+		// change is answered as made: the person is left with no session and signs in
+		// again with the password they now hold. Nothing is retried.
+		logger.FromCtx(ctx).Error(errors.Wrapf(err, "the password of user %s was changed, and the session that goes on from it could not be started, so the person signs in again", user.ID))
+	}
 
-	return err
+	return nil
 }
 
 // continuedSession is the session a password change of userID's own goes on from: the

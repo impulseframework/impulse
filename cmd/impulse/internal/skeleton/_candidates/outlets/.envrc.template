@@ -49,7 +49,9 @@ export APP_PUBLIC_URL=http://127.0.0.1:4301
 # SMTP relay as the mailbox (a no-reply address of the organization's domain, with two-step
 # verification and an app password); APP_MAIL_FROM is the address the mail is from when it
 # is not the mailbox, an alias of its account. Unset here: the mail is written to the server's
-# log, link included, and nothing is sent; follow the link from the log.
+# log, link included, and nothing is sent; follow the link from the log. Only development
+# (APP_ENVIRONMENT=development, above) may leave them unset: anywhere else the application
+# does not start without the mailbox and its app password.
 # export APP_MAIL_MAILBOX=no-reply@example.com
 # export APP_MAIL_FROM=
 # export APP_MAIL_APP_PASSWORD=

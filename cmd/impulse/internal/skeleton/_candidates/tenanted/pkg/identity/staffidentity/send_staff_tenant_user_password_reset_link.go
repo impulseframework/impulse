@@ -18,14 +18,16 @@ type (
 	// the password it has signs the person in, and their sessions stand, until the
 	// link is used. The link works once and the message says who asked. The answer
 	// says whether the link went (Sent) and, where it did not, why (Reason): the
-	// account has no password to reset or no confirmed address, or the address was
-	// mailed too often.
+	// account has no password to reset or no confirmed address, its password is
+	// disabled by its organization's sign-in settings, or the address was mailed too
+	// often.
 	//
 	// It is a tenant's method: served under the address of one Tenant, it names a
-	// row of StaffTenantUser, the tenant's own list of the auth's people. A person who holds
-	// no role in the tenant is not found there. Every person of the tenant may be sent the
-	// link, whoever else they hold a role with: it goes to the person's own mailbox and
-	// changes nothing until they use it, so its grant needs no condition on the row.
+	// row of StaffTenantUser, the tenant's own list of the auth's people. A person who is no
+	// row of that list is not found there. The link goes to the person's own mailbox and
+	// changes nothing until they use it, so a tenant that does not manage the account may
+	// still send it; the role file's condition on the grant keeps it from a person another
+	// tenant's directory manages (managedHere = true OR managedByAnotherDirectory = false).
 	//
 	// @rpc
 	// @permissionScope(domain)

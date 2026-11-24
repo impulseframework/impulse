@@ -780,6 +780,13 @@ as its auth's sign-in setting says, thirty days until it is changed (the `crew-t
 and `members-trusted` cookies, the trusted devices table under each auth's prefix), and
 headquarters forgets a person's remembered browsers from the person's account page
 (`RevokeCrewUserTrustedDevices`, `RevokeMembersUserTrustedDevices`).
+A sector's marshal, signed in through the sector's own directory, can say that the
+directory asks its people for a second factor (`VouchForSectorDirectorySecondFactor`,
+on the sector's Sign-in settings page, behind a warning and the word `vouch`): a crew
+member who signs in through that directory is then not asked for the code, in that
+sector and in every sector that gave them a role, on the sector's word alone; the
+governor and a password persona are asked as before, and
+`StopVouchingForSectorDirectorySecondFactor` takes the word back from the next sign-in.
 Demonstrates: auth.second-factor, auth.attested-directory, auth.trusted-device.
 
 The crew sign in with passwords at `/console/api/user/password/login`, or through the
@@ -909,18 +916,21 @@ lists a sector keeps of the auth's people. An account is one row for the whole
 application and a role held names where it is held, so each list is a view, written
 beside the auth's tables and served under the sector's address like any tenant record:
 the sector's people (`sectors/{sectorID}/crew-sector-users`: everyone who holds a
-role in the sector or in every sector, with the account's columns), the roles held there
+role in the sector or in every sector, and everyone who signs in through the sector's
+directory, with the account's columns), the roles held there
 (`crew-sector-user-roles`, one row per person and role, each with the reason it was given
 for where there is one), the one list of those roles with where each comes from
 (`crew-sector-held-roles`: a role a person holds themselves beside each role that comes
 to them through a group, which the row names) and the sector's invitations
-(`crew-sector-invitations`). Each carries facts a grant's condition reads:
-`heldElsewhere` and `heldGlobally` on a person (a role held in another sector or in
-every sector; a role held for the whole application), `everyDomain` on a role (held
-through a membership in every sector alone, so not the sector's to take away) and
-`pending` on an invitation. The role file says what a sector sees with them. The Sector
-Marshal holds all three lists, and sees a person's address and password state only
-where the person holds no role outside the sector (`heldElsewhere = false`); the
+(`crew-sector-invitations`). Each carries facts a grant's condition reads: `managedHere`
+and `managedByAnotherDirectory` on a person (this sector manages the person's account;
+the person signs in through another sector's directory), `heldElsewhere` and
+`heldGlobally` on a person (a role held in another sector or in every sector; a role
+held for the whole application), `everyDomain` on a role (held through a membership in
+every sector alone, so not the sector's to take away) and `pending` on an invitation.
+The role file says what a sector sees with them. The Sector Marshal holds all three
+lists, and sees a person's name, their address and whether the account is disabled, and
+the rest of the account only where the sector manages it (`managedHere = true`); the
 Dispatcher sees the sector's own crew, the rows whose role the sector itself gave
 (`everyDomain = false`). A role given or a person's name changed through the generated
 methods reaches the open lists: the views' record is part of the application's live
@@ -928,8 +938,8 @@ derivations. A sector changes its people through the methods the management writ
 beside the lists (`invite-crew-sector-user`, `assign-crew-sector-role`,
 `remove-crew-sector-role` and the account methods), each run against a row of the
 sector's lists, so a grant's condition decides row by row: the Sector Marshal disables a
-person the sector holds alone and no one who also holds a role elsewhere, and gives every
-role but its own. The sector's People and Invitations pages ("Sector crew", under the
+person whose account the sector manages and nobody else, and gives every role but its
+own. The sector's People and Invitations pages ("Sector crew", under the
 sector's URL) are built by the library from the same description.
 
 Who may enter a sector is the sector record's declaration, data of the application
@@ -1053,8 +1063,8 @@ plain; while the switch is on, the sector's routes, these among them, answer the
 the sector admits, so a sector whose directory has stopped working is opened again by
 its own marshal, signed in with a password and the code, or by a
 super administrator. The marshal, who does not read the `Sectors` record, reads the
-switch in the sector (`GET /console/api/sectors/{sectorID}/directory-only`, under the
-grant of either method). `MakeSectorDirectoryOnly` declares a warning
+switch in the sector (`GET /console/api/sectors/{sectorID}/sign-in-settings`, under the
+grant of any of the sector's own sign-in methods). `MakeSectorDirectoryOnly` declares a warning
 (`@warning`'s mechanism, the word `close`): asked for it (`X-Warning: true`), the method
 answers what the call would do in place of running, the sentence with the count of the
 people seated in the sector who sign in another way (it says too that an administrator
@@ -1071,12 +1081,12 @@ on, the sector's People page says who
 it keeps out, on the row of each person with no sign-in through the directory ("Has not
 signed in through this sector's directory, so cannot enter while this sector is
 directory only"), but for a marshal of the sector itself who has a password, whose row
-says nothing; the list is made from who holds a role in the sector, so nobody
-disappears from it. Every sentence that speaks of a sector's directory says it in words
-a person knows, the name the crew's sign-in registrations give it (`example`, the
-fleet's Workspace; `persona`, the persona provider), and never by a connection that is
-an id (`a.CrewIdentity().DirectoryName`, which the generated frames pass to the rules
-and to the sector list). The
+says nothing; the list keeps everyone who holds a role in the sector, whether or not they
+can enter, so nobody disappears from it. Every sentence that speaks of a sector's
+directory says it in words a person knows, the name the crew's sign-in registrations give
+it (`example`, the fleet's Workspace; `persona`, the persona provider), and never by a
+connection that is an id (`a.CrewIdentity().DirectoryName`, which the generated frames
+pass to the rules and to the sector list). The
 directory of a sector its own creator charted is
 the organization's directory its creator came through, set by the create-sector route
 with the row through the step every such write takes (`app.SetSectorDirectory`); the
@@ -1107,17 +1117,20 @@ directly (a marshal may not give `SectorMarshal`, so she may not make it the rol
 everyone from the directory gets, and the list the role is picked from,
 `CrewSectorDirectoryRoles`, does not offer it to her: it lists the sector's roles she
 may give, by the grant of the method that gives one); `MakeSectorInviteOnly` clears it.
-The record's own
+The row carries one more word of the sector's own (`SectorDirectory.AsksSecondFactor`,
+`@directorySecondFactor`), which the record shows and never writes. The record's own
 update never writes the seat. The console's Sign-in page (Sector Ops menu, under the
 sector's URL) carries the declaration: a marshal signed in through his organization's
 directory makes it the sector's there with one button and removes it once he confirms;
 a marshal signed
 in with a password is told how a directory is set and offered no button. Everything
-else on the page is one of the four methods, run through the library's method dialog:
+else on the page is one of the six methods, run through the library's method dialog:
 opening the sector to its directory, with the role picked in the dialog beside what
 each role is for, and making it directory only each show the server's warning, with the
 people it names as a list, and hold the button until the word is typed; making it
-invite only and turning directory only off are plain confirmations, and a refusal is
+invite only and turning directory only off are plain confirmations, saying that the
+directory asks for a second factor shows the server's warning and holds the button until
+`vouch` is typed, taking that back is a plain confirmation, and a refusal is
 shown on the page with no dialog. What turning directory only takes of the marshal, a
 sign-in through the sector's directory and a password of his own, is said on the page
 before he presses, in the server's sentences, and the button is offered only where the
@@ -1141,7 +1154,7 @@ grants (`access.WithSuperAdministratorMethods`, handed the generated
 `crewidentity.SuperAdministratorMethods`), and the last holder who can sign in keeps the
 role and the account, whoever asks. Demonstrates: tenancy.declaration,
 tenancy.directory-only, tenancy.creator-directory, tenancy.default-seat,
-tenancy.creator-seat, auth.super-administrator.
+tenancy.directory-second-factor, tenancy.creator-seat, auth.super-administrator.
 
 ## The personas
 
@@ -1279,7 +1292,7 @@ the `act` kind refuses it by its class, and no role the release ships deletes a 
 | Login | Who | What their view proves |
 | --- | --- | --- |
 | `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Keeps the watch desk over every session held as someone else, which says what each may do, and can revoke one, as the marshal does (the command staff's grants). Holds each grant to impersonate on purpose: `CommandStaff` (view as a person, reading only; act as a role) and `StandIn` (act as a person: everything they may do, except change how anyone signs in or who may do what). On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, impersonation.act-as-user, impersonation.grant-mask, computed.pushdown, auth.reasons. |
-| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); keeps the watch desk with the governor, on the command staff's grants: lists every session held as someone else, reads who each is held as from the crew's accounts by username alone, and revokes one; releases cargo on a grant that carries no condition, so the method's own rule is what refuses her a second release (409, with the day the cargo left bond); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's name, address and whether the account is disabled answered for everyone, and the rest of the account only where the sector manages it (`managedHere = true`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); keeps the watch desk with the governor, on the command staff's grants: lists every session held as someone else, reads who each is held as from the crew's accounts by username alone, and revokes one; releases cargo on a grant that carries no condition, so the method's own rule is what refuses her a second release (409, with the day the cargo left bond); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
 | `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |

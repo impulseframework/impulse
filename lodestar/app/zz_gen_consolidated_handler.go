@@ -174,11 +174,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 	sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type sectorDirectoryRequest struct {
-		ID          impulse.UUID `json:"-"`
-		SectorID    impulse.UUID `json:"-"`
-		Method      string       `json:"-"`
-		Connection  string       `json:"-"`
-		DefaultSeat *string      `json:"-"`
+		ID               impulse.UUID `json:"-"`
+		SectorID         impulse.UUID `json:"-"`
+		Method           string       `json:"-"`
+		Connection       string       `json:"-"`
+		DefaultSeat      *string      `json:"-"`
+		AsksSecondFactor bool         `json:"-"`
 	}
 	sectorDirectoryDecoder := NewDecoder[resources.SectorDirectory, sectorDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 

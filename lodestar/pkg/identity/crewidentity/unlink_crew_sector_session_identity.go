@@ -20,10 +20,10 @@ import (
 //
 // It is a tenant's method: served under the address of one Sector, it names a
 // row of CrewSectorIdentity, the tenant's own list of its people's identities. An
-// identity of a person who holds no role in the tenant is not found there, and what the
-// tenant may do to a person who also holds a role outside it is the role file's to say,
-// in a condition on the method's grant that reads the facts of the row (heldElsewhere,
-// heldGlobally).
+// identity of a person who is no row of the tenant's list of people is not found there,
+// and whether the tenant may do this to a person is the role file's to say, in a
+// condition on the method's grant that reads the facts of the row: managedHere says
+// this tenant manages the person's account.
 //
 // A row offers it only to a caller whose session enters every sector the person
 // administers (@callerEnters); the method refuses anyone else.

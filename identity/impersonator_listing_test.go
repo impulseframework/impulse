@@ -157,6 +157,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.TenantAdministratorRoles":        {none: reads},
 	"Manager.AdministratorsEnterWithPassword": {none: reads},
 	"Manager.CallerPassword":                  {none: reads},
+	"Manager.AuthSecondFactor":                {none: reads},
 	"Manager.DirectoryRoles":                  {none: reads},
 	"Manager.RolesToGive":                     {none: reads},
 	"Manager.GivableRoles":                    {none: reads},
