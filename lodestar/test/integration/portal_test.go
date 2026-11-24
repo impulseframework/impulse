@@ -24,7 +24,7 @@ const (
 	contactSurveyorID = "31000000-0000-4000-8000-000000000002"
 )
 
-// Demonstrates: outlet.session, outlet.isolation, @subjectValue.second-anchor, create-form-narrowing, @manualAddResource.outlet, tenancy.user-domains.
+// Demonstrates: outlet.session, outlet.isolation, @subjectValue.second-anchor, create-form-narrowing, tenancy.user-domains.
 func TestClientPortal(t *testing.T) {
 	t.Parallel()
 
@@ -122,9 +122,6 @@ func TestClientPortal(t *testing.T) {
 		if got := digest["StandDownMission"]["Execute"]; got != accesstypes.DigestConditional {
 			t.Errorf("digest[StandDownMission][Execute] = %q, want conditional", got)
 		}
-		if got := digest["ClientStatements"]["List"]; got != accesstypes.DigestGranted {
-			t.Errorf("digest[ClientStatements][List] = %q, want granted: a manual resource has no bindings", got)
-		}
 		for _, absent := range []accesstypes.Resource{"Refits", "Ships", "Squadrons", "Sorties", "ClaimMission"} {
 			if _, ok := digest[absent]; ok {
 				t.Errorf("digest carries %s; the portal role holds nothing on it", absent)
@@ -192,24 +189,12 @@ func TestClientPortal(t *testing.T) {
 		status, body = doRequestAs(t, h, clientUser, http.MethodGet, portalAPI+"/client-contacts/"+contactSurveyorID, "")
 		assertStatus(t, status, http.StatusNotFound, body)
 	})
-
-	t.Run("the client statement is the portal's route and nobody else's", func(t *testing.T) {
-		t.Parallel()
-
-		status, body := doRequestAs(t, h, clientUser, http.MethodGet, portalPath(anvil, "client-statements"), "")
-		assertStatus(t, status, http.StatusOK, body)
-		// The console prefix does not mount it, and a crew login holds no grant on it.
-		status, body = doRequestAs(t, h, "marshal", http.MethodGet, sectorPath(anvil, "client-statements"), "")
-		if status != http.StatusNotFound && status != http.StatusMethodNotAllowed {
-			t.Errorf("console client-statements: status = %d, want 404/405: %s", status, body)
-		}
-	})
 }
 
-// TestClientPortalActions is the mutating half: filing a call, standing down, and the
-// statement that records what changed on the company's missions.
+// TestClientPortalActions is the mutating half: filing a call, and standing down, which
+// the mission's history then holds.
 //
-// Demonstrates: pii, @transition.multi-from, execute-condition, @manualAddResource.outlet.
+// Demonstrates: pii, @transition.multi-from, execute-condition.
 func TestClientPortalActions(t *testing.T) {
 	t.Parallel()
 
@@ -239,7 +224,7 @@ func TestClientPortalActions(t *testing.T) {
 		}
 	})
 
-	t.Run("stand down fires on an own-company open mission, refuses another company's, and lands on the statement", func(t *testing.T) {
+	t.Run("stand down fires on an own-company open mission, refuses another company's, and lands in the mission's history", func(t *testing.T) {
 		t.Parallel()
 
 		status, body := doRequestAs(t, h, clientUser, http.MethodPost, portalPath(anvil, "stand-down-mission"),
@@ -249,27 +234,32 @@ func TestClientPortalActions(t *testing.T) {
 			fmt.Sprintf(`{"missionId":%q}`, missionHaulerID)) // Halvard's, open
 		assertStatus(t, status, http.StatusOK, body)
 
-		status, body = doRequestAs(t, h, clientUser, http.MethodGet, portalPath(anvil, "client-statements"), "")
+		status, body = doRequestAs(t, h, clientUser, http.MethodGet, portalPath(anvil, "missions/"+missionHaulerID+"/changes"), "")
 		assertStatus(t, status, http.StatusOK, body)
-		var lines []struct {
-			MissionID   string `json:"missionId"`
-			Title       string `json:"title"`
-			EventSource string `json:"eventSource"`
+		var history struct {
+			Changes []struct {
+				Fields []struct {
+					Field string          `json:"field"`
+					New   json.RawMessage `json:"new"`
+				} `json:"fields"`
+			} `json:"changes"`
 		}
-		if err := json.Unmarshal(body, &lines); err != nil {
-			t.Fatalf("decoding the statement: %v: %s", err, body)
+		if err := json.Unmarshal(body, &history); err != nil {
+			t.Fatalf("decoding the hauler's history: %v: %s", err, body)
 		}
-		var found bool
-		for _, line := range lines {
-			if line.MissionID == missionHaulerID && line.Title == "Stranded hauler off Anvil Reach" {
-				found = true
+		var stoodDown bool
+		if len(history.Changes) > 0 {
+			for _, field := range history.Changes[0].Fields {
+				if field.Field == "statusId" && string(field.New) == `"stood_down"` {
+					stoodDown = true
+				}
 			}
-			if line.MissionID == missionConvoyID {
-				t.Errorf("the statement carries Meridian's convoy: %+v", line)
-			}
 		}
-		if !found {
-			t.Errorf("statement = %+v, want the stand-down of Halvard's hauler", lines)
+		if !stoodDown {
+			t.Errorf("the hauler's history = %s, want the stand-down newest", body)
 		}
+		// Meridian's convoy is not Cleo's company's: its history is not hers to read.
+		status, body = doRequestAs(t, h, clientUser, http.MethodGet, portalPath(anvil, "missions/"+missionConvoyID+"/changes"), "")
+		assertStatus(t, status, http.StatusNotFound, body)
 	})
 }

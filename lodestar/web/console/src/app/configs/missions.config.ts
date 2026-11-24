@@ -59,7 +59,7 @@ const callSheet: FieldElement[] = [
  * mission's change records in the open sector, and names each field of the call sheet by
  * the label the page gives it, the fields a person can narrow the history to.
  *
- * Demonstrates: change-history.
+ * Demonstrates: change-history, change-tracking, event-source.
  */
 export function openMissionHistory(row: RecordData, injector: Injector): void {
   const dialog = injector.get(MatDialog);

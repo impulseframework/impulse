@@ -88,11 +88,6 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"sectorId", "name"},
 			},
 			{
-				Name:        "ClientStatements",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.List},
-			},
-			{
 				Name:        "CompileBriefing",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1221,11 +1216,6 @@ func Collection() *resource.GeneratedCollection {
 				Order:        []accesstypes.Tag{"name"},
 				QueryKeys:    []accesstypes.Tag{"hangarId", "classId", "registry"},
 				RequiredTags: []accesstypes.Tag{"classId", "hangarId", "name", "registry"},
-			},
-			{
-				Name:        "ShipsLogEntries",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.List},
 			},
 			{
 				Name:        "SortieExpenses",

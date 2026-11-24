@@ -23,7 +23,7 @@ type (
 	// of the opener's account, and OpenedByName with their username as it was then, which
 	// is what a page shows. The update
 	// path runs both a defaults type and a validator type. Change tracking is on, feeding
-	// the ship's log.
+	// the refit's history.
 	//
 	// A ship is in one bay at a time: the create path's validator refuses to open a refit
 	// on a ship that has one still open.

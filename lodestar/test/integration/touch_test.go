@@ -3,7 +3,7 @@ package integration
 
 // This suite pins the first-class Touch: HailShip fires the generated NewShipTouch,
 // so the full update pipeline runs with no caller-set fields — UpdatedAt takes the
-// commit timestamp and the ship's log records who hailed with every field unchanged.
+// commit timestamp and the ship's history records who hailed with every field unchanged.
 
 import (
 	"encoding/json"

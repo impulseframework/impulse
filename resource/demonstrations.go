@@ -152,8 +152,8 @@ var Demonstrations = []Demonstration{
 	{"consolidation.batch", "The consolidated endpoint: a cross-resource batch in one transaction with a closed operation vocabulary."},
 	{"commit.referential-refusal", "A commit Spanner refuses for a referential reason (a delete of a row other rows still reference, a write naming a referenced row that does not exist, a required column left empty) answers 409 with a sentence that says the records the transaction buffered in words and names no table, decided on the gRPC code alone; a child-and-parent delete in one transaction still succeeds in either order where the parent declares no @deleteCascade."},
 	{"commit.constraint-refusal", "A commit Spanner refuses for a duplicate key or unique-index value (409), a violated CHECK constraint (400), or an update of a row that does not exist (404) answers in a sentence that says the record in words, decided on the gRPC code alone over the same record of buffered patches; the create validator's 400 for the same rule shows the two enforcement points side by side."},
-	{"change-tracking", "TrackChanges: mutations write DataChangeEvents rows in the same transaction, each with the tenant of the row it is about."},
-	{"event-source", "The change event's source names the session, and the actor and role of an impersonated one."},
+	{"change-tracking", "Change tracking: a resource whose Config sets TrackChanges writes one change record in the transaction of every create, update and delete of a row, holding what changed, when, and who made the change, each with the tenant of the row it is about; a record's history reads them back (change-history)."},
+	{"event-source", "Who made a change: generated handlers pass resource.UserEvent(ctx), a job passes resource.ProcessEvent(name), and a change made while acting as someone else names both the person acting and who they acted as, or the role they acted as; the source names the session the change was made in."},
 	{"change-history", "A record's history: GET <read route>/changes answers a page of the record's change records, newest first, continued by next and narrowed to one field, to whoever may read the record, with only the fields they can see on it; a deleted record's history is read by a caller whose grant carries no condition, and a resource that does not track its changes answers 404."},
 	{"@enumerate", "The field-scope @enumerate(Resource): the field holds another resource's identifier, and the generator alone says which resource its picker lists."},
 	{"@enumerate.plain-column", "A field-scope @enumerate on a plain column with no foreign key: an identifier held from outside the schema names the resource its picker lists."},
@@ -199,9 +199,7 @@ var Demonstrations = []Demonstration{
 	{"computed.keyless", "A @computed struct with no @primarykey is a whole read-only list: one list route serves every row the filter admits in one response, sorted when a sort is asked or declared, with no read route, no page (a numeric limit or a cursor is refused naming @primarykey as the way to page), and no row identity; declaring a key brings all three back."},
 	{"@class", "@class(name[, name]) on an @rpc struct or on a constant that carries @manualAddResource(Execute): the action carries each class in the generated permission collection, the collection file declares a constant per class in use (ClassCredential, ClassIrreversible), and a permission mask that refuses a class refuses every action that carries it."},
 	{"@manualAddResource", "A permission registered by hand for a hand-written route."},
-	{"@manualAddResource.scope", "@manualAddResource(Perm, domain): the scope argument."},
 	{"@manualAddResource.execute", "@manualAddResource(Execute): a manual Execute registration reaching the TypeScript Methods constants."},
-	{"@manualAddResource.outlet", "A manual registration naming a non-default @outlet, filtered by ForOutlet."},
 	{"hand-written-route", "A route the application writes itself, checking the registered permission fail-closed."},
 
 	// Outlets and auth.

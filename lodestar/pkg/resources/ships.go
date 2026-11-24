@@ -19,7 +19,7 @@ type (
 	// output_only keeps clients from writing it. UpdatedAt is the mechanical enforcement
 	// stamp, an output_only_update_fn, which also gives the resource the generated
 	// NewShipTouch that HailShip fires. Change tracking is on so a Hail lands in the
-	// ship's log with every field unchanged, and so a refused delete of a ship that has
+	// ship's history with every field unchanged, and so a refused delete of a ship that has
 	// flown proves the change event buffered beside it is not named in the 409.
 	//
 	// No column on a ship names its sector, so a list of ships scans the whole table,
@@ -56,8 +56,8 @@ type (
 	// of the application secret again under the current one. It is write-only as an
 	// input_only field is (absent from every list and read, refused as a column, a filter
 	// or a sort), the console types it into a masked box whose toggle shows what is being
-	// typed, and the ship's log, which serves every change of a ship, names a change of
-	// the key without the old value or the new one (test/integration/secret_test.go).
+	// typed, and the ship's change record names a change of the key without the old value
+	// or the new one (test/integration/secret_test.go).
 	//
 	// A ship declares no delete of what is under it, so nothing goes with it: its refits,
 	// the sorties flown on it and the droid reports filed on it refuse its delete before

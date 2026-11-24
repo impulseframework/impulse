@@ -28,7 +28,7 @@ func Test_declareRowWords(t *testing.T) {
 		{name: "the word stated on the tenant record is the word", fixture: "DockingPermit", label: "Bay", wantOne: "permit", wantMany: "permits"},
 		{name: "the word stated, the plural taken from it", fixture: "DockingPermit", wantOne: "permit", wantMany: "permits"},
 		{name: "both words stated", fixture: "CrewMember", wantOne: "person", wantMany: "people"},
-		{name: "a word of several", fixture: "ShipLog", wantOne: "ship's log", wantMany: "ship's logs"},
+		{name: "a word of several", fixture: "CaptainLog", wantOne: "captain's log", wantMany: "captain's logs"},
 		{
 			name: "the word with its article is refused", fixture: "WithArticle",
 			wantErr: `struct WithArticle: @rowWord(a permit): the word opens with "a"; write the word alone, @rowWord(permit): a screen puts "a", "an" or "this" before it itself`,
@@ -186,8 +186,8 @@ func Test_typescriptResourcesTemplate_rowWords(t *testing.T) {
 		},
 		{
 			name:         "an apostrophe is escaped",
-			data:         tsResourcesData{Resources: []*resourceInfo{view("ship's log", "ship's logs")}, GenPrefix: "zz_gen"},
-			wantContains: []string{`rowWords: { one: 'ship\'s log', many: 'ship\'s logs' },`},
+			data:         tsResourcesData{Resources: []*resourceInfo{view("captain's log", "captain's logs")}, GenPrefix: "zz_gen"},
+			wantContains: []string{`rowWords: { one: 'captain\'s log', many: 'captain\'s logs' },`},
 		},
 		{
 			name:         "a computed resource carries its words",

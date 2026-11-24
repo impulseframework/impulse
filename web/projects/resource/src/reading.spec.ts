@@ -35,7 +35,7 @@ const hangars: ResourceDescriptor = {
 /** A maximum and no order: paged, the picker must state a sort. */
 const berths: ResourceDescriptor = { ...base, resource: 'Berths' as Resource, property: 'berths', route: 'berths', page: { default: 10, max: 50 } };
 /** No page sizes at all, a descriptor written by hand: read whole. */
-const manual: ResourceDescriptor = { ...base, resource: 'ShipsLogEntries' as Resource, property: 'shipsLogEntries', route: 'ships-log-entries' };
+const manual: ResourceDescriptor = { ...base, resource: 'DockLogEntries' as Resource, property: 'dockLogEntries', route: 'dock-log-entries' };
 /** A key-less resource: served whole with no limit at all. */
 const standingOrders: ResourceDescriptor = { ...base, resource: 'StandingOrders' as Resource, property: 'standingOrders', route: 'standing-orders', keys: [], operations: ['list'], page: { default: 50 } };
 

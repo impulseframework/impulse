@@ -132,7 +132,7 @@ export const CREW_MANIFEST: Persona[] = [
     login: 'archivist',
     name: 'Archivist Ada',
     deck: 'Archive',
-    proves: 'Finished missions everywhere; fees redacted until completed; the ship’s log.',
+    proves: 'Finished missions everywhere; fees redacted until completed.',
   },
   {
     login: 'assessor',

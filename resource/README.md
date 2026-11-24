@@ -675,13 +675,14 @@ sentence the caller was sent after it.
 
 A handler that checks a permission itself answers its refusal in the same words with
 `resource.NotPermitted`, which takes what the log keeps, the permission and the
-resources refused:
+resources refused. `ViewAsUser` here is a constant that carries
+`@manualAddResource(Execute)`:
 
 ```go
-if !decisions[resources.ShipsLogEntries].IsGranted() {
+if !decisions[resources.ViewAsUser].IsGranted() {
 	return httpio.NewEncoder(w).ClientMessage(ctx, resource.NotPermitted(
-		errors.Newf("user %s does not have List on %s in %s", user, resources.ShipsLogEntries, domain),
-		accesstypes.List, resources.ShipsLogEntries,
+		errors.Newf("user %s does not have Execute on %s", user, resources.ViewAsUser),
+		accesstypes.Execute, resources.ViewAsUser,
 	))
 }
 ```

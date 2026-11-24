@@ -101,11 +101,10 @@ const filesTwoFields: PermissionDigest = {
   'DistressCalls.severity': { Create: 'granted' },
 };
 
-/** A client who also follows the missions their company booked, and its statement. */
+/** A client who also follows the missions their company booked. */
 const follows: PermissionDigest = {
   ...files,
   Missions: { List: 'granted' },
-  ClientStatements: { List: 'granted' },
   StandDownMission: { Execute: 'granted' },
 };
 
@@ -164,8 +163,6 @@ function answerFor(world: World): (request: TransportRequest) => TransportRespon
           body: world.missions ?? [],
           headers: { 'total-count': String(world.total ?? world.missions?.length ?? 0) },
         };
-      case `${environment.apiUrl}/sectors/${anvilID}/client-statements`:
-        return { status: 200, body: [] };
       case `${environment.apiUrl}/sectors/${anvilID}/stand-down-mission`:
         return world.standDown ?? { status: 200, body: undefined };
       // A create rides the consolidated route as one operation.
@@ -389,8 +386,8 @@ describe('TrackerComponent for a signed-in client', () => {
     expect(film).toHaveLength(2);
     expect(texts('.sheet .title')).toEqual(['Tow the Kestrel']);
     expect(texts('.pager-total')).toEqual(['1 mission']);
-    // Two of its lists are empty, and it says so; the missions are not, and it does not.
-    expect(texts('.empty')).toEqual(['No calls filed yet.', 'Nothing has changed on your missions yet.']);
+    // One of its lists is empty, and it says so; the missions are not, and it does not.
+    expect(texts('.empty')).toEqual(['No calls filed yet.']);
   });
 
   it('says there are no missions only once the server said so, and draws no pager then', async () => {

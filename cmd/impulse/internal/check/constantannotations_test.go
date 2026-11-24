@@ -42,7 +42,7 @@ func main() {
 		looseRes       = "package resources\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// @manualAddResource(Read)\n\nconst Ledgers accesstypes.Resource = \"Ledgers\"\n"
 		looseRegisters = "pkg/rpc/relight.go:5: the comment holds the line \"@manualAddResource(Execute)\" and is no declaration's, and generation reads @manualAddResource only from the comment directly above a constant of the resources package (pkg/resources), so here it registers nothing: write it there, above its constant, or, if the line is prose, start it with another word"
 		looseDeclares  = "app/recall.go:7: the comment holds the line \"@manualAddPermission\" and is no declaration's, and generation reads @manualAddPermission only from the comment directly above a constant of the resources package (pkg/resources), so here it declares nothing: write it there, above its constant, or, if the line is prose, start it with another word"
-		proseInApp     = "package app\n\n// shipsLog serves the log by hand. Its resource is declared in the resources package:\n// @manualAddResource(Read) stands on that constant.\nfunc shipsLog() {}\n"
+		proseInApp     = "package app\n\n// dockLog serves the log by hand. Its resource is declared in the resources package:\n// @manualAddResource(Read) stands on that constant.\nfunc dockLog() {}\n"
 	)
 
 	tests := []struct {

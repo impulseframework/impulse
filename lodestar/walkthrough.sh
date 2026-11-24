@@ -485,8 +485,8 @@ r=$(dryrun lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); c
 r=$(req lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); check "lead completes Hammer's convoy (the method answers with the settlement)" 200 "$r"
 assert_py "the settlement is the fee less the booked expenses" "$r" "rows['fee']=='15000' and rows['expenses']=='1600' and rows['net']=='13400'"
 r=$(req marshal GET "$ANVIL/missions?limit=200"); assert_py "the convoy completed with its settlement posted through the Paymaster role" "$r" "next(m for m in rows if m['id']=='$CONVOY')['statusId']=='completed' and next(m for m in rows if m['id']=='$CONVOY')['settlement']=='13400'"
-r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the ship's log names 'lead (the id of her account) as role Paymaster' on the settlement, with the session it was posted from" "$r" "any(e['eventSource'].startswith('lead ($LEAD_ID) as role Paymaster, session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
-assert_py "an ordinary change is signed the same way, the person by username and account id and then the session: the marshal's hold of the convoy" "$r" "any(e['eventSource'].startswith('marshal ($MARSHAL_ID), session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
+r=$(req archivist GET "$ANVIL/missions/$CONVOY/changes"); assert_py "the convoy's history names 'lead (the id of her account) as role Paymaster' on the settlement, with the session it was posted from" "$r" "any(e['source'].startswith('lead ($LEAD_ID) as role Paymaster, session ') and $UUID(e['source'].rsplit(' ',1)[1]) for e in rows['changes'])"
+assert_py "an ordinary change is signed the same way, the person by username and account id and then the session: the marshal's hold of the convoy" "$r" "any(e['source'].startswith('marshal ($MARSHAL_ID), session ') and $UUID(e['source'].rsplit(' ',1)[1]) for e in rows['changes'])"
 
 # ---- dispatcher: the two-grant PATCH ----
 r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$QUARANTINE\",\"value\":{\"notes\":\"client called\",\"deadline\":\"$(days +87)\"}}]"); check "dispatcher extends a deadline and notes it" 200 "$r"
@@ -1252,14 +1252,13 @@ r=$(req client PATCH "$PORTAL/resources" '[{"op":"add","path":"/sectors/'"$ANVIL
 r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/distress-calls?limit=100"); assert_py "cleo's portal lists her own calls alone, the seeded five and the one just filed: filedBy = subject compares the id of her account in the members auth" "$r" "len(rows)==6 and 'Hauler drifting' in [c['summary'] for c in rows] and all('filedByUserId' not in c for c in rows)"
 r=$(req marshal GET "$ANVIL/distress-calls?limit=100"); assert_py "the console says a client filed it: the id of her members account, which is no crew account's, and her username beside it" "$r" "[(c['filedByUserId'],c['filedByName']) for c in rows if c['summary']=='Hauler drifting']==[('$CLIENT_ID','client')]"
 r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/refits"); check "refits are not a portal member" 404 "$r"
-r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/client-statements"); check "cleo reads her company's statement (the portal-only manual resource)" 200 "$r"
-assert_py "the statement carries the stand-down of her company's mission" "$r" "any(l['missionId']=='$QUARANTINE' for l in rows)"
-r=$(req marshal GET "$ANVIL/client-statements"); check "the statement is not mounted on the console" 404 "$r"
+r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/missions/$QUARANTINE/changes"); check "cleo reads the history of her company's mission on the portal" 200 "$r"
+assert_py "the history carries her stand-down of it" "$r" "any(f['field']=='statusId' and f['new']=='stood_down' for e in rows['changes'] for f in e['fields'])"
 
-# ---- ship's log ----
-r=$(req archivist GET "$ANVIL/ships-log-entries"); check "archivist reads the ship's log" 200 "$r"
-assert_py "the hail is in the log as a touch" "$r" "any(e['tableName']=='Ships' and list((e.get('changeSet') or {}).keys())==['UpdatedAt'] for e in rows)"
-r=$(req cadet GET "$ANVIL/ships-log-entries"); check "cadet holds no log grant" 403 "$r"
+# ---- a ship's history ----
+r=$(req marshal GET "$ANVIL/ships/$KINGFISHER/changes"); check "the marshal reads the Kingfisher's history" 200 "$r"
+assert_py "the hail is in it as a touch: a record that changed the update time alone" "$r" "any([f['field'] for f in e['fields']]==['updatedAt'] for e in rows['changes'])"
+r=$(req cadet GET "$ANVIL/ships/$KINGFISHER/changes"); check "the cadet, who may not read the ships, may not read a ship's history" 403 "$r"
 
 # ---- bulletin ----
 r=$(req marshal POST "$API/issue-bulletin" '{"announcement":"All hands: drill at 0600"}'); check "bulletin officer issues a bulletin" 200 "$r"
@@ -1432,7 +1431,7 @@ r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "the marshal return
 r=$(req governor POST "$API/impersonate" '{"kind":"role","principal":"Dispatcher","reason":"walkthrough"}'); check "governor assumes the Dispatcher role" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$COURIER\",\"value\":{\"deadline\":\"$(days +88)\"}}]"); check "deadline extended under the role (grant B, on hold is not terminal)" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$HAMMER\"}}]"); check "assignment refused on a claimed mission: subject is Greer, not a dispatcher" 403 "$r"
-r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the log names 'governor (the id of his account) as role Dispatcher', with the session" "$r" "any(e['eventSource'].startswith('governor ($GOVERNOR_ID) as role Dispatcher, session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
+r=$(req marshal GET "$ANVIL/missions/$COURIER/changes"); assert_py "the courier's history names 'governor (the id of his account) as role Dispatcher', with the session" "$r" "any(e['source'].startswith('governor ($GOVERNOR_ID) as role Dispatcher, session ') and $UUID(e['source'].rsplit(' ',1)[1]) for e in rows['changes'])"
 
 # ---- the overdue flip ----
 if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then

@@ -14,7 +14,7 @@ CREATE TABLE DataChangeEvents (
   TenantId STRING(MAX) NOT NULL,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
 
--- One sector's change records, newest first: the ship's log reads them by this index.
+-- One sector's change records, newest first.
 CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
 
 -- How long change records are kept: Spanner removes a record once it is older than this
@@ -515,7 +515,7 @@ CREATE TABLE Ships (
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
   -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
   -- resource declares it conditions:"secret" and types it resource.Secret, so it is
-  -- written and never served, the ship's log names a change of it without the value, and
+  -- written and never served, its change record names a change of it without the value, and
   -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
   -- 42 sealing adds (the version of the application secret that sealed it, the random
   -- number drawn for the write, and the check).

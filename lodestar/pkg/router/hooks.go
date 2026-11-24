@@ -12,14 +12,14 @@ import (
 // AppHandlers is the served application's full surface: the generated router's Handlers
 // (every outlet's generated handlers, the two auths' session handlers, the middleware, the
 // droids outlet's authentication, and the two browser applications) plus the console's
-// and the portal's own routes, which AppHooks mounts inside the outlets' guards.
+// own routes, which AppHooks mounts inside the console's guards, and the beacon pulse
+// outside every outlet.
 type AppHandlers interface {
 	Handlers
 
-	// The console's hand-written routes: the sector-scoped ship's log over the
-	// change-tracking table (registered through @manualAddResource(List, domain)) and
-	// the impersonation mint route. The watch desk has none: it lists the crew auth's
-	// generated impersonation records and ends one with the generated method.
+	// The console's hand-written route: the impersonation mint route. The watch desk has
+	// none of its own: it lists the crew auth's generated impersonation records and ends
+	// one with the generated method.
 	// EndImpersonation is the session library's own, on the crew auth's session the App
 	// embeds; the generated router names the rest of that session (DefaultSession) and
 	// does not mount it, so the application names it here and mounts it inside the
@@ -30,12 +30,7 @@ type AppHandlers interface {
 	// download is generated: the @file on MissionDocument.StoreKey serves it under the
 	// read route.
 	EndImpersonation() http.HandlerFunc
-	ShipsLogEntries() http.HandlerFunc
 	Impersonate() http.HandlerFunc
-
-	// The portal's hand-written route: a company's statement over the change log
-	// (registered through @manualAddResource(List, domain) with @outlet(portal)).
-	ClientStatements() http.HandlerFunc
 
 	// The beacon pulse outside every outlet (app/beacon.go), mounted through hooks.Root
 	// under the prefix the generator program declares quiet.
@@ -46,12 +41,6 @@ type AppHandlers interface {
 // console's browser application at /console, and the outlet's API sits under that mount
 // path, as the portal's sits under /portal.
 const consoleAPI = "/console/api"
-
-// ShipsLogEntriesRoute is the console's ship's log route under the sector segment.
-const ShipsLogEntriesRoute = consoleAPI + "/sectors/{sectorID}/ships-log-entries"
-
-// ClientStatementsRoute is the portal's statement route under the sector segment.
-const ClientStatementsRoute = "/portal/api/sectors/{sectorID}/client-statements"
 
 // BeaconsPrefix is the prefix the beacon pulses sit under, outside every outlet, and
 // what the generator program declares with WithMountedRoutes: every request under it
@@ -68,9 +57,10 @@ const BeaconRoute = BeaconsPrefix + "{sectorID}"
 
 // AppHooks composes the application's own routes into the generated router (New), inside
 // the guards each outlet's group already carries: the console's routes behind the crew
-// auth's session validation and XSRF guard, the portal's behind the members auth's. The
-// generated router owns everything else: the every-request middleware, each outlet's
-// session or token-checked group, the not-found handlers, and the two browser applications.
+// auth's session validation and XSRF guard. The portal has no route of its own, so its
+// outlet registers its generated routes alone, behind the members auth. The generated
+// router owns everything else: the every-request middleware, each outlet's session or
+// token-checked group, the not-found handlers, and the two browser applications.
 //
 // Demonstrates: GenerateRouter, auth.two-populations, outlet.session, outlet.tokens, outlet.isolation, hand-written-route, impersonation.read-only-backstop, impersonation.end, consolidation.batch, generation.request-log.
 func AppHooks(h AppHandlers) Hooks {
@@ -97,16 +87,8 @@ func AppHooks(h AppHandlers) Hooks {
 			r.Group(func(r chi.Router) {
 				r.Use(h.EnforceReadOnlyMask)
 
-				r.Get(ShipsLogEntriesRoute, h.DomainGuard()(h.ShipsLogEntries()))
 				r.Post(consoleAPI+"/impersonate", h.Impersonate())
 			})
-
-			generated(r)
-		},
-		// The portal: the client statement beside the portal outlet's generated routes,
-		// behind the members auth. A client's session opens nothing under /console/api.
-		Portal: func(r chi.Router, generated func(chi.Router)) {
-			r.Get(ClientStatementsRoute, h.DomainGuard()(h.ClientStatements()))
 
 			generated(r)
 		},

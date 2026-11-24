@@ -14,7 +14,7 @@ import (
 // the ship within the sector, through its one-hop join-path tenancy, and evaluates the
 // caller's Execute condition against it (the Pilot's grant carries `hangarZone !=
 // 'quarantine'`); then the body fires the generated NewShipTouch: UpdatedAt bumps and
-// the ship's log records who hailed, while no field of the ship changes. It declares
+// the ship's history records who hailed, while no field of the ship changes. It declares
 // No Content as its one status: a touch has nothing to say, so no body goes on the
 // wire, and the answerless form is the only one that may say so.
 //

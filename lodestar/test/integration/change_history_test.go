@@ -1,4 +1,4 @@
-// Demonstrates: change-history.
+// Demonstrates: change-history, change-tracking, event-source.
 package integration
 
 // This suite pins a record's history as the generated route serves it, GET <the read

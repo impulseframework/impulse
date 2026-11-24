@@ -85,7 +85,7 @@ func giveMarshalStandIn(ctx context.Context, t *testing.T, s *served) {
 	}
 }
 
-// Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.identity-proof, impersonation.end, event-source, @manualAddResource.execute, impersonation.session-permissions.
+// Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.identity-proof, impersonation.end, event-source, @manualAddResource, @manualAddResource.execute, hand-written-route, impersonation.session-permissions.
 func TestImpersonatedSessions(t *testing.T) {
 	t.Parallel()
 
