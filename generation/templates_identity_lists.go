@@ -60,6 +60,30 @@ const (
       AND {{ .Standing "o" }}
   )` + identityGroupPersonInEveryTenant + `) AS HeldInEveryTenant`
 
+	// identityTenantPersonRoles is what a person of a tenant's list of people holds in the
+	// row's tenant itself, as a column of its select after the account's: the name of each
+	// role once, in alphabetical order. They are the rows the tenant's one list of the
+	// roles held (identityTenantHeldRolesTemplate) answers for the person there with
+	// EveryDomain false: a role of the person's own held in the tenant that has not ended,
+	// one that has not begun among them, and, where the auth keeps groups, the roles that
+	// come through a group (identityGroupPersonRoles). The column is written over the
+	// tables and does not take that list's query in: the query joins tables, six where the
+	// auth keeps groups, and the statement a page reads the people by already holds the
+	// twenty Spanner allows (identityTenantThroughDirectory). The person's memberships are
+	// read by the store's index by user, as the facts read them (identityTenantPersonFacts),
+	// and each period by the test the lists of roles apply (identitySourceData.Standing). A
+	// served test holds the column to the list.
+	identityTenantPersonRoles = `  ARRAY(
+    SELECT DISTINCT hr.Role
+    FROM (
+      SELECT o.Role AS Role
+      FROM {{ .Policy.UserRoles }} o
+      WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
+        AND {{ .Standing "o" }}` + identityGroupPersonRoles + `
+    ) hr
+    ORDER BY hr.Role
+  ) AS Roles,`
+
 	// identityTenantThroughDirectory is the start of the fact that a person of a tenant's
 	// list signs in through a tenant's directory, where the tenant record declares a
 	// directory and the auth keeps identities: an identity linked to the account under
@@ -313,6 +337,19 @@ type (
 	// does not manage. The list filters and sorts by the username and by the six facts;
 	// the account's other columns are no filter keys, so a role file may grant any of
 	// them under a condition at no cost to a page.
+	//
+	// Roles (roles) is what the person holds in this tenant itself: the name of each role
+	// once, in alphabetical order, of the roles {{ .TenantHeldRole }} lists for the person
+	// here, their own and the ones that come through a group. A role held in every tenant at
+	// once is not among them: HeldInEveryTenant says it, and a role file grants or keeps back
+	// each by itself. It is no filter key.
+	{{- if .CountsFailedSignIns }}
+	//
+	// LockedUntil (lockedUntil) is until when the person's sign-in is locked by failed
+	// tries, and nothing for a person who is not locked: the latest lock still ahead among
+	// the counts the session library keeps for the account under its username and under its
+	// id (session.AccountAttemptKeys with no address). It is no filter key either.
+	{{- end }}
 	{{- if .TenantDirectory }}
 	//
 	// Two more columns say what the tenant's directory-only switch does to the person.
@@ -359,6 +396,11 @@ type (
 		PasswordChangeRequired bool       ` + "`spanner:\"PasswordChangeRequired\"`" + `
 		CreatedAt              time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		LastSignInAt           *time.Time ` + "`spanner:\"LastSignInAt\"`" + `
+		// @roleOf({{ .Auth }})
+		Roles []string ` + "`spanner:\"Roles\"`" + `
+		{{- if .CountsFailedSignIns }}
+		LockedUntil *time.Time ` + "`spanner:\"LockedUntil\"`" + `
+		{{- end }}
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool ` + "`spanner:\"HeldElsewhere\" index:\"true\"`" + `
 		// @attribute(heldGlobally)
@@ -403,6 +445,8 @@ SELECT
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
+` + identityTenantPersonRoles + `{{ if .CountsFailedSignIns }}
+{{ .LockedUntil "u" }},{{ end }}
 ` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantPersonInEveryTenant + identityTenantThroughFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
 ) p

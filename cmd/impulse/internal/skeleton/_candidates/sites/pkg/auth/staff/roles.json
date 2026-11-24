@@ -148,6 +148,21 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
@@ -436,6 +451,21 @@
                 "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -740,7 +770,9 @@
                 "managedHere",
                 "managedByAnotherDirectory",
                 "outsideDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
@@ -913,7 +945,9 @@
                 "heldInEveryTenant",
                 "managedHere",
                 "managedByAnotherDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {

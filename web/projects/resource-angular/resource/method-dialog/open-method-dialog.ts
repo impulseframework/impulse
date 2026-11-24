@@ -31,6 +31,7 @@ export function openMethodDialog(
     preset: { ...(target ? targetBody(method.method, method.meta, target) : {}), ...filledBody(method, from) },
     confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed) : confirm,
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
+    ...(method.presentation?.says ? { says: method.presentation.says } : {}),
     ...(method.presentation?.shows ? { shows: method.presentation.shows } : {}),
     ...(method.presentation?.throughDay ? { throughDay: method.presentation.throughDay } : {}),
     ...(method.presentation?.narrows ? { narrows: method.presentation.narrows } : {}),

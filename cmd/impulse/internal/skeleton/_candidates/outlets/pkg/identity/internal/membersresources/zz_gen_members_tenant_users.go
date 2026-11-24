@@ -36,6 +36,8 @@ type membersTenantUserRead struct {
 	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
 	CreatedAt                 time.Time    `json:"createdAt"`
 	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	Roles                     []string     `json:"roles"`
+	LockedUntil               *time.Time   `json:"lockedUntil"`
 	HeldElsewhere             bool         `json:"heldElsewhere"`
 	HeldGlobally              bool         `json:"heldGlobally"`
 	HeldHere                  bool         `json:"heldHere"`
@@ -162,6 +164,8 @@ func (c *MembersTenantUserColumns) All() *MembersTenantUserColumns {
 		"PasswordChangeRequired",
 		"CreatedAt",
 		"LastSignInAt",
+		"Roles",
+		"LockedUntil",
 		"HeldElsewhere",
 		"HeldGlobally",
 		"HeldHere",
@@ -231,6 +235,18 @@ func (c *MembersTenantUserColumns) CreatedAt() *MembersTenantUserColumns {
 
 func (c *MembersTenantUserColumns) LastSignInAt() *MembersTenantUserColumns {
 	c.fields = append(c.fields, "LastSignInAt")
+
+	return c
+}
+
+func (c *MembersTenantUserColumns) Roles() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "Roles")
+
+	return c
+}
+
+func (c *MembersTenantUserColumns) LockedUntil() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "LockedUntil")
 
 	return c
 }
@@ -439,6 +455,14 @@ func (c *membersTenantUserSort) CreatedAt() *MembersTenantUserSort {
 
 func (c *membersTenantUserSort) LastSignInAt() *MembersTenantUserSort {
 	return c.addField("LastSignInAt")
+}
+
+func (c *membersTenantUserSort) Roles() *MembersTenantUserSort {
+	return c.addField("Roles")
+}
+
+func (c *membersTenantUserSort) LockedUntil() *MembersTenantUserSort {
+	return c.addField("LockedUntil")
 }
 
 func (c *membersTenantUserSort) HeldElsewhere() *MembersTenantUserSort {

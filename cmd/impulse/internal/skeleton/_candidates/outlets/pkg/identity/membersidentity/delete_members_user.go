@@ -27,7 +27,7 @@ import (
 // @outlet(portal)
 // @answers(204)
 type DeleteMembersUser struct {
-	// @target(MembersSessionUser)
+	// @target(MembersListedUser)
 	UserID impulse.UUID
 }
 

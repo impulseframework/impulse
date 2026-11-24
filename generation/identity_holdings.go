@@ -19,6 +19,10 @@ import (
 //     tenant's list of its groups carries the two, and the whole application's is a
 //     view beside the groups table (<Auth>ListedGroup), which the whole application's
 //     methods name a group by;
+//   - the accounts with what each holds, a line for each role, and until when a sign-in
+//     is locked: a tenant's list of its people carries the two, and the whole
+//     application's is a view beside the users table (<Auth>ListedUser), which the whole
+//     application's methods name a person by;
 //   - the roles a group holds, each with how many people lose it when the group stops
 //     holding it: a tenant's list carries the count, and the whole application's is a
 //     view beside the group roles table (<Auth>ListedGroupRole);
@@ -39,6 +43,7 @@ import (
 const (
 	heldRoleSuffix        = "HeldRole"
 	listedGroupSuffix     = "ListedGroup"
+	listedUserSuffix      = "ListedUser"
 	listedGroupRoleSuffix = "ListedGroupRole"
 	takenRoleSuffix       = "TakenRole"
 	takeableRoleSuffix    = "TakeableRole"
@@ -81,6 +86,7 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 	listed := append(identityGroupTables(), identityUsers, identityMemberships)
 	files := []identitySourceFile{
 		view(heldRoleSuffix, identityHeldRolesTemplate, identityUsers, identityMemberships),
+		view(listedUserSuffix, identityListedUsersTemplate, identityUsers, identityMemberships),
 		view(listedGroupSuffix, identityListedGroupsTemplate, listed...),
 		view(listedGroupRoleSuffix, identityListedGroupRolesTemplate, listed...),
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + listedRoleGrantSuffix)), template: identityListedRoleGrantsTemplate, needs: []identityTable{identityRoleGrants}},
@@ -101,8 +107,8 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 // holdingNames are the names of the structs declared here, the ones a tenant's list must
 // not take.
 func (i *identityInstance) holdingNames() []string {
-	names := make([]string, 0, 7)
-	for _, suffix := range []string{heldRoleSuffix, listedGroupSuffix, listedGroupRoleSuffix, takenRoleSuffix, takeableRoleSuffix, takeLengthSuffix, listedRoleGrantSuffix} {
+	names := make([]string, 0, 8)
+	for _, suffix := range []string{heldRoleSuffix, listedGroupSuffix, listedUserSuffix, listedGroupRoleSuffix, takenRoleSuffix, takeableRoleSuffix, takeLengthSuffix, listedRoleGrantSuffix} {
 		names = append(names, i.auth+suffix)
 	}
 
@@ -122,6 +128,11 @@ func (d *identitySourceData) HeldRole() string {
 // ListedGroup is the struct of the groups as a list shows them, each with what it holds.
 func (d *identitySourceData) ListedGroup() string {
 	return d.auth + listedGroupSuffix
+}
+
+// ListedUser is the struct of the accounts as a list shows them, each with what it holds.
+func (d *identitySourceData) ListedUser() string {
+	return d.auth + listedUserSuffix
 }
 
 // ListedGroupRole is the struct of the roles the groups hold as a list shows them, each
@@ -260,6 +271,71 @@ func (d *identitySourceData) GroupRoleLines(group string) string {
 		"    WHERE cr.GroupId = " + group + ".Id AND " + d.Standing("cr"),
 		"    ORDER BY cr.Role, cr.Kind, cr.DomainId",
 		"  ) AS Roles",
+	}
+
+	return "  " + strings.Join(lines, "\n")
+}
+
+// PersonRoleLine is the SQL of one line of the roles a person holds, the row read under
+// held being one of them as the one list of a person's roles has it (HeldRole): the
+// role's name, and where it is held when that is not the whole application, in the
+// application's word for a tenant: in every tenant, or in one, by the name people call
+// the tenant by where the tenant record marks one and by its key otherwise, read from the
+// row PersonRoleTenant joins. With no tenant record every role is the whole
+// application's, and a line is the role's name.
+func (d *identitySourceData) PersonRoleLine(held string) string {
+	if d.tenant == nil {
+		return held + ".Role"
+	}
+	named := held + ".DomainId"
+	if column := d.tenantNameColumn(); column != "" {
+		named = "COALESCE(CAST(pt." + column + " AS STRING), " + held + ".DomainId)"
+	}
+
+	return "CASE WHEN " + held + ".Kind = " + d.KindEvery() + " THEN CONCAT(" + held + ".Role, " + sqlStringLiteral(" in every "+d.tenant.word) + ")" +
+		" WHEN " + held + ".Kind = " + d.KindDomain() + " THEN CONCAT(" + held + ".Role, " + sqlStringLiteral(" in "+d.tenant.word+" ") + ", " + named + ")" +
+		" ELSE " + held + ".Role END"
+}
+
+// PersonRoleTenant is the SQL written after the alias of the row read under held that
+// joins the row of the tenant record's table PersonRoleLine reads a tenant's name from:
+// the tenant the role is held in, left joined, so a role held in no one tenant keeps its
+// line. It is nothing where there is no tenant record or the record marks no name.
+func (d *identitySourceData) PersonRoleTenant(held string) string {
+	if d.tenantNameColumn() == "" {
+		return ""
+	}
+
+	return "\n    LEFT JOIN " + d.tenant.table + " pt ON pt." + d.tenant.key + " = " + held + ".DomainId"
+}
+
+// The keys of the sign-in attempts table's rows the session library keeps for an
+// account's own failures under the account's id, each this prefix and the id: the
+// guesses at the code of its first password and the wrong sign-in codes entered for it
+// (session.AccountAttemptKeys; session/internal/attempts spells them and cannot be
+// imported here).
+const (
+	firstPasswordAttemptPrefix = "FIRST-PASSWORD:"
+	codeGuessAttemptPrefix     = "CODE-GUESS:"
+)
+
+// CountsFailedSignIns reports whether the instance's schema holds the sign-in attempts
+// table, where the session library counts failed sign-ins and the locks they earn.
+func (d *identitySourceData) CountsFailedSignIns() bool {
+	return d.has(identitySignInAttempts)
+}
+
+// LockedUntil is the SQL of until when a person's sign-in is locked by failed tries, as
+// one column of a select, user being the alias of the person's row of the users table:
+// the latest lock still ahead among the rows of the sign-in attempts table kept under
+// the keys session.AccountAttemptKeys answers for an account with no address, its
+// normalized username and the two kept under its id. NULL for a person who is not
+// locked.
+func (d *identitySourceData) LockedUntil(user string) string {
+	lines := []string{
+		"(SELECT MAX(la.LockedUntil) FROM " + d.tableName(identitySignInAttempts) + " la",
+		"   WHERE la.Name IN (" + user + ".NormalizedUsername, CONCAT(" + sqlStringLiteral(firstPasswordAttemptPrefix) + ", " + user + ".Id), CONCAT(" + sqlStringLiteral(codeGuessAttemptPrefix) + ", " + user + ".Id))",
+		"     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil",
 	}
 
 	return "  " + strings.Join(lines, "\n")

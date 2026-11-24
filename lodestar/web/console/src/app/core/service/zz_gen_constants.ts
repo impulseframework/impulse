@@ -35,6 +35,7 @@ export const Resources = {
   CrewListedGroupRoles: 'CrewListedGroupRoles' as Resource,
   CrewListedGroups: 'CrewListedGroups' as Resource,
   CrewListedRoleGrants: 'CrewListedRoleGrants' as Resource,
+  CrewListedUsers: 'CrewListedUsers' as Resource,
   CrewRememberLengths: 'CrewRememberLengths' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
   CrewSectorDirectoryRoles: 'CrewSectorDirectoryRoles' as Resource,
@@ -75,6 +76,7 @@ export const Resources = {
   Hangars: 'Hangars' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
+  MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
   MembersSectorHeldRoles: 'MembersSectorHeldRoles' as Resource,
@@ -602,6 +604,35 @@ export namespace CrewListedRoleGrants {
   };
 }
 
+export namespace CrewListedUsers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    disabled: 'disabled' as FieldName,
+    email: 'email' as FieldName,
+    emailVerifiedAt: 'emailVerifiedAt' as FieldName,
+    id: 'id' as FieldName,
+    lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'CrewListedUsers.createdAt' as Resource,
+    disabled: 'CrewListedUsers.disabled' as Resource,
+    email: 'CrewListedUsers.email' as Resource,
+    emailVerifiedAt: 'CrewListedUsers.emailVerifiedAt' as Resource,
+    id: 'CrewListedUsers.id' as Resource,
+    lastSignInAt: 'CrewListedUsers.lastSignInAt' as Resource,
+    lockedUntil: 'CrewListedUsers.lockedUntil' as Resource,
+    name: 'CrewListedUsers.name' as Resource,
+    passwordChangeRequired: 'CrewListedUsers.passwordChangeRequired' as Resource,
+    roles: 'CrewListedUsers.roles' as Resource,
+    username: 'CrewListedUsers.username' as Resource,
+  };
+}
+
 export namespace CrewRememberLengths {
   export const fieldName = {
     days: 'days' as FieldName,
@@ -918,11 +949,13 @@ export namespace CrewSectorUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -939,11 +972,13 @@ export namespace CrewSectorUsers {
     heldInEveryTenant: 'CrewSectorUsers.heldInEveryTenant' as Resource,
     id: 'CrewSectorUsers.id' as Resource,
     lastSignInAt: 'CrewSectorUsers.lastSignInAt' as Resource,
+    lockedUntil: 'CrewSectorUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'CrewSectorUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'CrewSectorUsers.managedHere' as Resource,
     name: 'CrewSectorUsers.name' as Resource,
     outsideDirectory: 'CrewSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'CrewSectorUsers.passwordChangeRequired' as Resource,
+    roles: 'CrewSectorUsers.roles' as Resource,
     username: 'CrewSectorUsers.username' as Resource,
   };
 }
@@ -1543,6 +1578,35 @@ export namespace MembersListedRoleGrants {
   };
 }
 
+export namespace MembersListedUsers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    disabled: 'disabled' as FieldName,
+    email: 'email' as FieldName,
+    emailVerifiedAt: 'emailVerifiedAt' as FieldName,
+    id: 'id' as FieldName,
+    lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'MembersListedUsers.createdAt' as Resource,
+    disabled: 'MembersListedUsers.disabled' as Resource,
+    email: 'MembersListedUsers.email' as Resource,
+    emailVerifiedAt: 'MembersListedUsers.emailVerifiedAt' as Resource,
+    id: 'MembersListedUsers.id' as Resource,
+    lastSignInAt: 'MembersListedUsers.lastSignInAt' as Resource,
+    lockedUntil: 'MembersListedUsers.lockedUntil' as Resource,
+    name: 'MembersListedUsers.name' as Resource,
+    passwordChangeRequired: 'MembersListedUsers.passwordChangeRequired' as Resource,
+    roles: 'MembersListedUsers.roles' as Resource,
+    username: 'MembersListedUsers.username' as Resource,
+  };
+}
+
 export namespace MembersRememberLengths {
   export const fieldName = {
     days: 'days' as FieldName,
@@ -1707,11 +1771,13 @@ export namespace MembersSectorUsers {
     heldInEveryTenant: 'heldInEveryTenant' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
     managedByAnotherDirectory: 'managedByAnotherDirectory' as FieldName,
     managedHere: 'managedHere' as FieldName,
     name: 'name' as FieldName,
     outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
+    roles: 'roles' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -1727,11 +1793,13 @@ export namespace MembersSectorUsers {
     heldInEveryTenant: 'MembersSectorUsers.heldInEveryTenant' as Resource,
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
+    lockedUntil: 'MembersSectorUsers.lockedUntil' as Resource,
     managedByAnotherDirectory: 'MembersSectorUsers.managedByAnotherDirectory' as Resource,
     managedHere: 'MembersSectorUsers.managedHere' as Resource,
     name: 'MembersSectorUsers.name' as Resource,
     outsideDirectory: 'MembersSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersSectorUsers.passwordChangeRequired' as Resource,
+    roles: 'MembersSectorUsers.roles' as Resource,
     username: 'MembersSectorUsers.username' as Resource,
   };
 }

@@ -266,8 +266,8 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		})
 	}
 	bosunID := crewUserID(ctx, t, governor, "bosun").String()
-	pilotOnRigger := offeredOnRow(ctx, t, pilot, crewAccountsPath, riggerID)
-	pilotOnBosun := offeredOnRow(ctx, t, pilot, crewAccountsPath, bosunID)
+	pilotOnRigger := offeredOnRow(ctx, t, pilot, crewListedAccountsPath, riggerID)
+	pilotOnBosun := offeredOnRow(ctx, t, pilot, crewListedAccountsPath, bosunID)
 	if got := acts(pilotOnRigger); len(got) != 0 {
 		t.Errorf("the rigger's row of the fleet's accounts, as the pilot reads it, offers %v, want none of the acts on the account of Bastion's marshal", got)
 	}
@@ -277,10 +277,10 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if got, want := others(pilotOnRigger), others(pilotOnBosun); len(want) == 0 || !slices.Equal(got, want) {
 		t.Errorf("the rigger's row of the fleet's accounts, as the pilot reads it, offers beside them %v, want %v, as the bosun's row does", got, want)
 	}
-	if got := acts(offeredOnPage(ctx, t, pilot, crewAccountsPath, riggerID)); len(got) != 0 {
+	if got := acts(offeredOnPage(ctx, t, pilot, crewListedAccountsPath, riggerID)); len(got) != 0 {
 		t.Errorf("the rigger's account's page, as the pilot reads it, offers %v, want none of the acts on the account of Bastion's marshal", got)
 	}
-	if got := acts(offeredOnRow(ctx, t, governor, crewAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
+	if got := acts(offeredOnRow(ctx, t, governor, crewListedAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
 		t.Errorf("the rigger's row of the fleet's accounts, as the governor reads it, offers the acts on an account %v, want %v", got, accountActs)
 	}
 	if offered := offeredOnRow(ctx, t, pilot, "crew-session-identities", riggersLink); slices.Contains(offered, unlink) {
@@ -496,7 +496,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	judged := func(how string, administers bool) {
 		t.Helper()
 
-		offered := acts(offeredOnRow(ctx, t, pilot, crewAccountsPath, riggerID))
+		offered := acts(offeredOnRow(ctx, t, pilot, crewListedAccountsPath, riggerID))
 		status, answer := pilot.do(ctx, http.MethodPost, crewMethod("rename-crew-user"), jsonBody(t, sameName))
 		if !administers {
 			if !slices.Equal(offered, accountActs) {

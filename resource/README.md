@@ -4226,6 +4226,7 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 
 ```
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
+GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
@@ -4263,25 +4264,25 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, 
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
-POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
-POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
-POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
-POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
+POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewListedUsers
+POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewListedUsers
+POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewListedUsers
+POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewListedUsers
+POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewListedUsers
+POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewListedUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
-POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewSessionUsers
-POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewSessionUsers
-POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewSessionUsers
-POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewSessionUsers
+POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewListedUsers
+POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewListedUsers
+POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewListedUsers
+POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
 POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
-POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewSessionUsers
+POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
 POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
@@ -4426,10 +4427,11 @@ address. In an application with a tenant record (`@tenant`) the generated manage
 declares four views per Auth, each a tenant record like any other (`@virtual`,
 `@permissionScope(domain)`, the tenant in a `domain` column), listed and read under the
 domain pair on the outlets that serve the Auth's management. The whole application's
-lists carry the names of their tables; a tenant's list is named for what it holds, with
-the Auth's name and the application's tenant record's before it. A tenant record whose
-name would give a list the name of one of the tables' declarations (a record named
-`Session` or `User`) is refused at generation:
+lists carry the names of their tables, and its lists of what is held (`CrewHeldRoles`,
+`CrewListedUsers`, `CrewListedGroups`) the Auth's name before what each lists; a tenant's
+list is named for what it holds, with the Auth's name and the application's tenant
+record's before it. A tenant record whose name would give a list one of those names (a
+record named `Session`, `User` or `Listed`) is refused at generation:
 
 - `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
   tenant or in every tenant, and, where the tenant has a directory, per person who signs
@@ -4489,6 +4491,13 @@ between tenants are two role files over the same lists. A grant names its fields
 any view: a grant with none answers the key alone. The people's list filters and sorts by
 `username` and by the six facts; the account's other columns are no filter keys, so a
 grant may carry any of them under a condition at no cost to a page.
+
+A tenant's people list also says what each person holds in the tenant, `roles`: the name
+of each role once, of their own or through a group. A role held in every tenant at once is
+not among them: `heldInEveryTenant` says it, and a grant gives or keeps back each by
+itself. Where the schema holds the sign-in attempts table the list carries `lockedUntil`
+too: until when the person's sign-in is locked by failed tries, and nothing for a person
+who is not locked. Neither is a filter key.
 
 A view is a query the framework selects from (`FROM (<query>) AS <Resource>`), not a
 database object: nothing is created in the schema and nothing is migrated. The generator
@@ -4966,6 +4975,17 @@ grants each like any resource.
   people hold themselves and is read by a row's key; the one list is read as a list
   alone. An auth whose roles a directory writes has the list too, and every row of it
   is the person's own.
+- `CrewListedUsers` is the accounts with what each holds: the account's columns,
+  `roles`, a line for each role the account holds ("Engineer", "Engineer in sector
+  Anvil", "Pilot in every sector"; the role's name alone where the application has no
+  tenants), and, where the schema holds the sign-in attempts table, `lockedUntil`: until
+  when the account's sign-in is locked by failed tries. A line names the tenant its role
+  is held in by the name people call the tenant by, or by its key where the tenant record
+  marks no name, so a grant of `roles` shows those names whatever the reader is granted
+  on the tenant record, as a line of `CrewListedGroups` does. The Accounts page lists it, it
+  filters by `username`, `name` and `email`, and the whole application's methods on a
+  person name their person by its row. `CrewSessionUsers`, the users table's own list,
+  stays: a picker of a person reads it.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",

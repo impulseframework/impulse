@@ -97,7 +97,7 @@ func decodeWarning(t *testing.T, body []byte) resource.Warning {
 func accountExecuteAnswer(t *testing.T, h http.Handler, user accesstypes.User, id string) []string {
 	t.Helper()
 
-	status, body := doRequestAs(t, h, user, http.MethodGet, consoleAPI+"/crew-session-users/"+id+"?capabilities=Execute", "")
+	status, body := doRequestAs(t, h, user, http.MethodGet, consoleAPI+"/"+crewListedAccountsPath+"/"+id+"?capabilities=Execute", "")
 	assertStatus(t, status, http.StatusOK, body)
 	caps, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
 	listed, _ := caps["Execute"].([]any)

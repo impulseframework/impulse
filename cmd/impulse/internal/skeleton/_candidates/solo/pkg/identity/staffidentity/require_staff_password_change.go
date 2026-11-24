@@ -21,7 +21,7 @@ import (
 // @answers(204)
 // @class(credential)
 type RequireStaffPasswordChange struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID impulse.UUID
 }
 

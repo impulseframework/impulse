@@ -917,7 +917,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteStaffUser]: {
     route: 'delete-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -955,7 +955,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableStaffUser]: {
     route: 'disable-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -973,7 +973,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableStaffUser]: {
     route: 'enable-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1000,7 +1000,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndStaffUserSessions]: {
     route: 'end-staff-user-sessions',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1096,7 +1096,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffPassword]: {
     route: 'remove-staff-password',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1170,7 +1170,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameStaffUser]: {
     route: 'rename-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1180,7 +1180,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RequireStaffPasswordChange]: {
     route: 'require-staff-password-change',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1222,7 +1222,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeStaffUserTrustedDevices]: {
     route: 'revoke-staff-user-trusted-devices',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1240,7 +1240,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SendStaffUserPasswordResetLink]: {
     route: 'send-staff-user-password-reset-link',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -1285,7 +1285,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetStaffUserEmail]: {
     route: 'set-staff-user-email',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     answers: true,
     dryRun: true,
     fields: [
@@ -1295,7 +1295,7 @@ const methodMap: MethodMap = {
   },
   [Methods.SetStaffUserName]: {
     route: 'set-staff-user-name',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

@@ -11,12 +11,13 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	membersresources.MembersHeldRole | membersresources.MembersRole |
-		membersresources.MembersRoleGrant | membersresources.MembersSectorHeldRole |
-		membersresources.MembersSectorIdentity | membersresources.MembersSectorInvitation |
-		membersresources.MembersSectorUser | membersresources.MembersSectorUserRole |
-		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
-		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
+	membersresources.MembersHeldRole | membersresources.MembersListedUser |
+		membersresources.MembersRole | membersresources.MembersRoleGrant |
+		membersresources.MembersSectorHeldRole | membersresources.MembersSectorIdentity |
+		membersresources.MembersSectorInvitation | membersresources.MembersSectorUser |
+		membersresources.MembersSectorUserRole | membersresources.MembersSession |
+		membersresources.MembersSessionAuthEvent | membersresources.MembersSessionIdentity |
+		membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod |
 		membersresources.MembersSessionSignInSetting |
