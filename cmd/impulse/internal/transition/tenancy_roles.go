@@ -451,8 +451,9 @@ const (
 
 // grantTenantMaking gives the application's own administrator role, the first global
 // role the foothold names, the grants a tenant is made with: the record itself, the
-// invitation that makes one, its withdrawal, the list of the invitations that stand and,
-// where a tenant can have a directory, the list of the roles its people may start with,
+// invitation that makes one, its withdrawal, the list of the invitations that stand, the
+// list of tenants and, where a tenant can have a directory, the list of the roles its
+// people may start with,
 // as the reference's administrator holds them, on what the application serves. A grant
 // the role carries already is left as it is.
 func (tn Tenancy) grantTenantMaking(file, reference *roleFile, served *app.Served, auth, rel string, named *footholdRoles, ch *Change) {
@@ -462,7 +463,7 @@ func (tn Tenancy) grantTenantMaking(file, reference *roleFile, served *app.Serve
 		role = roleNamed(file.Roles.Global, named.global[0])
 	}
 	if role == nil || source == nil {
-		ch.skipf("%s: no global role the %s auth's %s() names is in the file, so none was given the grants a %s is made with: give the role that manages the application's people Create, Delete, List, Read and Update on %s, Execute on Invite%[6]s%[7]s and Withdraw%[6]sInvited%[7]s, and List on %[6]sInvited%[5]s%[9]s, as the tenanted skeleton's %[8]s holds them", rel, auth, administratorRolesFunc, tn.oneLower(), tn.Table, names.Pascal(auth), tn.Record(), referenceAdministrator, tn.startingRolesWords(auth))
+		ch.skipf("%s: no global role the %s auth's %s() names is in the file, so none was given the grants a %s is made with: give the role that manages the application's people Create, Delete, List, Read and Update on %s, Execute on Invite%[6]s%[7]s and Withdraw%[6]sInvited%[7]s, and List on %[6]sInvited%[5]s and %[6]sListed%[5]s%[9]s, as the tenanted skeleton's %[8]s holds them", rel, auth, administratorRolesFunc, tn.oneLower(), tn.Table, names.Pascal(auth), tn.Record(), referenceAdministrator, tn.startingRolesWords(auth))
 
 		return
 	}

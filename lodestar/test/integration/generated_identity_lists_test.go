@@ -494,7 +494,9 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 // managedHere, and nobody's where no sector's does; a person's sign-in identities say the
 // same two facts; a filter on the fact answers the accounts no sector manages; and a
 // person whose only role, in one sector, has not begun is in no sector's list, so no
-// sector manages the account until the role begins.
+// sector manages the account until the role begins. Each row carries the name of the
+// sector that manages the account for a reader who lists the sectors' names, whatever
+// the reader holds in that sector, and the list filters and sorts by it.
 func TestGeneratedIdentityWhoManagesEachAccount(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -578,6 +580,120 @@ func TestGeneratedIdentityWhoManagesEachAccount(t *testing.T) {
 			if _, answered := unmanaged[name]; answered != (want[name] == "") {
 				t.Errorf("%s: answered by managedByTenant:eq:false = %v, want %v", name, answered, want[name] == "")
 			}
+		}
+	})
+
+	// quill holds Headquarters for the whole fleet and nothing else: the accounts with who
+	// manages each, and no sector's name. The account is written before the parallel
+	// subtests run, so each of them reads the same accounts.
+	quill := string(makeCrewAccount(ctx, t, w.db, "quill"))
+	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return w.app.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), accesstypes.User(quill), "Headquarters")
+	}); err != nil {
+		t.Fatalf("giving quill Headquarters: %v", err)
+	}
+
+	t.Run("a reader who holds no role in a sector reads the name of the sector that manages an account", func(t *testing.T) {
+		t.Parallel()
+
+		// The marshal lists the accounts and the sectors' names for the whole fleet, and
+		// holds a role at Anvil alone.
+		accounts := listedAccounts(t, w.h, "marshal", "")
+		for name := range w.ids {
+			row := accounts[name]
+			if row == nil {
+				t.Errorf("%s is missing from the marshal's accounts", name)
+
+				continue
+			}
+			named, carried := row["managingTenantName"]
+			switch {
+			case want[name] == "" && carried:
+				t.Errorf("%s, whose account no sector manages, carries the name %v", name, named)
+			case want[name] != "" && text(row, "managingTenantName") != sectorNames[want[name]]:
+				t.Errorf("%s: managingTenantName = %v, want %q, the name of the sector that manages the account", name, named, sectorNames[want[name]])
+			}
+		}
+	})
+
+	t.Run("a reader not granted the sectors' names reads the key alone", func(t *testing.T) {
+		t.Parallel()
+
+		accounts := listedAccounts(t, w.h, "quill", "")
+		for name := range w.ids {
+			row := accounts[name]
+			if row == nil {
+				t.Errorf("%s is missing from quill's accounts", name)
+
+				continue
+			}
+			if got := text(row, "managingTenant"); got != want[name] {
+				t.Errorf("%s: quill reads managingTenant = %q, want %q", name, got, want[name])
+			}
+			if named, carried := row["managingTenantName"]; carried {
+				t.Errorf("%s: quill, who lists no sector's name, reads managingTenantName = %v", name, named)
+			}
+		}
+	})
+
+	t.Run("the accounts filter by the name of the sector that manages them", func(t *testing.T) {
+		t.Parallel()
+
+		every := listedAccounts(t, w.h, "governor", "")
+		cinders := listedAccounts(t, w.h, "marshal", "managingTenantName:eq:Cinder")
+		for name, row := range cinders {
+			if got := text(row, "managingTenant"); got != cinder {
+				t.Errorf("the filter managingTenantName:eq:Cinder answered %s, whose managingTenant is %q", name, got)
+			}
+		}
+		for name, row := range every {
+			if _, answered := cinders[name]; answered != (text(row, "managingTenant") == cinder) {
+				t.Errorf("%s: answered by managingTenantName:eq:Cinder = %v, and managingTenant is %q", name, answered, text(row, "managingTenant"))
+			}
+		}
+		for name := range w.ids {
+			if _, answered := cinders[name]; answered != (want[name] == cinder) {
+				t.Errorf("%s: answered by managingTenantName:eq:Cinder = %v, want %v", name, answered, want[name] == cinder)
+			}
+		}
+	})
+
+	t.Run("the accounts sort by the name of the sector that manages them, a page at a time", func(t *testing.T) {
+		t.Parallel()
+
+		usernames := func(t *testing.T, body []byte) []string {
+			t.Helper()
+
+			var names []string
+			for _, row := range decodeRows(t, body) {
+				names = append(names, cell[string](t, row, "username"))
+			}
+
+			return names
+		}
+		forward, backward, pages := walkBothWays(t, w.h, "marshal", consoleAPI+"/"+crewListedAccountsPath+"?sort=managingTenantName:asc&limit=3", usernames)
+		if pages < 2 {
+			t.Errorf("the walk turned %d pages, want more than one", pages)
+		}
+		if !slices.Equal(forward, backward) {
+			t.Errorf("the walk forward %v and the walk back %v differ", forward, backward)
+		}
+		seen := make(map[string]bool, len(forward))
+		lastAnvil, firstCinder, anvils, cinders := -1, len(forward), 0, 0
+		for i, name := range forward {
+			if seen[name] {
+				t.Errorf("%s is answered twice in the walk %v", name, forward)
+			}
+			seen[name] = true
+			switch want[name] {
+			case anvil:
+				lastAnvil, anvils = i, anvils+1
+			case cinder:
+				firstCinder, cinders = min(firstCinder, i), cinders+1
+			}
+		}
+		if anvils != 2 || cinders != 4 || lastAnvil > firstCinder {
+			t.Errorf("the walk %v holds %d accounts Anvil manages and %d Cinder manages, want 2 then 4, every Anvil one before every Cinder one", forward, anvils, cinders)
 		}
 	})
 }

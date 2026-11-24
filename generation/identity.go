@@ -383,6 +383,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseInvitationNamesTaken(); err != nil {
 			return err
 		}
+		if err := inst.refuseListedTenantNamesTaken(); err != nil {
+			return err
+		}
 		if err := r.requireEveryTenantColumn(inst); err != nil {
 			return err
 		}
@@ -744,6 +747,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// outlets sign in: the method staff send one with, the list of the ones that stand,
 	// and the method that withdraws one.
 	files = append(files, r.invitedTenantSources(inst)...)
+	// The whole application's list of the tenants, each with its people, its directory
+	// and its administrators, where an outlet serves both the management and the record.
+	files = append(files, r.listedTenantSources(inst)...)
 	// The methods one tenant runs, and the computed resources beside them, where the
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)

@@ -507,3 +507,284 @@ describe('ResourceListCreateComponent, the page a router that binds inputs opens
     expect(asked().ended).toBe(before + 1);
   });
 });
+
+// A list drawn above a page's own list that sets hiddenWhenEmpty: drawn only while its
+// latest answer holds a row, and never asked of a person whose digest gives no List on
+// its resource. It is read when the page opens and again when the page's lists read
+// again, so it appears with its first row and leaves with its last.
+describe('ResourceListCreateComponent, a list above that is drawn only while it has a row', () => {
+  const squadrons = 'Squadrons' as Resource;
+  const invitations = 'Invitations' as Resource;
+  const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
+    ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
+  const metaOf = (route: string): ResourceMeta =>
+    ({ route, fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')] }) as ResourceMeta;
+  const resourceOf = (resource: Resource, route: string): ApiDescriptor['resources'][Resource] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys: ['id'],
+    operations: ['list', 'read'],
+    page: { default: 25, max: 200 },
+  });
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    resources: {
+      [squadrons]: resourceOf(squadrons, 'squadrons'),
+      [invitations]: resourceOf(invitations, 'invitations'),
+    },
+    methods: {},
+  };
+  const waiting = (options: Partial<ListViewConfigOptions> = {}): ListViewConfig =>
+    listViewConfig({
+      title: 'Waiting',
+      primaryResource: invitations,
+      showViewButton: false,
+      emptyMessage: 'Nothing is waiting.',
+      elements: [],
+      listColumns: [{ id: 'name' as FieldName }],
+      ...options,
+    });
+  const own = (above: ListViewConfig, options: Partial<ListViewConfigOptions> = {}): ListViewConfig =>
+    listViewConfig({
+      title: 'Squadrons',
+      primaryResource: squadrons,
+      showViewButton: false,
+      above: [above],
+      emptyMessage: 'There are no squadrons yet.',
+      elements: [],
+      listColumns: [{ id: 'name' as FieldName }],
+      ...options,
+    });
+
+  /** What the invitations' next answer is: a row, none, a failure, or held until the test lets it land. */
+  let answer: 'row' | 'none' | 'failed' | 'held';
+  /** Whether the person's digest gives List on the invitations. */
+  let mayList: boolean;
+  /** Lets the held answer land, with a row. */
+  let land: () => void;
+  let transport: ScriptedTransport;
+  let harness: RouterTestingHarness;
+
+  beforeEach(() => {
+    answer = 'row';
+    mayList = true;
+    land = () => undefined;
+  });
+
+  /** Lets the lists ask and the answers land, then draws what they hold. */
+  async function settle(): Promise<void> {
+    for (let turn = 0; turn < 10; turn++) {
+      await harness.fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    harness.detectChanges();
+  }
+
+  function answerInvitations(): TransportResponse | Promise<TransportResponse> {
+    const row: TransportResponse = {
+      status: 200,
+      body: [{ id: 'i-1', name: 'Kestrel' }],
+      headers: { 'total-count': '1' },
+    };
+    switch (answer) {
+      case 'row':
+        return row;
+      case 'none':
+        return { status: 200, body: [], headers: { 'total-count': '0' } };
+      case 'failed':
+        return { status: 500, body: { message: 'the invitations could not be read' } };
+      case 'held':
+        return new Promise((resolve) => {
+          land = () => resolve(row);
+        });
+    }
+  }
+
+  /** Opens the page at its route, as the router of an application does. */
+  async function open(page: ListViewConfig): Promise<ResourceListCreateComponent> {
+    transport = scriptedTransport((request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
+      const url = new URL(request.url, 'http://lists.test');
+      if (url.pathname === '/api/permission-digest') {
+        return {
+          status: 200,
+          body: {
+            [squadrons]: { List: 'granted' },
+            [`${squadrons}.name`]: { List: 'granted' },
+            ...(mayList ? { [invitations]: { List: 'granted' }, [`${invitations}.name`]: { List: 'granted' } } : {}),
+          },
+        };
+      }
+      if (url.pathname === '/api/squadrons') {
+        // The page's own list answers no row where its filter asks for none.
+        if (decodeURIComponent(request.url).includes('none:eq:true')) {
+          return { status: 200, body: [], headers: { 'total-count': '0' } };
+        }
+        return { status: 200, body: [{ id: 's-1', name: 'Anvil' }], headers: { 'total-count': '1' } };
+      }
+      if (url.pathname === '/api/invitations') {
+        return answerInvitations();
+      }
+      return { status: 404, body: { message: `unscripted ${request.url}` } };
+    });
+    const root = rootConfig({ parentConfig: page, routeData: { route: 'squadrons', hasViewRoute: false } });
+    await TestBed.configureTestingModule({
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta =>
+            metaOf(resource === invitations ? 'invitations' : 'squadrons'),
+        },
+        provideRouter(
+          [{ path: 'squadrons', component: ResourceListCreateComponent, data: { config: root } }],
+          withComponentInputBinding(),
+        ),
+      ],
+    }).compileComponents();
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    harness = await RouterTestingHarness.create();
+    const opened = await harness.navigateByUrl('/squadrons', ResourceListCreateComponent);
+    await settle();
+    return opened;
+  }
+
+  const above = (): HTMLElement =>
+    (harness.routeNativeElement as HTMLElement).querySelector('impulse-resource-list-create.above') as HTMLElement;
+  /** Whether the list above is on the page: its element is there and not hidden. */
+  const drawn = (): boolean => above() !== null && !above().hidden;
+  /** How many times the list above has asked for its rows. */
+  const asked = (): number =>
+    transport.requests.filter((request) => new URL(request.url, 'http://lists.test').pathname === '/api/invitations')
+      .length;
+
+  it("is not asked, and not drawn, where the person's digest gives no List on its resource", async () => {
+    mayList = false;
+    await open(own(waiting({ hiddenWhenEmpty: true })));
+
+    expect(drawn()).toBe(false);
+    expect(asked()).toBe(0);
+    expect(above().querySelector('impulse-resource-list')).toBeNull();
+  });
+
+  it('is not drawn while its first answer is awaited, and is drawn once the answer lands with a row', async () => {
+    answer = 'held';
+    await open(own(waiting({ hiddenWhenEmpty: true })));
+
+    expect(asked()).toBe(1);
+    expect(drawn()).toBe(false);
+
+    land();
+    await settle();
+
+    expect(drawn()).toBe(true);
+  });
+
+  it('is not drawn where its answer holds no row: no title, no table, no pager, no search box', async () => {
+    answer = 'none';
+    await open(own(waiting({ hiddenWhenEmpty: true })));
+
+    expect(asked()).toBe(1);
+    expect(drawn()).toBe(false);
+    // The page's own list is drawn as it always is.
+    expect((harness.routeNativeElement as HTMLElement).textContent).toContain('Anvil');
+  });
+
+  it('is drawn as any list where its answer holds a row', async () => {
+    await open(own(waiting({ hiddenWhenEmpty: true })));
+
+    expect(drawn()).toBe(true);
+    expect(above().querySelector('h1.impulse-resource-list-title')?.textContent?.trim()).toBe('Waiting (1)');
+    expect(above().textContent).toContain('Kestrel');
+  });
+
+  it('is not drawn where its request failed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    answer = 'failed';
+    await open(own(waiting({ hiddenWhenEmpty: true })));
+
+    expect(asked()).toBe(1);
+    expect(drawn()).toBe(false);
+  });
+
+  it("appears once the page's lists read again after a method ran and its answer holds a row, and leaves when it holds none again", async () => {
+    answer = 'none';
+    const page = await open(own(waiting({ hiddenWhenEmpty: true })));
+    expect(drawn()).toBe(false);
+
+    answer = 'row';
+    page.listChild()?.methodRan.emit();
+    await settle();
+    expect(asked()).toBe(2);
+    expect(drawn()).toBe(true);
+
+    answer = 'none';
+    page.listChild()?.methodRan.emit();
+    await settle();
+    expect(asked()).toBe(3);
+    expect(drawn()).toBe(false);
+  });
+
+  it('is drawn as before in every state where it does not set the option', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    for (const state of ['none', 'failed', 'held'] as const) {
+      TestBed.resetTestingModule();
+      answer = state;
+      await open(own(waiting()));
+
+      expect(drawn()).toBe(true);
+      expect(above().querySelector('h1.impulse-resource-list-title')).not.toBeNull();
+    }
+  });
+
+  it('does nothing on the list a page is built on, which says its empty sentence', async () => {
+    await open(own(waiting(), { hiddenWhenEmpty: true, filter: () => 'none:eq:true' }));
+
+    expect((harness.routeNativeElement as HTMLElement).hidden).toBe(false);
+    expect((harness.routeNativeElement as HTMLElement).textContent).toContain('There are no squadrons yet.');
+  });
+});
+
+// The option on a list under a row: such a list says its empty sentence, as it did.
+describe('ResourceListCreateComponent, hiddenWhenEmpty on a list under a row', () => {
+  it('does nothing: the list holding no row says its sentence', async () => {
+    const pilots = listViewConfig({
+      title: 'Pilots',
+      primaryResource: 'Pilots' as Resource,
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'squadronId' as FieldName },
+      emptyMessage: 'This squadron has no pilots.',
+      hiddenWhenEmpty: true,
+      elements: [],
+      listColumns: [],
+    });
+    const page = rootConfig({ parentConfig: pilots, routeData: { route: 'squadrons', hasViewRoute: true } });
+    await TestBed.configureTestingModule({
+      imports: [ResourceListCreateComponent],
+      providers: [
+        provideResourceTesting({ transport: scriptedTransport({ status: 200, body: [] }) }),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { config: page }, params: {}, queryParams: {} } } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ResourceListCreateComponent);
+    fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+    fixture.componentRef.setInput('resourceConfig', pilots);
+    fixture.componentRef.setInput('isRootList', false);
+    fixture.componentRef.setInput('parentData', { id: 'wing-1' });
+    fixture.detectChanges();
+    for (let turn = 0; turn < 10; turn++) {
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).hidden).toBe(false);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('This squadron has no pilots.');
+  });
+});

@@ -45,6 +45,7 @@ const (
 	CrewListedGroupID                 httpio.ParamType = "crewListedGroupID"
 	CrewListedIdentityID              httpio.ParamType = "crewListedIdentityID"
 	CrewListedMailLinkID              httpio.ParamType = "crewListedMailLinkID"
+	CrewListedSectorID                httpio.ParamType = "crewListedSectorID"
 	CrewListedSessionID               httpio.ParamType = "crewListedSessionID"
 	CrewListedUserID                  httpio.ParamType = "crewListedUserID"
 	CrewSectorGroupID                 httpio.ParamType = "crewSectorGroupID"
@@ -224,6 +225,9 @@ type GeneratedHandlers interface {
 	CrewListedMailLink() http.HandlerFunc
 
 	CrewListedRoleGrants() http.HandlerFunc
+
+	CrewListedSectors() http.HandlerFunc
+	CrewListedSector() http.HandlerFunc
 
 	CrewListedSessions() http.HandlerFunc
 	CrewListedSession() http.HandlerFunc
@@ -845,6 +849,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewListedRoleGrantsHandler := h.CrewListedRoleGrants()
 	bounded.Get("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
 	bounded.Post("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
+
+	crewListedSectorsHandler := h.CrewListedSectors()
+	bounded.Get("/console/api/crew-listed-sectors", crewListedSectorsHandler)
+	bounded.Post("/console/api/crew-listed-sectors", crewListedSectorsHandler)
+
+	crewListedSectorHandler := h.CrewListedSector()
+	bounded.Get("/console/api/crew-listed-sectors/{crewListedSectorID}", crewListedSectorHandler)
+	bounded.Post("/console/api/crew-listed-sectors/{crewListedSectorID}", crewListedSectorHandler)
 
 	crewListedSessionsHandler := h.CrewListedSessions()
 	bounded.Get("/console/api/crew-listed-sessions", crewListedSessionsHandler)

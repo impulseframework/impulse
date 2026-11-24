@@ -88,6 +88,14 @@ func (a *App) CrewListedMailLink() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedMailLink()
 }
 
+func (a *App) CrewListedSectors() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSectors()
+}
+
+func (a *App) CrewListedSector() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSector()
+}
+
 func (a *App) CrewListedSessions() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedSessions()
 }

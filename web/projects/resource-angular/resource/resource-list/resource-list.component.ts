@@ -150,6 +150,12 @@ import {
 } from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
+/**
+ * The query parameter that names a method above the list a link opens the page to run:
+ * the list the page is built on opens its dialog and takes the parameter off.
+ */
+const runParam = 'run';
+
 @Component({
   standalone: true,
   imports: [
@@ -258,6 +264,12 @@ export class ResourceListComponent implements OnInit {
 
   /** Whether a write of the address waits for the navigation in flight to end, which it would cancel. */
   private addressWriteWaiting = false;
+
+  /**
+   * The method the page's address named (the query parameter `run`) that the list has not
+   * acted on yet: it acts once it knows which methods it offers the person (methodsKnown).
+   */
+  private readonly runAsked = signal<string | undefined>(undefined);
 
   /**
    * The column filters the page opens with where its address names none (opensWith),
@@ -481,6 +493,19 @@ export class ResourceListComponent implements OnInit {
       )
       .map((presentation) => offeredAs(presentation.method, this.store.methodMeta(presentation.method), presentation));
   });
+
+  /**
+   * Whether the list knows which of the methods the page names above it it offers the
+   * person: once the digest that answers for each one that names no row has been read.
+   * One that names a row is offered from the row the list sits under, read with it.
+   */
+  private methodsKnown = computed(() =>
+    (this.config().listMethods ?? []).every(
+      (presentation) =>
+        this.store.methodMeta(presentation.method)?.target !== undefined ||
+        this.auth.hasDigestFor({ resource: presentation.method, permission: ExecutePermission }),
+    ),
+  );
 
   /** The row field an expanded row is opened by: the listed resource's single key, none on a key-less resource. */
   expansionKey = computed(() => keyFields(this.meta())[0]?.fieldName as FieldName | undefined);
@@ -1105,18 +1130,21 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * Replaces the page's address with one whose `filter` values are the list's column
-   * filters as written, the parameter absent when there are none, every other query
-   * parameter and the fragment kept, and marks the navigation as the list's own write
-   * (addressWrittenState), so the end of it is not taken for an address that names no
-   * filter. An address that already says them is left as it is.
+   * filters as written, the parameter absent when there are none, and with no `run`, which
+   * the list took when the address came (takeRun); every other query parameter and the
+   * fragment kept; and marks the navigation as the list's own write (addressWrittenState),
+   * so the end of it is not taken for an address that names no filter. An address that
+   * already says them is left as it is.
    */
   private navigateToFilters(): void {
     const tree = this.router.parseUrl(this.router.url);
     const values = this.store.columnFilters().map(writeAddressFilter);
-    if (sameTexts(tree.queryParamMap.getAll(filterParam), values)) {
+    if (sameTexts(tree.queryParamMap.getAll(filterParam), values) && !tree.queryParamMap.has(runParam)) {
       return;
     }
-    const params = Object.fromEntries(Object.entries(tree.queryParams).filter(([name]) => name !== filterParam));
+    const params = Object.fromEntries(
+      Object.entries(tree.queryParams).filter(([name]) => name !== filterParam && name !== runParam),
+    );
     if (values.length > 0) {
       params[filterParam] = values;
     }
@@ -1127,8 +1155,21 @@ export class ResourceListComponent implements OnInit {
   }
 
   /**
-   * A navigation is over: a write of the address that waited for it is made now, from the
-   * filters as they stand; where none waited, the address of one that ended is taken. A
+   * Takes the method the page's address names (`run`), for the list to act on once it
+   * knows which methods it offers (see ngOnInit). The parameter leaves the address with
+   * the list's next write of it.
+   */
+  private takeRun(): void {
+    const asked = this.router.parseUrl(this.router.url).queryParamMap.get(runParam);
+    if (asked !== null) {
+      this.runAsked.set(asked);
+    }
+  }
+
+  /**
+   * A navigation is over: the method its address names is taken (takeRun), and a write of
+   * the address that waited for it is made now, from the filters as they stand; where
+   * none waited, the address of one that ended is taken. A
    * navigation canceled because another superseded it ends nothing: that other is on its
    * way, and a write made now would cancel it, so the write waits for that one to be over.
    *
@@ -1144,6 +1185,9 @@ export class ResourceListComponent implements OnInit {
   private navigationOver(event: RouterEvent): void {
     if (event instanceof NavigationCancel && event.code === NavigationCancellationCode.SupersededByNewNavigation) {
       return;
+    }
+    if (event instanceof NavigationEnd) {
+      this.takeRun();
     }
     if (!this.addressWriteWaiting && event instanceof NavigationEnd) {
       this.takeAddress(this.listWroteAddress());
@@ -1822,7 +1866,31 @@ export class ResourceListComponent implements OnInit {
           this.navigationOver(event);
         }
       });
+      // A method the address names is taken once: at the end of the navigation in flight
+      // where there is one, else now.
+      if (this.router.currentNavigation() === null) {
+        this.takeRun();
+      }
       this.takeAddress();
+      runInInjectionContext(this.injector, () => {
+        // A method the address named: once the list knows which methods it offers, it opens
+        // the named one's dialog as a press of its button would, where it offers it, and in
+        // every case takes the parameter off the address.
+        effect(() => {
+          const asked = this.runAsked();
+          if (asked === undefined || !this.methodsKnown()) {
+            return;
+          }
+          untracked(() => {
+            this.runAsked.set(undefined);
+            this.writeAddress();
+            const offered = this.listMethods().find((candidate) => candidate.method === asked);
+            if (offered) {
+              this.runMethod(offered);
+            }
+          });
+        });
+      });
     }
 
     runInInjectionContext(this.injector, () => {

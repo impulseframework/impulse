@@ -9,7 +9,7 @@ import {
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
 import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
-import { filterQueryParams } from '@impulseframework/resource-angular/resource';
+import { articleFor, filterQueryParams } from '@impulseframework/resource-angular/resource';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   ChildResourceConfig,
@@ -48,14 +48,17 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 // writes no page for it: the people with what the caller may do to each, a person's row
 // page with the roles, the ways they sign in and the identities under it, the groups of
 // people with a group's people and roles under it, the invitations, and, for the whole
-// application, the invitations that make a tenant (staff bring an organization in by
-// inviting one person), the sessions, the failed sign-ins, the Auth's sign-in methods,
-// each invite only or open to sign-up, and Break glass, where a person takes a role for a
-// set time and says why. Where a directory decides the Auth's roles the Groups entry
-// stays, and its page says whose groups do that job. What differs from one application
-// to the next is read from the description: the Auth's name and label, the tenant
-// record's name, which side the pages are for, and what the Auth's sign-in methods give
-// (a list or a method the description does not name draws nothing).
+// application, the sessions, the failed sign-ins, the Auth's sign-in methods, each invite
+// only or open to sign-up, and Break glass, where a person takes a role for a set time and
+// says why. Where a directory decides the Auth's roles the Groups entry stays, and its
+// page says whose groups do that job. What differs from one application to the next is
+// read from the description: the Auth's name and label, the tenant record's name, which
+// side the pages are for, and what the Auth's sign-in methods give (a list or a method
+// the description does not name draws nothing).
+//
+// The invitations that make a tenant are no page of these: the tenants page shows them
+// above the tenants (tenant-pages.ts), from the configuration built here
+// (invitedTenantsConfig).
 //
 // The pages hold no logic of their own. A row's menu holds the methods the server says
 // the caller may run on that row; the words, the icons and the questions are the
@@ -63,8 +66,7 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage =
-  'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn' | 'breakGlass';
+export type IdentityPage = 'users' | 'groups' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn' | 'breakGlass';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -116,12 +118,11 @@ const made = new WeakMap<ApiDescriptor, Map<string, BuiltPages>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
- * people, the groups, the invitations, and for the whole application the invitations
- * that make a tenant, the sessions, the failed sign-ins, the sign-in methods and Break
- * glass, each with its label and icon. A page whose list the description
- * does not name is left out. The same request answers the same configurations. Refused, naming
- * what is missing: an Auth the description does not carry, a side it does not carry,
- * and a tenant's side on an API with no tenant segment.
+ * people, the groups, the invitations, and for the whole application the sessions, the
+ * failed sign-ins, the sign-in methods and Break glass, each with its label and icon. A
+ * page whose list the description does not name is left out. The same request answers the
+ * same configurations. Refused, naming what is missing: an Auth the description does not
+ * carry, a side it does not carry, and a tenant's side on an API with no tenant segment.
  *
  * A page that lists nothing has no configuration and is not among them: the Groups page
  * of an Auth whose roles a directory decides, which `identityRoutes` and
@@ -159,19 +160,7 @@ function buildPages(
   resourceMeta: (resource: Resource) => ResourceMeta | undefined,
   options: IdentityPagesOptions,
 ): BuiltPage[] {
-  const identity = (descriptor.identity ?? []).find((candidate) => candidate.auth === options.auth);
-  if (!identity) {
-    const known = (descriptor.identity ?? []).map((candidate) => candidate.auth).join(', ') || 'none';
-    throw new Error(
-      `identityPages: the API description carries no generated management of the auth ${options.auth} (it carries: ${known}); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it`,
-    );
-  }
-  const side = identity.sides.find((candidate) => candidate.scope === options.scope);
-  if (!side) {
-    throw new Error(
-      `identityPages: the generated management of ${options.auth} has no ${options.scope === 'domain' ? "tenant's" : "whole application's"} side on this API`,
-    );
-  }
+  const { identity, side } = sideOf(descriptor, options);
   const build = new SideBuilder(descriptor, identity, side, resourceMeta, options);
   const listed = (config: RootConfig | undefined): BuiltPage[] => (config ? [{ config }] : []);
   const said = build.directoryGroups();
@@ -180,7 +169,6 @@ function buildPages(
     ...listed(build.groups()),
     ...(said ? [{ said }] : []),
     ...listed(build.invitations()),
-    ...listed(build.invitedTenants()),
     ...listed(build.sessions()),
     ...listed(build.signInAttempts()),
     ...listed(build.signIn()),
@@ -219,6 +207,60 @@ export function identityMenuPages(
   return builtPages(descriptor, resourceMeta, options).pages.map((built) =>
     'config' in built ? resourcePage(built.config, resourceMeta) : built.said.page,
   );
+}
+
+/**
+ * The Auth and the side of its management a request names. Refused, naming what is
+ * missing: an Auth the description does not carry, and a side it does not carry.
+ */
+function sideOf(
+  descriptor: ApiDescriptor,
+  options: IdentityPagesOptions,
+): { identity: IdentityDescriptor; side: IdentitySideDescriptor } {
+  const identity = (descriptor.identity ?? []).find((candidate) => candidate.auth === options.auth);
+  if (!identity) {
+    const known = (descriptor.identity ?? []).map((candidate) => candidate.auth).join(', ') || 'none';
+    throw new Error(
+      `identityPages: the API description carries no generated management of the auth ${options.auth} (it carries: ${known}); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it`,
+    );
+  }
+  const side = identity.sides.find((candidate) => candidate.scope === options.scope);
+  if (!side) {
+    throw new Error(
+      `identityPages: the generated management of ${options.auth} has no ${options.scope === 'domain' ? "tenant's" : "whole application's"} side on this API`,
+    );
+  }
+  return { identity, side };
+}
+
+// The configurations of the invitations that make a tenant, made for each description and
+// Auth, so every caller of one request reads the same configuration.
+const madeInvitations = new WeakMap<ApiDescriptor, Map<string, RootConfig | undefined>>();
+
+/**
+ * The configuration of the invitations that make a tenant, on the whole application's
+ * side of the Auth: the invitations still waiting, each with Withdraw, and the method that
+ * sends one, with its words. It is no page of the Auth's: the tenants page shows the list
+ * above the tenants and offers the method above its own list (tenant-pages.ts). Undefined
+ * where the side names no such list. The same description and Auth answer the same
+ * configuration. Refused as identityPages is: an Auth the description does not carry, and
+ * one with no whole application's side.
+ */
+export function invitedTenantsConfig(
+  descriptor: ApiDescriptor,
+  resourceMeta: (resource: Resource) => ResourceMeta | undefined,
+  options: { auth: string },
+): RootConfig | undefined {
+  const requests = madeInvitations.get(descriptor) ?? new Map<string, RootConfig | undefined>();
+  madeInvitations.set(descriptor, requests);
+  if (requests.has(options.auth)) {
+    return requests.get(options.auth);
+  }
+  const request: IdentityPagesOptions = { auth: options.auth, scope: 'global' };
+  const { identity, side } = sideOf(descriptor, request);
+  const config = new SideBuilder(descriptor, identity, side, resourceMeta, request).invitedTenants();
+  requests.set(options.auth, config);
+  return config;
 }
 
 /** The route of a page that says something: guarded by the grant its page needs, carrying the page and its sentences. */
@@ -777,7 +819,8 @@ class SideBuilder {
     };
     return rootConfig({
       page: { label: title, icon: 'domain_add' },
-      routeData: { route: this.route('invitedTenants', `invited-${kebab(listed)}`), hasViewRoute: false },
+      // No page lives at it: the tenants page draws the list (invitedTenantsConfig).
+      routeData: { route: `${this.base}-invited-${kebab(listed)}`, hasViewRoute: false },
       parentConfig: listViewConfig({
         title,
         primaryResource: resource,
@@ -3038,7 +3081,7 @@ function leftToSignInThrough(ways: readonly RecordData[]): string {
 
 /** A word with its article: "a sector", "an office". */
 function withArticle(word: string): string {
-  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+  return `${articleFor(word)} ${word}`;
 }
 
 /** A PascalCase name as a route segment: `FleetStaff` is "fleet-staff". */

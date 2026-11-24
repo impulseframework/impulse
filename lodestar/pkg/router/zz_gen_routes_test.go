@@ -185,6 +185,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/crew-listed-mail-links", method: http.MethodPost},
 		{url: "/droids/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodGet},
 		{url: "/droids/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodPost},
+		{url: "/droids/crew-listed-sectors", method: http.MethodGet},
+		{url: "/droids/crew-listed-sectors", method: http.MethodPost},
+		{url: "/droids/crew-listed-sectors/testCrewListedSectorID", method: http.MethodGet},
+		{url: "/droids/crew-listed-sectors/testCrewListedSectorID", method: http.MethodPost},
 		{url: "/droids/crew-listed-sessions", method: http.MethodGet},
 		{url: "/droids/crew-listed-sessions", method: http.MethodPost},
 		{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
@@ -639,6 +643,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/crew-listed-mail-links", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodPost},
+		{url: "/portal/api/crew-listed-sectors", method: http.MethodGet},
+		{url: "/portal/api/crew-listed-sectors", method: http.MethodPost},
+		{url: "/portal/api/crew-listed-sectors/testCrewListedSectorID", method: http.MethodGet},
+		{url: "/portal/api/crew-listed-sectors/testCrewListedSectorID", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-sessions", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-sessions", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
@@ -1067,6 +1075,7 @@ func generatedRouteParameters() []string {
 		"crewListedGroupID",
 		"crewListedIdentityID",
 		"crewListedMailLinkID",
+		"crewListedSectorID",
 		"crewListedSessionID",
 		"crewListedUserID",
 		"crewSectorGroupID",
@@ -1477,6 +1486,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodPost,
 			handlerFunc: "CrewListedMailLink",
 			parameters:  map[string]string{"crewListedMailLinkID": "testCrewListedMailLinkID"},
+		},
+		{
+			url: "/console/api/crew-listed-sectors", method: http.MethodGet,
+			handlerFunc: "CrewListedSectors",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-listed-sectors", method: http.MethodPost,
+			handlerFunc: "CrewListedSectors",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-listed-sectors/testCrewListedSectorID", method: http.MethodGet,
+			handlerFunc: "CrewListedSector",
+			parameters:  map[string]string{"crewListedSectorID": "testCrewListedSectorID"},
+		},
+		{
+			url: "/console/api/crew-listed-sectors/testCrewListedSectorID", method: http.MethodPost,
+			handlerFunc: "CrewListedSector",
+			parameters:  map[string]string{"crewListedSectorID": "testCrewListedSectorID"},
 		},
 		{
 			url: "/console/api/crew-listed-sessions", method: http.MethodGet,
@@ -3862,6 +3891,14 @@ func (s *generatedHandlersStub) CrewListedMailLink() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CrewListedRoleGrants() http.HandlerFunc {
 	return s.record("CrewListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) CrewListedSectors() http.HandlerFunc {
+	return s.record("CrewListedSectors")
+}
+
+func (s *generatedHandlersStub) CrewListedSector() http.HandlerFunc {
+	return s.record("CrewListedSector")
 }
 
 func (s *generatedHandlersStub) CrewListedSessions() http.HandlerFunc {

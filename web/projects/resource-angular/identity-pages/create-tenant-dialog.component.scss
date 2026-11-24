@@ -4,8 +4,10 @@ mat-dialog-content {
   gap: 8px;
 }
 
-.field {
-  width: 100%;
+.hint {
+  margin: 0 0 8px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
 }
 
 .refusal {

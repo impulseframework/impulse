@@ -169,6 +169,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		Name          string       `json:"name"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"-"`
 		DirectoryOnly bool         `json:"-"`
 	}
 	sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)

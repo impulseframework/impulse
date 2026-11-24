@@ -100,12 +100,14 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// identities and their ways to sign in, the one list of the roles a person holds, for
 	// the whole application and for a sector, the accounts with what each holds, the
 	// whole application's sign-in identities, which say who manages each account, the
-	// roles held for a set time with a reason, and the roles of a group, which count the
-	// people who would lose each one.
+	// roles held for a set time with a reason, the roles of a group, which count the
+	// people who would lose each one, and the list of sectors, which counts each sector's
+	// people and names its administrators.
 	lists := []live.WholeChange{
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewListedGroupRoles", AllDomains: true},
 		{Resource: "CrewListedIdentities", AllDomains: true},
+		{Resource: "CrewListedSectors", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupRoles", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
@@ -120,7 +122,8 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// alone does not; and the two lists of a group's roles count from the memberships
 	// and name nobody, so a commit that writes an account alone does not tell them.
 	// Both lists of how a person signs in declare the accounts, and the sector's alone
-	// the memberships. The list of the mailed links and a sector's list of its
+	// the memberships. The list of sectors names each sector's administrators from the
+	// users table. The list of the mailed links and a sector's list of its
 	// invitations name an invitation's sender from the users table, the list of the
 	// failed sign-ins the account that holds a name or that a count is kept for, and the
 	// list of the sessions the person under their present username and name.
@@ -129,6 +132,7 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewListedIdentities", AllDomains: true},
 		{Resource: "CrewListedMailLinks", AllDomains: true},
+		{Resource: "CrewListedSectors", AllDomains: true},
 		{Resource: "CrewListedSessions", AllDomains: true},
 		{Resource: "CrewListedSignInAttempts", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},

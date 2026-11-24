@@ -6,6 +6,9 @@
 CREATE TABLE Tenants (
   Id STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
+  -- When the tenant was made: the time of the commit that made the row, written by the
+  -- record's create and never changed. The list of tenants says it as Since.
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   -- The tenant's people enter through its directory only: no other sign-in reaches a
   -- tenant whose flag is true, a password included. Half of what the tenant declares
   -- about who may enter it; the other half is its row of TenantDirectories.

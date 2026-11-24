@@ -344,6 +344,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-sign-in-attempts", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-sign-in-attempts", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-tenants", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-tenants", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-users", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-users", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
@@ -674,6 +678,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost},
 		{url: "/devices/staff-listed-sign-in-attempts", method: http.MethodGet},
 		{url: "/devices/staff-listed-sign-in-attempts", method: http.MethodPost},
+		{url: "/devices/staff-listed-tenants", method: http.MethodGet},
+		{url: "/devices/staff-listed-tenants", method: http.MethodPost},
+		{url: "/devices/staff-listed-tenants/testStaffListedTenantID", method: http.MethodGet},
+		{url: "/devices/staff-listed-tenants/testStaffListedTenantID", method: http.MethodPost},
 		{url: "/devices/staff-listed-users", method: http.MethodGet},
 		{url: "/devices/staff-listed-users", method: http.MethodPost},
 		{url: "/devices/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
@@ -1068,6 +1076,7 @@ func generatedRouteParameters() []string {
 		"staffListedIdentityID",
 		"staffListedMailLinkID",
 		"staffListedSessionID",
+		"staffListedTenantID",
 		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
@@ -1905,6 +1914,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/staff-listed-sign-in-attempts", method: http.MethodPost,
 			handlerFunc: "StaffListedSignInAttempts",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-tenants", method: http.MethodGet,
+			handlerFunc: "StaffListedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-tenants", method: http.MethodPost,
+			handlerFunc: "StaffListedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodGet,
+			handlerFunc: "StaffListedTenant",
+			parameters:  map[string]string{"staffListedTenantID": "testStaffListedTenantID"},
+		},
+		{
+			url: "/console/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodPost,
+			handlerFunc: "StaffListedTenant",
+			parameters:  map[string]string{"staffListedTenantID": "testStaffListedTenantID"},
 		},
 		{
 			url: "/console/api/staff-listed-users", method: http.MethodGet,
@@ -3083,6 +3112,14 @@ func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedSignInAttempts() http.HandlerFunc {
 	return s.record("StaffListedSignInAttempts")
+}
+
+func (s *generatedHandlersStub) StaffListedTenants() http.HandlerFunc {
+	return s.record("StaffListedTenants")
+}
+
+func (s *generatedHandlersStub) StaffListedTenant() http.HandlerFunc {
+	return s.record("StaffListedTenant")
 }
 
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {

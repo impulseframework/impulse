@@ -35,6 +35,7 @@ export const Resources = {
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
   StaffListedSessions: 'StaffListedSessions' as Resource,
   StaffListedSignInAttempts: 'StaffListedSignInAttempts' as Resource,
+  StaffListedTenants: 'StaffListedTenants' as Resource,
   StaffListedUsers: 'StaffListedUsers' as Resource,
   StaffRememberLengths: 'StaffRememberLengths' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
@@ -561,6 +562,27 @@ export namespace StaffListedSignInAttempts {
   };
 }
 
+export namespace StaffListedTenants {
+  export const fieldName = {
+    administrators: 'administrators' as FieldName,
+    directory: 'directory' as FieldName,
+    directoryOnly: 'directoryOnly' as FieldName,
+    id: 'id' as FieldName,
+    name: 'name' as FieldName,
+    people: 'people' as FieldName,
+    since: 'since' as FieldName,
+  };
+  export const resourceName = {
+    administrators: 'StaffListedTenants.administrators' as Resource,
+    directory: 'StaffListedTenants.directory' as Resource,
+    directoryOnly: 'StaffListedTenants.directoryOnly' as Resource,
+    id: 'StaffListedTenants.id' as Resource,
+    name: 'StaffListedTenants.name' as Resource,
+    people: 'StaffListedTenants.people' as Resource,
+    since: 'StaffListedTenants.since' as Resource,
+  };
+}
+
 export namespace StaffListedUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
@@ -577,6 +599,7 @@ export namespace StaffListedUsers {
     roles: 'roles' as FieldName,
     trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
+    managingTenantName: 'managingTenantName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'StaffListedUsers.createdAt' as Resource,
@@ -1338,11 +1361,13 @@ export namespace TenantDirectories {
 
 export namespace Tenants {
   export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
     id: 'id' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
+    createdAt: 'Tenants.createdAt' as Resource,
     directoryOnly: 'Tenants.directoryOnly' as Resource,
     id: 'Tenants.id' as Resource,
     name: 'Tenants.name' as Resource,

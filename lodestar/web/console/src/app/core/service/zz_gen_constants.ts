@@ -37,6 +37,7 @@ export const Resources = {
   CrewListedIdentities: 'CrewListedIdentities' as Resource,
   CrewListedMailLinks: 'CrewListedMailLinks' as Resource,
   CrewListedRoleGrants: 'CrewListedRoleGrants' as Resource,
+  CrewListedSectors: 'CrewListedSectors' as Resource,
   CrewListedSessions: 'CrewListedSessions' as Resource,
   CrewListedSignInAttempts: 'CrewListedSignInAttempts' as Resource,
   CrewListedUsers: 'CrewListedUsers' as Resource,
@@ -693,6 +694,31 @@ export namespace CrewListedRoleGrants {
   };
 }
 
+export namespace CrewListedSectors {
+  export const fieldName = {
+    administrators: 'administrators' as FieldName,
+    directory: 'directory' as FieldName,
+    directoryOnly: 'directoryOnly' as FieldName,
+    established: 'established' as FieldName,
+    id: 'id' as FieldName,
+    name: 'name' as FieldName,
+    people: 'people' as FieldName,
+    region: 'region' as FieldName,
+    since: 'since' as FieldName,
+  };
+  export const resourceName = {
+    administrators: 'CrewListedSectors.administrators' as Resource,
+    directory: 'CrewListedSectors.directory' as Resource,
+    directoryOnly: 'CrewListedSectors.directoryOnly' as Resource,
+    established: 'CrewListedSectors.established' as Resource,
+    id: 'CrewListedSectors.id' as Resource,
+    name: 'CrewListedSectors.name' as Resource,
+    people: 'CrewListedSectors.people' as Resource,
+    region: 'CrewListedSectors.region' as Resource,
+    since: 'CrewListedSectors.since' as Resource,
+  };
+}
+
 export namespace CrewListedSessions {
   export const fieldName = {
     authenticatedAt: 'authenticatedAt' as FieldName,
@@ -771,6 +797,7 @@ export namespace CrewListedUsers {
     roles: 'roles' as FieldName,
     trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
+    managingTenantName: 'managingTenantName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewListedUsers.createdAt' as Resource,
@@ -2653,6 +2680,7 @@ export namespace SectorPilots {
 
 export namespace Sectors {
   export const fieldName = {
+    chartedAt: 'chartedAt' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
     established: 'established' as FieldName,
     id: 'id' as FieldName,
@@ -2660,6 +2688,7 @@ export namespace Sectors {
     region: 'region' as FieldName,
   };
   export const resourceName = {
+    chartedAt: 'Sectors.chartedAt' as Resource,
     directoryOnly: 'Sectors.directoryOnly' as Resource,
     established: 'Sectors.established' as Resource,
     id: 'Sectors.id' as Resource,

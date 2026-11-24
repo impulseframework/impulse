@@ -735,7 +735,8 @@ func Test_authzTestTemplate_noGrant(t *testing.T) {
 // Test_apiClientData_tenantCreation pins the client's block: the route constant, the
 // request's interface, which carries no key since the route generates it, and the
 // answer's interface, which carries the generated id, on an outlet serving the route,
-// nothing elsewhere.
+// nothing elsewhere; and the route in the description, with the record's resource, the
+// answer's key and the body's fields, each with whether the route requires it.
 func Test_apiClientData_tenantCreation(t *testing.T) {
 	t.Parallel()
 
@@ -760,6 +761,7 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export interface CreateColonyAnswer {\n  id: string;\n}",
 				// What the page reads before it offers the route.
 				"export interface CreateColonyOffered {\n  offered: boolean;\n}",
+				"  tenantCreation: { route: 'create-colony', resource: 'Colonies', key: 'id', fields: [{ name: 'name', required: true }] },",
 			},
 		},
 		{
@@ -771,20 +773,21 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export interface CreateStation {\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
 				"export interface CreateStationAnswer {\n  id: string;\n}",
 				"export interface CreateStationOffered {\n  offered: boolean;\n}",
+				"  tenantCreation: { route: 'create-station', resource: 'Stations', key: 'id', fields: [{ name: 'name', required: true }, { name: 'motto', required: false }, { name: 'opened', required: true }] },",
 			},
 			wantNotContains: []string{"derived"},
 		},
 		{
 			name:            "a record no session auth serves has no block",
 			record:          "Sector",
-			wantNotContains: []string{"createSectorRoute", "CreateSector"},
+			wantNotContains: []string{"createSectorRoute", "CreateSector", "tenantCreation:"},
 		},
 		{
 			name:            "a client for an outlet the record is off has no block",
 			record:          "Station",
 			served:          true,
 			outlet:          "members",
-			wantNotContains: []string{"createStationRoute", "CreateStation"},
+			wantNotContains: []string{"createStationRoute", "CreateStation", "tenantCreation:"},
 		},
 	}
 	for _, tt := range tests {

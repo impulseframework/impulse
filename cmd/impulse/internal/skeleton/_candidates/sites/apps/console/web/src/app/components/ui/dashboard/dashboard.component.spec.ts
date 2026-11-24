@@ -4,17 +4,17 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { createApi, createTenantRoute } from '@app/service/zz_gen_api';
+import { apiDescriptor, createApi, createTenantRoute } from '@app/service/zz_gen_api';
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
 import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { provideFrame, tenantGuard, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { CreateTenantDialogComponent } from '@impulseframework/resource-angular/identity-pages';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
-import { NewTenantDialogComponent } from '../new-tenant/new-tenant-dialog.component';
 import { DashboardComponent } from './dashboard.component';
 
 /** The tenant the session holds: its key is an id, and the page shows its name. */
@@ -161,7 +161,7 @@ describe('DashboardComponent', () => {
   it('says so when the session holds nothing, and offers to create their own tenant once the server says one can be created', async () => {
     const fixture = await render(stranger);
     const element: HTMLElement = fixture.nativeElement;
-    // The dialog itself is the new-tenant spec's; here only that the card opens it.
+    // The dialog itself is the library's spec's; here only that the card opens it.
     const opened = vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue({} as MatDialogRef<unknown>);
 
     expect(element.querySelector('p strong')?.textContent).toBe('no tenant');
@@ -177,8 +177,11 @@ describe('DashboardComponent', () => {
     const offer = element.querySelector<HTMLButtonElement>('.create-tenant-card button');
     expect(offer?.textContent).toContain('Create your tenant');
     offer?.click();
-    // The new-tenant dialog: the person names their tenant and becomes its administrator.
-    expect(opened).toHaveBeenCalledWith(NewTenantDialogComponent, expect.objectContaining({ width: '480px' }));
+    // The library's dialog: the person names their tenant and becomes its administrator.
+    expect(opened).toHaveBeenCalledWith(
+      CreateTenantDialogComponent,
+      expect.objectContaining({ width: '480px', data: apiDescriptor }),
+    );
   });
 
   it('offers no tenant of their own while the server would refuse to create one', async () => {

@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"time"
+
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -36,7 +38,8 @@ type (
 	// How a tenant comes to exist is apart from who may enter one. Nobody creates a
 	// tenant directly: the record's create is refused, saying so. An administrator
 	// brings an organization in by inviting one person (the staff auth's generated
-	// InviteStaffTenant, on the console's Invited tenants page): the invitation carries
+	// InviteStaffTenant, on the console's tenants page, which lists the invitations still
+	// waiting above the tenants): the invitation carries
 	// the tenant's details as the administrator entered them, held to this record's own
 	// create under the Administrator role's Create grant when it is sent, and the
 	// invited person's first sign-in makes the tenant, seats them as its administrator
@@ -66,6 +69,11 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `spanner:"Name"`
+		// CreatedAt is when the tenant was made: the database writes it with the row, at the
+		// commit that makes the tenant, whichever way it is made, and nothing changes it
+		// afterward. The list of tenants says it as Since.
+		// @tenantSince
+		CreatedAt time.Time `spanner:"CreatedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 		// DirectoryOnly says the tenant's people enter through its directory only: no
 		// other sign-in reaches the tenant, and the flag closes this tenant alone. The
 		// switch is the tenant's own: the tenant's administrator (TenantAdministrator)
