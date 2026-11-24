@@ -72,8 +72,9 @@ export const consignmentsConfig = rootConfig({
       { id: Consignments.fieldName.description },
       // The owner by name: the column holds the client's id, which nobody reads, and the
       // list asks the server for the client's name beside it, and sorts and filters by it.
-      // A row whose client's name the person may not list says nothing, never the id.
-      { id: Consignments.fieldName.clientId, header: 'Owner', fallback: (): string => '' },
+      // A row whose client's name the person may not list shows the id: every consignment
+      // has an owner, and the id is what the person may read of this one.
+      { id: Consignments.fieldName.clientId, header: 'Owner' },
       { id: Consignments.fieldName.mass, header: 'Mass (t)' },
       { id: Consignments.fieldName.expiresOn, header: 'Bond expires' },
       {

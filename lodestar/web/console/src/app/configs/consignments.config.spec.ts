@@ -199,9 +199,9 @@ describe('the salvage hold', () => {
         '8/15/2026',
         format(new Date('2026-10-02T14:05:00Z'), dayAndMinuteFormat),
       ],
-      // An owner whose name the person may not list is no name: the cell is empty, never the
-      // client's id.
-      ['BND-0011', 'Ore samples', '', '40', '1/10/2027', 'In bond'],
+      // An owner whose name the person may not list is shown by the client's id: every
+      // consignment has an owner, and the id is what the person may read of this one.
+      ['BND-0011', 'Ore samples', unlisted, '40', '1/10/2027', 'In bond'],
       [
         'BND-0001',
         'Survey drones',
