@@ -50,10 +50,12 @@ import (
 // Conflict that carries the login refusal code sessioninfo.RefusedOtherTenant, which an
 // invitation into a second tenant accepted at a sign-in ends on. A sign-in through the
 // directory of a tenant that is open to it is not refused: the directory's tenant takes
-// its people (DirectorySeated). A person who holds a role for the whole application or
-// in every tenant is the application's own and is never refused; the last such role is
-// not taken from a person who holds roles in more than one tenant (RemoveRole). Without
-// the option a person may hold roles in any number of tenants.
+// its people (DirectorySeated). One such sign-in is still refused: one that carries an
+// invitation into that tenant; the person signs in once without the invitation. A person
+// who holds a role for the whole application or in every tenant is the application's own
+// and is never refused; the last such role is not taken from a person who holds roles in
+// more than one tenant (RemoveRole). Without the option a person may hold roles in any
+// number of tenants.
 func WithOneTenantPerPerson() Option {
 	return func(m *Manager) {
 		m.oneTenant = &signInTenants{mu: sync.Mutex{}, notes: map[any]*signInNote{}}

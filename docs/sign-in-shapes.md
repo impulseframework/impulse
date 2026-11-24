@@ -1318,7 +1318,10 @@ does `--shape` with shape 5 or 6. With the option:
   to another tenant, is moved to the directory's tenant: they are given its default role
   there, and lose every role and every place in a group they held in the other tenant,
   also when they were its last administrator. Nothing else of their account changes. The
-  directory's tenant owns its directory's people, whoever arrived first;
+  directory's tenant owns its directory's people, whoever arrived first. A sign-in that
+  also carries an invitation into the directory's tenant is refused for such a person, as an
+  invitation into a second tenant is: they sign in once without the invitation, are moved, and
+  can accept it then;
 - an invitation into a tenant is refused as soon as it is sent, if the invited email
   address is the confirmed address of an account that belongs to another tenant;
 - a refusal never says which tenant holds the person.
