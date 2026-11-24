@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
 // forkRowRead is the read route's request type of forkRow, a resource that keeps no
@@ -31,6 +32,27 @@ type forkRowRead struct {
 type trackedForkRowGeneratedRead struct {
 	ID    string `json:"id"    perm:"-"`
 	Title string `json:"title"`
+}
+
+// snapshotClient wraps a client: it counts the read-only transactions it is asked for, and
+// fails the test when anything reads through the client itself rather than through one of
+// them.
+type snapshotClient struct {
+	Client
+	t            *testing.T
+	transactions int
+}
+
+func (c *snapshotClient) ReadOnlyTransaction() ReadOnlyTransactionCloser {
+	c.transactions++
+
+	return c.Client.ReadOnlyTransaction()
+}
+
+func (c *snapshotClient) SpannerReadOnlyTransaction() spxapi.Querier {
+	c.t.Error("something read through the client itself, not through a read-only transaction")
+
+	return c.Client.SpannerReadOnlyTransaction()
 }
 
 // historyWriter writes trackedForkRow rows through the patch set, each write one change
@@ -470,6 +492,27 @@ func TestChangeHistoryRead_grants(t *testing.T) {
 		}
 		if page, err := read(plainAlone, "/plain"); err != nil || len(page.Changes) != 2 {
 			t.Errorf("the same grant, on a record it reaches: Read() = %v, %v, want both records", page, err)
+		}
+	})
+	t.Run("the record and its change records are read in one read-only transaction", func(t *testing.T) {
+		t.Parallel()
+
+		snapshot := &snapshotClient{Client: client, t: t}
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/plain", http.NoBody)
+		history, err := trackedForkRowHistoryDecoder(collection).DecodeChangeHistory(request, every, accesstypes.GlobalScope())
+		if err != nil {
+			t.Fatalf("DecodeChangeHistory() error = %v", err)
+		}
+		history.QuerySet().SetKey("ID", "plain")
+		page, err := history.Read(t.Context(), snapshot)
+		if err != nil {
+			t.Fatalf("Read() error = %v", err)
+		}
+		if len(page.Changes) != 2 {
+			t.Errorf("Read() answers %d records, want the record's 2", len(page.Changes))
+		}
+		if snapshot.transactions != 1 {
+			t.Errorf("the read asked for %d read-only transactions, want 1", snapshot.transactions)
 		}
 	})
 	t.Run("a record the read may hide from the caller: not found, as the read answers, whether hidden, deleted or never there", func(t *testing.T) {

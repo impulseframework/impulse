@@ -111,32 +111,39 @@ func (h *ChangeHistoryQuery[Resource]) QuerySet() *QuerySet[Resource] {
 }
 
 // Read answers a page of the record's change records, newest first. It reads on Spanner
-// alone, and on another database answers an error. It first reads the record as the
-// record's own route reads it: a caller that route refuses is refused here in its words,
-// and any error but the record's not being there is answered as it is. A resource that
-// does not track its changes is answered 404 next, so that a caller without the grant is
-// told 403 on every resource, tracked or not. Then it decides the fields the reader may
-// see: where the record was read, every field the read returned whose cell is not masked
-// on the row; where it is not there, none if the grant on the resource carries a
-// condition, or if the record's read holds its rows to a condition on its fields and so
-// may have hidden a row that is there (the not-found of the record's own read is
-// answered: a condition is judged on the row, and the row is gone or hidden), and
-// otherwise every field the grant covers without a condition. A field the record's read never returns is not among them. A
-// request that keeps one field's changes is refused 403 where that field is not among
-// them. In a tenant's request, on a resource that belongs to tenants, only the records
-// written while the row was that tenant's are read; a record that is not there, of a
-// resource that belongs to no tenant, is answered as not found in a tenant's request,
-// since nothing ties its records to the tenant. Then it reads at most one more record
-// than a page holds, older than where the page continues from and naming the field kept
-// where one is; a record that is not there and has no record on the newest page is
-// answered as not found. Last it shapes the page (ChangeHistoryPage).
+// alone, and on another database answers an error. The record and its change records are
+// read in one read-only transaction, so the fields are judged on the row as it stood when
+// the records were read. It first reads the record as the record's own route reads it: a
+// caller that route refuses is refused here in its words, and any error but the record's
+// not being there is answered as it is. A resource that does not track its changes is
+// answered 404 next, so that a caller without the grant is told 403 on every resource,
+// tracked or not. Then it decides the fields the reader may see: where the record was
+// read, every field the read returned whose cell is not masked on the row; where it is
+// not there, none if the grant on the resource carries a condition, or if the record's
+// read holds its rows to a condition on its fields and so may have hidden a row that is
+// there (the not-found of the record's own read is answered: a condition is judged on the
+// row, and the row is gone or hidden), and otherwise every field the grant covers without
+// a condition. A field the record's read never returns is not among them. A request that
+// keeps one field's changes is refused 403 where that field is not among them. In a
+// tenant's request, on a resource that belongs to tenants, only the records written while
+// the row was that tenant's are read; a record that is not there, of a resource that
+// belongs to no tenant, is answered as not found in a tenant's request, since nothing
+// ties its records to the tenant. Then it reads at most one more record than a page
+// holds, older than where the page continues from and naming the field kept where one is;
+// a record that is not there and has no record on the newest page is answered as not
+// found. Last it shapes the page (ChangeHistoryPage).
 func (h *ChangeHistoryQuery[Resource]) Read(ctx context.Context, client Client) (*ChangeHistoryPage, error) {
 	if client.DBType() != SpannerDBType {
 		return nil, errChangeHistoryUnsupportedDatabase
 	}
 
+	// One snapshot for the record and its change records: the fields are judged on the
+	// row as it stood when the records were read.
+	txn := client.ReadOnlyTransaction()
+	defer txn.Close()
+
 	q := h.querySet
-	row, err := q.Read(ctx, client)
+	row, err := q.Read(ctx, txn)
 	var notFound error
 	if err != nil {
 		if !httpio.HasNotFound(err) {
@@ -159,7 +166,7 @@ func (h *ChangeHistoryQuery[Resource]) Read(ctx context.Context, client Client) 
 		)
 	}
 
-	return h.readPage(ctx, client, visible, notFound)
+	return h.readPage(ctx, txn, visible, notFound)
 }
 
 // visibleFields answers the fields of the record the reader may see in its history, as
@@ -203,7 +210,7 @@ func (h *ChangeHistoryQuery[Resource]) visibleFields(row *Row[Resource], notFoun
 
 // readPage reads and shapes the page of the record's history that the request asks for,
 // with visible the fields the reader may see (visibleFields) and notFound as there.
-func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, client Client, visible []accesstypes.Field, notFound error) (*ChangeHistoryPage, error) {
+func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnlyTransaction, visible []accesstypes.Field, notFound error) (*ChangeHistoryPage, error) {
 	q := h.querySet
 	records := changeRecordsQuery{
 		table: string(q.Resource()),
@@ -218,9 +225,6 @@ func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, client Clie
 			return nil, notFound
 		}
 	}
-
-	txn := client.ReadOnlyTransaction()
-	defer txn.Close()
 
 	rows, err := readChangeRecords(ctx, txn, records)
 	if err != nil {
