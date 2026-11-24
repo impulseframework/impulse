@@ -19,10 +19,11 @@ type (
 	// their own, a place in one of its groups, or a sign-in through its directory.
 	// A person who is there only through a role held in every sector, or through a group
 	// kept for the whole application, is not counted.
-	// Directory is the kind of directory its people sign in through, with the domain of a
-	// Google Workspace; the name a sign-in registration gives an organization is not said,
-	// since a query does not read the registrations, and a Microsoft Entra tenant's id is
-	// never said.
+	// Directory is the kind of directory its people sign in through, and of a Google
+	// Workspace its connection too: the Workspace's domain, or the name the application's
+	// sign-in registration gives it. No other kind's connection is said: what a person
+	// calls such a directory is said by the sign-in registrations, which a query does not
+	// read, and a Microsoft Entra tenant's id is never said.
 	// Administrators names each person who holds one of the roles the auth's permission
 	// engine names as a sector administrator's in the sector itself, by a role of their
 	// own or through one of its groups. Since is when the

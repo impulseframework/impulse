@@ -268,6 +268,7 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		"// CrewListedCitadel is one citadel as the whole application's list shows it: a row of\n // Citadels with the record's own fields, and three facts no table holds.",
 		"a role of\n // their own, a place in one of its groups, or a sign-in through its directory.",
 		"// A person who is there only through a role held in every citadel, or through a group\n // kept for the whole application, is not counted.\n",
+		"// Directory is the kind of directory its people sign in through, and of a Google\n // Workspace its connection too: the Workspace's domain, or the name the application's",
 		"or through one of its groups. Since is when the\n // citadel was made: the record's Raised, which it marks @tenantSince. The list filters by the name. It is a view over the\n // record's table, so a row opens, is changed and is deleted as the record's own.",
 		"// crewListedCitadelQuery selects every citadel, each with the people it holds, when it\n// was made, its directory and its administrators.",
 	}, []string{"Passphrase", "Cipher", "Sealed", "Search", "DefaultRole", "Raised time.Time", "first role"})
