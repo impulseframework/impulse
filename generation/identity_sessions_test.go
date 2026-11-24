@@ -51,9 +51,9 @@ func Test_prepareIdentity_listedSessions(t *testing.T) { //nolint:paralleltest /
 			"  (SELECT CASE e.Method\n" +
 			"      WHEN 'password' THEN 'Password'\n" +
 			"      WHEN 'google' THEN 'Fleet directory'\n" +
-			"      WHEN 'application' THEN 'Started by the application'\n" +
 			"      WHEN 'impersonation' THEN 'Viewing as someone else'\n" +
-			"      ELSE e.Method\n" +
+			"      WHEN 'azure' THEN e.Method\n      WHEN 'workos' THEN e.Method\n      WHEN 'oidc' THEN e.Method\n" +
+			"      ELSE 'Started by the application'\n" +
 			"    END\n" +
 			"    FROM CrewSessionAuthEvents e\n    WHERE e.SessionId = ls.Id\n    ORDER BY e.Seq\n    LIMIT 1) AS SignedInWith,\n" +
 			"  ls.Browser AS Browser,\n  ls.AuthenticatedAt AS AuthenticatedAt,\n  ls.CreatedAt AS CreatedAt,\n  ls.UpdatedAt AS UpdatedAt\n" +
@@ -95,14 +95,27 @@ func Test_prepareIdentity_listedSessions(t *testing.T) { //nolint:paralleltest /
 // session signed in, from the auth's registrations: the method of the session's first
 // auth event in the words of the login page's button for it, the labels of two
 // registrations of one method joined by "or", in declaration order, a label's quote
-// escaped as a GoogleSQL string literal escapes it, the session library's own starts in
-// words, and any other method as the event stores it. Without the auth events table it
-// says nothing, and without the users table the person is named by the session's own
-// username, with no name and no list of the accounts to open.
+// escaped as a GoogleSQL string literal escapes it, an impersonation in words, the
+// session library's sign-in words no registration carries as the event stores them, and
+// any other first event, a step of the application's own, as a session the application
+// started; no row is written for a first event of the application's identity, which the
+// library never records. Without the auth events table it says nothing, and without the
+// users table the person is named by the session's own username, with no name and no
+// list of the accounts to open.
 func TestIdentityListedSessions_signedInWith(t *testing.T) {
 	t.Parallel()
 
-	starts := "      WHEN 'application' THEN 'Started by the application'\n      WHEN 'impersonation' THEN 'Viewing as someone else'\n      ELSE e.Method\n    END"
+	// stored keeps the session library's sign-in words no registration carries, as stored.
+	stored := func(words ...string) string {
+		var lines string
+		for _, word := range words {
+			lines += "      WHEN '" + word + "' THEN e.Method\n"
+		}
+
+		return lines
+	}
+	impersonation := "      WHEN 'impersonation' THEN 'Viewing as someone else'\n"
+	application := "      ELSE 'Started by the application'\n    END"
 	tests := []struct {
 		name            string
 		tables          []identityTable
@@ -115,12 +128,14 @@ func TestIdentityListedSessions_signedInWith(t *testing.T) {
 			tables:  []identityTable{identitySessions, identityUsers, identityAuthEvents},
 			signIns: []identitySignIn{{Name: "google", Label: "Google", method: "google"}, {Name: "password", Label: "Password", method: "password"}},
 			wantContains: []string{
-				"  (SELECT CASE e.Method\n      WHEN 'google' THEN 'Google'\n      WHEN 'password' THEN 'Password'\n" + starts,
+				"  (SELECT CASE e.Method\n      WHEN 'google' THEN 'Google'\n      WHEN 'password' THEN 'Password'\n" +
+					impersonation + stored("azure", "workos", "oidc") + application,
 				"    FROM CrewSessionAuthEvents e\n    WHERE e.SessionId = ls.Id\n    ORDER BY e.Seq\n    LIMIT 1) AS SignedInWith,",
 				"// @enumerate(CrewSessionUsers)\n\t\tUserID *impulse.UUID",
 				"  COALESCE(u.Username, ls.Username) AS Username,\n  NULLIF(u.Name, '') AS Name,",
 				") ls\nLEFT JOIN CrewSessionUsers u ON u.Id = ls.UserId\n`",
 			},
+			wantNotContains: []string{"'application'"},
 		},
 		{
 			name:   "two registrations of one method, one with a quote in its label",
@@ -130,8 +145,10 @@ func TestIdentityListedSessions_signedInWith(t *testing.T) {
 				{Name: "acme", Label: `Acme's \ directory`, method: "oidc"},
 			},
 			wantContains: []string{
-				"  (SELECT CASE e.Method\n      WHEN 'oidc' THEN 'Persona or Acme\\'s \\\\ directory'\n      WHEN 'password' THEN 'Password'\n" + starts,
+				"  (SELECT CASE e.Method\n      WHEN 'oidc' THEN 'Persona or Acme\\'s \\\\ directory'\n      WHEN 'password' THEN 'Password'\n" +
+					impersonation + stored("google", "azure", "workos") + application,
 			},
+			wantNotContains: []string{"'application'"},
 		},
 		{
 			name:            "no auth events table",

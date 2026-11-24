@@ -22,9 +22,15 @@ type (
 	// and found, under the name they have now; Name is their name. SignedInWith is how
 	// the session signed in, in the words of the login page's button for the method (the
 	// first of the session's auth events), and Browser the browser it was signed in
-	// from, where it was recognized. The list filters by the session's id, the person's
-	// id, the username, Expired, Live, State, how the session signed in and the last
-	// activity, and lists the most recently used first.
+	// from, where it was recognized. A session the application started itself
+	// (session.AuthAPI.StartAuthenticatedSession) says "Started by the application": its
+	// first event is a step of the application's own, which the library accepts under no
+	// sign-in method's name, so every first event that is neither a sign-in method's nor
+	// an impersonation's is one. A session established as someone else says "Viewing as
+	// someone else", and one signed in through a method the Auth no longer registers says
+	// the method's stored word. The list filters by the session's id, the person's id, the
+	// username, Expired, Live, State, how the session signed in and the last activity, and
+	// lists the most recently used first.
 	//
 	// @virtual
 	// @outlet(portal, default)
@@ -66,9 +72,12 @@ SELECT
   CASE WHEN ls.Live THEN 'live' WHEN ls.Expired THEN 'ended' ELSE 'timedOut' END AS State,
   (SELECT CASE e.Method
       WHEN 'google' THEN 'Company directory'
-      WHEN 'application' THEN 'Started by the application'
       WHEN 'impersonation' THEN 'Viewing as someone else'
-      ELSE e.Method
+      WHEN 'password' THEN e.Method
+      WHEN 'azure' THEN e.Method
+      WHEN 'workos' THEN e.Method
+      WHEN 'oidc' THEN e.Method
+      ELSE 'Started by the application'
     END
     FROM MembersSessionAuthEvents e
     WHERE e.SessionId = ls.Id

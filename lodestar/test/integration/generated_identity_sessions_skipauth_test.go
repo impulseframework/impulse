@@ -11,6 +11,7 @@ package integration
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // chromeOnLinux is the User-Agent header of Chrome on Linux, which the session library
@@ -40,13 +42,15 @@ func (u userAgentTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // TestGeneratedIdentitySessionsSayStateAndHowSignedIn holds the list of the sessions on
-// the served stack with the persona provider registered: a session idle past the timeout
-// says timedOut, one signed out says ended, a signed-in one says live, and the state
-// filters the list to the live one alone. A session signed in with the password says the
-// password's label, and one through the persona provider that registration's label. The
-// row carries the name of the browser the session was signed in from. Once the person is
-// renamed, their sessions, the one made before the rename included, list under the new
-// username, and the username filter finds them under it and no longer under the old one.
+// the served stack with the persona provider registered: a session idle past the
+// timeout says timedOut, one signed out says ended, a signed-in one says live, and the
+// state filters the list to the live one alone. A session signed in with the password
+// says the password's label, one through the persona provider that registration's
+// label, one the application starts through the Auth's own API "Started by the
+// application", and one whose auth events are gone says nothing. The row carries the
+// name of the browser the session was signed in from. Once the person is renamed, their
+// sessions, the one made before the rename included, list under the new username, and
+// the username filter finds them under it and no longer under the old one.
 //
 // Demonstrates: auth.generated-identity, auth.persona.
 func TestGeneratedIdentitySessionsSayStateAndHowSignedIn(t *testing.T) {
@@ -82,6 +86,10 @@ func TestGeneratedIdentitySessionsSayStateAndHowSignedIn(t *testing.T) {
 	if status, body := signedOut.do(ctx, http.MethodDelete, consoleAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("the pilot's logout: status %d: %s", status, body)
 	}
+	// The signed-out session's auth events are removed, so it has no first event.
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.Delete("CrewSessionAuthEvents", spanner.Key{endedID}.AsPrefix())}); err != nil {
+		t.Fatalf("removing the auth events of the pilot's signed-out session: %v", err)
+	}
 
 	// A session of the pilot's idle past the stack's timeout, written straight to the
 	// table, since no sign-in makes one.
@@ -94,9 +102,18 @@ func TestGeneratedIdentitySessionsSayStateAndHowSignedIn(t *testing.T) {
 		t.Fatalf("writing the pilot's idle session: %v", err)
 	}
 
-	// The warden signs in through the persona provider.
+	// The warden signs in through the persona provider, and the application starts a
+	// session for the rookie through the Auth's own API. The start's second step is a
+	// second factor of the application's own, which the Auth asks of every sign-in.
 	warden := newBrowser(t, s, consoleAPI)
 	warden.signInAsPersona(ctx, "warden")
+	rookieID, err := impulse.UUIDFromString(crewAccountID(ctx, t, hq, "rookie"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.crew.Session().API().StartAuthenticatedSession(ctx, httptest.NewRecorder(), rookieID, []sessioninfo.AuthEvent{{Method: "magic-link"}, {Method: "magic-link-code"}}); err != nil {
+		t.Fatalf("StartAuthenticatedSession() for the rookie: %v", err)
+	}
 
 	pilots := rowsByID(t, listedSessions(ctx, t, hq, "userId:eq:"+pilotID), "id")
 	for _, c := range []struct {
@@ -131,10 +148,24 @@ func TestGeneratedIdentitySessionsSayStateAndHowSignedIn(t *testing.T) {
 			t.Errorf("the pilot's session from Chrome on Linux says the browser %q, want %q", got, "Chrome on Linux")
 		}
 	}
-	if rows := listedSessions(ctx, t, hq, "username:eq:warden"); len(rows) != 1 {
-		t.Errorf("the warden's sessions = %v, want the one his sign-in through the persona provider made", rows)
-	} else if got := cell[string](t, rows[0], "signedInWith"); got != "Persona" {
-		t.Errorf("the warden's sign-in through the persona provider says it signed in with %q, want %q", got, "Persona")
+	if row := pilots[endedID]; row != nil && row["signedInWith"] != nil {
+		t.Errorf("the pilot's session with no auth event says it signed in with %v, want null", row["signedInWith"])
+	}
+	for _, c := range []struct {
+		name, username, want string
+	}{
+		{name: "the warden's sign-in through the persona provider", username: "warden", want: "Persona"},
+		{name: "the rookie's session the application started", username: "rookie", want: "Started by the application"},
+	} {
+		rows := listedSessions(ctx, t, hq, "username:eq:"+c.username)
+		if len(rows) != 1 {
+			t.Errorf("%s: the sessions listed under %s = %v, want the one", c.name, c.username, rows)
+
+			continue
+		}
+		if got := cell[string](t, rows[0], "signedInWith"); got != c.want {
+			t.Errorf("%s says it signed in with %q, want %q", c.name, got, c.want)
+		}
 	}
 
 	// Headquarters renames the pilot: the sessions, the idle one written under the old

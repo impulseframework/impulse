@@ -34,19 +34,23 @@ func (d *identitySourceData) SessionTimeoutParam() string {
 	return sessionTimeoutParam
 }
 
-// sessionStartWords are the session library's own starts of a session, which no
-// registration of the Auth makes, in the words the list of the sessions says them by.
-var sessionStartWords = []struct{ method, words string }{
-	{method: string(sessioninfo.MethodApplication), words: "Started by the application"},
-	{method: string(sessioninfo.MethodImpersonation), words: "Viewing as someone else"},
-}
+// What the list of the sessions says of a session no registration of the Auth signed in:
+// one established as someone else, and one the application started itself, whose first
+// auth event is a step of the application's own.
+const (
+	impersonationWords = "Viewing as someone else"
+	applicationWords   = "Started by the application"
+)
 
 // SignedInWith is the SQL of the column that says how a session signed in, session
 // being the alias of the session's row: the method of its first auth event (the lowest
 // Seq) in the words of the login page's button for it, the labels of the registrations
-// of one method joined by " or " in declaration order; the session library's own starts
-// in words; any other method as the event stores it; and null where the session has no
-// event.
+// of one method joined by " or " in declaration order; an impersonation in words; a
+// sign-in word of the session library's (sessionSignInWords) that no registration
+// carries as the event stores it, a sign-in through a method the Auth no longer
+// registers; any other first event in the words of a session the application started,
+// since the library accepts a step of the application's own under no sign-in method's
+// name; and null where the session has no event.
 func (d *identitySourceData) SignedInWith(session string) string {
 	var methods []string
 	labels := make(map[string][]string)
@@ -60,11 +64,14 @@ func (d *identitySourceData) SignedInWith(session string) string {
 	for _, method := range methods {
 		lines = append(lines, "      WHEN "+sqlStringLiteral(method)+" THEN "+googleSQLString(strings.Join(labels[method], " or ")))
 	}
-	for _, start := range sessionStartWords {
-		lines = append(lines, "      WHEN "+sqlStringLiteral(start.method)+" THEN "+sqlStringLiteral(start.words))
+	lines = append(lines, "      WHEN "+sqlStringLiteral(string(sessioninfo.MethodImpersonation))+" THEN "+sqlStringLiteral(impersonationWords))
+	for _, signIn := range sessionSignInWords {
+		if _, ok := labels[signIn.word]; !ok {
+			lines = append(lines, "      WHEN "+sqlStringLiteral(signIn.word)+" THEN e.Method")
+		}
 	}
 	lines = append(lines,
-		"      ELSE e.Method",
+		"      ELSE "+sqlStringLiteral(applicationWords),
 		"    END",
 		"    FROM "+d.Tables.AuthEvents+" e",
 		"    WHERE e.SessionId = "+session+".Id",
