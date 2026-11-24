@@ -141,3 +141,17 @@ func (r *TenantDirectoryRules) OpenToDirectoryWarning(directory *TenantDirectory
 		Confirm:     fmt.Sprintf("Open to people who sign in through %s", through),
 	}
 }
+
+// OpenTakesPeopleNote is the note a generated handler adds to OpenToDirectoryWarning in an
+// application that holds a person to one tenant (identity.WithOneTenantPerPerson): the
+// tenant's directory owns its people, so a person who signs in through it and belongs to
+// another tenant is moved to this one at their next sign-in. The directory is said in the
+// words a person knows it by (DirectoryWords).
+func (r *TenantDirectoryRules) OpenTakesPeopleNote(directory *TenantDirectory) WarningNote {
+	return WarningNote{
+		Says: fmt.Sprintf(
+			"A person belongs to one %s here. People who sign in through %s and belong to another %s are moved to this one the next time they sign in, and lose everything they hold in the other.",
+			r.word, r.directoryWords(directory.Directory), r.word,
+		),
+	}
+}
