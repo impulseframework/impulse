@@ -281,7 +281,7 @@ class SideBuilder {
    * (personFields).
    */
   people(): RootConfig {
-    const { lists, methods } = this.side;
+    const { lists } = this.side;
     const users = lists.users as Resource;
     const related = [
       this.rolesOf(),
@@ -360,18 +360,7 @@ class SideBuilder {
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
-        listMethods: this.present([
-          [
-            methods.invite,
-            {
-              label: 'Invite',
-              icon: 'send',
-              says: inviteSays,
-              labels: this.where(),
-              ...this.rolesWhere('roles', methods.invite),
-            },
-          ],
-        ]),
+        listMethods: this.present([this.inviting()]),
         elements: [
           section({
             label: this.tenant ? 'Person' : 'Account',
@@ -523,33 +512,67 @@ class SideBuilder {
     };
   }
 
-  /** A tenant's invitations, or every link the whole application has mailed, each with Withdraw where it still stands. */
+  /**
+   * A tenant's invitations, or every link the whole application has mailed, each with
+   * Withdraw where it still stands. Where the server says each link's state (the list has
+   * `state`), the page opens on the links still open and filters by state and kind, a row
+   * says the kind in words and who sent an invitation, Send again is offered on an
+   * invitation that is open, has expired or could not be mailed, and the whole
+   * application's list of an application without tenants carries Invite above it.
+   */
   invitations(): RootConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.invitations) {
       return undefined;
     }
     const resource = lists.invitations as Resource;
-    const fields: Named[] = this.tenant
-      ? [
-          ['email', 'Email'],
-          ['name', 'Name'],
-          ['roleNames', 'Roles'],
-          ['createdAt', 'Sent'],
-          ['expiresAt', 'Expires'],
-          ['pending', 'Still open'],
-        ]
-      : [
-          ['kind', 'Kind'],
-          ['email', 'Email'],
-          ['name', 'Name'],
-          // The tenant a link invites into, where the application has tenants.
-          ...(this.identity.tenant ? ([['tenantId', nameInWords(this.identity.tenant)]] as Named[]) : []),
-          ['roleNames', 'Roles'],
-          ['createdAt', 'Sent'],
-          ['expiresAt', 'Expires'],
-          ['consumedAt', 'Used'],
-        ];
+    const byState = this.has(resource, 'state');
+    // The tenant a link invites into, where the application has tenants.
+    const tenantColumn: Named[] = this.identity.tenant ? [['tenantId', nameInWords(this.identity.tenant)]] : [];
+    let fields: Named[];
+    if (this.tenant) {
+      fields = byState
+        ? [
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ['roleNames', 'Roles'],
+            ['sentBy', 'Sent by'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['state', 'State'],
+          ]
+        : [
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ['roleNames', 'Roles'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['pending', 'Still open'],
+          ];
+    } else {
+      fields = byState
+        ? [
+            ['state', 'State'],
+            ['kind', 'Kind'],
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ...tenantColumn,
+            ['roleNames', 'Roles'],
+            ['sentBy', 'Sent by'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+          ]
+        : [
+            ['kind', 'Kind'],
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ...tenantColumn,
+            ['roleNames', 'Roles'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['consumedAt', 'Used'],
+          ];
+    }
     // Whether the list says where a link that names no tenant gives its roles: the whole
     // application's list, in an application with tenants, where the reader may read the
     // mark of an invitation into every tenant.
@@ -561,6 +584,21 @@ class SideBuilder {
     // application's list, where the reader may read when the mail failed.
     const unmailed = !this.tenant && this.has(resource, 'mailFailedAt');
     const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed, sender);
+    // Read with each row and not drawn. Where the server says each link's state, the
+    // whole application's list reads each of these it has, and a tenant's the mark of an
+    // invitation that makes a tenant, where it has it.
+    let unseen: string[];
+    if (byState) {
+      unseen = (
+        this.tenant ? ['makesTenant'] : ['everyTenant', 'invitedByUserId', 'mailFailedAt', 'makesTenant']
+      ).filter((name) => this.has(resource, name));
+    } else {
+      unseen = [
+        ...(placed ? ['everyTenant'] : []),
+        ...(sender ? ['invitedByUserId'] : []),
+        ...(unmailed ? ['mailFailedAt'] : []),
+      ];
+    }
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: {
@@ -572,20 +610,29 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
+        ...(byState ? { opensWith: [{ field: 'state', operator: 'eq', value: 'open' }] } : {}),
         // The tenant a link invites into is named, where the tenant record can be read,
         // and a link that names none says where its roles are held instead. A link whose
-        // message could not be mailed says so where its dates would be.
+        // message could not be mailed says so where its dates would be. Where the server
+        // says each link's state, its state and kind are said in words, and who sent it
+        // is said but not filtered by.
         listColumns: [
-          ...this.columns(resource, fields).map((column) => {
+          ...this.columns(resource, fields).map((column): ColumnConfig => {
             if (column.id === 'tenantId') {
               return this.tenantNamed(column.id, column.header ?? '', into);
             }
+            if (column.id === 'state' && byState) {
+              return { ...linkStateColumn };
+            }
+            if (column.id === 'kind' && byState) {
+              return { ...linkKindColumn };
+            }
+            if (column.id === 'sentBy') {
+              return { ...column, filterable: false };
+            }
             return unmailed ? this.unmailedCell(column) : column;
           }),
-          // Read with each row and not drawn.
-          ...(placed ? [{ id: 'everyTenant' as FieldName, hidden: true }] : []),
-          ...(sender ? [{ id: 'invitedByUserId' as FieldName, hidden: true }] : []),
-          ...(unmailed ? [{ id: 'mailFailedAt' as FieldName, hidden: true }] : []),
+          ...unseen.map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.present([
           [
@@ -593,12 +640,22 @@ class SideBuilder {
             {
               label: 'Withdraw',
               icon: 'cancel_schedule_send',
-              // An invitation that was used or withdrawn has nothing left to withdraw.
-              when: (row) => (this.tenant ? row['pending'] === true : !row['consumedAt']),
+              // An invitation that was used or withdrawn has nothing left to withdraw;
+              // where the server says each link's state, an open invitation of a person
+              // alone has.
+              when: (row) => {
+                if (byState) {
+                  return row['state'] === 'open' && this.personInvitation(row);
+                }
+                return this.tenant ? row['pending'] === true : !row['consumedAt'];
+              },
               confirm: (row) => `Withdraw the invitation sent to ${String(row['email'])}?`,
             },
           ],
+          ...(byState ? [this.sendAgain()] : []),
         ]),
+        // A tenant's list carries Invite, and so does the whole application's of an
+        // application without tenants, where the server says each link's state.
         listMethods: this.tenant
           ? this.present([
               [
@@ -606,10 +663,60 @@ class SideBuilder {
                 { label: 'Invite', icon: 'send', says: inviteSays, ...this.rolesWhere('roles', methods.invite) },
               ],
             ])
-          : [],
+          : this.present(byState && !this.identity.tenant ? [this.inviting()] : []),
         elements: [],
       }),
     });
+  }
+
+  /**
+   * Invite as the Accounts page and a tenant's People page present it, and the Mailed
+   * links page of an application without tenants: one presentation, so the two cannot
+   * differ.
+   */
+  private inviting(): [string | undefined, Omit<MethodPresentation, 'method'>] {
+    const { methods } = this.side;
+    return [
+      methods.invite,
+      {
+        label: 'Invite',
+        icon: 'send',
+        says: inviteSays,
+        labels: this.where(),
+        ...this.rolesWhere('roles', methods.invite),
+      },
+    ];
+  }
+
+  /**
+   * Send again, on a mailed link that is an invitation of a person and is open, has
+   * expired or could not be mailed: it mails a new link, and the one mailed before stops
+   * working, which the question says of an open one.
+   */
+  private sendAgain(): [string | undefined, Omit<MethodPresentation, 'method'>] {
+    return [
+      this.side.methods.resendInvitation,
+      {
+        label: 'Send again',
+        icon: 'send',
+        when: (row) => resendable.includes(String(row['state'] ?? '')) && this.personInvitation(row),
+        confirm: (row) =>
+          row['state'] === 'open'
+            ? `Send the invitation to ${String(row['email'])} again? The link mailed before stops working.`
+            : `Send the invitation to ${String(row['email'])} again?`,
+        answered: mailed('The invitation is on its way.'),
+      },
+    ];
+  }
+
+  /**
+   * Whether a mailed link is an invitation of a person, which Withdraw and Send again act
+   * on: every row of a tenant's list is one; on the whole application's list a row whose
+   * kind is an invitation and whose first sign-in does not make a tenant, where the list
+   * marks that.
+   */
+  private personInvitation(row: RecordData): boolean {
+    return (this.tenant || row['kind'] === 'invitation') && row['makesTenant'] !== true;
   }
 
   /**
@@ -2594,6 +2701,55 @@ const unmailedWords: Readonly<Record<string, string>> = {
   expiresAt: 'Ended',
   consumedAt: '',
 };
+
+/** The words for each state the server says a mailed link is in, in the order the State column's filter offers them. */
+const linkStateWords: readonly { value: string; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'accepted', label: 'Accepted' },
+  { value: 'withdrawn', label: 'Withdrawn' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'notMailed', label: 'Not mailed' },
+];
+
+/**
+ * The words for each kind of link the server mails, in the order the Kind column's
+ * filter offers them.
+ */
+const linkKindWords: readonly { value: string; label: string }[] = [
+  { value: 'invitation', label: 'Invitation' },
+  { value: 'verification', label: 'Address confirmation' },
+  { value: 'sign-up', label: 'Sign-up' },
+  { value: 'first-password', label: 'First password code' },
+  { value: 'password-reset', label: 'Password reset' },
+  { value: 'address-change', label: 'Address change' },
+];
+
+/** The states of an invitation Send again is offered on: open, expired, or not mailed. */
+const resendable: readonly string[] = ['open', 'expired', 'notMailed'];
+
+/**
+ * A column that says a stored word of a mailed link in the words given for it, offers
+ * those words in its filter and does not sort; a word it has none for is written as
+ * stored.
+ */
+function linkWordsColumn(id: string, header: string, words: readonly { value: string; label: string }[]): ColumnConfig {
+  return {
+    id: id as FieldName,
+    header,
+    sortable: false,
+    filterChoices: words,
+    valueGetter: (row: RecordData) => {
+      const stored = typeof row[id] === 'string' ? row[id] : '';
+      return words.find((said) => said.value === stored)?.label ?? stored;
+    },
+  };
+}
+
+/** The State column of the mailed links and a tenant's invitations (linkStateWords). */
+const linkStateColumn: ColumnConfig = linkWordsColumn('state', 'State', linkStateWords);
+
+/** The Kind column of the whole application's mailed links (linkKindWords). */
+const linkKindColumn: ColumnConfig = linkWordsColumn('kind', 'Kind', linkKindWords);
 
 /**
  * The last day a period that ends at the instant counts, as a list shows it: the day of

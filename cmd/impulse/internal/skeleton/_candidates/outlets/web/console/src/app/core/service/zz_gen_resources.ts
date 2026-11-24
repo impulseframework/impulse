@@ -125,6 +125,7 @@ export interface StaffListedMailLinks {
   consumedAt?: Date;
   mailFailedAt?: Date;
   withdrawnAt?: Date;
+  tenantName?: string;
 }
 
 export interface StaffListedSessions {
@@ -768,7 +769,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: false },
-      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Tenants },
       { fieldName: 'everyTenant', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Administrator", "DeviceOperator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
@@ -780,6 +781,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
   },
   [Resources.StaffListedSessions]: {
     route: 'staff-listed-sessions',

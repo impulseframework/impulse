@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) CrewListedMailLinks() http.HandlerFunc {
 	type crewListedMailLink struct {
-		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID  `json:"id"              index:"true"      perm:"-"`
 		Kind            string        `json:"kind"            index:"true"`
 		State           string        `json:"state"           index:"true"`
 		Email           string        `json:"email"           index:"true"`
@@ -37,6 +37,7 @@ func (h *Handlers) CrewListedMailLinks() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		TenantName      *string       `json:"tenantName"      nameof:"TenantID"`
 	}
 
 	type response []map[string]any
@@ -75,7 +76,7 @@ func (h *Handlers) CrewListedMailLinks() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewListedMailLink)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -149,6 +150,11 @@ func (h *Handlers) CrewListedMailLinks() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -170,7 +176,7 @@ func (h *Handlers) CrewListedMailLinks() http.HandlerFunc {
 
 func (h *Handlers) CrewListedMailLink() http.HandlerFunc {
 	type response struct {
-		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID  `json:"id"              index:"true"      perm:"-"`
 		Kind            string        `json:"kind"`
 		State           string        `json:"state"`
 		Email           string        `json:"email"`
@@ -187,6 +193,7 @@ func (h *Handlers) CrewListedMailLink() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		TenantName      *string       `json:"tenantName"      nameof:"TenantID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewListedMailLink, response](h, accesstypes.Read)
@@ -213,7 +220,7 @@ func (h *Handlers) CrewListedMailLink() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -285,6 +292,11 @@ func (h *Handlers) CrewListedMailLink() http.HandlerFunc {
 				if !row.Masked("withdrawnAt") {
 					rmap["withdrawnAt"] = rec.WithdrawnAt
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

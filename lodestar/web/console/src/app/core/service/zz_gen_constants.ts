@@ -643,6 +643,7 @@ export namespace CrewListedMailLinks {
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
     withdrawnAt: 'withdrawnAt' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'CrewListedMailLinks.consumedAt' as Resource,

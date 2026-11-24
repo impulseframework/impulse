@@ -2293,6 +2293,349 @@ describe('identityPages, the Failed sign-ins page where the server says what eac
   });
 });
 
+describe("identityPages, the Mailed links and a tenant's Invitations pages where the server says each link's state", () => {
+  // The whole application's mailed links and a tenant's invitations as the generator
+  // writes them where the server says each link's state and who sent it.
+  const linksMeta = withTenantName(
+    fields(
+      'id',
+      'kind',
+      'state',
+      'email',
+      'name',
+      'userId',
+      'tenantId',
+      'everyTenant',
+      'roleNames',
+      'invitedByUserId',
+      'sentBy',
+      'makesTenant',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+      'mailFailedAt',
+      'withdrawnAt',
+    ),
+    'tenantId',
+  );
+  const invitationsMeta = fields(
+    'id',
+    'domainId',
+    'email',
+    'name',
+    'roleNames',
+    'invitedByUserId',
+    'sentBy',
+    'createdAt',
+    'expiresAt',
+    'consumedAt',
+    'withdrawnAt',
+    'state',
+    'pending',
+  );
+  const stated: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewSessionMailLinks: linksMeta,
+    CrewSectorInvitations: invitationsMeta,
+  };
+  // Each side sends an invitation again.
+  const resending = {
+    ...descriptor,
+    identity: [
+      {
+        ...crew,
+        sides: crew.sides.map((side) => ({
+          ...side,
+          methods: {
+            ...side.methods,
+            resendInvitation: side.scope === 'global' ? 'ResendCrewInvitation' : 'ResendCrewSectorInvitation',
+          },
+        })),
+      },
+    ],
+  } as ApiDescriptor;
+  /** The pages of a side over the lists as given; the pages of a description are made once, so each call takes its own. */
+  const pagesOf = (scope: 'global' | 'domain', read: Record<string, ResourceMeta> = stated): RootConfig[] =>
+    identityPages({ ...resending } as ApiDescriptor, (resource: Resource) => read[resource], { auth: 'Crew', scope });
+  const [, links] = pagesOf('global');
+  const [, invitations] = pagesOf('domain');
+  /** What a column's cell says of a row. */
+  const said =
+    (column: ColumnConfig) =>
+    (row: RecordData): string | string[] => {
+      if (!column.valueGetter) {
+        throw new Error(`the column ${column.id} has no getter`);
+      }
+      return column.valueGetter(row, noReader);
+    };
+  const states = ['open', 'accepted', 'withdrawn', 'expired', 'notMailed'];
+  const invitation = (state: string): RecordData => ({
+    kind: 'invitation',
+    state,
+    makesTenant: false,
+    email: 'ada@fleet.example',
+  });
+
+  it("draws the whole application's links by state, kind, address, name, sector, roles, sender and dates, and reads the rest", () => {
+    expect(visibleColumns(list(links))).toEqual([
+      ['state', 'State'],
+      ['kind', 'Kind'],
+      ['email', 'Email'],
+      ['name', 'Name'],
+      ['tenantId', 'Sector'],
+      ['roleNames', 'Roles'],
+      ['sentBy', 'Sent by'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+    ]);
+    expect(hiddenColumns(list(links))).toEqual(['everyTenant', 'invitedByUserId', 'mailFailedAt', 'makesTenant']);
+    expect(columnOf(list(links), 'sentBy').filterable).toBe(false);
+    // The sector is named as on the page before, and a link that names none says where its roles are held.
+    const into = columnOf(list(links), 'tenantId');
+    expect(into.tenantKey).toBe(true);
+    expect(into.fallback?.({ tenantId: null, everyTenant: true, roleNames: ['Pilot'] })).toBe('Every sector');
+    // A link whose message could not be mailed says so where its dates would be.
+    const unmailed = {
+      createdAt: '2026-11-20T10:00:00Z',
+      expiresAt: '2026-11-27T10:00:00Z',
+      mailFailedAt: '2026-11-20T10:00:01Z',
+    };
+    expect([
+      said(columnOf(list(links), 'createdAt'))(unmailed),
+      said(columnOf(list(links), 'expiresAt'))(unmailed),
+    ]).toEqual(['Not mailed', 'Ended']);
+    // Nothing is sent from above the list: an invitation is sent from the Accounts page.
+    expect(list(links).listMethods).toEqual([]);
+  });
+
+  it("draws a tenant's invitations by address, name, roles, sender, dates and state", () => {
+    expect(visibleColumns(list(invitations))).toEqual([
+      ['email', 'Email'],
+      ['name', 'Name'],
+      ['roleNames', 'Roles'],
+      ['sentBy', 'Sent by'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+      ['state', 'State'],
+    ]);
+    expect(hiddenColumns(list(invitations))).toEqual([]);
+    expect(columnOf(list(invitations), 'sentBy').filterable).toBe(false);
+    expect(methodsOf(list(invitations).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
+    // A list that marks an invitation that makes a tenant has the mark read with each row.
+    const marked = {
+      ...stated,
+      CrewSectorInvitations: {
+        ...invitationsMeta,
+        fields: [...invitationsMeta.fields, ...fields('makesTenant').fields],
+      },
+    };
+    const [, withMark] = pagesOf('domain', marked);
+    expect(hiddenColumns(list(withMark))).toEqual(['makesTenant']);
+  });
+
+  it('says each state and each kind in words, and offers those words in its filter', () => {
+    for (const page of [links, invitations]) {
+      const state = columnOf(list(page), 'state');
+      expect(state.sortable).toBe(false);
+      expect(state.filterChoices).toEqual([
+        { value: 'open', label: 'Open' },
+        { value: 'accepted', label: 'Accepted' },
+        { value: 'withdrawn', label: 'Withdrawn' },
+        { value: 'expired', label: 'Expired' },
+        { value: 'notMailed', label: 'Not mailed' },
+      ]);
+      expect(states.map((word) => said(state)({ state: word }))).toEqual([
+        'Open',
+        'Accepted',
+        'Withdrawn',
+        'Expired',
+        'Not mailed',
+      ]);
+    }
+    const kind = columnOf(list(links), 'kind');
+    expect(kind.sortable).toBe(false);
+    expect(kind.filterChoices).toEqual([
+      { value: 'invitation', label: 'Invitation' },
+      { value: 'verification', label: 'Address confirmation' },
+      { value: 'sign-up', label: 'Sign-up' },
+      { value: 'first-password', label: 'First password code' },
+      { value: 'password-reset', label: 'Password reset' },
+      { value: 'address-change', label: 'Address change' },
+    ]);
+    expect(
+      ['invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change', 'magic-link'].map(
+        (word) => said(kind)({ kind: word }),
+      ),
+    ).toEqual([
+      'Invitation',
+      'Address confirmation',
+      'Sign-up',
+      'First password code',
+      'Password reset',
+      'Address change',
+      // A kind the page has no words for is said as the server stores it.
+      'magic-link',
+    ]);
+  });
+
+  it('opens both pages on the links still open', () => {
+    const open = [{ field: 'state', operator: 'eq', value: 'open' }];
+    expect([list(links).opensWith, list(invitations).opensWith]).toEqual([open, open]);
+  });
+
+  it('offers Withdraw on an open invitation alone, and Send again on one that is open, has expired or could not be mailed', () => {
+    expect(methodsOf(list(links).rowMethods)).toEqual([
+      ['WithdrawCrewInvitation', 'Withdraw'],
+      ['ResendCrewInvitation', 'Send again'],
+    ]);
+    const withdraw = presentation(list(links).rowMethods, 'WithdrawCrewInvitation');
+    const again = presentation(list(links).rowMethods, 'ResendCrewInvitation');
+    expect(again.icon).toBe('send');
+    expect(states.map((state) => withdraw.when?.(invitation(state)))).toEqual([true, false, false, false, false]);
+    expect(states.map((state) => again.when?.(invitation(state)))).toEqual([true, false, false, true, true]);
+    // A link of another kind, and an invitation whose first sign-in makes a sector, are offered neither.
+    for (const row of [
+      { ...invitation('open'), kind: 'password-reset' },
+      { ...invitation('expired'), kind: 'verification' },
+      { ...invitation('open'), makesTenant: true },
+      { ...invitation('expired'), makesTenant: true },
+    ]) {
+      expect([withdraw.when?.(row), again.when?.(row)]).toEqual([false, false]);
+    }
+    expect((withdraw.confirm as (row: RecordData) => string)(invitation('open'))).toBe(
+      'Withdraw the invitation sent to ada@fleet.example?',
+    );
+    // Every row of a tenant's list is an invitation, and the list carries no mark of one that makes a tenant.
+    expect(methodsOf(list(invitations).rowMethods)).toEqual([
+      ['WithdrawCrewSectorInvitation', 'Withdraw'],
+      ['ResendCrewSectorInvitation', 'Send again'],
+    ]);
+    const tenantWithdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewSectorInvitation');
+    const tenantAgain = presentation(list(invitations).rowMethods, 'ResendCrewSectorInvitation');
+    expect(states.map((state) => tenantWithdraw.when?.({ state }))).toEqual([true, false, false, false, false]);
+    expect(states.map((state) => tenantAgain.when?.({ state }))).toEqual([true, false, false, true, true]);
+  });
+
+  it("asks before sending again, saying an open one's link stops working, and reads whether the mail went", () => {
+    for (const [page, method] of [
+      [links, 'ResendCrewInvitation'],
+      [invitations, 'ResendCrewSectorInvitation'],
+    ] as const) {
+      const again = presentation(list(page).rowMethods, method);
+      const asks = again.confirm as (row: RecordData) => string;
+      expect(asks(invitation('open'))).toBe(
+        'Send the invitation to ada@fleet.example again? The link mailed before stops working.',
+      );
+      expect([asks(invitation('expired')), asks(invitation('notMailed'))]).toEqual([
+        'Send the invitation to ada@fleet.example again?',
+        'Send the invitation to ada@fleet.example again?',
+      ]);
+      expect(again.answered?.({ id: 'i-2', sent: true })).toEqual({ message: 'The invitation is on its way.' });
+      expect(again.answered?.({ sent: false, reason: 'The address refused the message.' })).toEqual({
+        message: 'The address refused the message.',
+        failed: true,
+      });
+    }
+  });
+
+  it('carries Invite above the Mailed links of an application without tenants, as the Accounts page presents it', () => {
+    const office: IdentityDescriptor = {
+      auth: 'Office',
+      label: 'Office',
+      sides: [
+        {
+          scope: 'global',
+          lists: {
+            users: 'OfficeSessionUsers',
+            rolesToGive: 'OfficeGivableRoles',
+            invitations: 'OfficeListedMailLinks',
+          },
+          methods: {
+            invite: 'InviteOfficeUser',
+            withdrawInvitation: 'WithdrawOfficeInvitation',
+            resendInvitation: 'ResendOfficeInvitation',
+          },
+        },
+      ],
+    };
+    const officeMetas: Record<string, ResourceMeta> = {
+      OfficeSessionUsers: fields('id', 'username', 'name', 'email', 'disabled', 'lastSignInAt'),
+      OfficeGivableRoles: fields('name', 'description', 'method'),
+      // The generator writes the same list for every application: a link carries a tenant.
+      OfficeListedMailLinks: fields(
+        'id',
+        'kind',
+        'state',
+        'email',
+        'name',
+        'tenantId',
+        'everyTenant',
+        'roleNames',
+        'invitedByUserId',
+        'sentBy',
+        'makesTenant',
+        'createdAt',
+        'expiresAt',
+        'mailFailedAt',
+      ),
+    };
+    const [accounts, mailed] = identityPages(
+      { ...descriptor, domainRoute: undefined, identity: [office] } as ApiDescriptor,
+      (resource: Resource) => officeMetas[resource],
+      { auth: 'Office', scope: 'global' },
+    );
+    expect(visibleColumns(list(mailed)).map(([, header]) => header)).toEqual([
+      'State',
+      'Kind',
+      'Email',
+      'Name',
+      'Roles',
+      'Sent by',
+      'Sent',
+      'Expires',
+    ]);
+    expect(methodsOf(list(mailed).listMethods)).toEqual([['InviteOfficeUser', 'Invite']]);
+    const shown = (offer: MethodPresentation): unknown[] => [
+      offer.label,
+      offer.icon,
+      offer.says,
+      offer.labels,
+      narrowed(offer, 'roles')({}),
+    ];
+    expect(shown(presentation(list(mailed).listMethods, 'InviteOfficeUser'))).toEqual(
+      shown(presentation(list(accounts).listMethods, 'InviteOfficeUser')),
+    );
+    expect(list(mailed).opensWith).toEqual([{ field: 'state', operator: 'eq', value: 'open' }]);
+  });
+
+  it('draws both pages as before where the server does not say the state', () => {
+    const [, before] = pagesOf('global', metas);
+    const [, tenantBefore] = pagesOf('domain', metas);
+    expect(visibleColumns(list(before)).map(([id]) => id)).toEqual([
+      'kind',
+      'email',
+      'name',
+      'tenantId',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+    ]);
+    expect(visibleColumns(list(tenantBefore)).map(([id]) => id)).toEqual([
+      'email',
+      'name',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'pending',
+    ]);
+    expect(methodsOf(list(before).rowMethods)).toEqual([['WithdrawCrewInvitation', 'Withdraw']]);
+    expect(methodsOf(list(tenantBefore).rowMethods)).toEqual([['WithdrawCrewSectorInvitation', 'Withdraw']]);
+    expect([list(before).opensWith, list(tenantBefore).opensWith]).toEqual([[], []]);
+    expect(list(before).listMethods).toEqual([]);
+  });
+});
+
 describe("identityPages, what Invite's dialog says", () => {
   const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
   const [people, invitations] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });

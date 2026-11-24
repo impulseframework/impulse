@@ -44,6 +44,9 @@ type (
 		Email           string        ` + "`spanner:\"Email\" index:\"true\"`" + `
 		Name            *string       ` + "`spanner:\"Name\"`" + `
 		UserID          *impulse.UUID ` + "`spanner:\"UserId\"`" + `
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		TenantID        *string       ` + "`spanner:\"TenantId\"`" + `
 		EveryTenant     bool          ` + "`spanner:\"EveryTenant\"`" + `
 		// @attribute(role)

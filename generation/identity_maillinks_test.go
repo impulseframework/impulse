@@ -47,6 +47,9 @@ func Test_prepareIdentity_listedMailLinks(t *testing.T) { //nolint:paralleltest 
 		"State string `spanner:\"State\" index:\"true\"`",
 		"Email string `spanner:\"Email\" index:\"true\"`",
 		"// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRoleNames []string `spanner:\"RoleNames\"`",
+		// The tenant is a picker of the tenant record, as on the table's declaration, so a
+		// page's filter by it offers the tenants by name.
+		"// @enumerate(Ships)\n\t\tTenantID *string `spanner:\"TenantId\"`",
 		"SentBy *string `spanner:\"SentBy\"`",
 		"MakesTenant bool `spanner:\"MakesTenant\"`",
 		"CreatedAt time.Time `spanner:\"CreatedAt\" index:\"true\"`",

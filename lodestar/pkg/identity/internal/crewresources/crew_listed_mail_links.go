@@ -29,14 +29,15 @@ type (
 	// @rowWord(mailed link)
 	CrewListedMailLink struct {
 		// @primarykey
-		ID          impulse.UUID  `spanner:"Id"          index:"true"`
-		Kind        string        `spanner:"Kind"        index:"true"`
-		State       string        `spanner:"State"       index:"true"`
-		Email       string        `spanner:"Email"       index:"true"`
-		Name        *string       `spanner:"Name"`
-		UserID      *impulse.UUID `spanner:"UserId"`
-		TenantID    *string       `spanner:"TenantId"`
-		EveryTenant bool          `spanner:"EveryTenant"`
+		ID     impulse.UUID  `spanner:"Id"     index:"true"`
+		Kind   string        `spanner:"Kind"   index:"true"`
+		State  string        `spanner:"State"  index:"true"`
+		Email  string        `spanner:"Email"  index:"true"`
+		Name   *string       `spanner:"Name"`
+		UserID *impulse.UUID `spanner:"UserId"`
+		// @enumerate(Sectors)
+		TenantID    *string `spanner:"TenantId"`
+		EveryTenant bool    `spanner:"EveryTenant"`
 		// @attribute(role)
 		// @roleOf(Crew)
 		RoleNames       []string      `spanner:"RoleNames"`

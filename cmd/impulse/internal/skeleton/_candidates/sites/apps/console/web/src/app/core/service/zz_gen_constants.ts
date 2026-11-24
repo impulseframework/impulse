@@ -449,6 +449,7 @@ export namespace StaffListedMailLinks {
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
     withdrawnAt: 'withdrawnAt' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'StaffListedMailLinks.consumedAt' as Resource,
