@@ -47,8 +47,10 @@ import (
 //
 // The views are declared beside the tables they read, in the instance's declarations
 // package, and each is named for what it holds: the auth's name, the application's
-// tenant record's, and the thing listed (listName). The whole application's lists keep
-// the names of their tables.
+// tenant record's, and the thing listed (listName). The whole application's lists are
+// named after the auth alone: the declarations over its tables, and the views beside
+// them (identity_holdings.go), two of which say who manages each account as a tenant's
+// lists do.
 
 // identityTenant is the application's tenant record as the sources of the generated
 // management name it. The sources are written before the packages are loaded, so the

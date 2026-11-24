@@ -38,6 +38,7 @@ const (
 	MembersGroupUserGroupID           httpio.ParamType = "membersGroupUserGroupID"
 	MembersGroupUserUserID            httpio.ParamType = "membersGroupUserUserID"
 	MembersListedGroupID              httpio.ParamType = "membersListedGroupID"
+	MembersListedIdentityID           httpio.ParamType = "membersListedIdentityID"
 	MembersListedSessionID            httpio.ParamType = "membersListedSessionID"
 	MembersListedUserID               httpio.ParamType = "membersListedUserID"
 	MembersSessionID                  httpio.ParamType = "membersSessionID"
@@ -70,6 +71,7 @@ const (
 	StaffGroupUserGroupID             httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID              httpio.ParamType = "staffGroupUserUserID"
 	StaffListedGroupID                httpio.ParamType = "staffListedGroupID"
+	StaffListedIdentityID             httpio.ParamType = "staffListedIdentityID"
 	StaffListedSessionID              httpio.ParamType = "staffListedSessionID"
 	StaffListedUserID                 httpio.ParamType = "staffListedUserID"
 	StaffSessionID                    httpio.ParamType = "staffSessionID"
@@ -265,6 +267,9 @@ type GeneratedHandlers interface {
 	StaffListedGroup() http.HandlerFunc
 
 	StaffListedGroupRoles() http.HandlerFunc
+
+	StaffListedIdentities() http.HandlerFunc
+	StaffListedIdentity() http.HandlerFunc
 
 	StaffListedRoleGrants() http.HandlerFunc
 
@@ -594,6 +599,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffListedGroupRolesHandler := h.StaffListedGroupRoles()
 	bounded.Get("/console/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 	bounded.Post("/console/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+
+	staffListedIdentitiesHandler := h.StaffListedIdentities()
+	bounded.Get("/console/api/staff-listed-identities", staffListedIdentitiesHandler)
+	bounded.Post("/console/api/staff-listed-identities", staffListedIdentitiesHandler)
+
+	staffListedIdentityHandler := h.StaffListedIdentity()
+	bounded.Get("/console/api/staff-listed-identities/{staffListedIdentityID}", staffListedIdentityHandler)
+	bounded.Post("/console/api/staff-listed-identities/{staffListedIdentityID}", staffListedIdentityHandler)
 
 	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
 	bounded.Get("/console/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
@@ -930,6 +943,9 @@ type GeneratedPortalHandlers interface {
 
 	MembersListedGroupRoles() http.HandlerFunc
 
+	MembersListedIdentities() http.HandlerFunc
+	MembersListedIdentity() http.HandlerFunc
+
 	MembersListedRoleGrants() http.HandlerFunc
 
 	MembersListedSessions() http.HandlerFunc
@@ -1198,6 +1214,14 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersListedGroupRolesHandler := h.MembersListedGroupRoles()
 	bounded.Get("/portal/api/members-listed-group-roles", membersListedGroupRolesHandler)
 	bounded.Post("/portal/api/members-listed-group-roles", membersListedGroupRolesHandler)
+
+	membersListedIdentitiesHandler := h.MembersListedIdentities()
+	bounded.Get("/portal/api/members-listed-identities", membersListedIdentitiesHandler)
+	bounded.Post("/portal/api/members-listed-identities", membersListedIdentitiesHandler)
+
+	membersListedIdentityHandler := h.MembersListedIdentity()
+	bounded.Get("/portal/api/members-listed-identities/{membersListedIdentityID}", membersListedIdentityHandler)
+	bounded.Post("/portal/api/members-listed-identities/{membersListedIdentityID}", membersListedIdentityHandler)
 
 	membersListedRoleGrantsHandler := h.MembersListedRoleGrants()
 	bounded.Get("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)

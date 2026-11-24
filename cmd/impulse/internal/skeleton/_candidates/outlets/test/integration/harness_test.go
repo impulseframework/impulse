@@ -563,8 +563,6 @@ func (b *browser) xsrfToken() string {
 // conditions-proven check reads these calls to find the conditional grants no case names.
 // Write the file as the auth package's Roles() call and the coordinates as literals: the
 // check reads them from the source.
-//
-//nolint:unparam // The role files' conditional grants are all one role's today; the next role's case names its own.
 func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, permission accesstypes.Permission, res accesstypes.Resource, condition string) {
 	t.Helper()
 

@@ -352,9 +352,10 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 // and the link gives her Cinder's default role. Her second sign-in finds the link and
 // gives nothing. The governor removes the role, and signing in again does not give it
 // back: an administrator who wants one person out removes the role and leaves the
-// link. The governor then deletes the link, and her next sign-in through the directory
-// is a first one again: it links the account and, since she holds no role at Cinder,
-// gives the default role.
+// link. The governor then deletes the link as a marshal of Cinder, from Cinder's side,
+// since the link is under Cinder's directory and Cinder manages her account; her next
+// sign-in through the directory is a first one again: it links the account and, since
+// she holds no role at Cinder, gives the default role.
 //
 // Demonstrates: tenancy.default-seat.
 func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testing.T) {
@@ -422,8 +423,10 @@ func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testin
 		t.Errorf("the cadet's roles at Cinder after signing in with the role removed = %v, want none: a removed role is not given back", held)
 	}
 
-	// The link is deleted: the next sign-in through the directory links the account
-	// again and gives the default role, since she holds no role at Cinder.
+	// The governor deletes the link as a marshal of Cinder, from Cinder's side: the link
+	// is under Cinder's directory, so Cinder manages her account. The next sign-in through
+	// the directory links the account again and gives the default role, since she holds
+	// no role at Cinder.
 	var links []string
 	for _, row := range crewList(ctx, t, governor, "crew-session-identities") {
 		if row["userId"] == cadetID {
@@ -433,7 +436,7 @@ func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testin
 	if len(links) != 1 {
 		t.Fatalf("the cadet's identity links = %v, want the one her first sign-in through the directory made", links)
 	}
-	if status, body := governor.do(ctx, http.MethodPost, crewMethod("unlink-crew-session-identity"), jsonBody(t, map[string]string{"identityId": links[0]})); status != http.StatusNoContent {
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(cinder, "unlink-crew-sector-session-identity"), jsonBody(t, map[string]string{"identityId": links[0]})); status != http.StatusNoContent {
 		t.Fatalf("deleting the cadet's link: status %d: %s", status, body)
 	}
 	linked(true)

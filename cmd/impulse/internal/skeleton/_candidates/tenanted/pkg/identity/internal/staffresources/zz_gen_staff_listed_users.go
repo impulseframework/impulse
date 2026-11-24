@@ -38,6 +38,8 @@ type staffListedUserRead struct {
 	Roles                  []string     `json:"roles"`
 	LockedUntil            *time.Time   `json:"lockedUntil"`
 	TrustedDevices         int64        `json:"trustedDevices"`
+	ManagedByTenant        bool         `json:"managedByTenant"`
+	ManagingTenant         *string      `json:"managingTenant"`
 }
 
 var staffListedUserReadSets resource.SetCache[StaffListedUser, staffListedUserRead]
@@ -158,6 +160,8 @@ func (c *StaffListedUserColumns) All() *StaffListedUserColumns {
 		"Roles",
 		"LockedUntil",
 		"TrustedDevices",
+		"ManagedByTenant",
+		"ManagingTenant",
 	}
 
 	return c
@@ -235,6 +239,18 @@ func (c *StaffListedUserColumns) TrustedDevices() *StaffListedUserColumns {
 	return c
 }
 
+func (c *StaffListedUserColumns) ManagedByTenant() *StaffListedUserColumns {
+	c.fields = append(c.fields, "ManagedByTenant")
+
+	return c
+}
+
+func (c *StaffListedUserColumns) ManagingTenant() *StaffListedUserColumns {
+	c.fields = append(c.fields, "ManagingTenant")
+
+	return c
+}
+
 type StaffListedUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -261,6 +277,14 @@ func (p StaffListedUserQueryPartialClause) Name() StaffListedUserQueryIdent[stri
 
 func (p StaffListedUserQueryPartialClause) Email() StaffListedUserQueryIdent[string] {
 	return StaffListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("Email", p.partialClause, true)}
+}
+
+func (p StaffListedUserQueryPartialClause) ManagedByTenant() StaffListedUserQueryIdent[bool] {
+	return StaffListedUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByTenant", p.partialClause, true)}
+}
+
+func (p StaffListedUserQueryPartialClause) ManagingTenant() StaffListedUserQueryIdent[string] {
+	return StaffListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("ManagingTenant", p.partialClause, true)}
 }
 
 type StaffListedUserQueryClause struct {
@@ -375,6 +399,14 @@ func (c *staffListedUserSort) LockedUntil() *StaffListedUserSort {
 
 func (c *staffListedUserSort) TrustedDevices() *StaffListedUserSort {
 	return c.addField("TrustedDevices")
+}
+
+func (c *staffListedUserSort) ManagedByTenant() *StaffListedUserSort {
+	return c.addField("ManagedByTenant")
+}
+
+func (c *staffListedUserSort) ManagingTenant() *StaffListedUserSort {
+	return c.addField("ManagingTenant")
 }
 
 type StaffListedUserSort struct {

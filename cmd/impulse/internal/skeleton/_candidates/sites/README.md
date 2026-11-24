@@ -235,7 +235,9 @@ turned on, since that takes a person who is signed in through the tenant's direc
   every tenant is not one tenant's to take
   (`everyDomain = false`), and an invitation is withdrawn while it stands
   (`pending = true`); `test/integration/tenant_people_test.go` proves each of them on the
-  console. Every grant in
+  console. The application's `Administrator` changes an account only where no tenant
+  manages it (`managedByTenant = false`), and `test/integration/grants_test.go` proves that
+  too. Every grant in
   it is proven live by `test/integration/grants_test.go`, which opens the auth the way
   the deployment does and asks the engine about each unconditional grant; a conditional
   grant is proven by a test case that names it through `provesGrant`, and

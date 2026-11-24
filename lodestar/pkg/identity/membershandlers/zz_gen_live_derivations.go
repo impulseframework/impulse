@@ -29,17 +29,26 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
+		// MembersListedIdentities: the tables its query reads.
+		{Resource: membersresources.MembersListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
+		}},
 		// MembersListedSessions: the tables its query reads.
 		{Resource: membersresources.MembersListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: membersresources.MembersSession{}.Resource(), Global: true},
 		}},
 		// MembersListedUsers: the tables its query reads.
 		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionSignInSetting{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionTrustedDevice{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// MembersSectorHeldRoles: the tables its query reads.

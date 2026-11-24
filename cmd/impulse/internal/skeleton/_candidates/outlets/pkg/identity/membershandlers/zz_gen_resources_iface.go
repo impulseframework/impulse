@@ -14,11 +14,11 @@ type Resourcer interface {
 	membersresources.MembersGroup | membersresources.MembersGroupMember |
 		membersresources.MembersGroupRole | membersresources.MembersGroupUser |
 		membersresources.MembersHeldRole | membersresources.MembersListedGroup |
-		membersresources.MembersListedGroupRole | membersresources.MembersListedSession |
-		membersresources.MembersListedUser | membersresources.MembersRole |
-		membersresources.MembersRoleGrant | membersresources.MembersSession |
-		membersresources.MembersSessionAuthEvent | membersresources.MembersSessionIdentity |
-		membersresources.MembersSessionMailLink |
+		membersresources.MembersListedGroupRole | membersresources.MembersListedIdentity |
+		membersresources.MembersListedSession | membersresources.MembersListedUser |
+		membersresources.MembersRole | membersresources.MembersRoleGrant |
+		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
+		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod |
 		membersresources.MembersSessionSignInSetting | membersresources.MembersSessionToken |

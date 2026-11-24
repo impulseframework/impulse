@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -132,5 +133,54 @@ func decisionFor(ctx context.Context, t *testing.T, checker *access.UserChecker,
 			return d
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestGrants_theAdministratorChangesTheAccountsNoTenantManages proves the condition the
+// role file puts on the Administrator's grants of the methods that change a person's
+// account, on the served stack: the application's own administrators manage the accounts
+// no tenant manages (managedByTenant = false), which the person's row of the whole
+// application's list of accounts says. nell holds a role in north alone, so north manages
+// her account and the administrator is refused its disable; once she holds a role in
+// south too, no tenant manages it, and the administrator disables and enables it.
+func TestGrants_theAdministratorChangesTheAccountsNoTenantManages(t *testing.T) {
+	t.Parallel()
+
+	// The conditional grants this test proves, pinned to the role file: impulse check
+	// reads these calls to find a conditional grant no test names.
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "DisableStaffUser", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "EnableStaffUser", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "DeleteStaffUser", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "RenameStaffUser", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "SetStaffUserName", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "SetStaffUserEmail", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "RequireStaffPasswordChange", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "EndStaffUserSessions", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "RevokeStaffUserTrustedDevices", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "UnlinkStaffSessionIdentity", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "RemoveStaffPassword", "managedByTenant = false")
+	provesGrant(t, staff.Roles(), "Administrator", "Execute", "SendStaffUserPasswordResetLink", "managedByTenant = false")
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := signedIn(ctx, t, s, s.console, adminUser)
+	nell := staffAccount(ctx, t, s, "nell", "Nell of north")
+	give := func(tenant string) {
+		t.Helper()
+		if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+nell+`","role":"TenantAdministrator","domain":"`+tenant+`"}`)); status != http.StatusNoContent {
+			t.Fatalf("giving nell a role in %s: status %d: %s", tenant, status, body)
+		}
+	}
+	target := []byte(`{"userId":"` + nell + `"}`)
+
+	give(north)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/disable-staff-user", target); status != http.StatusForbidden {
+		t.Errorf("the administrator disabling nell, whom north manages: status %d, want 403: %s", status, body)
+	}
+	give(south)
+	for _, method := range []string{"disable-staff-user", "enable-staff-user"} {
+		if status, body := admin.do(ctx, http.MethodPost, "/api/"+method, target); status != http.StatusNoContent {
+			t.Errorf("the administrator's %s of nell, whom no tenant manages: status %d, want 204: %s", method, status, body)
+		}
 	}
 }

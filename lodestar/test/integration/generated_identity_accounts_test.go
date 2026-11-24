@@ -362,6 +362,9 @@ func TestGeneratedIdentityAccountsSayTheLockOfFailedSignIns(t *testing.T) {
 func TestGeneratedIdentityAccountsFilter(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
+	// ada holds a role at Anvil alone, so Anvil manages the account; a role for the whole
+	// application beside it makes the account the fleet's to name.
+	w.giveCrewRole(t.Context(), t, "ada", "CrewCommon", accesstypes.GlobalPolicyScope())
 
 	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/set-crew-user-name", fmt.Sprintf(`{"userId":%q,"name":"Ada of Anvil"}`, w.ids["ada"]))
 	assertStatus(t, status, http.StatusNoContent, body)
@@ -410,6 +413,9 @@ func TestGeneratedIdentityAccountsOfferTheMethods(t *testing.T) {
 	w := newTenantListsWorld(t)
 	w.ids["chief"] = string(makeCrewAccount(ctx, t, w.db, "chief"))
 	w.assignCrewRoles(ctx, t, "chief", map[accesstypes.Role]accesstypes.PolicyScope{"Headquarters": crewScope(t, "", false)})
+	// ada holds a role at Anvil alone, so Anvil manages the account; a role for the whole
+	// application beside it makes the account the fleet's to act on.
+	w.giveCrewRole(ctx, t, "ada", "CrewCommon", accesstypes.GlobalPolicyScope())
 
 	offered := func(id string) []string {
 		t.Helper()

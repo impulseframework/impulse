@@ -98,9 +98,11 @@ type tsAPIIdentitySide struct {
 // pageLists names the structs of the lists of a side by what each holds. The whole
 // application's are the declarations over the auth's tables; a tenant's are the lists
 // the tenant keeps of them (listName). A person's roles are the one list that says where
-// each comes from, on both sides (identity_holdings.go). A tenant's side also names the
-// directories record, where the application declares one, for the page of a tenant's
-// sign-in settings. The sessions are the list that says which of them are live
+// each comes from, on both sides (identity_holdings.go). The whole application's
+// identities are the list that says who manages each account where the application has
+// a tenant record, and the declaration over the table where it has none. A tenant's side
+// also names the directories record, where the application declares one, for the page of
+// a tenant's sign-in settings. The sessions are the list that says which of them are live
 // (identity_sessions.go).
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	data := &identitySourceData{identityInstance: i}
@@ -131,6 +133,10 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	if i.listsHeldRoles() {
 		users, roles = data.ListedUser(), data.HeldRole()
 	}
+	identities := data.Identity()
+	if i.listsIdentities() {
+		identities = data.ListedIdentity()
+	}
 	if i.keepsGroups() {
 		groups, groupRoles = data.ListedGroup(), data.ListedGroupRole()
 	}
@@ -139,7 +145,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListUsers, users},
 		{identityListRoles, roles},
 		{identityListRolesToGive, data.GivableRole()},
-		{identityListIdentities, data.Identity()},
+		{identityListIdentities, identities},
 		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.MailLink()},
 		{identityListSessions, data.ListedSession()},
