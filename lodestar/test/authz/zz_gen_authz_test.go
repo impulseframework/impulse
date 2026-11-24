@@ -2690,7 +2690,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			name:         "SectorChangeHistory denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/00000000-0000-0000-0000-000000000001/changes",
-			wantStatuses: []int{http.StatusNotFound},
+			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
 			name:         "SectorChangeHistory granted",

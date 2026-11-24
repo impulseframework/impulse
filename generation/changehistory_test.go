@@ -174,6 +174,56 @@ func Test_resourceChangeHistoryRoutes(t *testing.T) {
 	})
 }
 
+// Test_concealDeniedStatuses pins what an application that conceals its tenants expects
+// of a caller with no grant: 404 from a route the tenant guard wraps, 400 from a
+// consolidated operation below a tenant, and the plain refusal (403) from a route the
+// guard does not wrap, the tenant record's history among them, though its path goes on
+// below the tenant's key.
+func Test_concealDeniedStatuses(t *testing.T) {
+	t.Parallel()
+
+	c, structs := acrossFixture(t)
+	shipment := acrossFixtureTablesOf(t, c, structs, "Shipment")[0]
+	r := &resourceGenerator{client: c, genRoutes: true, routePrefix: "api", domainRouteSegment: "tenants", domainRouteParam: "tenantID"}
+	routes, err := r.resourceChangeHistoryRoutes(shipment, "api")
+	if err != nil {
+		t.Fatalf("resourceChangeHistoryRoutes() error = %v", err)
+	}
+	guarded, _, err := queryRouteCase(routes[0], resourcePKTypes(shipment), "")
+	if err != nil {
+		t.Fatalf("queryRouteCase(guarded) error = %v", err)
+	}
+	tenantHistory := &generatedRoute{
+		Method:      "GET",
+		Path:        "/api/tenants/{tenantID}/changes",
+		HandlerFunc: "TenantChangeHistory",
+		HandlerType: changeHistoryHandler,
+		TestParams:  []routeTestParam{{Key: "tenantID"}},
+	}
+	tenant, _, err := queryRouteCase(tenantHistory, []pkParamType{{declared: "ccc.UUID"}}, "")
+	if err != nil {
+		t.Fatalf("queryRouteCase(tenant) error = %v", err)
+	}
+	operation := authzCase{Name: "ShipmentsPatch", Body: `[{"op":"add","path":"/tenants/00000000-0000-0000-0000-000000000001/shipments"}]`}
+
+	cases := []authzCase{guarded, tenant, operation}
+	r.concealDeniedStatuses(cases)
+	got := map[string]string{}
+	for _, c := range cases {
+		got[c.Name] = c.DeniedStatus
+	}
+	if diff := cmp.Diff(map[string]string{
+		"ShipmentChangeHistory": "http.StatusNotFound",
+		"TenantChangeHistory":   "",
+		"ShipmentsPatch":        "http.StatusBadRequest",
+	}, got); diff != "" {
+		t.Errorf("concealDeniedStatuses() denied statuses mismatch (-want +got):\n%s", diff)
+	}
+	if tenant.URL != "/api/tenants/00000000-0000-0000-0000-000000000001/changes" {
+		t.Errorf("the tenant record's history case asks %s: the case proves nothing", tenant.URL)
+	}
+}
+
 // Test_validateChangeHistoryRoutes pins the two refusals of a record's change history:
 // served where another route of the outlet answers, and named as another handler is.
 func Test_validateChangeHistoryRoutes(t *testing.T) {

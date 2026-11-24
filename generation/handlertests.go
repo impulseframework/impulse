@@ -131,26 +131,33 @@ func (r *resourceGenerator) authzMatrixCases() ([]authzCase, error) {
 	cases = append(cases, r.directoryOnlyAuthzCases()...)
 
 	if r.concealedDomains {
-		// Concealed domains answer a caller with no grants as if the domain
-		// did not exist. The URL decides which surface answers — exactly how
-		// the request routes: a route with segments BELOW the domain value is
-		// wrapped by the DomainGuard (404), and a consolidated operation whose
-		// path descends below a domain value meets the dispatcher's descent
-		// check (400). The tenant-record resource's own routes terminate AT
-		// the domain segment's value and are global — unguarded either way.
-		guardedRoute := regexp.MustCompile("/" + regexp.QuoteMeta(r.domainRouteSegment) + "/[^/]+/")
-		guardedOp := regexp.MustCompile(`"path":"/` + regexp.QuoteMeta(r.domainRouteSegment) + `/[^/"]+/`)
-		for i := range cases {
-			switch {
-			case guardedRoute.MatchString(cases[i].URL):
-				cases[i].DeniedStatus = "http.StatusNotFound"
-			case guardedOp.MatchString(cases[i].Body):
-				cases[i].DeniedStatus = "http.StatusBadRequest"
-			}
-		}
+		r.concealDeniedStatuses(cases)
 	}
 
 	return cases, nil
+}
+
+// concealDeniedStatuses sets the denied status of each case as an application that
+// conceals its domains answers a caller with no grants: as if the domain did not exist.
+// The URL decides which surface answers — exactly how the request routes: a route with
+// segments BELOW the domain value is wrapped by the DomainGuard (404), and a consolidated
+// operation whose path descends below a domain value meets the dispatcher's descent
+// check (400). The tenant-record resource's own routes are global — unguarded either way:
+// its read terminates AT the domain segment's value, and its record's history, below the
+// value, is marked OutsideTenantGuard.
+func (r *resourceGenerator) concealDeniedStatuses(cases []authzCase) {
+	guardedRoute := regexp.MustCompile("/" + regexp.QuoteMeta(r.domainRouteSegment) + "/[^/]+/")
+	guardedOp := regexp.MustCompile(`"path":"/` + regexp.QuoteMeta(r.domainRouteSegment) + `/[^/"]+/`)
+	for i := range cases {
+		switch {
+		case cases[i].OutsideTenantGuard:
+			// The plain refusal: no guard wraps the route.
+		case guardedRoute.MatchString(cases[i].URL):
+			cases[i].DeniedStatus = "http.StatusNotFound"
+		case guardedOp.MatchString(cases[i].Body):
+			cases[i].DeniedStatus = "http.StatusBadRequest"
+		}
+	}
 }
 
 // matrixListQuery is the query string the matrix's List request carries so the
@@ -234,11 +241,12 @@ func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery stri
 	}
 
 	return authzCase{
-		Name:          route.HandlerFunc,
-		Method:        httpMethodConst(route.Method),
-		URL:           url,
-		Permission:    permission,
-		AcrossTenants: route.HandlerType == acrossTenantsHandler,
+		Name:               route.HandlerFunc,
+		Method:             httpMethodConst(route.Method),
+		URL:                url,
+		Permission:         permission,
+		AcrossTenants:      route.HandlerType == acrossTenantsHandler,
+		OutsideTenantGuard: !route.DomainScoped,
 	}, true, nil
 }
 
@@ -286,39 +294,39 @@ func (r *resourceGenerator) resourceAuthzCases() (cases []authzCase, err error) 
 					cases = append(cases, c)
 				}
 			}
-			files, err := r.resourceFileRoutes(res, outlet.prefix)
+			more, err := r.resourceRouteCases(res, outlet, pkTypes)
 			if err != nil {
 				return nil, err
 			}
-			for _, route := range files {
-				c, _, err := queryRouteCase(route, pkTypes, "")
-				if err != nil {
-					return nil, err
-				}
-				c.Name = authzCaseName(c.Name, outlet)
-				cases = append(cases, c)
-			}
-			for _, route := range r.resourceAcrossTenantsRoutes(res, outlet.prefix) {
-				c, _, err := queryRouteCase(route, pkTypes, resourceMatrixListQuery(res))
-				if err != nil {
-					return nil, err
-				}
-				c.Name = authzCaseName(c.Name, outlet)
-				cases = append(cases, c)
-			}
-			histories, err := r.resourceChangeHistoryRoutes(res, outlet.prefix)
-			if err != nil {
-				return nil, err
-			}
-			for _, route := range histories {
-				c, _, err := queryRouteCase(route, pkTypes, "")
-				if err != nil {
-					return nil, err
-				}
-				c.Name = authzCaseName(c.Name, outlet)
-				cases = append(cases, c)
-			}
+			cases = append(cases, more...)
 		}
+	}
+
+	return cases, nil
+}
+
+// resourceRouteCases builds the denied/granted pair of each route a resource has on one
+// outlet beside its endpoints: its stored files, its list across tenants and its
+// record's change history, in that order. The list across tenants carries the list's
+// query; the others are reads and carry none.
+func (r *resourceGenerator) resourceRouteCases(res *resourceInfo, outlet *routerOutlet, pkTypes []pkParamType) ([]authzCase, error) {
+	files, err := r.resourceFileRoutes(res, outlet.prefix)
+	if err != nil {
+		return nil, err
+	}
+	histories, err := r.resourceChangeHistoryRoutes(res, outlet.prefix)
+	if err != nil {
+		return nil, err
+	}
+	routes := slices.Concat(files, r.resourceAcrossTenantsRoutes(res, outlet.prefix), histories)
+	cases := make([]authzCase, 0, len(routes))
+	for _, route := range routes {
+		c, _, err := queryRouteCase(route, pkTypes, resourceMatrixListQuery(res))
+		if err != nil {
+			return nil, err
+		}
+		c.Name = authzCaseName(c.Name, outlet)
+		cases = append(cases, c)
 	}
 
 	return cases, nil

@@ -861,7 +861,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			name:         "TenantChangeHistory denied",
 			method:       http.MethodGet,
 			target:       "/api/tenants/00000000-0000-0000-0000-000000000001/changes",
-			wantStatuses: []int{http.StatusNotFound},
+			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
 			name:         "TenantChangeHistory granted",
